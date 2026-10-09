@@ -267,7 +267,7 @@ describe('resolveDisk (R1-R2)', () => {
         last_synced_disk_hash: 'sha256:initial',
         pending_resolution: { disk_hash_at_conflict: 'sha256:abc', surfaced_at: '2026-05-01T01:00:00Z' },
       });
-      const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
+      const filePath = path.join(project.root, '.aoforge', '.gh-sync-state.json');
       const beforeContent = fs.readFileSync(filePath, 'utf-8');
 
       const r = conflict.resolveDisk({
@@ -347,11 +347,11 @@ describe('resolveGh (R3-R4)', () => {
         pending_resolution: { disk_hash_at_conflict: 'sha256:abc', surfaced_at: '2026-05-01T01:00:00Z' },
       });
       ss.recordSync(project.root, '21-test', before);
-      const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
+      const filePath = path.join(project.root, '.aoforge', '.gh-sync-state.json');
       const beforeContent = fs.readFileSync(filePath, 'utf-8');
 
       // Delete the OBJECTIVE.md so applyDrift fails
-      fs.unlinkSync(path.join(project.root, '.planning', 'objectives', '21-test', 'OBJECTIVE.md'));
+      fs.unlinkSync(path.join(project.root, '.aoforge', 'objectives', '21-test', 'OBJECTIVE.md'));
 
       const cassette = ghPullFx.loadCassette('objective-closed-on-gh');
       const ghIssue = JSON.parse(cassette.response.stdout);
@@ -582,7 +582,7 @@ describe('cmdGhPull conflict integration (W1-W5)', () => {
       assert.match(r.stdout, /Applied GitHub state/);
       // OBJECTIVE.md status updated to 'done' (CLOSED on GH)
       const objContent = fs.readFileSync(
-        path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'),
+        path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'),
         'utf-8',
       );
       assert.match(objContent, /status: done/);
@@ -619,7 +619,7 @@ describe('cmdGhPull conflict integration (W1-W5)', () => {
       captureRun(() => ghPull.cmdGhPull(project.root, ['21-bidirectional-gh-sync'], false));
 
       // User edits OBJECTIVE.md (different status)
-      const objPath = path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md');
+      const objPath = path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md');
       const before = fs.readFileSync(objPath, 'utf-8');
       const after = before.replace(/status: in_progress/, 'status: done');
       fs.writeFileSync(objPath, after, 'utf-8');
@@ -668,7 +668,7 @@ describe('cmdGhPull conflict integration (W1-W5)', () => {
 // ─── TRD 46-06: resolvers take the objective DIR; sync-state keys are objective ids ─────────────────
 
 describe('resolvers on dir paths + id-keyed sync-state (46-06, test 13)', () => {
-  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning', '.gh-sync-state.json'), 'utf-8'));
+  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.aoforge', '.gh-sync-state.json'), 'utf-8'));
   const pendingRecord = () => ssFx.buildSyncStateRecord({
     issue_ref: 'o/r#11',
     gh_updated_at: '2026-05-01T00:00:00Z',
@@ -697,7 +697,7 @@ describe('resolvers on dir paths + id-keyed sync-state (46-06, test 13)', () => 
 
       assert.strictEqual(r.ok, true, r.error);
       assert.match(
-        fs.readFileSync(path.join(project.root, '.planning', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8'),
+        fs.readFileSync(path.join(project.root, '.aoforge', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8'),
         /^status: done$/m,
       );
       const raw = readRaw(project.root);

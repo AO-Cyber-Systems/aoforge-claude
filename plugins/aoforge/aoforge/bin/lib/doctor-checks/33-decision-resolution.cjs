@@ -5,7 +5,7 @@
 // Before objective 52 the frontmatter writer flattened a multi-line decision answer: it wrote the lines raw, so the
 // parse lost everything after the first line (and, past an inner `---`, `resolved_at` too). The answer is still on
 // disk, so `decision-repair` recovers it from the text between the `resolution:` and `resolved_at:` lines. This
-// check scans `.planning/decisions/resolved/DECISION-NNN.md`, classifies each file with decision-repair, and:
+// check scans `.aoforge/decisions/resolved/DECISION-NNN.md`, classifies each file with decision-repair, and:
 //
 //   repairable     → warn; `doctor --fix` rewrites `resolution` as a `|-` block scalar holding the full answer
 //   unrecoverable  → warn; report-only, with the hand-fix instruction (nothing in the file bounds the answer)
@@ -15,17 +15,19 @@
 // cache would be overwritten by the next `gh pull --all`, and the source of truth is the GitHub copy.
 //
 // The fix is a working-tree edit, not an index change: no staged-changes guard is needed, and the doctor never
-// commits. It re-scans (the files may have moved since run()), takes `upgrade.backup` of the project's `.planning/`
+// commits. It re-scans (the files may have moved since run()), takes `upgrade.backup` of the project's `.aoforge/`
 // first, then writes each file atomically, and only when its bytes still match what was classified.
 
 const fs = require('fs');
 const path = require('path');
+const { planningRel } = require('../compat.cjs');
 
 const upgrade = require('../upgrade.cjs');
 const planningMode = require('../planning-mode.cjs');
 const { classifyDecision, repairDecision } = require('../decision-repair.cjs');
 
-const RESOLVED_REL = '.planning/decisions/resolved';
+// inside the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const RESOLVED_IN_PLANNING = 'decisions/resolved';
 const DECISION_FILE_RE = /^DECISION-\d+\.md$/;
 const HAND_FIX = 'write `resolution: |-` followed by the answer lines, each indented two spaces';
 const COMMIT_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs commit "fix: repair flattened decision resolution" --files';
@@ -33,7 +35,8 @@ const GH_PULL_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs gh pull --all'
 
 /** Every `DECISION-NNN.md` in resolved/, classified. Sorted by file name; a missing directory is no decisions. */
 function scan(root) {
-  const dir = path.join(root, ...RESOLVED_REL.split('/'));
+  const resolvedRel = planningRel(root, RESOLVED_IN_PLANNING);
+  const dir = path.join(root, ...resolvedRel.split('/'));
   let names;
   try {
     names = fs.readdirSync(dir);
@@ -46,7 +49,7 @@ function scan(root) {
     .sort()
     .map((name) => {
       const abs = path.join(dir, name);
-      const base = { id: name.slice(0, -'.md'.length), rel: `${RESOLVED_REL}/${name}`, abs };
+      const base = { id: name.slice(0, -'.md'.length), rel: `${resolvedRel}/${name}`, abs };
       let text;
       try {
         text = fs.readFileSync(abs, 'utf-8');
@@ -89,7 +92,7 @@ function run(ctx) {
   }
   if (store) {
     parts.push(
-      'store mode is on, so the repair is a hand fix: .planning/ is a cache of GitHub and the next `gh pull --all` would overwrite an edit made only here. Correct the answer in the decision\'s GitHub copy, then refresh the cache'
+      'store mode is on, so the repair is a hand fix: .aoforge/ is a cache of GitHub and the next `gh pull --all` would overwrite an edit made only here. Correct the answer in the decision\'s GitHub copy, then refresh the cache'
     );
   }
 
@@ -131,7 +134,7 @@ function fix(ctx) {
   if (planningMode.isStoreMode(root)) {
     return {
       applied: false,
-      refused: 'store mode: .planning/ is a cache of GitHub, so a decision repair is a hand fix on the GitHub copy',
+      refused: 'store mode: .aoforge/ is a cache of GitHub, so a decision repair is a hand fix on the GitHub copy',
     };
   }
 
@@ -139,7 +142,7 @@ function fix(ctx) {
   const todo = scan(root).filter((f) => f.state === 'repairable');
   if (todo.length === 0) return { applied: false, notes: 'nothing to fix: no repairable decision found' };
 
-  // 1. Back up first (the project's .planning/ and CLAUDE.md, outside the repo).
+  // 1. Back up first (the project's .aoforge/ and CLAUDE.md, outside the repo).
   const backup = upgrade.backup({ projectRoot: root, userHome: ctx.userHome, now: ctx.now });
 
   // 2. Rewrite each file, only when it still holds the bytes that were classified and the rebuild verifies.

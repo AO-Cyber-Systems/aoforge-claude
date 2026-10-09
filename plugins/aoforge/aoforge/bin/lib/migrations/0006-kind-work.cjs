@@ -18,13 +18,14 @@ const path = require('path');
 const migrate = require('../migrate.cjs');
 const { VALID_KINDS } = require('../intent.cjs');
 
-const PROJECT_REL = '.planning/PROJECT.md';
+const { planningRel } = require('../compat.cjs');
 
 function rel(projectRoot, absPath) {
   return path.relative(projectRoot, absPath).split(path.sep).join('/');
 }
 
 function detect(ctx) {
+  const PROJECT_REL = planningRel(ctx.projectRoot, 'PROJECT.md');
   const p = migrate.plan({ projectRoot: ctx.projectRoot });
   if (p.errors.length > 0 || !p.project) {
     return { applies: false, reason: `no ${PROJECT_REL} to set a kind on` };

@@ -22,6 +22,7 @@ const tui = require('./tui.cjs');
 const aw = require('./awareness.cjs');
 const initiatives = require('./initiatives.cjs');
 const fs = require('fs');
+const { planningRoot } = require('./compat.cjs');
 const path = require('path');
 
 // ─── Flag parser (pure, unit-testable) ───────────────────────────────────────
@@ -87,7 +88,7 @@ function _loadData(cwd) {
 
 function _readCurrentRepo(cwd) {
   try {
-    const projectPath = path.join(cwd, '.planning/PROJECT.md');
+    const projectPath = path.join(planningRoot(cwd), 'PROJECT.md');
     const content = fs.readFileSync(projectPath, 'utf8');
     const m = content.match(/^github_repo:\s*([^\s\n]+)/m);
     return m ? m[1] : '';

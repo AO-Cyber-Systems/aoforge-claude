@@ -2,7 +2,7 @@
 
 // Migration 0001 — config-stamp (TRD 36-04a).
 //
-// Guarantees `.planning/config.json` exists and has the nested shape of templates/config.json,
+// Guarantees `.aoforge/config.json` exists and has the nested shape of templates/config.json,
 // without changing a single effective setting: `loadConfig(before)` deep-equals `loadConfig(after)`
 // for every config this migration rewrites. The runner (lib/upgrade.cjs) writes the `aoforge{}`
 // stamp itself; this migration only guarantees the file and its shape.
@@ -12,8 +12,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { planningRoot, planningRel, planningDirLabel } = require('../compat.cjs');
 
-const CONFIG_REL = '.planning/config.json';
+// config.json under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const configRel = (root) => planningRel(root, 'config.json');
 const TEMPLATE_PATH = path.join(__dirname, '..', '..', '..', 'templates', 'config.json');
 
 // Mirrors lib/config.cjs loadConfig's `get(flatKey, { section, field })` pairs exactly. loadConfig
@@ -121,25 +123,26 @@ function buildConfig(existing) {
 
 // -> { absent: true } | { error } | { config }
 function readExisting(projectRoot) {
-  const p = path.join(projectRoot, CONFIG_REL);
+  const rel = configRel(projectRoot);
+  const p = path.join(projectRoot, rel);
   if (!fs.existsSync(p)) return { absent: true };
   let parsed;
   try {
     parsed = JSON.parse(fs.readFileSync(p, 'utf-8'));
   } catch (e) {
-    return { error: `${CONFIG_REL} is not valid JSON (${e.message.split('\n')[0]}); left untouched` };
+    return { error: `${rel} is not valid JSON (${e.message.split('\n')[0]}); left untouched` };
   }
-  if (!isPlainObject(parsed)) return { error: `${CONFIG_REL} is not a JSON object; left untouched` };
+  if (!isPlainObject(parsed)) return { error: `${rel} is not a JSON object; left untouched` };
   return { config: parsed };
 }
 
 function detect(ctx) {
-  const planningDir = path.join(ctx.projectRoot, '.planning');
+  const planningDir = planningRoot(ctx.projectRoot);
   if (!fs.existsSync(planningDir) || !fs.statSync(planningDir).isDirectory()) {
-    return { applies: false, reason: 'no .planning/ directory (not an AOForge project)' };
+    return { applies: false, reason: `no ${planningDirLabel()} directory (not an AOForge project)` };
   }
   const read = readExisting(ctx.projectRoot);
-  if (read.absent) return { applies: true, reason: `${CONFIG_REL} is absent` };
+  if (read.absent) return { applies: true, reason: `${configRel(ctx.projectRoot)} is absent` };
   if (read.error) return { applies: false, reason: read.error };
 
   const flat = flatKeysIn(read.config);
@@ -148,7 +151,7 @@ function detect(ctx) {
   const missing = missingSections(read.config, readTemplate());
   if (missing.length) return { applies: true, reason: `missing template section(s): ${missing.join(', ')}` };
 
-  return { applies: false, reason: `${CONFIG_REL} already has the nested template shape` };
+  return { applies: false, reason: `${configRel(ctx.projectRoot)} already has the nested template shape` };
 }
 
 function apply(ctx) {
@@ -158,7 +161,7 @@ function apply(ctx) {
   const next = buildConfig(existing);
 
   if (!ctx.dryRun) {
-    const p = path.join(ctx.projectRoot, CONFIG_REL);
+    const p = path.join(ctx.projectRoot, configRel(ctx.projectRoot));
     fs.mkdirSync(path.dirname(p), { recursive: true });
     fs.writeFileSync(p, JSON.stringify(next, null, 2) + '\n', 'utf-8');
   }
@@ -166,12 +169,12 @@ function apply(ctx) {
   const notes = existing === null
     ? { created: true }
     : { nested: flatKeysIn(existing), added_sections: missingSections(existing, readTemplate()) };
-  return { changed: [CONFIG_REL], notes };
+  return { changed: [configRel(ctx.projectRoot)], notes };
 }
 
 module.exports = {
   id: '0001',
-  title: 'Normalise .planning/config.json to the nested template shape',
+  title: 'Normalise .aoforge/config.json to the nested template shape',
   since: '2.11.0',
   safety: 'auto',
   detect,

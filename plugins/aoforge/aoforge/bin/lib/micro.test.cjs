@@ -18,8 +18,8 @@ const {
 
 function mkAmbient() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'micro-'));
-  fs.mkdirSync(path.join(root, '.planning'));
-  return { root, planningDir: path.join(root, '.planning') };
+  fs.mkdirSync(path.join(root, '.aoforge'));
+  return { root, planningDir: path.join(root, '.aoforge') };
 }
 
 function mkGitAmbient() {
@@ -34,7 +34,7 @@ function mkGitAmbient() {
   spawnSync('git', ['commit', '-m', 'chore: initial'], { cwd: env.root, env: { ...process.env, AOFORGE_ALLOW_RAW_COMMIT: '1' } });
   // Write a minimal STATE.md with 5-column Quick Tasks Completed table
   const stateMd5col = `# AOForge State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory |\n|---|---|---|---|---|\n`;
-  fs.writeFileSync(path.join(env.root, '.planning', 'STATE.md'), stateMd5col, 'utf8');
+  fs.writeFileSync(path.join(env.root, '.aoforge', 'STATE.md'), stateMd5col, 'utf8');
   return env;
 }
 
@@ -42,7 +42,7 @@ function mkGitAmbient6col() {
   const env = mkGitAmbient();
   // Overwrite STATE.md with 6-column (Status column present)
   const stateMd6col = `# AOForge State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory | Status |\n|---|---|---|---|---|---|\n`;
-  fs.writeFileSync(path.join(env.root, '.planning', 'STATE.md'), stateMd6col, 'utf8');
+  fs.writeFileSync(path.join(env.root, '.aoforge', 'STATE.md'), stateMd6col, 'utf8');
   return env;
 }
 
@@ -128,8 +128,8 @@ describe('startMicro', () => {
     assert.equal(marker.skill, 'micro');
   });
 
-  // Test 6: edge — existing .planning/quick dirs raise next_num correctly
-  test('edge: existing .planning/quick/0042-foo dir makes next_num === 43', () => {
+  // Test 6: edge — existing .aoforge/quick dirs raise next_num correctly
+  test('edge: existing .aoforge/quick/0042-foo dir makes next_num === 43', () => {
     fs.mkdirSync(path.join(env.planningDir, 'quick', '0042-foo'), { recursive: true });
     const result = startMicro({
       planningDir: env.planningDir,
@@ -166,7 +166,7 @@ describe('startMicro: placeholder dir (F2)', () => {
   });
 
   // Test list F2-1: startMicro creates placeholder dir on disk
-  test('F2-1 happy: startMicro creates .planning/quick/<N>-<slug>/ on disk', () => {
+  test('F2-1 happy: startMicro creates .aoforge/quick/<N>-<slug>/ on disk', () => {
     const result = startMicro({
       planningDir: env.planningDir,
       description: 'fix x',
@@ -241,7 +241,7 @@ describe('commitMicro', () => {
   });
 
   // Test 9: happy with files array — only that subset is staged.
-  // After F1 fix: gitRunner called TWICE — once with files arg, once with .planning/STATE.md.
+  // After F1 fix: gitRunner called TWICE — once with files arg, once with .aoforge/STATE.md.
   test('happy with files: passes files list to gitRunner (called twice — source + STATE.md)', () => {
     startMicro({ planningDir: env.planningDir, description: 'bump dependency version', pid: 1, now: '2026-05-06T00:00:00Z' });
     // Create two files, only stage one
@@ -265,7 +265,7 @@ describe('commitMicro', () => {
     // The gitRunner should have been called twice — first with source files, second with STATE.md
     assert.equal(allCalls.length, 2, `expected 2 gitRunner calls (source + STATE.md), got ${allCalls.length}`);
     assert.deepEqual(allCalls[0].opts.files, ['a.txt'], 'first call should pass source files list');
-    assert.deepEqual(allCalls[1].opts.files, ['.planning/STATE.md'], 'second call should stage .planning/STATE.md');
+    assert.deepEqual(allCalls[1].opts.files, ['.aoforge/STATE.md'], 'second call should stage .aoforge/STATE.md');
   });
 
   // Test 10: edge — no active marker → ok:false, reason:no-active-micro
@@ -381,7 +381,7 @@ describe('commitMicro: atomic STATE.md (F1)', () => {
   });
 
   // Test list F1-6 (THE bug): after commitMicro returns ok, working tree is clean
-  test('F1-6 happy: working tree is clean after commitMicro returns ok (no M .planning/STATE.md)', () => {
+  test('F1-6 happy: working tree is clean after commitMicro returns ok (no M .aoforge/STATE.md)', () => {
     startMicro({ planningDir: env.planningDir, description: 'fix typo in readme', pid: 1, now: '2026-05-06T00:00:00Z' });
     fs.writeFileSync(path.join(env.root, 'fix.txt'), 'fix\n');
     spawnSync('git', ['add', 'fix.txt'], { cwd: env.root, env: { ...process.env, AOFORGE_ALLOW_RAW_COMMIT: '1' } });
@@ -395,7 +395,7 @@ describe('commitMicro: atomic STATE.md (F1)', () => {
     });
     assert.equal(result.ok, true, `expected ok:true, got reason: ${result.reason}`);
 
-    // Working tree should be clean — NO `M .planning/STATE.md`
+    // Working tree should be clean — NO `M .aoforge/STATE.md`
     const statusProc = spawnSync('git', ['status', '--porcelain'], {
       cwd: env.root,
       encoding: 'utf8',
@@ -636,7 +636,7 @@ describe('commitMicro: --files scopes the commit (#120)', () => {
 
     assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD~1').stdout), ['b.md'],
       'the source commit holds exactly the named path');
-    assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD').stdout), ['.planning/STATE.md'],
+    assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD').stdout), ['.aoforge/STATE.md'],
       'the STATE.md follow-up commit holds only STATE.md');
     assert.deepEqual(lines(git(env.root, 'diff', '--cached', '--name-only').stdout), ['a.md'],
       'the unrelated staged file is still staged');
@@ -665,7 +665,7 @@ describe('commitMicro: --files scopes the commit (#120)', () => {
   test('FS-3: a tracked .skill-active deleted by endSkill is recorded in the STATE.md commit, a.md stays staged', () => {
     seed(env);
     startMicro({ planningDir: env.planningDir, description: 'edit b', pid: 1, now: '2026-05-06T00:00:00Z' });
-    git(env.root, 'add', '.planning/.skill-active');
+    git(env.root, 'add', '.aoforge/.skill-active');
     git(env.root, 'commit', '-m', 'chore: track marker');
     fs.writeFileSync(path.join(env.root, 'a.md'), 'a staged\n');
     git(env.root, 'add', 'a.md');
@@ -679,9 +679,9 @@ describe('commitMicro: --files scopes the commit (#120)', () => {
 
     assert.deepEqual(lines(git(env.root, 'show', '--name-only', '--format=', 'HEAD~1').stdout), ['b.md']);
     const stateCommit = lines(git(env.root, 'show', '--name-status', '--format=', 'HEAD').stdout);
-    assert.ok(stateCommit.includes('D\t.planning/.skill-active'),
+    assert.ok(stateCommit.includes('D\t.aoforge/.skill-active'),
       `the marker deletion must be in the STATE.md commit; got: ${JSON.stringify(stateCommit)}`);
-    assert.ok(stateCommit.some((l) => l.endsWith('\t.planning/STATE.md')),
+    assert.ok(stateCommit.some((l) => l.endsWith('\t.aoforge/STATE.md')),
       `STATE.md must be in the STATE.md commit; got: ${JSON.stringify(stateCommit)}`);
     assert.ok(!stateCommit.some((l) => l.endsWith('\ta.md')),
       `a.md must not be in the STATE.md commit; got: ${JSON.stringify(stateCommit)}`);
@@ -857,14 +857,14 @@ describe('cmdMicro (CLI dispatch via spawnSync e2e)', () => {
     assert.ok(stateMd.includes('fix typo in readme'), 'STATE.md should contain committed task description');
   });
 
-  // e2e-2: outside any .planning/ tree → start exits non-zero with planning dir error in stderr
-  test('e2e-2: outside .planning/ tree, start exits non-zero with no-planning-dir in stderr', () => {
+  // e2e-2: outside any .aoforge/ tree → start exits non-zero with planning dir error in stderr
+  test('e2e-2: outside .aoforge/ tree, start exits non-zero with no-planning-dir in stderr', () => {
     const proc = spawnMicro(os.tmpdir(), ['start', 'x', '--raw'], {});
-    assert.notEqual(proc.status, 0, 'expected non-zero exit outside .planning tree');
+    assert.notEqual(proc.status, 0, 'expected non-zero exit outside .aoforge tree');
     // error() writes "Error: <message>" — check for the planning dir error text
     const stderrLower = proc.stderr.toLowerCase();
     assert.ok(
-      stderrLower.includes('no-planning-dir') || stderrLower.includes('.planning') || stderrLower.includes('planning'),
+      stderrLower.includes('no-planning-dir') || stderrLower.includes('.aoforge') || stderrLower.includes('planning'),
       `expected planning-dir error in stderr, got: ${proc.stderr}`
     );
   });
@@ -888,7 +888,7 @@ const { contentHash } = require('./gh-trd.cjs');
 /** STATE.md as the store writes it. A generated view must start with GENERATED_HEADER or drift calls it hand-edited. */
 const STORE_STATE_MD = `${planningDrift.GENERATED_HEADER}\n# AOForge State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory |\n|---|---|---|---|---|\n`;
 
-/** mkGitAmbient plus a store-mode `.planning/config.json` and a generated-view STATE.md. */
+/** mkGitAmbient plus a store-mode `.aoforge/config.json` and a generated-view STATE.md. */
 function mkGitAmbientStore() {
   const env = mkGitAmbient();
   fs.writeFileSync(
@@ -1095,7 +1095,7 @@ describe('commitMicro: local mode with a github block but store off (52-03)', ()
     });
     assert.equal(result.ok, true);
     assert.equal(calls.length, 2, `expected 2 runner calls (source + STATE.md), got ${calls.length}`);
-    assert.deepEqual(calls[1].opts.files, ['.planning/STATE.md']);
+    assert.deepEqual(calls[1].opts.files, ['.aoforge/STATE.md']);
     assert.equal(Object.hasOwn(result, 'state_row'), false, 'local result shape is unchanged');
     assert.ok(fs.readFileSync(path.join(env.planningDir, 'STATE.md'), 'utf8').includes('bump dependency version'));
   });
@@ -1124,9 +1124,9 @@ describe('commitMicro: local mode with a github block but store off (52-03)', ()
 
 const U1_STORE_IGNORE = [
   '# >>> aoforge store (0010) >>>',
-  '.planning/*',
-  '!.planning/config.json',
-  '!.planning/STACK.md',
+  '.aoforge/*',
+  '!.aoforge/config.json',
+  '!.aoforge/STACK.md',
   '# <<< aoforge store (0010) <<<',
   '',
 ].join('\n');
@@ -1135,7 +1135,7 @@ const gateCleanup = [];
 
 /**
  * A store-mode repo on `branch`, shaped like misc-commit-gate.test.cjs `storeRepo()`: config.json turns on github.store,
- * `.gitignore` carries the store block (so `.planning/` is a cache, STATE.md included), the v3 mapping is written AFTER the
+ * `.gitignore` carries the store block (so `.aoforge/` is a cache, STATE.md included), the v3 mapping is written AFTER the
  * init commit and links GATE_LINKED_BRANCH to objective 53, and a `gh` shim first on PATH records its calls and fails.
  */
 function mkStoreGateRepo({ branch = 'main' } = {}) {
@@ -1146,15 +1146,15 @@ function mkStoreGateRepo({ branch = 'main' } = {}) {
   const ghLog = path.join(shim, 'gh-calls.log');
   fs.writeFileSync(path.join(shim, 'gh'), `#!/bin/sh\necho "$@" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
 
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   fs.writeFileSync(path.join(root, 'README.md'), '# test\n');
   fs.writeFileSync(path.join(root, '.gitignore'), U1_STORE_IGNORE);
   fs.writeFileSync(
-    path.join(root, '.planning', 'config.json'),
+    path.join(root, '.aoforge', 'config.json'),
     `${JSON.stringify({ commit_docs: true, github: { enabled: true, store: true } })}\n`,
     'utf8'
   );
-  fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), STORE_STATE_MD, 'utf8');
+  fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), STORE_STATE_MD, 'utf8');
   fx.initGitFixture(root, home);
 
   const m = gm.emptyMapping();
@@ -1163,7 +1163,7 @@ function mkStoreGateRepo({ branch = 'main' } = {}) {
   const w = gm.writeMappingV3(root, m);
   assert.equal(w.ok, true, w.error);
 
-  const p = { root, home, shim, ghLog, planningDir: path.join(root, '.planning') };
+  const p = { root, home, shim, ghLog, planningDir: path.join(root, '.aoforge') };
   if (branch !== 'main') gitIn(p, ['checkout', '-q', '-b', branch]);
   return p;
 }
@@ -1187,7 +1187,7 @@ function gateMicro(p, args, extraEnv = {}) {
 }
 
 function overrideEntries(p) {
-  const file = path.join(p.root, '.planning', '.override-log.jsonl');
+  const file = path.join(p.root, '.aoforge', '.override-log.jsonl');
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
@@ -1358,15 +1358,15 @@ describe('micro commit through aof-tools commit: local-mode file resolution (53-
   });
 
   test('R-5: a project in a subdirectory of its repo resolves the implicit list relative to the project', () => {
-    // .planning/ lives in <repo>/proj, so `git diff --name-only` would print `proj/x.txt`, which aof-tools commit (run from
+    // .aoforge/ lives in <repo>/proj, so `git diff --name-only` would print `proj/x.txt`, which aof-tools commit (run from
     // proj/) cannot resolve. The runner asks for paths relative to the project root.
     const proj = path.join(env.root, 'proj');
-    fs.mkdirSync(path.join(proj, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(proj, '.aoforge'), { recursive: true });
     fs.writeFileSync(path.join(proj, 'x.txt'), 'x\n');
-    fs.writeFileSync(path.join(proj, '.planning', 'STATE.md'), '# AOForge State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory |\n|---|---|---|---|---|\n');
+    fs.writeFileSync(path.join(proj, '.aoforge', 'STATE.md'), '# AOForge State\n\n## Quick Tasks Completed\n\n| # | Description | Date | Commit | Directory |\n|---|---|---|---|---|\n');
     git(env.root, 'add', 'proj/x.txt');
     git(env.root, 'commit', '-m', 'chore: seed proj');
-    const planningDir = path.join(proj, '.planning');
+    const planningDir = path.join(proj, '.aoforge');
     startMicro({ planningDir, description: 'edit x', pid: 1, now: '2026-05-06T00:00:00Z' });
     fs.writeFileSync(path.join(proj, 'x.txt'), 'x changed\n');
 

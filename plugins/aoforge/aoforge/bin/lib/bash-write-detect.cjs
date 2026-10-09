@@ -18,7 +18,7 @@
  *   into     cp and mv only: true when `path` is a directory the sources land in
  *
  * It decides nothing about policy. Whether a write is gated (tracked, inside
- * the project, not markdown, not .planning/) belongs to the edit gate.
+ * the project, not markdown, not .aoforge/) belongs to the edit gate.
  *
  * Contract:
  *   - Mentions are data. Heredoc bodies, quoted arguments, comments, `>` inside

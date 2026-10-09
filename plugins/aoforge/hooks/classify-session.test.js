@@ -34,6 +34,10 @@ const {
   mkBrownfieldSubstantive,
   mkAmbientProject,
 } = require('../aoforge/bin/lib/__fixtures__/project-state-fixtures.cjs');
+// This hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
+for (const fx of ['classifier-fixtures.cjs', 'project-state-fixtures.cjs']) {
+  require(`../aoforge/bin/lib/__fixtures__/${fx}`).setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
+}
 
 // ─── Helper: run hook as subprocess ──────────────────────────────────────────
 

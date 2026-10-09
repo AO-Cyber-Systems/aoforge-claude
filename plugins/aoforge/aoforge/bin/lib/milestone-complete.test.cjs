@@ -5,7 +5,7 @@
 //   Scope fallbacks (milestone-scope.cjs)
 //     S1  sectionObjectives(cwd): every `### Objective N:` section that has a directory, cancelled ones flagged
 //     S2  sectionObjectives(cwd): a section with no directory is left out; no ROADMAP.md is no sections
-//     S3  currentDirObjectives(cwd): every directory under .planning/objectives, in number order, cancelled ones flagged
+//     S3  currentDirObjectives(cwd): every directory under .aoforge/objectives, in number order, cancelled ones flagged
 //     S4  currentDirObjectives(cwd): names come from ROADMAP sections, else from the directory slug
 //
 //   `milestone complete` (spawns the real binary, fake HOME)
@@ -37,7 +37,7 @@
 //     R12 --archive-objectives twice moves nothing; an occupied destination is kept, not a crash
 //     R13 an audit file with an occupied destination stays where it is
 //
-// Nothing here touches the repository's own .planning/: every project is a temp dir from the fixture builder.
+// Nothing here touches the repository's own .aoforge/: every project is a temp dir from the fixture builder.
 
 const { test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -105,10 +105,10 @@ test('S1. sectionObjectives: every ### Objective section that has a directory, i
   assert.deepEqual(numbers(got), ['4', '5', '6', '7']);
   assert.deepEqual(got.map((e) => e.name), ['D', 'E', 'F', 'G']);
   assert.deepEqual(got.map((e) => e.dir), [
-    '.planning/objectives/04-d',
-    '.planning/objectives/05-e',
-    '.planning/objectives/06-f',
-    '.planning/objectives/07-g',
+    '.aoforge/objectives/04-d',
+    '.aoforge/objectives/05-e',
+    '.aoforge/objectives/06-f',
+    '.aoforge/objectives/07-g',
   ]);
   assert.deepEqual(got.map((e) => e.status_hint), ['dir', 'dir', 'cancelled', 'dir']);
 });
@@ -121,12 +121,12 @@ test('S2. sectionObjectives: a section without a directory is left out, and no R
   assert.deepEqual(scope.sectionObjectives(bare.root), []);
 });
 
-test('S3. currentDirObjectives: every directory under .planning/objectives in number order, cancelled ones flagged', () => {
+test('S3. currentDirObjectives: every directory under .aoforge/objectives in number order, cancelled ones flagged', () => {
   const p = project();
   const got = scope.currentDirObjectives(p.root);
   assert.deepEqual(numbers(got), ['1', '2', '3', '4', '5', '6', '7', '40']);
   assert.deepEqual(got.map((e) => e.status_hint), ['dir', 'dir', 'dir', 'dir', 'dir', 'cancelled', 'dir', 'dir']);
-  assert.equal(got[7].dir, '.planning/objectives/40-decoy');
+  assert.equal(got[7].dir, '.aoforge/objectives/40-decoy');
 });
 
 test('S4. currentDirObjectives: names come from ROADMAP sections, else from the directory slug', () => {
@@ -142,7 +142,7 @@ test('S4. currentDirObjectives: names come from ROADMAP sections, else from the 
 
 // ─── milestone complete ───────────────────────────────────────────────────────
 
-const MILESTONES = '.planning/MILESTONES.md';
+const MILESTONES = '.aoforge/MILESTONES.md';
 
 test('1. milestone complete v1.0 counts only the objectives its ROADMAP bullet names', () => {
   const p = project();
@@ -171,7 +171,7 @@ test('2. the base MILESTONES.md entry counts the milestone and lists exactly its
 
 test('3. a TRD with the <tasks> wrapper and three task elements counts 3 tasks', () => {
   const p = project(withObjective('04-d', { trds: [{ nn: '01', tasks: 3, summary: { oneLiner: 'Alpha shipped' } }] }));
-  assert.ok(p.read('.planning/objectives/04-d/04-01-TRD.md').includes('<tasks>'), 'fixture lost its wrapper');
+  assert.ok(p.read('.aoforge/objectives/04-d/04-01-TRD.md').includes('<tasks>'), 'fixture lost its wrapper');
   const { json } = complete(p, ['v1.0']);
   assert.equal(json.jobs, 1);
   assert.equal(json.tasks, 3);
@@ -201,17 +201,17 @@ test('6. --archive-objectives moves only the milestone\'s directories', () => {
   const { json } = complete(p, ['v1.0', '--archive-objectives']);
   assert.equal(json.archived.objectives, true);
   for (const dir of ['04-d', '05-e', '06-f']) {
-    assert.ok(p.exists(`.planning/milestones/v1.0-objectives/${dir}`), `${dir} should be archived`);
-    assert.ok(!p.exists(`.planning/objectives/${dir}`), `${dir} should have left objectives/`);
+    assert.ok(p.exists(`.aoforge/milestones/v1.0-objectives/${dir}`), `${dir} should be archived`);
+    assert.ok(!p.exists(`.aoforge/objectives/${dir}`), `${dir} should have left objectives/`);
   }
   for (const dir of ['01-a', '02-b', '03-c', '07-g', '40-decoy']) {
-    assert.ok(p.exists(`.planning/objectives/${dir}`), `${dir} must stay`);
-    assert.ok(!p.exists(`.planning/milestones/v1.0-objectives/${dir}`), `${dir} must not be archived`);
+    assert.ok(p.exists(`.aoforge/objectives/${dir}`), `${dir} must stay`);
+    assert.ok(!p.exists(`.aoforge/milestones/v1.0-objectives/${dir}`), `${dir} must not be archived`);
   }
 });
 
 test('7. state_updated is true only when STATE.md\'s bytes changed', () => {
-  const stateRel = '.planning/STATE.md';
+  const stateRel = '.aoforge/STATE.md';
 
   // No Status / Last Activity fields: nothing to replace, so nothing is written and nothing is claimed.
   const bare = project(TWO_MILESTONE_SPEC, { state: '# State\n\nNo tracked fields here.\n' });
@@ -244,7 +244,7 @@ test('8. a one-liner that is still the template placeholder contributes nothing'
     { nn: '01', tasks: 1, summary: { oneLiner: placeholder } },
     { nn: '02', tasks: 1, summary: { oneLiner: 'Beta shipped' } },
   ] }));
-  assert.ok(mixed.read('.planning/objectives/04-d/04-01-SUMMARY.md').includes(`**${placeholder}**`), 'fixture lost its placeholder');
+  assert.ok(mixed.read('.aoforge/objectives/04-d/04-01-SUMMARY.md').includes(`**${placeholder}**`), 'fixture lost its placeholder');
   assert.deepEqual(complete(mixed, ['v1.0']).json.accomplishments, ['Beta shipped']);
 
   // A placeholder alone: nothing recorded.
@@ -263,9 +263,9 @@ test('9. the scope is exact: 40-decoy shares a leading digit with 4 but is objec
   assert.equal(json.jobs, 2);
   assert.equal(json.tasks, 5);
   assert.deepEqual(json.accomplishments, ['Alpha shipped', 'Beta shipped']);
-  assert.ok(p.exists('.planning/objectives/40-decoy'), '40-decoy must not be archived');
-  assert.ok(!p.exists('.planning/milestones/v1.0-objectives/40-decoy'));
-  assert.ok(p.exists('.planning/objectives/05-e'), '05-e is outside this bullet and must stay');
+  assert.ok(p.exists('.aoforge/objectives/40-decoy'), '40-decoy must not be archived');
+  assert.ok(!p.exists('.aoforge/milestones/v1.0-objectives/40-decoy'));
+  assert.ok(p.exists('.aoforge/objectives/05-e'), '05-e is outside this bullet and must stay');
 });
 
 test('10. a milestone whose objectives have no directory is a truthful zero', () => {
@@ -280,14 +280,14 @@ test('10. a milestone whose objectives have no directory is a truthful zero', ()
 
 // ─── milestone complete --dry-run (TRD 68-01) ─────────────────────────────────
 
-const AUDIT = '.planning/v1.0-MILESTONE-AUDIT.md';
+const AUDIT = '.aoforge/v1.0-MILESTONE-AUDIT.md';
 const DRY_RUN_FIRST_LINE = 'DRY RUN — nothing has been modified.';
 const today = () => new Date().toISOString().split('T')[0];
 const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 const sortedPaths = (list) => list.map((e) => (typeof e === 'string' ? e : e.path)).sort();
 const sortedMoves = (list) => list.map((m) => `${m.from} -> ${m.to}`).sort();
 
-test('D1. --dry-run prints the plan and leaves .planning/ byte-identical, with no new directory', () => {
+test('D1. --dry-run prints the plan and leaves .aoforge/ byte-identical, with no new directory', () => {
   const p = project();
   const before = planningTree(p.root);
   const r = completeRaw(p, ['v1.0', '--name', 'Now', '--dry-run']);
@@ -295,7 +295,7 @@ test('D1. --dry-run prints the plan and leaves .planning/ byte-identical, with n
   assert.ok(r.stderr.startsWith(DRY_RUN_FIRST_LINE), `stderr should open with the dry-run banner:\n${r.stderr}`);
   assert.equal(JSON.parse(r.stdout).dry_run, true);
   assert.deepEqual(planningTree(p.root), before);
-  assert.ok(!p.exists('.planning/milestones'), 'a dry run must not create .planning/milestones/');
+  assert.ok(!p.exists('.aoforge/milestones'), 'a dry run must not create .aoforge/milestones/');
 });
 
 test('D2. the dry-run JSON carries the real run\'s counts and the writes it would make', () => {
@@ -311,10 +311,10 @@ test('D2. the dry-run JSON carries the real run\'s counts and the writes it woul
   assert.equal(json.milestones_updated, false);
   assert.equal(json.state_updated, false);
   assert.deepEqual([...json.would_write].sort(byPath), [
-    { path: '.planning/MILESTONES.md', action: 'create' },
-    { path: '.planning/STATE.md', action: 'update' },
-    { path: '.planning/milestones/v1.0-REQUIREMENTS.md', action: 'create' },
-    { path: '.planning/milestones/v1.0-ROADMAP.md', action: 'create' },
+    { path: '.aoforge/MILESTONES.md', action: 'create' },
+    { path: '.aoforge/STATE.md', action: 'update' },
+    { path: '.aoforge/milestones/v1.0-REQUIREMENTS.md', action: 'create' },
+    { path: '.aoforge/milestones/v1.0-ROADMAP.md', action: 'create' },
   ]);
   assert.deepEqual(json.would_move, []);
   assert.deepEqual(json.would_keep, []);
@@ -341,14 +341,14 @@ test('D4. with an audit file and --archive-objectives the dry run lists every mo
   const before = planningTree(p.root);
   const { json } = complete(p, ['v1.0', '--archive-objectives', '--dry-run']);
   assert.deepEqual(sortedMoves(json.would_move), sortedMoves([
-    { from: AUDIT, to: '.planning/milestones/v1.0-MILESTONE-AUDIT.md' },
-    { from: '.planning/objectives/04-d', to: '.planning/milestones/v1.0-objectives/04-d' },
-    { from: '.planning/objectives/05-e', to: '.planning/milestones/v1.0-objectives/05-e' },
-    { from: '.planning/objectives/06-f', to: '.planning/milestones/v1.0-objectives/06-f' },
+    { from: AUDIT, to: '.aoforge/milestones/v1.0-MILESTONE-AUDIT.md' },
+    { from: '.aoforge/objectives/04-d', to: '.aoforge/milestones/v1.0-objectives/04-d' },
+    { from: '.aoforge/objectives/05-e', to: '.aoforge/milestones/v1.0-objectives/05-e' },
+    { from: '.aoforge/objectives/06-f', to: '.aoforge/milestones/v1.0-objectives/06-f' },
   ]));
   assert.deepEqual(planningTree(p.root), before);
-  assert.ok(!p.exists('.planning/milestones'), 'a dry run must not create .planning/milestones/');
-  assert.ok(p.exists(AUDIT) && p.exists('.planning/objectives/04-d'), 'nothing may have moved');
+  assert.ok(!p.exists('.aoforge/milestones'), 'a dry run must not create .aoforge/milestones/');
+  assert.ok(p.exists(AUDIT) && p.exists('.aoforge/objectives/04-d'), 'nothing may have moved');
 });
 
 test('D5. parity: a real run executes the plan the dry run printed', () => {
@@ -371,21 +371,21 @@ test('D6. a STATE.md the replacement would leave unchanged is not in would_write
     '**Last Activity Description:** v1.0 milestone completed and archived', ''].join('\n');
   const p = project(TWO_MILESTONE_SPEC, { state: current });
   const { json } = complete(p, ['v1.0', '--dry-run']);
-  assert.ok(!json.would_write.some((w) => w.path === '.planning/STATE.md'), JSON.stringify(json.would_write));
+  assert.ok(!json.would_write.some((w) => w.path === '.aoforge/STATE.md'), JSON.stringify(json.would_write));
   assert.ok(json.would_write.some((w) => w.path === MILESTONES), 'the other writes are still planned');
 });
 
 // ─── milestone complete, run again (TRD 68-01) ────────────────────────────────
 
-const ARCHIVE = '.planning/milestones';
+const ARCHIVE = '.aoforge/milestones';
 const entryLines = (text, version) => {
   const digits = version.replace(/^v/, '').replace(/\./g, '\\.');
   return text.split('\n').filter((l) => new RegExp(`^## v?${digits}(?:\\s|$)`).test(l));
 };
-/** The bytes of every file under .planning/milestones/, keyed by project-relative path. */
+/** The bytes of every file under .aoforge/milestones/, keyed by project-relative path. */
 const archiveBytes = (p) => {
   const tree = planningTree(p.root);
-  return Object.fromEntries(Object.keys(tree.files).filter((f) => f.startsWith('milestones/')).sort().map((f) => [f, p.read(`.planning/${f}`)]));
+  return Object.fromEntries(Object.keys(tree.files).filter((f) => f.startsWith('milestones/')).sort().map((f) => [f, p.read(`.aoforge/${f}`)]));
 };
 
 test('R7. a second run leaves one MILESTONES.md entry and the first run\'s archive files untouched', () => {
@@ -410,7 +410,7 @@ test('R8. an existing archive is kept even when ROADMAP.md changed after the fir
   const p = project();
   complete(p, ['v1.0', '--name', 'Now']);
   const archived = p.read(`${ARCHIVE}/v1.0-ROADMAP.md`);
-  p.write('.planning/ROADMAP.md', `${ROADMAP_TWO_MILESTONES}\n## Reorganised for the next milestone\n`);
+  p.write('.aoforge/ROADMAP.md', `${ROADMAP_TWO_MILESTONES}\n## Reorganised for the next milestone\n`);
 
   const second = complete(p, ['v1.0', '--name', 'Now']).json;
   assert.equal(p.read(`${ARCHIVE}/v1.0-ROADMAP.md`), archived);
@@ -468,14 +468,14 @@ test('R12. --archive-objectives twice moves nothing the second time; an occupied
   const r = completeRaw(clash, ['v1.0', '--archive-objectives']);
   assert.equal(r.status, 0, r.stderr);
   const json = JSON.parse(r.stdout);
-  assert.ok(clash.exists('.planning/objectives/04-d'), '04-d stays current');
+  assert.ok(clash.exists('.aoforge/objectives/04-d'), '04-d stays current');
   assert.equal(clash.read(`${ARCHIVE}/v1.0-objectives/04-d/OBJECTIVE.md`), '# Already archived\n');
-  assert.ok(json.kept.some((k) => k.path === '.planning/objectives/04-d' && k.reason === 'destination_exists'), JSON.stringify(json.kept));
+  assert.ok(json.kept.some((k) => k.path === '.aoforge/objectives/04-d' && k.reason === 'destination_exists'), JSON.stringify(json.kept));
   assert.equal(json.warnings.length, 1, JSON.stringify(json.warnings));
   assert.ok(json.warnings[0].includes('04-d'), json.warnings[0]);
   assert.deepEqual(sortedMoves(json.moved), sortedMoves([
-    { from: '.planning/objectives/05-e', to: `${ARCHIVE}/v1.0-objectives/05-e` },
-    { from: '.planning/objectives/06-f', to: `${ARCHIVE}/v1.0-objectives/06-f` },
+    { from: '.aoforge/objectives/05-e', to: `${ARCHIVE}/v1.0-objectives/05-e` },
+    { from: '.aoforge/objectives/06-f', to: `${ARCHIVE}/v1.0-objectives/06-f` },
   ]));
 });
 

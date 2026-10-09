@@ -27,6 +27,7 @@ const { renderCommand, contextFor, AGENT_SLICES, AGENT_ALIASES } = require('./st
 // sibling module so this loader itself never has to know a file FORMAT, only the command shape
 // evidence produces — see stack-evidence.cjs's own header for why the split exists.
 const { collectEvidence } = require('./stack-evidence.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/stack-general.md');
 // Tier-2 profiles shipped with the plugin (TRD 42-02). Resolved AFTER the user/org tier at
@@ -329,7 +330,7 @@ function _resetCache() { _cache = new Map(); }
  * then any org tier(s) reached through the target's own `extends` chain, then the target itself
  * as the top "project" layer, then an optional component override) and merges it. This is the
  * one place the chain-walk + merge logic lives — `resolveProfile` calls it after reading
- * `.planning/STACK.md` off disk; `validateProfileText` (35-03) calls it directly on a draft's
+ * `.aoforge/STACK.md` off disk; `validateProfileText` (35-03) calls it directly on a draft's
  * parsed frontmatter/sections, so a profile that has not been written to disk yet resolves
  * exactly the same way a saved one would.
  *
@@ -421,7 +422,7 @@ function resolveFromParsed(parsedTarget, { userHome = null, file = null, project
 
 /**
  * Resolve the full tier chain for a project: bundled general (always present), then any org
- * tier(s) reached through an `extends` chain, then the project's own `.planning/STACK.md`
+ * tier(s) reached through an `extends` chain, then the project's own `.aoforge/STACK.md`
  * (when present), then an optional component override selected by the longest `path` prefix
  * of `file`. Results are cached by the exact triple of arguments; call `_resetCache()` to
  * force a re-read (tests do this in `beforeEach`).
@@ -445,7 +446,7 @@ function resolveProfile({ projectRoot = null, userHome = null, file = null, bund
   let parsedTarget = null;
   let targetPath = null;
   if (projectRoot) {
-    const candidate = path.join(projectRoot, '.planning', 'STACK.md');
+    const candidate = path.join(planningRoot(projectRoot), 'STACK.md');
     if (fs.existsSync(candidate)) {
       targetPath = candidate;
       parsedTarget = parseProfile(fs.readFileSync(candidate, 'utf-8'), { source: candidate });
@@ -472,7 +473,7 @@ function loadStackProfileSchema() {
 }
 
 // `id` is required only for the tiers other profiles address BY id (bundled `general` and org/pack
-// profiles reached via `extends`). A project's `.planning/STACK.md` and a file-path component
+// profiles reached via `extends`). A project's `.aoforge/STACK.md` and a file-path component
 // override are leaves — never targeted by another profile's `extends` — so they conventionally omit
 // `id` and inherit it from the chain. This variant drops that one requirement for those two tiers.
 function loadStackProfileSchemaNoId() {
@@ -627,7 +628,7 @@ function runValidationRules(resolved, parsedTarget, { projectRoot, userHome, tar
 /**
  * validateProfileText(text, { projectRoot, userHome, file }) -> { ok, target, errors, warnings }
  *
- * Validates `text` as if it WERE the project's `.planning/STACK.md`, without writing it to disk
+ * Validates `text` as if it WERE the project's `.aoforge/STACK.md`, without writing it to disk
  * — 35-04's `init` uses this to check a draft before it commits to a file. Resolves the chain
  * from the text's own `extends` (via `resolveFromParsed`), exactly as a saved file would.
  */
@@ -646,9 +647,9 @@ function validateProfileText(text, { projectRoot = null, userHome = null, file =
 /**
  * validateProfile({ projectRoot, userHome, profilePath }) -> { ok, target, errors, warnings }
  *
- * Default target: `<projectRoot>/.planning/STACK.md`. When it (and `profilePath`) is absent,
+ * Default target: `<projectRoot>/.aoforge/STACK.md`. When it (and `profilePath`) is absent,
  * validates the bundled general profile itself — target reads
- * `'general (bundled; no .planning/STACK.md)'`, and this is always `ok: true` for a healthy
+ * `'general (bundled; no .aoforge/STACK.md)'`, and this is always `ok: true` for a healthy
  * install (general ships schema-valid with every gate/loop key defined).
  */
 function validateProfile({ projectRoot = null, userHome = null, profilePath = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
@@ -660,13 +661,13 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
     targetPath = path.isAbsolute(profilePath) ? profilePath : path.join(projectRoot || '.', profilePath);
     targetLabel = targetPath;
   } else {
-    const candidate = projectRoot ? path.join(projectRoot, '.planning', 'STACK.md') : null;
+    const candidate = projectRoot ? path.join(planningRoot(projectRoot), 'STACK.md') : null;
     if (candidate && fs.existsSync(candidate)) {
       targetPath = candidate;
       targetLabel = candidate;
     } else {
       targetPath = BUNDLED_PATH;
-      targetLabel = 'general (bundled; no .planning/STACK.md)';
+      targetLabel = `general (bundled; no ${projectRoot ? planningRel(projectRoot, 'STACK.md') : '.aoforge/STACK.md'})`;
       isBundledGeneral = true;
     }
   }
@@ -704,7 +705,7 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
 //
 // Drafting turns two inputs — installed org profiles (this operator's own tier) and repo
 // evidence (this project's own CI/task-runner/manifest) — into a project-tier document a human
-// reviews before it becomes `.planning/STACK.md`. Nothing here writes to disk except
+// reviews before it becomes `.aoforge/STACK.md`. Nothing here writes to disk except
 // `initProfile`, and only when its caller asks for `write: true`.
 
 /**
@@ -910,7 +911,7 @@ function noteLine(n) {
  * comment, and — when there are notes — a second comment listing them, capped at 40 lines with a
  * `(+N more in STACK-REPORT.md)` trailer.
  */
-function renderDraftBody(id, extendsId, notes = []) {
+function renderDraftBody(id, extendsId, notes = [], planningDir = '.aoforge') {
   let body = `# Stack Profile: ${id}\n\n`
     + `<!-- Drafted by \`aof-tools stack init\`. Add no `
     + '`## ` heading below unless this project genuinely diverges from `'
@@ -920,7 +921,7 @@ function renderDraftBody(id, extendsId, notes = []) {
   if (list.length) {
     const lines = list.slice(0, MAX_NOTE_LINES).map(noteLine);
     if (list.length > MAX_NOTE_LINES) lines.push(`(+${list.length - MAX_NOTE_LINES} more in STACK-REPORT.md)`);
-    body += `\n<!-- stack init notes (see .planning/STACK-REPORT.md):\n${lines.join('\n')}\n-->\n`;
+    body += `\n<!-- stack init notes (see ${planningDir}/STACK-REPORT.md):\n${lines.join('\n')}\n-->\n`;
   }
   return body;
 }
@@ -941,7 +942,7 @@ function defaultVerifier(projectRoot, verifyOpts = {}) {
  * each involved profile's commands (a synthetic target carrying only `extends`, so it cannot
  * shadow the chain it asks about), and hand all of it to stack-draft.assembleDraft with a
  * verifier — `verify(command, cwd)` when given, else stack-verify with `verifyOpts` (env, home).
- * Only STACK.md is ever drafted: components name a profile id, never a file under .planning/.
+ * Only STACK.md is ever drafted: components name a profile id, never a file under .aoforge/.
  */
 function draftProfile({ projectRoot, userHome = null, from = 'codebase', extendsId = null, now = new Date(), bundledDir = BUNDLED_STACKS_DIR, verifyOpts = {}, verify = null } = {}) {
   // Lazy: stack-draft/stack-detect are drafting-only, and keeping them out of the loader's load
@@ -994,7 +995,7 @@ function draftProfile({ projectRoot, userHome = null, from = 'codebase', extends
 
   return {
     frontmatter,
-    body: renderDraftBody(id, draft.extendsId, draft.notes),
+    body: renderDraftBody(id, draft.extendsId, draft.notes, planningRel(projectRoot)),
     evidence,
     extends: draft.extendsId,
     notes: draft.notes,
@@ -1049,15 +1050,14 @@ function serializeProfile(frontmatter, body) {
   return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
 
-const STACK_REL = '.planning/STACK.md';
-const STACK_REPORT_REL = '.planning/STACK-REPORT.md';
-const STACK_FILES = Object.freeze([STACK_REL, STACK_REPORT_REL]);
+/** The two stack files under the project's resolved planning directory (`.aoforge/`, or a legacy one). */
+const stackFiles = (root) => [planningRel(root, 'STACK.md'), planningRel(root, 'STACK-REPORT.md')];
 
 /**
  * ignoredTargets(projectRoot, rels) -> the repo-relative FILE paths among `rels` that the ignore
  * RULES match (TRD 42-14, D5). ONE `git -C root check-ignore --no-index --stdin -z` call:
- * `--no-index` because a tracked file (a force-added `.planning/STACK.md`, or any tracked file
- * under an ignored `.planning/`) makes the index-aware check say "not ignored" and masks the rule.
+ * `--no-index` because a tracked file (a force-added `.aoforge/STACK.md`, or any tracked file
+ * under an ignored `.aoforge/`) makes the index-aware check say "not ignored" and masks the rule.
  * helpers.isGitIgnored stays index-aware for its other callers. No git, not a work tree, or any git
  * failure: `[]`. Never throws.
  */
@@ -1084,12 +1084,12 @@ function ignoredTargets(projectRoot, rels) {
  * `extendsId` here is the CALLER's `--extends` override (may be null/undefined — `pickExtends`
  * then detects); the picked id is what ends up in the result and in the draft itself.
  * Preview (the default, and always the outcome when the draft fails validation): nothing is
- * written. Refused: `.planning/STACK.md` already exists and `force` was not given — the
+ * written. Refused: `.aoforge/STACK.md` already exists and `force` was not given — the
  * existing file is never touched. Written: `force`, or no prior file, and the draft validates.
  *
  * Every result carries `ignored` and `warnings` (TRD 42-12, 42-14). In PREVIEW and write alike,
- * both stack FILES (`.planning/STACK.md`, `.planning/STACK-REPORT.md`) are checked with one
- * `git check-ignore --no-index` call (ignoredTargets): a tracked file under `.planning/` makes a
+ * both stack FILES (`.aoforge/STACK.md`, `.aoforge/STACK-REPORT.md`) are checked with one
+ * `git check-ignore --no-index` call (ignoredTargets): a tracked file under `.aoforge/` makes a
  * dir-level or index-aware check say "not ignored", so the rule itself is what must be tested.
  * Each match is in `ignored` with a warning naming it in `warnings`; it is NOT fatal (adopt relies
  * on the write; the rollout decides). No git, not a repo, or any git failure: `ignored: []`.
@@ -1099,8 +1099,8 @@ function initProfile({ projectRoot, userHome = null, from = 'codebase', extendsI
   const draft = draftProfile({ projectRoot, userHome, from, extendsId, now, bundledDir, verifyOpts, verify });
   const text = serializeProfile(draft.frontmatter, draft.body);
   const validation = validateProfileText(text, { projectRoot, userHome, file: null, bundledDir });
-  const targetPath = path.join(projectRoot, '.planning', 'STACK.md');
-  const ignored = ignoredTargets(projectRoot, STACK_FILES);
+  const targetPath = path.join(planningRoot(projectRoot), 'STACK.md');
+  const ignored = ignoredTargets(projectRoot, stackFiles(projectRoot));
   const base = {
     path: targetPath,
     text,
@@ -1217,7 +1217,7 @@ function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
     }
 
     if (subcommand === 'validate') {
-      // A positional path used to be ignored, so `stack validate x.md` validated .planning/STACK.md
+      // A positional path used to be ignored, so `stack validate x.md` validated .aoforge/STACK.md
       // and reported ITS result — a green run for a file it never read (SDR-07).
       if (args[1] !== undefined && !String(args[1]).startsWith('-')) {
         error('stack validate takes --profile <path>, not a positional path');
@@ -1249,7 +1249,7 @@ function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
       const force = args.includes('--force');
       const result = initProfile({ projectRoot, userHome, from, extendsId: extendsFlag, write, force });
       if (result.action === 'refused') {
-        error(`.planning/STACK.md already exists; pass --force to overwrite it (refusing to write ${result.path})`);
+        error(`${planningRel(projectRoot, 'STACK.md')} already exists; pass --force to overwrite it (refusing to write ${result.path})`);
         return;
       }
       for (const w of result.warnings || []) process.stderr.write(`warning: ${w}\n`);

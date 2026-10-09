@@ -52,10 +52,10 @@
 //
 // 9. 70-01 (TOOL-07): `verify trd-pre` resolves from anywhere inside the project
 //    - cwd = the objective dir, arg `99` → checks deep-equal the run from the root; no `error`
-//    - cwd = `<root>/src/deep` (no `.planning/`) → resolves
+//    - cwd = `<root>/src/deep` (no `.aoforge/`) → resolves
 //    - requirement coverage from a nested cwd reads the root ROADMAP (`missing` ['F2'] from both)
-//    - arg = `.planning/objectives/99-test` from the root, `<abs objective dir>/` from os.tmpdir() → both resolve
-//    - a cwd with its own `.planning/` is used as-is (no walk past it) → not found, project_root = that cwd
+//    - arg = `.aoforge/objectives/99-test` from the root, `<abs objective dir>/` from os.tmpdir() → both resolve
+//    - a cwd with its own `.aoforge/` is used as-is (no walk past it) → not found, project_root = that cwd
 //    - not found → exit 1, JSON error 'Objective not found' + project_root; --raw → stdout `Objective not found`, exit 1
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -579,8 +579,8 @@ describe('e2e — cmdVerifyTrdPre', () => {
 
   test('non-existent objective → error key present', () => {
     // Don't create any objective directory
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
 
     let captured = '';
     let exitCode = 0;
@@ -742,7 +742,7 @@ describe('trd_budget (48-03 tests 10-12)', () => {
       roadmap_requirements: ['F1'],
       trds: [{ trd: '99-01', requirements: ['F1'], depends_on: [], tasks: [{ type: 'auto' }] }],
     });
-    const content = fs.readFileSync(path.join(tmpDir, '.planning', 'objectives', '99-test', '99-01-TRD.md'), 'utf8');
+    const content = fs.readFileSync(path.join(tmpDir, '.aoforge', 'objectives', '99-test', '99-01-TRD.md'), 'utf8');
     const { result } = runCheck(tmpDir, '99');
 
     assert.deepStrictEqual(result.checks.trd_budget, {
@@ -875,7 +875,7 @@ describe('requirement_coverage — ROADMAP header regex escapes the objective nu
       trds: [{ trd: '14.1-01', requirements: ['F1'], depends_on: [] }],
     });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       [
         '# Roadmap',
         '',
@@ -906,7 +906,7 @@ describe('requirement_coverage — ROADMAP header regex escapes the objective nu
       trds: [{ trd: '04-01', requirements: ['F1'], depends_on: [] }],
     });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       '# Roadmap\n\n### Objective 4: T\n\n**Requirements:** [F1, F2]\n',
       'utf-8',
     );
@@ -922,7 +922,7 @@ describe('requirement_coverage — ROADMAP header regex escapes the objective nu
       trds: [{ trd: '04-01', requirements: ['F1'], depends_on: [] }],
     });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       '# Roadmap\n\n### Objective 04: T\n\n**Requirements:** [F1, F2]\n',
       'utf-8',
     );
@@ -940,7 +940,7 @@ describe('56-03 requirement IDs are ID-shaped', () => {
   afterEach(() => { removeTmp(tmpDir); });
 
   function writeRoadmap(text) {
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), text, 'utf-8');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), text, 'utf-8');
   }
 
   // The v1.5 ROADMAP writes `**Requirements**:` (colon outside the bold). The old regex never found the line, so
@@ -964,7 +964,7 @@ describe('56-03 requirement IDs are ID-shaped', () => {
     });
     writeRoadmap(
       '# Roadmap\n\n### Objective 99: T\n\n' +
-        '**Requirements:** none (tech debt; see `.planning/objectives/99-test/OBJECTIVE.md`)\n'
+        '**Requirements:** none (tech debt; see `.aoforge/objectives/99-test/OBJECTIVE.md`)\n'
     );
     const { result } = runCheck(tmpDir, '99');
     assert.strictEqual(result.checks.requirement_coverage.passed, true);
@@ -1027,7 +1027,7 @@ describe('resolution from inside the project (TRD 70-01)', () => {
     assert.equal(fromObjective.exitCode, 0);
   });
 
-  test('11. cwd = a directory two levels below the root (no .planning/ of its own) resolves', () => {
+  test('11. cwd = a directory two levels below the root (no .aoforge/ of its own) resolves', () => {
     coverF1Only();
     const deep = path.join(tmpDir, 'src', 'deep');
     fs.mkdirSync(deep, { recursive: true });
@@ -1047,7 +1047,7 @@ describe('resolution from inside the project (TRD 70-01)', () => {
 
   test('13a. a relative path to the objective directory resolves from the root', () => {
     coverF1Only();
-    const r = runCheck(tmpDir, path.join('.planning', 'objectives', '99-test'));
+    const r = runCheck(tmpDir, path.join('.aoforge', 'objectives', '99-test'));
     assert.ok(!('error' in r.result), JSON.stringify(r.result));
     assert.equal(r.result.checks.requirement_coverage.missing.length, 1);
   });
@@ -1060,10 +1060,10 @@ describe('resolution from inside the project (TRD 70-01)', () => {
     assert.deepStrictEqual(r.result.checks, fromRoot.result.checks);
   });
 
-  test('14. a cwd that has its own .planning/ is used as-is: no walk past it', () => {
+  test('14. a cwd that has its own .aoforge/ is used as-is: no walk past it', () => {
     coverF1Only();
     const inner = path.join(tmpDir, 'inner');
-    fs.mkdirSync(path.join(inner, '.planning', 'objectives'), { recursive: true });
+    fs.mkdirSync(path.join(inner, '.aoforge', 'objectives'), { recursive: true });
     const { result, exitCode } = runCheck(inner, '99');
     assert.equal(result.error, 'Objective not found');
     assert.equal(result.project_root, inner);
@@ -1090,7 +1090,7 @@ describe('resolution from inside the project (TRD 70-01)', () => {
 
   test('15c. a path argument to a missing objective directory exits 1', () => {
     coverF1Only();
-    const { result, exitCode } = runCheck(tmpDir, path.join('.planning', 'objectives', '98-nope'));
+    const { result, exitCode } = runCheck(tmpDir, path.join('.aoforge', 'objectives', '98-nope'));
     assert.equal(exitCode, 1);
     assert.equal(result.error, 'Objective not found');
   });

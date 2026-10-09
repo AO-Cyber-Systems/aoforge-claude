@@ -4,7 +4,7 @@
 //
 // Every repo is a literal, hand-written fixture in an fs.mkdtemp directory (realpath'd) and every transcript comes from
 // __fixtures__/transcript-fixtures.cjs under a fake projects root. Nothing reads the real ~/.claude or this repository's
-// .planning/. The fixture repo `R` holds six SUMMARYs:
+// .aoforge/. The fixture repo `R` holds six SUMMARYs:
 //
 //   10-alpha/10-01-SUMMARY.md   shared objective number; the one 10-01 transcript names no directory
 //   10-beta/10-01-SUMMARY.md    shared objective number
@@ -66,16 +66,16 @@ function writeAt(root, rel, text) {
 /**
  * The fixture repo and its fake projects root. `transcripts: false` leaves the projects root empty. `tenOne` picks the
  * 10-01 transcript: 'bare' (no directory evidence, identified from the meta.json description) or '10-beta' (the prompt
- * names .planning/objectives/10-beta/).
+ * names .aoforge/objectives/10-beta/).
  */
 function buildBackfillRepo({ transcripts = true, tenOne = 'bare' } = {}) {
   const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-backfill-repo-')));
   const root = fx.makeProjectsRoot();
   cleanup.push(repo, root);
 
-  writeAt(repo, '.planning/config.json', '{}\n');
-  for (const [rel, text] of Object.entries(SUMMARIES)) writeAt(repo, `.planning/objectives/${rel}`, text);
-  for (const rel of TRDS) writeAt(repo, `.planning/objectives/${rel}`, `# TRD ${path.basename(rel)}\n`);
+  writeAt(repo, '.aoforge/config.json', '{}\n');
+  for (const [rel, text] of Object.entries(SUMMARIES)) writeAt(repo, `.aoforge/objectives/${rel}`, text);
+  for (const rel of TRDS) writeAt(repo, `.aoforge/objectives/${rel}`, `# TRD ${path.basename(rel)}\n`);
 
   const key = fx.projectKeyFor(repo);
   const addTranscript = ({
@@ -167,7 +167,7 @@ describe('57-04 planBackfill: a dry run that classifies every historical SUMMARY
 
   test('6. a transcript with no usage records is unrecovered / zero_usage', () => {
     const { repo, root, addTranscript } = buildBackfillRepo();
-    writeAt(repo, '.planning/objectives/99-demo/99-03-SUMMARY.md', summaryText('99-demo', '03'));
+    writeAt(repo, '.aoforge/objectives/99-demo/99-03-SUMMARY.md', summaryText('99-demo', '03'));
     addTranscript({ id: '99-03', objectiveDir: '99-demo', session: 'sess-99-03', agentId: 'a9903', description: 'Execute TRD 99-03', records: [] });
 
     const plan = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
@@ -192,8 +192,8 @@ describe('57-04 planBackfill: a dry run that classifies every historical SUMMARY
 
   test('11. a recoverable SUMMARY without a frontmatter block is unrecovered / no_frontmatter; without a transcript it stays no_transcript', () => {
     const { repo, root, addTranscript } = buildBackfillRepo();
-    writeAt(repo, '.planning/objectives/96-plain/96-01-SUMMARY.md', PLAIN_TEXT);
-    writeAt(repo, '.planning/objectives/96-plain/96-02-SUMMARY.md', PLAIN_TEXT);
+    writeAt(repo, '.aoforge/objectives/96-plain/96-01-SUMMARY.md', PLAIN_TEXT);
+    writeAt(repo, '.aoforge/objectives/96-plain/96-02-SUMMARY.md', PLAIN_TEXT);
     addTranscript({ id: '96-01', objectiveDir: '96-plain', session: 'sess-96-01', agentId: 'a9601', description: 'Execute TRD 96-01' });
 
     const plan = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
@@ -240,8 +240,8 @@ describe('57-04 formatBackfillReport', () => {
 
 // ─── applyBackfill ────────────────────────────────────────────────────────────
 
-const REL_99_01 = '.planning/objectives/99-demo/99-01-demo-SUMMARY.md';
-const REL_99_02 = '.planning/objectives/99-demo/99-02-SUMMARY.md';
+const REL_99_01 = '.aoforge/objectives/99-demo/99-01-demo-SUMMARY.md';
+const REL_99_02 = '.aoforge/objectives/99-demo/99-02-SUMMARY.md';
 const OLD_99_01 = SUMMARIES['99-demo/99-01-demo-SUMMARY.md'];
 
 /** 99-01 as backfill must leave it: the six token lines directly before the closing `---`, nothing else changed. */
@@ -277,7 +277,7 @@ describe('57-04 applyBackfill: writes only through the summary post verb', () =>
     assert.equal(readAt(repo, REL_99_01), STAMPED_99_01);
     assert.notEqual(STAMPED_99_01, OLD_99_01);
     assert.equal(STAMPED_99_01.replace(/tokens_[a-z_]+: [^\n]+\n|token_model: [^\n]+\n/g, ''), OLD_99_01, 'only the six lines were added');
-    assert.deepEqual(fs.readdirSync(path.join(repo, '.planning/objectives/99-demo')).sort(), [
+    assert.deepEqual(fs.readdirSync(path.join(repo, '.aoforge/objectives/99-demo')).sort(), [
       '99-01-demo-SUMMARY.md', '99-01-demo-TRD.md', '99-02-SUMMARY.md', '99-02-more-TRD.md',
     ]);
     assert.deepEqual(snapshotWithout(repo, REL_99_01), othersBefore);
@@ -318,7 +318,7 @@ describe('57-04 applyBackfill: writes only through the summary post verb', () =>
   test('5b. a conflicting existing value is never overwritten without force; unchanged is reported on a re-apply', () => {
     const { repo, root, addTranscript } = buildBackfillRepo();
     const half = summaryText('99-demo', '04', 'tokens_input: 5\n');
-    writeAt(repo, '.planning/objectives/99-demo/99-04-SUMMARY.md', half);
+    writeAt(repo, '.aoforge/objectives/99-demo/99-04-SUMMARY.md', half);
     addTranscript({ id: '99-04', objectiveDir: '99-demo', session: 'sess-99-04', agentId: 'a9904', description: 'Execute TRD 99-04' });
 
     const plan = backfill.planBackfill({ checkoutRoot: repo, repoRoot: repo, root });
@@ -331,12 +331,12 @@ describe('57-04 applyBackfill: writes only through the summary post verb', () =>
       skipped: [{ id: '99-04', file: '99-04-SUMMARY.md', objective_dir: '99-demo', reason: 'token_conflict' }],
       write_failed: [],
     });
-    assert.equal(readAt(repo, '.planning/objectives/99-demo/99-04-SUMMARY.md'), half, 'the 5 was not overwritten and nothing was half-written');
+    assert.equal(readAt(repo, '.aoforge/objectives/99-demo/99-04-SUMMARY.md'), half, 'the 5 was not overwritten and nothing was half-written');
 
     const second = backfill.applyBackfill(plan, { checkoutRoot: repo, force: true });
     assert.deepEqual(second, { written: ['99-04'], unchanged: ['99-01'], skipped: [], write_failed: [] });
     assert.equal(
-      readAt(repo, '.planning/objectives/99-demo/99-04-SUMMARY.md'),
+      readAt(repo, '.aoforge/objectives/99-demo/99-04-SUMMARY.md'),
       '---\nobjective: 99-demo\ntrd: "04"\ntokens_input: 140747\n'
         + 'tokens_output: 1370\ntokens_cache_read: 121144\ntokens_cache_write: 19596\ntoken_model: "claude-opus-5-5"\ntokens_source: "backfill"\n'
         + '---\n\n# Summary 99-demo 04\n\nHand-written body.\n',
@@ -349,8 +349,8 @@ describe('57-04 applyBackfill: writes only through the summary post verb', () =>
     assert.deepEqual(summed(plan.entries.find((e) => e.objective_dir === '10-beta')), ['10-beta', '10-01-SUMMARY.md', 'recovered', null]);
     assert.deepEqual(summed(plan.entries.find((e) => e.objective_dir === '10-alpha')), ['10-alpha', '10-01-SUMMARY.md', 'unrecovered', 'no_transcript']);
 
-    const alphaRel = '.planning/objectives/10-alpha/10-01-SUMMARY.md';
-    const betaRel = '.planning/objectives/10-beta/10-01-SUMMARY.md';
+    const alphaRel = '.aoforge/objectives/10-alpha/10-01-SUMMARY.md';
+    const betaRel = '.aoforge/objectives/10-beta/10-01-SUMMARY.md';
     const alphaBefore = readAt(repo, alphaRel);
     const betaBefore = readAt(repo, betaRel);
 

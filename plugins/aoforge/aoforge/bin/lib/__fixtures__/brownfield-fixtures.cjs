@@ -63,8 +63,8 @@ function makeSourceFile(dir, name, ext) {
  *
  * @param {string} tmpRoot - absolute path to temp directory (must exist)
  * @param {object} opts
- * @param {boolean} [opts.hasPlanning=false] - create .planning/ directory
- * @param {boolean} [opts.hasCodebaseMap=false] - create .planning/codebase/ directory
+ * @param {boolean} [opts.hasPlanning=false] - create .aoforge/ directory
+ * @param {boolean} [opts.hasCodebaseMap=false] - create .aoforge/codebase/ directory
  * @param {{ count: number, exts?: string[], subdir?: string }} [opts.sourceFiles]
  *   - count: number of source files to create
  *   - exts: cycle through these extensions (default ['.ts'])
@@ -80,14 +80,14 @@ function makeScaffold(tmpRoot, {
   sourceFiles = null,
   otherDirs = {},
 } = {}) {
-  // .planning/
+  // .aoforge/
   if (hasPlanning) {
-    fs.mkdirSync(path.join(tmpRoot, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(tmpRoot, '.aoforge'), { recursive: true });
   }
 
-  // .planning/codebase/
+  // .aoforge/codebase/
   if (hasCodebaseMap) {
-    fs.mkdirSync(path.join(tmpRoot, '.planning', 'codebase'), { recursive: true });
+    fs.mkdirSync(path.join(tmpRoot, '.aoforge', 'codebase'), { recursive: true });
   }
 
   // Source files in src/ (or specified subdir)

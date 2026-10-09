@@ -5,7 +5,7 @@
  *
  * Location and hygiene primitives for the autonomous-mode hook markers
  * (verify-commits retry marker, verify-completion resume counter). They used to
- * live in <project>/.planning/ and now live under
+ * live in <project>/.aoforge/ and now live under
  * ~/.claude/aoforge/state/hook-markers/<repo-key>/.
  *
  * Every test builds its own directories under os.tmpdir(); nothing here touches

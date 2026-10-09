@@ -562,19 +562,19 @@ test('10. estimateTrd finds a TRD by NN-MM or by path and says plainly when it i
   assert.equal(byKey.confidence, 'high');
   assert.equal(byKey.tasks.length, 2);
   assert.equal(byKey.wave, 1);
-  assert.equal(byKey.path, path.join(root, '.planning', 'objectives', '80-alpha', '80-01-parser-TRD.md'));
+  assert.equal(byKey.path, path.join(root, '.aoforge', 'objectives', '80-alpha', '80-01-parser-TRD.md'));
 
   const absolute = est.estimateTrd(CAL, root, byKey.path);
   assert.equal(absolute.id, '80-01');
   nearPair(absolute.minutes, 12, 36, 'by absolute path');
 
-  const relative = est.estimateTrd(CAL, root, '.planning/objectives/80-alpha/80-01-parser-TRD.md');
+  const relative = est.estimateTrd(CAL, root, '.aoforge/objectives/80-alpha/80-01-parser-TRD.md');
   assert.equal(relative.id, '80-01');
   assert.equal(relative.path, byKey.path);
 
   assert.throws(() => est.estimateTrd(CAL, root, '80-09'), /TRD 80-09 not found/);
   assert.throws(() => est.estimateTrd(CAL, root, '99-01'), /TRD 99-01 not found/);
-  assert.throws(() => est.estimateTrd(CAL, root, '.planning/objectives/80-alpha/80-07-gone-TRD.md'), /not found/);
+  assert.throws(() => est.estimateTrd(CAL, root, '.aoforge/objectives/80-alpha/80-07-gone-TRD.md'), /not found/);
   assert.throws(() => est.estimateTrd(CAL, root, 'banana'), /NN-MM/);
 });
 

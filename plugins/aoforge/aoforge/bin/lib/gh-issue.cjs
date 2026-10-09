@@ -25,6 +25,7 @@ const mappingLib = require('./gh-mapping.cjs');
 const milestoneLib = require('./gh-milestone.cjs');
 const bodyLib = require('./gh-body.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const validNumber = (v) => Number.isInteger(v) && v > 0;
@@ -33,7 +34,7 @@ const validNumber = (v) => Number.isInteger(v) && v > 0;
 
 function readProjectName(cwd, repo) {
   for (const name of ['PROJECT.md', 'project.md']) {
-    const file = path.join(cwd, '.planning', name);
+    const file = path.join(planningRoot(cwd), name);
     if (!fs.existsSync(file)) continue;
     try {
       const m = /^#[ \t]+([^\n]+)/m.exec(fs.readFileSync(file, 'utf-8'));
@@ -280,7 +281,7 @@ function parseIssueRef(ref) {
 function readIssueRef(cwd, dir) {
   if (!dir) return null;
   try {
-    const text = fs.readFileSync(path.join(cwd, '.planning', 'objectives', dir, 'OBJECTIVE.md'), 'utf-8');
+    const text = fs.readFileSync(path.join(planningRoot(cwd), 'objectives', dir, 'OBJECTIVE.md'), 'utf-8');
     return parseIssueRef(extractFrontmatter(text).github_issue);
   } catch {
     return null;
@@ -398,7 +399,7 @@ function findOrCreateObjectiveIssue(runCtx, resolved, opts = {}) {
   if (Array.isArray(conflict) && conflict.length > 0) {
     return fail({
       error: 'needs_human',
-      message: `objective ${id} maps to more than one issue (${conflict.map((e) => `#${e.issue_id}`).join(', ')}); resolve .planning/.gh-mapping.json conflicts by hand`,
+      message: `objective ${id} maps to more than one issue (${conflict.map((e) => `#${e.issue_id}`).join(', ')}); resolve .aoforge/.gh-mapping.json conflicts by hand`,
       conflicts: conflict,
     });
   }

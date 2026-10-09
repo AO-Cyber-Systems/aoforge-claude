@@ -16,6 +16,7 @@ const path = require('path');
 const { collect } = require('./telemetry.cjs');
 const { recordOverride } = require('./override.cjs');
 const stackFx = require('./__fixtures__/stack-profile-fixtures.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 // Progress-guard state lives outside the repo (quick task 25), one file per session. Each test
 // gets its own `pg` dir, and AOFORGE_PROGRESS_GUARD_DIR points at it so that even a collect()
@@ -23,7 +24,7 @@ const stackFx = require('./__fixtures__/stack-profile-fixtures.cjs');
 let dir, pd, pg, savedGuardEnv;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-'));
-  pd = path.join(dir, '.planning');
+  pd = path.join(dir, '.aoforge');
   fs.mkdirSync(pd);
   pg = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-pg-'));
   savedGuardEnv = process.env.AOFORGE_PROGRESS_GUARD_DIR;
@@ -98,7 +99,7 @@ describe('collect() — surfaces real signals as advice', () => {
     assert.equal(r.progress_guard.worst_streak, 0);
   });
 
-  test('the legacy .planning/.progress-guard.json is dead and never read', () => {
+  test('the legacy .aoforge/.progress-guard.json is dead and never read', () => {
     fs.writeFileSync(path.join(pd, '.progress-guard.json'), JSON.stringify({
       s1: { guard: { streak: 8, last: 'abc' }, updated: Date.now() },
     }));
@@ -228,7 +229,7 @@ describe('aof-tools telemetry (CLI) — objective 38', () => {
   test('4. exit 0 with valid JSON and an advisories array', () => {
     const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
     const cliHome = makeHome();
-    fs.mkdirSync(path.join(cliDir, '.planning'));
+    fs.mkdirSync(path.join(cliDir, '.aoforge'));
     try {
       const r = runTelemetry([], cliDir, cliHome);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
@@ -243,7 +244,7 @@ describe('aof-tools telemetry (CLI) — objective 38', () => {
   test('5. --raw stdout lines equal the JSON advisories', () => {
     const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
     const cliHome = makeHome();
-    const cliPd = path.join(cliDir, '.planning');
+    const cliPd = path.join(cliDir, '.aoforge');
     fs.mkdirSync(cliPd);
     for (let i = 0; i < 5; i++) recordOverride({ planningDir: cliPd, gate: 'edits', reason: `r${i}` });
     fs.writeFileSync(
@@ -266,13 +267,13 @@ describe('aof-tools telemetry (CLI) — objective 38', () => {
     }
   });
 
-  test('6. no .planning/ -> exit 0, "no .planning/ — not an AOForge project"', () => {
+  test('6. no .aoforge/ -> exit 0, "no .aoforge/ — not an AOForge project"', () => {
     const cliDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
     const cliHome = makeHome();
     try {
       const r = runTelemetry(['--raw'], cliDir, cliHome);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
-      assert.equal(r.stdout, 'no .planning/ — not an AOForge project');
+      assert.equal(r.stdout, `no ${planningDirLabel()} — not an AOForge project`);
     } finally {
       fs.rmSync(cliDir, { recursive: true, force: true });
       fs.rmSync(cliHome, { recursive: true, force: true });

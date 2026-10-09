@@ -67,7 +67,7 @@ function storeCliProject({ store = true, enabled = true, mapped = true } = {}) {
       objectives: { 7: { issue_id: 107, state_comment_id: null, verified_at: null } },
       trds: {},
     };
-    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), `${JSON.stringify(mapping, null, 2)}\n`);
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), `${JSON.stringify(mapping, null, 2)}\n`);
   }
 
   const env = shim.env({
@@ -82,7 +82,7 @@ function storeCliProject({ store = true, enabled = true, mapped = true } = {}) {
     GIT_COMMITTER_EMAIL: 'aoforge-test@example.invalid',
   });
 
-  const planning = (rel) => path.join(root, '.planning', ...rel.split('/'));
+  const planning = (rel) => path.join(root, '.aoforge', ...rel.split('/'));
 
   return {
     root,
@@ -111,7 +111,7 @@ function storeCliProject({ store = true, enabled = true, mapped = true } = {}) {
       return JSON.parse(fs.readFileSync(file, 'utf8')).entries || {};
     },
     ghCalls: () => shim.readCalls(),
-    /** `{rel: text}` of every file under `.planning/`, for "nothing changed" assertions. */
+    /** `{rel: text}` of every file under `.aoforge/`, for "nothing changed" assertions. */
     snapshot() {
       const out = {};
       const walk = (dir, rel) => {
@@ -121,7 +121,7 @@ function storeCliProject({ store = true, enabled = true, mapped = true } = {}) {
           else out[r] = fs.readFileSync(path.join(dir, e.name), 'utf8');
         }
       };
-      walk(path.join(root, '.planning'), '');
+      walk(path.join(root, '.aoforge'), '');
       return out;
     },
     cleanup() {

@@ -147,7 +147,7 @@ function useStore({ wiki = 'remote', push = false, fake: fakeOverrides = {}, pro
   });
 }
 
-const planning = (...rel) => path.join(S.root, '.planning', ...rel);
+const planning = (...rel) => path.join(S.root, '.aoforge', ...rel);
 const issueByNumber = (n) => S.fake.issues.find((i) => i.number === n);
 const getJson = (endpoint) => JSON.parse(S.fake.runGh(['api', endpoint]).stdout);
 const mappingNow = () => mappingLib.readMappingV3(S.root);
@@ -155,7 +155,7 @@ const trdNumber = (id) => mappingLib.getTrd(mappingNow(), id).issue_number;
 const objectiveNumber = () => mappingLib.getEntry(mappingNow(), '7').issue_id;
 const journalOps = () => outbox.readJournal(S.root).journal.ops;
 
-/** `{ rel: Buffer }` for each file under .planning/ (null when absent). */
+/** `{ rel: Buffer }` for each file under .aoforge/ (null when absent). */
 function snapshot(rels) {
   const out = {};
   for (const rel of rels) {
@@ -202,7 +202,7 @@ function hermeticSnapshot() {
   const snap = { state: {}, repo: {} };
   for (const d of STORE_STATE_DIRS) snap.state[d] = listTree(path.join(REAL_STATE, d));
   // Where a store test with a confused cwd would write: the wiki clone and docs pages of THIS repository.
-  for (const rel of ['.planning/wiki', 'docs/aoforge']) snap.repo[rel] = fs.existsSync(path.join(REPO_ROOT, rel));
+  for (const rel of ['.aoforge/wiki', 'docs/aoforge']) snap.repo[rel] = fs.existsSync(path.join(REPO_ROOT, rel));
   return snap;
 }
 

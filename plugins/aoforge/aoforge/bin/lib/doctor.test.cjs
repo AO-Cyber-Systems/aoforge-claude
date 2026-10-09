@@ -38,7 +38,7 @@ function flipRun(marker) {
 function spyFix(log, id, marker) {
   let body = `fs.appendFileSync(${JSON.stringify(log)}, ${JSON.stringify(id + '\n')});\n`;
   if (marker) body += `    fs.writeFileSync(${JSON.stringify(marker)}, 'done');\n`;
-  body += `    return { applied: true, changed: [${JSON.stringify('.planning/' + id + '.json')}] };`;
+  body += `    return { applied: true, changed: [${JSON.stringify('.aoforge/' + id + '.json')}] };`;
   return body;
 }
 
@@ -52,7 +52,7 @@ function tmpFile(name) {
 
 function tmpProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor-proj-'));
-  fs.mkdirSync(path.join(root, '.planning'));
+  fs.mkdirSync(path.join(root, '.aoforge'));
   return root;
 }
 
@@ -212,7 +212,7 @@ describe('fix mode', () => {
     assert.deepStrictEqual(report.fixes.map((f) => f.id), ['a', 'c']);
     for (const f of report.fixes) {
       assert.strictEqual(f.applied, true);
-      assert.deepStrictEqual(f.changed, [`.planning/${f.id}.json`]);
+      assert.deepStrictEqual(f.changed, [`.aoforge/${f.id}.json`]);
     }
 
     const byId = Object.fromEntries(report.checks.map((c) => [c.id, c]));
@@ -372,12 +372,12 @@ describe('changedThisRun', () => {
     writeStubCheck(dir, {
       file: '10-first.cjs', id: 'first',
       runBody: "return { severity: 'warn', finding: 'x', fixable: true };",
-      fixBody: "return { applied: true, changed: ['.planning/.progress-guard.json', '/abs/outside/file', '.gitignore'] };",
+      fixBody: "return { applied: true, changed: ['.aoforge/.progress-guard.json', '/abs/outside/file', '.gitignore'] };",
     });
     writeStubCheck(dir, {
       file: '15-refused.cjs', id: 'refused',
       runBody: "return { severity: 'warn', finding: 'x', fixable: true };",
-      fixBody: "return { applied: false, refused: 'no', changed: ['.planning/not-applied.json'] };",
+      fixBody: "return { applied: false, refused: 'no', changed: ['.aoforge/not-applied.json'] };",
     });
     writeStubCheck(dir, {
       file: '20-second.cjs', id: 'second',
@@ -388,7 +388,7 @@ describe('changedThisRun', () => {
 
     doctor.runDoctor(baseOpts(dir, { fix: true, projectRoot: tmpProject() }));
     assert.deepStrictEqual(JSON.parse(fs.readFileSync(seen, 'utf-8')),
-      ['.gitignore', '.planning/.progress-guard.json']);
+      ['.aoforge/.progress-guard.json', '.gitignore']); // sorted: `.a` before `.g`
   });
 
   test('8a: the first fix sees an empty set', () => {

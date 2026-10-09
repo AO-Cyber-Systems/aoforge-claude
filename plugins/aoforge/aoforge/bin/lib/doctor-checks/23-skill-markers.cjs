@@ -2,7 +2,7 @@
 
 // Doctor check: skill-markers (TRD 45-06, DOC-05; tracked case TRD 69-04, TOOL-09).
 //
-// Two runtime markers in `.planning/` open the edit gate (gate-edits.js):
+// Two runtime markers in `.aoforge/` open the edit gate (gate-edits.js):
 //
 //   .skill-active   a skill is running. Inspected and repaired by lib/skill-marker-health.cjs, the one
 //                   place that classifies it (expired, unparseable, or an aged marker with no
@@ -28,14 +28,16 @@ const path = require('path');
 
 const smh = require('../skill-marker-health.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
+const { planningRoot, planningRel } = require('../compat.cjs');
 
 // Mirrors hooks/lib/edit-override.js EDIT_OVERRIDE_TTL_MS. That file lives in the plugin's hooks/
 // dir, which sync-runtime does not mirror into ~/.claude/aoforge, so it cannot be required from a
 // mirrored aof-tools; the test pins the two values equal.
 const EDIT_OVERRIDE_TTL_MS = 5 * 60 * 1000;
 
-const SKILL_ACTIVE_REL = smh.MARKER_REL;
-const EDIT_OVERRIDE_REL = '.planning/.edit-override';
+// Root-relative marker paths under the project's resolved planning directory (`.aoforge/`, or a legacy one).
+const skillActiveRel = (root) => smh.markerRel(root);
+const editOverrideRel = (root) => planningRel(root, '.edit-override');
 const DF = 'node ~/.claude/aoforge/bin/aof-tools.cjs';
 
 function minutes(ms) {
@@ -48,7 +50,7 @@ function statQuiet(abs) {
 
 /** -> null (absent or fresh) | reason string (stale). Age by mtime, as the edit gate does. */
 function classifyEditOverride(root, nowMs) {
-  const st = statQuiet(path.join(root, '.planning', '.edit-override'));
+  const st = statQuiet(path.join(planningRoot(root), '.edit-override'));
   if (!st || !st.isFile()) return null;
   const age = nowMs - st.mtimeMs;
   return age > EDIT_OVERRIDE_TTL_MS
@@ -59,7 +61,7 @@ function classifyEditOverride(root, nowMs) {
 // The markers this check unlinks itself. .skill-active is not here: every action on it goes through
 // skill-marker-health, which untracks before removing and refuses when the index guard does.
 const MARKERS = [
-  { file: EDIT_OVERRIDE_REL, classify: classifyEditOverride },
+  { file: editOverrideRel, classify: classifyEditOverride },
 ];
 
 function nowMsOf(ctx) {
@@ -74,6 +76,8 @@ function liveNotIgnored(skill) {
 function run(ctx) {
   const root = ctx.projectRoot;
   if (!root) return { severity: 'ok', finding: 'no project', fixable: false };
+  const SKILL_ACTIVE_REL = skillActiveRel(root);
+  const EDIT_OVERRIDE_REL = editOverrideRel(root);
   const nowMs = nowMsOf(ctx);
 
   const skill = smh.inspect(root, { nowMs, env: ctx.env });
@@ -124,6 +128,7 @@ function run(ctx) {
 function fix(ctx) {
   const root = ctx.projectRoot;
   if (!root) return { applied: false, refused: 'no project' };
+  const SKILL_ACTIVE_REL = skillActiveRel(root);
   const nowMs = nowMsOf(ctx);
   const changed = [];
   const skipped = [];
@@ -148,15 +153,16 @@ function fix(ctx) {
   for (const m of MARKERS) {
     // Race-safe: re-classify right before unlinking; a marker that is now live stays.
     const reason = m.classify(root, nowMs);
-    const abs = path.join(root, ...m.file.split('/'));
+    const file = m.file(root);
+    const abs = path.join(root, ...file.split('/'));
     if (!reason) {
-      if (fs.existsSync(abs)) skipped.push(m.file);
+      if (fs.existsSync(abs)) skipped.push(file);
       continue;
     }
     try {
       fs.unlinkSync(abs);
-      changed.push(m.file);
-      notes.push(`removed: ${m.file}`);
+      changed.push(file);
+      notes.push(`removed: ${file}`);
     } catch (e) {
       if (!e || e.code !== 'ENOENT') throw e;
     }

@@ -233,7 +233,7 @@ describe('enqueueSummary', () => {
 
   test('3e. github disabled is {ok:true, skipped:true} and writes nothing', () => {
     fs.writeFileSync(
-      path.join(project.root, '.planning', 'config.json'),
+      path.join(project.root, '.aoforge', 'config.json'),
       JSON.stringify({ github: { enabled: false, repo: 'o/r' } })
     );
     const r = comments.enqueueSummary(project.root, { trdId: '07-01', file: FILE, text, now: T0 });
@@ -416,7 +416,7 @@ describe('readTrdState', () => {
   });
 
   test('R7. github disabled is {ok:false, skipped:true} with no gh call', () => {
-    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false } }));
     const st = comments.readTrdState(project.root, TRD_ID);
     assert.equal(st.ok, false);
     assert.equal(st.skipped, true);
@@ -661,7 +661,7 @@ describe('enqueueScope', () => {
   });
 
   test('9d. github disabled is {ok:true, skipped:true}: nothing read, nothing queued', () => {
-    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
     const r = comments.enqueueScope(project.root, { trdId: TRD_ID, text: 't', now: T0 });
     assert.equal(r.ok, true);
     assert.equal(r.skipped, true);
@@ -728,7 +728,7 @@ describe('freezeTrd', () => {
 
   test('9f. disabled and invalid ids', () => {
     assert.equal(comments.freezeTrd(project.root, 'nope', { now: T0 }).ok, false);
-    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false } }));
     assert.equal(comments.freezeTrd(project.root, TRD_ID, { now: T0 }).skipped, true);
   });
 });
@@ -864,7 +864,7 @@ describe('foldTrd', () => {
   test('13d. disabled, invalid ids and a missing issue', () => {
     assert.equal(comments.foldTrd(project.root, 'nope', { now: T0 }).ok, false);
     assert.equal(comments.foldTrd(project.root, TRD_ID, { now: T0 }).error, 'TRD 7-01 has no issue yet; run gh sync first');
-    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false } }));
     assert.equal(comments.foldTrd(project.root, TRD_ID, { now: T0 }).skipped, true);
   });
 });
@@ -918,7 +918,7 @@ const STORE_ON = { enabled: true, repo: 'o/r', store: true };
 const STORE_OFF = { enabled: true, repo: 'o/r' };
 
 const setGithub = (github) =>
-  fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), `${JSON.stringify({ github }, null, 2)}\n`);
+  fs.writeFileSync(path.join(project.root, '.aoforge', 'config.json'), `${JSON.stringify({ github }, null, 2)}\n`);
 
 /** The objective's issue, mapped, with `assignees`: who may change a TRD's spec in store mode. */
 function seedObjectiveIssue(assignees) {

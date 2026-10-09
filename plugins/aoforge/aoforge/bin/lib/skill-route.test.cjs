@@ -174,7 +174,7 @@ describe('fixtures', () => {
 describe('deprecation logger', () => {
   test('D1: cmdDeprecationLog writes to deprecation log and returns logged:true', (t) => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-skill-route-'));
-    const planningDir = path.join(tmpDir, '.planning');
+    const planningDir = path.join(tmpDir, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
 
     const writtenCalls = [];
@@ -256,8 +256,8 @@ describe('deprecation logger', () => {
       cmdDeprecationLog('/my/project', 'insert-objective', false);
       assert.strictEqual(writtenCalls.length, 1);
       assert.ok(
-        writtenCalls[0].filePath.endsWith('.planning/.deprecation-log.jsonl'),
-        'path must end with .planning/.deprecation-log.jsonl',
+        writtenCalls[0].filePath.endsWith('.aoforge/.deprecation-log.jsonl'),
+        'path must end with .aoforge/.deprecation-log.jsonl',
       );
       const entry = JSON.parse(writtenCalls[0].data.trim());
       assert.strictEqual(entry.old_name, 'insert-objective');
@@ -323,7 +323,7 @@ describe('CLI integration', () => {
 
   test('C4: deprecation log add-objective exits 0, JSONL format', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-depr-test-'));
-    const planningDir = path.join(tmpDir, '.planning');
+    const planningDir = path.join(tmpDir, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
     try {
       const result = spawnSync('node', [dfToolsPath, 'deprecation', 'log', 'add-objective'], {

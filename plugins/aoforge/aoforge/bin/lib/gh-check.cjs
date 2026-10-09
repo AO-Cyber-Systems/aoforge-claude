@@ -33,10 +33,10 @@
  * body?, pull_request?}`), `null` for a 404, and absent when the runner never fetched it (also a failure).
  *
  * ── aoforge/planning-consistency (research Open Question 1) ──────────────────────────────────────────────
- * In store mode `.planning/` is NOT in git (migration 0010 ignores it), so a checkout of the PR has no
+ * In store mode `.aoforge/` is NOT in git (migration 0010 ignores it), so a checkout of the PR has no
  * planning files to read and `aof-tools validate consistency` needs the local cache. This check therefore
  * validates the GitHub graph, never files, and nothing in this module reads a path:
- *   (a) Store mode is read from the PR head's tracked `.planning/config.json` (`github.store === true`, handed
+ *   (a) Store mode is read from the PR head's tracked `.aoforge/config.json` (`github.store === true`, handed
  *       in as `config`). Otherwise success "store mode off: planning files are reviewed in the diff". The
  *       check still reports a status, so a required check never hangs waiting for a context that never comes.
  *   (b) No `<!-- aoforge:pr=<id> -->` marker: success "not an AOForge objective PR".
@@ -314,8 +314,8 @@ function findObjectiveIssue(issues, id, closes) {
 
 /**
  * planningConsistency({ pr, repo, defaultBranch, config, issues, linked }) — the `aoforge/planning-consistency`
- * verdict (see the header for the rules and for why no `.planning/` file is consulted). `config` is the parsed
- * `.planning/config.json` of the PR head (or null), `issues` the Map described above and `linked` the TRD issues
+ * verdict (see the header for the rules and for why no `.aoforge/` file is consulted). `config` is the parsed
+ * `.aoforge/config.json` of the PR head (or null), `issues` the Map described above and `linked` the TRD issues
  * under the objective as numbers or issue objects (a Set, array or Map). Returns `{ state, description, details }`.
  */
 function planningConsistency({ pr, repo, defaultBranch, config, issues, linked } = {}) {

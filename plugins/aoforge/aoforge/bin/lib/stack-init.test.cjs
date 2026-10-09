@@ -24,12 +24,12 @@
 // - I17 (TRD 42-12 test 1, CLI) `stack init --raw` on a git fixture with `.gitignore: dist/` and a
 //       force-tracked dist/scaffoldapp/go.mod (plus a root go.mod and a Flutter app/): components
 //       hold app/ and never the ignored tree; the same with a non-fallback `bundle/` rule.
-// - I18 (TRD 42-12 test 7) `stack init --write` with `.gitignore: .planning/` and a force-tracked
-//       .planning/config.json: result `ignored: ['.planning/STACK.md']` plus a warning, the file is
-//       still written, and the dir-level `git check-ignore -q .planning` misses it (the bug). A
+// - I18 (TRD 42-12 test 7) `stack init --write` with `.gitignore: .aoforge/` and a force-tracked
+//       .aoforge/config.json: result `ignored: ['.aoforge/STACK.md']` plus a warning, the file is
+//       still written, and the dir-level `git check-ignore -q .aoforge` misses it (the bug). A
 //       clean fixture gives `ignored: []`; git missing from PATH gives `ignored: []`, no throw.
 //       Since TRD 42-14 STACK-REPORT.md is listed too.
-// - I19 (TRD 42-14 test 9, D5) `.planning/` ignored with config.json AND STACK.md force-tracked:
+// - I19 (TRD 42-14 test 9, D5) `.aoforge/` ignored with config.json AND STACK.md force-tracked:
 //       the PREVIEW (initProfile, CLI JSON, CLI --raw stderr) reports both stack files, and
 //       --write agrees; a clean fixture gives `ignored: []` in both modes.
 //
@@ -234,7 +234,7 @@ describe('initProfile (I9-I11)', () => {
     try {
       const result = sp.initProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'general', write: false, force: false });
       assert.equal(result.action, 'preview');
-      assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), false);
+      assert.equal(fs.existsSync(path.join(root, '.aoforge', 'STACK.md')), false);
     } finally {
       fx.cleanup(root, home);
     }
@@ -243,7 +243,7 @@ describe('initProfile (I9-I11)', () => {
   test('I10: write -> written; a second write without --force refuses and leaves bytes unchanged; --force writes', () => {
     const home = fx.makeHome({});
     const root = fx.makeProject({});
-    const targetPath = path.join(root, '.planning', 'STACK.md');
+    const targetPath = path.join(root, '.aoforge', 'STACK.md');
     try {
       const r1 = sp.initProfile({ projectRoot: root, userHome: home, from: 'codebase', extendsId: 'general', write: true, force: false });
       assert.equal(r1.action, 'written');
@@ -297,7 +297,7 @@ describe('stack init CLI end-to-end (I12, DoD)', () => {
     try {
       const initRes = run(['stack', 'init', '--from', 'codebase', '--write'], { cwd: root, home, path: bin });
       assert.equal(initRes.code, 0);
-      assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), true);
+      assert.equal(fs.existsSync(path.join(root, '.aoforge', 'STACK.md')), true);
 
       const validateRes = run(['stack', 'validate'], { cwd: root, home });
       assert.equal(validateRes.code, 0);
@@ -485,7 +485,7 @@ describe('grounded draftProfile / initProfile (I16, TRD 42-07)', () => {
         { path: 'svc/', profile: 'go' },
       ]);
       assert.ok(Array.isArray(draft.notes) && draft.notes.length > 0);
-      assert.match(draft.body, /<!-- stack init notes \(see \.planning\/STACK-REPORT\.md\):/);
+      assert.match(draft.body, /<!-- stack init notes \(see \.aoforge\/STACK-REPORT\.md\):/);
       assert.ok(draft.frontmatter.provenance.sources.includes('.github/workflows/ci.yml'));
       assert.ok(draft.frontmatter.provenance.sources.every((s) => !['ci', 'runner', 'manifest'].includes(s)), 'sources are files');
     } finally {
@@ -493,7 +493,7 @@ describe('grounded draftProfile / initProfile (I16, TRD 42-07)', () => {
     }
   });
 
-  test('I16b: initProfile threads verifyOpts/now, returns notes, and never writes .planning/stacks/', () => {
+  test('I16b: initProfile threads verifyOpts/now, returns notes, and never writes .aoforge/stacks/', () => {
     const root = drafterFx.missingBinaryShape();
     const home = drafterFx.fakeEmptyHome();
     const bin = drafterFx.fakeToolchain();
@@ -507,7 +507,7 @@ describe('grounded draftProfile / initProfile (I16, TRD 42-07)', () => {
       assert.deepStrictEqual(fm.commands.test, { run: 'discover' });
       assert.equal(fm.provenance.reviewed, '2026-09-28');
       assert.ok(r.notes.some((n) => n.key === 'test' && n.status === 'binary_missing' && n.candidate === 'ginkgo -r -p'));
-      assert.equal(fs.existsSync(path.join(root, '.planning', 'stacks')), false);
+      assert.equal(fs.existsSync(path.join(root, '.aoforge', 'stacks')), false);
     } finally {
       drafterFx.cleanup(root, home, bin);
     }
@@ -529,10 +529,10 @@ const detectFx = require('./__fixtures__/stack-detect-fixtures.cjs');
 const { isGitIgnored } = require('./helpers.cjs');
 
 const NO_GIT = detectFx.hasGit() ? false : 'git is not on PATH';
-const STACK_IGNORED_WARNING = '.planning/STACK.md is gitignored; aof-tools commit will skip it';
+const STACK_IGNORED_WARNING = '.aoforge/STACK.md is gitignored; aof-tools commit will skip it';
 // TRD 42-14 (D5): both stack files are checked, file by file, with `--no-index`.
-const REPORT_IGNORED_WARNING = '.planning/STACK-REPORT.md is gitignored; aof-tools commit will skip it';
-const BOTH_STACK_FILES = ['.planning/STACK.md', '.planning/STACK-REPORT.md'];
+const REPORT_IGNORED_WARNING = '.aoforge/STACK-REPORT.md is gitignored; aof-tools commit will skip it';
+const BOTH_STACK_FILES = ['.aoforge/STACK.md', '.aoforge/STACK-REPORT.md'];
 const stubVerify = () => ({ status: 'resolved', detail: 'stub', tool: null });
 
 /** A git repo with a root go.mod; `.gitignore` = `ignore` and `track` force-added. */
@@ -561,7 +561,7 @@ describe('stack init CLI skips gitignored areas (I17, TRD 42-12 test 1)', () => 
         assert.ok(paths.includes('app/'), JSON.stringify(fm.components));
         assert.equal(paths.some((p) => p.startsWith(shape.bad)), false, JSON.stringify(fm.components));
         assert.equal(r.stdout.includes(shape.bad), false, 'the ignored tree is not even noted');
-        assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), false, 'no --write, no file');
+        assert.equal(fs.existsSync(path.join(root, '.aoforge', 'STACK.md')), false, 'no --write, no file');
       } finally {
         detectFx.cleanup(root);
         drafterFx.cleanup(home);
@@ -571,20 +571,20 @@ describe('stack init CLI skips gitignored areas (I17, TRD 42-12 test 1)', () => 
 });
 
 describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () => {
-  test('I18a: `.planning/` ignored with a tracked config.json -> ignored [STACK.md] + warning; written anyway; the dir check misses it', { skip: NO_GIT }, () => {
-    const root = gitGoRepo({ ignore: '.planning/\n', files: { '.planning/config.json': '{}\n' }, track: ['.planning/config.json'] });
+  test('I18a: `.aoforge/` ignored with a tracked config.json -> ignored [STACK.md] + warning; written anyway; the dir check misses it', { skip: NO_GIT }, () => {
+    const root = gitGoRepo({ ignore: '.aoforge/\n', files: { '.aoforge/config.json': '{}\n' }, track: ['.aoforge/config.json'] });
     const home = drafterFx.fakeEmptyHome();
     try {
       // The bug this preflight fixes: a tracked file under the dir masks the dir-level check.
-      assert.equal(spawnSync('git', ['-C', root, 'check-ignore', '-q', '.planning']).status, 1);
-      assert.equal(isGitIgnored(root, '.planning'), false);
+      assert.equal(spawnSync('git', ['-C', root, 'check-ignore', '-q', '.aoforge']).status, 1);
+      assert.equal(isGitIgnored(root, '.aoforge'), false);
 
       const r = sp.initProfile({ projectRoot: root, userHome: home, write: true, verify: stubVerify });
       assert.equal(r.action, 'written', JSON.stringify(r.validation));
-      // Since TRD 42-14 STACK-REPORT.md is checked too (same `.planning/` rule).
+      // Since TRD 42-14 STACK-REPORT.md is checked too (same `.aoforge/` rule).
       assert.deepStrictEqual(r.ignored, BOTH_STACK_FILES);
       assert.deepStrictEqual(r.warnings, [STACK_IGNORED_WARNING, REPORT_IGNORED_WARNING]);
-      assert.equal(fs.existsSync(path.join(root, '.planning', 'STACK.md')), true, 'non-fatal: still written');
+      assert.equal(fs.existsSync(path.join(root, '.aoforge', 'STACK.md')), true, 'non-fatal: still written');
     } finally {
       detectFx.cleanup(root);
       drafterFx.cleanup(home);
@@ -606,7 +606,7 @@ describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () =>
   });
 
   test('I18c: git missing from PATH -> ignored [] and no throw', { skip: NO_GIT }, () => {
-    const root = gitGoRepo({ ignore: '.planning/\n', files: { '.planning/config.json': '{}\n' }, track: ['.planning/config.json'] });
+    const root = gitGoRepo({ ignore: '.aoforge/\n', files: { '.aoforge/config.json': '{}\n' }, track: ['.aoforge/config.json'] });
     const home = drafterFx.fakeEmptyHome();
     const saved = process.env.PATH;
     try {
@@ -627,7 +627,7 @@ describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () =>
   });
 
   test('I18d: CLI `stack init --write` reports ignored + the warning in its JSON and on stderr', { skip: NO_GIT }, () => {
-    const root = gitGoRepo({ ignore: '.planning/\n', files: { '.planning/config.json': '{}\n' }, track: ['.planning/config.json'] });
+    const root = gitGoRepo({ ignore: '.aoforge/\n', files: { '.aoforge/config.json': '{}\n' }, track: ['.aoforge/config.json'] });
     const home = drafterFx.fakeEmptyHome();
     try {
       const r = run(['stack', 'init', '--write'], { cwd: root, home });
@@ -648,15 +648,15 @@ describe('stack init --write gitignore preflight (I18, TRD 42-12 test 7)', () =>
 // ─── I19 (TRD 42-14 test 9, D5): the file-level `--no-index` check in PREVIEW and write ──
 
 describe('stack init ignored stack files, preview and write (I19, TRD 42-14 test 9)', () => {
-  // `.planning/` ignored, with config.json AND STACK.md force-tracked: an index-aware check calls
+  // `.aoforge/` ignored, with config.json AND STACK.md force-tracked: an index-aware check calls
   // the tracked STACK.md "not ignored", and before 42-14 the preview never checked at all.
   const trackedPlanningRepo = () => gitGoRepo({
-    ignore: '.planning/\n',
+    ignore: '.aoforge/\n',
     files: {
-      '.planning/config.json': '{}\n',
-      '.planning/STACK.md': fx.profileMd({ yaml: ['schema: 1', 'extends: general'].join('\n') }),
+      '.aoforge/config.json': '{}\n',
+      '.aoforge/STACK.md': fx.profileMd({ yaml: ['schema: 1', 'extends: general'].join('\n') }),
     },
-    track: ['.planning/config.json', '.planning/STACK.md'],
+    track: ['.aoforge/config.json', '.aoforge/STACK.md'],
   });
 
   test('I19a: initProfile PREVIEW reports both stack files (today\'s [] is the bug); --write --force agrees', { skip: NO_GIT }, () => {
@@ -680,7 +680,7 @@ describe('stack init ignored stack files, preview and write (I19, TRD 42-14 test
     const root = trackedPlanningRepo();
     const home = drafterFx.fakeEmptyHome();
     try {
-      const before = fs.readFileSync(path.join(root, '.planning', 'STACK.md'), 'utf-8');
+      const before = fs.readFileSync(path.join(root, '.aoforge', 'STACK.md'), 'utf-8');
       const r = run(['stack', 'init'], { cwd: root, home });
       assert.equal(r.code, 0, r.stderr);
       const json = JSON.parse(r.stdout);
@@ -690,7 +690,7 @@ describe('stack init ignored stack files, preview and write (I19, TRD 42-14 test
       assert.equal(raw.code, 0, raw.stderr);
       assert.ok(raw.stderr.includes(STACK_IGNORED_WARNING), raw.stderr);
       assert.ok(raw.stderr.includes(REPORT_IGNORED_WARNING), raw.stderr);
-      assert.equal(fs.readFileSync(path.join(root, '.planning', 'STACK.md'), 'utf-8'), before, 'a preview never writes');
+      assert.equal(fs.readFileSync(path.join(root, '.aoforge', 'STACK.md'), 'utf-8'), before, 'a preview never writes');
     } finally {
       detectFx.cleanup(root);
       drafterFx.cleanup(home);

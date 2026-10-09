@@ -1519,7 +1519,7 @@ function summarize(results) {
  * verifyStack({ projectRoot, userHome, draft, run, allowServices, include, keys, timeoutS, env, spawn, which, fs })
  *   -> { result: { profile_source, profile_file, results, summary }, exitCode }
  *
- * Read-only: `.planning/STACK.md` is only read, and `--draft` verifies `initProfile(write:false)`.
+ * Read-only: `.aoforge/STACK.md` is only read, and `--draft` verifies `initProfile(write:false)`.
  * Exported so 42-11 can call it without a subprocess.
  */
 function verifyStack({ projectRoot, userHome = null, draft = false, run = false, allowServices = false, include = [], keys = null, timeoutS = null, env = process.env, spawn = spawnSync, which = null, fs = nodeFs } = {}) {

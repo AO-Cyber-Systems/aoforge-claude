@@ -47,7 +47,7 @@ test('1. estimateObjective (execution part): remaining TRDs grouped by wave, par
 
   assert.equal(r.objective, '80');
   assert.equal(r.name, 'alpha');
-  assert.equal(r.dir, '.planning/objectives/80-alpha');
+  assert.equal(r.dir, '.aoforge/objectives/80-alpha');
   assert.equal(r.status, 'partial');
   assert.equal(r.parallel, true);
   assert.deepEqual(r.trds, { total: 4, done: 1, remaining: 3 });

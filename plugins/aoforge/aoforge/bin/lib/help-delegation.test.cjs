@@ -76,10 +76,10 @@ before(() => {
   // An AOForge-shaped project with a git repo and something dirty in it, so a
   // handler that stages or writes before printing has something to catch on.
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-helpdel-'));
-  fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
-  fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), '{"commit_docs":true}\n');
-  fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# State\n');
-  fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n');
+  fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
+  fs.writeFileSync(path.join(tmpDir, '.aoforge', 'config.json'), '{"commit_docs":true}\n');
+  fs.writeFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), '# State\n');
+  fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
   // A Flutter package, so `flutter-ui bootstrap . --help` reaches the scaffolder
   // rather than short-circuiting on `flutter-not-detected`. Without this the
   // finding-4 probe passes for the wrong reason.

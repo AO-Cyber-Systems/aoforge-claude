@@ -2,16 +2,18 @@
 
 // Migration 0003 — state-json-seed (TRD 36-04a).
 //
-// Seeds the machine-readable `.planning/state.json` sidecar from STATE.md when STATE.md exists and
+// Seeds the machine-readable `.aoforge/state.json` sidecar from STATE.md when STATE.md exists and
 // state.json does not. This is the only copy of the seeding logic: `validate health --repair`
 // (W009, action `createStateJson`) calls apply.
 
 const fs = require('fs');
 const path = require('path');
+const { planningRel } = require('../compat.cjs');
 const { STATE_JSON_DEFAULTS, stateExtractField, writeStateJson } = require('../state.cjs');
 
-const STATE_REL = '.planning/STATE.md';
-const STATE_JSON_REL = '.planning/state.json';
+// under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const stateRel = (root) => planningRel(root, 'STATE.md');
+const stateJsonRel = (root) => planningRel(root, 'state.json');
 
 /**
  * seedFromStateMd(stateContent) -> a state.json object: STATE_JSON_DEFAULTS overlaid with every
@@ -50,6 +52,8 @@ function seedFromStateMd(stateContent) {
 }
 
 function detect(ctx) {
+  const STATE_REL = stateRel(ctx.projectRoot);
+  const STATE_JSON_REL = stateJsonRel(ctx.projectRoot);
   const statePath = path.join(ctx.projectRoot, STATE_REL);
   if (!fs.existsSync(statePath)) return { applies: false, reason: `no ${STATE_REL} to seed from` };
   if (fs.existsSync(path.join(ctx.projectRoot, STATE_JSON_REL))) {
@@ -59,6 +63,8 @@ function detect(ctx) {
 }
 
 function apply(ctx) {
+  const STATE_REL = stateRel(ctx.projectRoot);
+  const STATE_JSON_REL = stateJsonRel(ctx.projectRoot);
   const statePath = path.join(ctx.projectRoot, STATE_REL);
   const content = fs.existsSync(statePath) ? fs.readFileSync(statePath, 'utf-8') : '';
   const seeded = seedFromStateMd(content);
@@ -69,7 +75,7 @@ function apply(ctx) {
 
 module.exports = {
   id: '0003',
-  title: 'Seed .planning/state.json from STATE.md',
+  title: 'Seed .aoforge/state.json from STATE.md',
   since: '2.11.0',
   safety: 'auto',
   detect,

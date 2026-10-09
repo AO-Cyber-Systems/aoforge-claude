@@ -54,10 +54,10 @@ function makeProject({ github, strategy, pr } = {}) {
   const config = {};
   if (github) config.github = github;
   if (strategy !== undefined) config.git = { branching_strategy: strategy };
-  fs.mkdirSync(path.join(dir, '.planning', 'objectives', OBJ_DIR), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config));
-  fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), '## Objective 49: Objective branch and PR lifecycle\n');
-  fs.writeFileSync(path.join(dir, '.planning', 'objectives', OBJ_DIR, 'OBJECTIVE.md'), '---\nwork: feature\n---\n# Objective\n');
+  fs.mkdirSync(path.join(dir, '.aoforge', 'objectives', OBJ_DIR), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), JSON.stringify(config));
+  fs.writeFileSync(path.join(dir, '.aoforge', 'ROADMAP.md'), '## Objective 49: Objective branch and PR lifecycle\n');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'objectives', OBJ_DIR, 'OBJECTIVE.md'), '---\nwork: feature\n---\n# Objective\n');
   if (pr) {
     const mapping = ghMapping.emptyMapping();
     ghMapping.setPr(mapping, '49', pr);
@@ -106,7 +106,7 @@ test('49-08 test 1: store project, no prs entry -> rendered template branch, nul
 test('49-08 test 1b: store mode honours a custom objective_branch_template', () => {
   const dir = makeProject({ github: STORE });
   fs.writeFileSync(
-    path.join(dir, '.planning', 'config.json'),
+    path.join(dir, '.aoforge', 'config.json'),
     JSON.stringify({ github: STORE, git: { objective_branch_template: 'feat/{objective}/{slug}' } })
   );
   const r = execObjective(dir);
@@ -257,10 +257,10 @@ test('49-08 test 8: a linked worktree resolves the mode and the prs mapping from
   fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(main, '.git', 'worktrees', 'wt')}\n`);
   // The worktree has its own copy of the tracked planning files but NOT the gitignored mapping, and a config
   // that does not enable store mode: the main checkout decides.
-  fs.mkdirSync(path.join(wt, '.planning', 'objectives', OBJ_DIR), { recursive: true });
-  fs.writeFileSync(path.join(wt, '.planning', 'config.json'), '{}');
-  fs.writeFileSync(path.join(wt, '.planning', 'ROADMAP.md'), '## Objective 49: Objective branch and PR lifecycle\n');
-  fs.writeFileSync(path.join(wt, '.planning', 'objectives', OBJ_DIR, 'OBJECTIVE.md'), '---\nwork: feature\n---\n# Objective\n');
+  fs.mkdirSync(path.join(wt, '.aoforge', 'objectives', OBJ_DIR), { recursive: true });
+  fs.writeFileSync(path.join(wt, '.aoforge', 'config.json'), '{}');
+  fs.writeFileSync(path.join(wt, '.aoforge', 'ROADMAP.md'), '## Objective 49: Objective branch and PR lifecycle\n');
+  fs.writeFileSync(path.join(wt, '.aoforge', 'objectives', OBJ_DIR, 'OBJECTIVE.md'), '---\nwork: feature\n---\n# Objective\n');
 
   const r = execObjective(wt);
   assert.strictEqual(r.pr_lifecycle, true);

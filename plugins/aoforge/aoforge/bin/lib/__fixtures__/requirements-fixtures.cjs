@@ -5,7 +5,7 @@
 //
 //   REQUIREMENTS.md     `- [x] **EST-02**: text` definition lines, a traceability table repeating the IDs (a row is NOT a
 //                       definition) and a prose line mentioning one (neither counts); archived copies sit at
-//                       .planning/milestones/<version>-REQUIREMENTS.md
+//                       .aoforge/milestones/<version>-REQUIREMENTS.md
 //   VERIFICATION        `## Observable Truths` table, then `## Requirements Coverage` with `| Req | Plans | Status |` rows
 //                       (58-VERIFICATION.md) or `| Requirement | Status | Blocking Issue |` (verification-report.md)
 //   SUMMARY             frontmatter `objective`, `trd`, then the raw requirements-completed YAML, then a `verification:` block
@@ -49,15 +49,15 @@ function requirementsDocText(entries) {
 
 /**
  * An AOForge-shaped temp project (realpath'd, so path comparisons hold on macOS).
- *   requirements  [id | { id, checked }]            -> .planning/REQUIREMENTS.md (omitted when empty)
- *   archived      { '<version>': [id | {id,..}] }   -> .planning/milestones/<version>-REQUIREMENTS.md
+ *   requirements  [id | { id, checked }]            -> .aoforge/REQUIREMENTS.md (omitted when empty)
+ *   archived      { '<version>': [id | {id,..}] }   -> .aoforge/milestones/<version>-REQUIREMENTS.md
  *   objectives    [{ dir, verifications, summaries, trds }]  each a { fileName: text } map, written under
- *                 .planning/objectives/<dir>/
- * -> { root, planningDir, write(rel, text), cleanup() }   `rel` is relative to .planning/
+ *                 .aoforge/objectives/<dir>/
+ * -> { root, planningDir, write(rel, text), cleanup() }   `rel` is relative to .aoforge/
  */
 function makeRequirementsProject({ requirements = [], archived = {}, objectives = [] } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-reqagree-')));
-  const planningDir = path.join(root, '.planning');
+  const planningDir = path.join(root, '.aoforge');
   fs.mkdirSync(planningDir, { recursive: true });
 
   function write(rel, text) {

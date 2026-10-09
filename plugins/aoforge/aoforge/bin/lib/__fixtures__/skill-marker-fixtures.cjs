@@ -1,12 +1,12 @@
 'use strict';
 
-// Hand-built `.planning/.skill-active` project builder (TRD 69-02, TOOL-09).
+// Hand-built `.aoforge/.skill-active` project builder (TRD 69-02, TOOL-09).
 //
 // no_llm_test_data: every marker body is literal JSON whose times are offsets from an injected
 // `now`, written into an `fs.mkdtemp`-ed stamped project (doctor-fixtures.makeDoctorProject). Every
 // git call runs with upgrade-fixtures' gitEnv(home): a fake HOME, no system config, a local
 // identity and no signing, so the operator's git config is never consulted. This repository's own
-// `.planning/.skill-active` is never read: during an execution it is the live marker that holds the
+// `.aoforge/.skill-active` is never read: during an execution it is the live marker that holds the
 // executor's edit gate open.
 //
 // makeMarkerProject builds every row of the 69-02 decision table in one call:
@@ -26,7 +26,7 @@ const { spawnSync } = require('child_process');
 const { makeDoctorProject } = require('./doctor-fixtures.cjs');
 const { gitEnv } = require('./upgrade-fixtures.cjs');
 
-const MARKER_REL = '.planning/.skill-active';
+const MARKER_REL = '.aoforge/.skill-active';
 const HOUR_MS = 60 * 60 * 1000;
 const DEFAULT_NOW = new Date('2026-10-08T12:00:00.000Z');
 

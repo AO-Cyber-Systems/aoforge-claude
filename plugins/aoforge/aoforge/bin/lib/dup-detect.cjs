@@ -29,14 +29,18 @@ const { spawnSync } = require('child_process');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const aw = require('./awareness.cjs');
 const orgaw = require('./org-awareness.cjs');
+const { planningRoot, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 // ─── TRD 04-01: Constants ─────────────────────────────────────────────────────
 
 const HARD_MATCH_THRESHOLD = 1;
 const STRONG_FILE_OVERLAP_THRESHOLD = 2;
 const STRONG_KEYWORD_OVERLAP_THRESHOLD = 3;
-const DUP_DETECT_LOG_REL = '.planning/.dup-detect-log.jsonl';
-const DEFERRED_DIR_REL = '.planning/.deferred';
+// file names inside the planning directory; the *_REL forms are the default-layout paths callers name
+const DUP_DETECT_LOG_FILE = '.dup-detect-log.jsonl';
+const DEFERRED_DIR_NAME = '.deferred';
+const DUP_DETECT_LOG_REL = `.aoforge/${DUP_DETECT_LOG_FILE}`;
+const DEFERRED_DIR_REL = `.aoforge/${DEFERRED_DIR_NAME}`;
 
 // ─── TRD 04-01: Injection hooks ───────────────────────────────────────────────
 //
@@ -86,7 +90,7 @@ function _runGit(args, opts = {}) {
 /**
  * Read files_modified from a peer branch's TRD frontmatter files.
  *
- * Uses `git show <branch>:.planning/objectives/<dir>/<file>-TRD.md` for each
+ * Uses `git show <branch>:.aoforge/objectives/<dir>/<file>-TRD.md` for each
  * TRD file on the peer branch. Branches without TRDs return [].
  * Missing TRDs are silently skipped (mirror obj 2's scanPeer STATE.md-missing pattern).
  *
@@ -102,16 +106,21 @@ function _readPeerFilesModified(peer_branch, cwd) {
   const filesSet = new Set();
 
   try {
-    // 1. Find peer's STATE.md to get the objective dir name
-    const stateR = _runGit(['show', `${peer_branch}:.planning/STATE.md`], { cwd });
-    if (!stateR.ok) return [];
+    // 1. Find peer's STATE.md to get the objective dir name (the branch may be on either layout)
+    let peerDir = null;
+    let stateR = null;
+    for (const dir of PLANNING_DIR_NAMES) {
+      const r = _runGit(['show', `${peer_branch}:${dir}/STATE.md`], { cwd });
+      if (r.ok) { peerDir = dir; stateR = r; break; }
+    }
+    if (!stateR) return [];
 
     // 2. Parse objective dir from STATE.md
     const { parseStateMd } = require('./awareness.cjs');
     const stateData = parseStateMd(stateR.stdout);
     if (!stateData || !stateData.objective) return [];
 
-    // 3. Find the objective directory under .planning/objectives/
+    // 3. Find the objective directory under .aoforge/objectives/
     // Try to match by objective id prefix (e.g. "04-") or full name
     const objectiveStr = stateData.objective;
     // Extract objective number from strings like "04 — duplicate-work-detection" or "04-dup"
@@ -121,11 +130,11 @@ function _readPeerFilesModified(peer_branch, cwd) {
 
     // 4. List peer's objectives directory to find the matching subdir
     const lsTreeR = _runGit([
-      'ls-tree', '--name-only', peer_branch, '.planning/objectives/',
+      'ls-tree', '--name-only', peer_branch, `${peerDir}/objectives/`,
     ], { cwd });
     if (!lsTreeR.ok) return [];
 
-    // Parse directory entries — git ls-tree returns full paths like ".planning/objectives/04-foo/"
+    // Parse directory entries — git ls-tree returns full paths like ".aoforge/objectives/04-foo/"
     const dirEntries = lsTreeR.stdout.split('\n')
       .map(l => l.trim())
       .filter(l => l.length > 0);
@@ -531,12 +540,12 @@ function detectDuplicates({
 // ─── TRD 04-02: recordResolution + applyResolution + writers ─────────────────
 
 /**
- * Append a single record to .planning/.dup-detect-log.jsonl.
+ * Append a single record to .aoforge/.dup-detect-log.jsonl.
  *
  * Schema (locked per CONTEXT.md decision #7):
  *   { timestamp, objective_id, mode, blocking, top_match: {strength, peer, score}|null, resolution }
  *
- * Lazy-creates .planning/ if missing. Atomic per-call (POSIX appendFileSync).
+ * Lazy-creates .aoforge/ if missing. Atomic per-call (POSIX appendFileSync).
  * Never throws; on write error, warns to stderr.
  *
  * @param {object} opts
@@ -556,8 +565,8 @@ function recordResolution({ objective_id, mode, blocking, top_match, resolution,
     top_match: top_match || null,
     resolution: resolution || 'none',
   };
-  const planningDir = path.join(cwd, '.planning');
-  const logPath = path.join(cwd, DUP_DETECT_LOG_REL);
+  const planningDir = planningRoot(cwd);
+  const logPath = path.join(planningDir, DUP_DETECT_LOG_FILE);
   try {
     if (!_runFs.existsSync(planningDir)) _runFs.mkdirSync(planningDir, { recursive: true });
     _runFs.appendFileSync(logPath, JSON.stringify(record) + '\n');
@@ -616,8 +625,8 @@ function _writeCoordinationNote(objective_dir, padded, note_data) {
 }
 
 /**
- * Write .planning/.deferred/<objective_id>.json with locked schema.
- * Lazy-creates .planning/.deferred/ if missing.
+ * Write .aoforge/.deferred/<objective_id>.json with locked schema.
+ * Lazy-creates .aoforge/.deferred/ if missing.
  *
  * @param {string} objective_id
  * @param {object} state - partial state object (objective_id + timestamps merged in)
@@ -625,7 +634,7 @@ function _writeCoordinationNote(objective_dir, padded, note_data) {
  * @returns {string} the absolute path written
  */
 function _writeDeferredState(objective_id, state, cwd = process.cwd()) {
-  const deferDir = path.join(cwd, DEFERRED_DIR_REL);
+  const deferDir = path.join(planningRoot(cwd), DEFERRED_DIR_NAME);
   if (!_runFs.existsSync(deferDir)) _runFs.mkdirSync(deferDir, { recursive: true });
   const filePath = path.join(deferDir, `${objective_id}.json`);
   const now = new Date().toISOString();
@@ -776,7 +785,7 @@ function _renderResolutionOptions() {
     '### Resolution options',
     '',
     '1. **Merge** — abort planning, switch to peer branch and continue there.',
-    '2. **Defer** — pause this objective; save state to `.planning/.deferred/<id>.json`.',
+    '2. **Defer** — pause this objective; save state to `.aoforge/.deferred/<id>.json`.',
     '3. **Coordinate** — continue planning; record a Coordination Note in CONTEXT.md.',
     '4. **Proceed-anyway** — continue with full warning logged in CONTEXT.md.',
   ].join('\n');

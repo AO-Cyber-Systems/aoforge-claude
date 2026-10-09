@@ -7,7 +7,7 @@
  *   7b  `aof-tools planning import --dry-run` prints the request estimate
  *   7c  `aof-tools upgrade --apply --only 0011 --confirm` with GitHub going offline mid-drain exits non-zero and prints
  *       the resume command; nothing is stamped
- *   7d  back online, the same command exits 0: only `.planning/config.json` stays tracked and the printed follow-up
+ *   7d  back online, the same command exits 0: only `.aoforge/config.json` stays tracked and the printed follow-up
  *       carries the store-mode commit steps (`AOFORGE_SKIP_GH_GATE=1`)
  *
  * GitHub is a stateful `gh` PATH shim (a stub table cannot answer a backfill): each `gh` call is a node process that
@@ -104,13 +104,13 @@ function df(env, shim, args) {
 }
 
 function trackedPlanning(env) {
-  const r = spawnSync('git', ['ls-files', '--', '.planning'], { cwd: env.root, env: { ...process.env, ...env.env }, encoding: 'utf-8' });
+  const r = spawnSync('git', ['ls-files', '--', '.aoforge'], { cwd: env.root, env: { ...process.env, ...env.env }, encoding: 'utf-8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.split('\n').filter(Boolean).sort();
 }
 
 const stamped = (env) => {
-  const cfg = JSON.parse(fs.readFileSync(path.join(env.root, '.planning', 'config.json'), 'utf-8'));
+  const cfg = JSON.parse(fs.readFileSync(path.join(env.root, '.aoforge', 'config.json'), 'utf-8'));
   return cfg.aoforge && Array.isArray(cfg.aoforge.migrations_applied) ? cfg.aoforge.migrations_applied : [];
 };
 
@@ -170,7 +170,7 @@ describe('backfill through the aof-tools CLI (test 7)', () => {
     assert.ok(a, JSON.stringify(applied.applied.map((x) => x.id)));
     assert.match(a.notes, /AOFORGE_SKIP_GH_GATE=1/, 'the printed follow-up carries the store-mode commit steps');
     assert.match(a.notes, /not re-imported \(resume\)/);
-    assert.deepEqual(trackedPlanning(env), ['.planning/config.json'], 'only config.json stays tracked');
+    assert.deepEqual(trackedPlanning(env), ['.aoforge/config.json'], 'only config.json stays tracked');
     assert.ok(stamped(env).includes('0011') && stamped(env).includes('0010'), JSON.stringify(stamped(env)));
 
     // GitHub holds the objective and its five TRDs, each once.

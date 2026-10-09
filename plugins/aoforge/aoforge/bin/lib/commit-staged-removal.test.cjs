@@ -29,7 +29,7 @@ const fx = require('./__fixtures__/upgrade-fixtures.cjs');
 const m0008 = require('./migrations/0008-runtime-state-untrack.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
-const GUARD = '.planning/.progress-guard.json';
+const GUARD = '.aoforge/.progress-guard.json';
 const GITIGNORE = '.gitignore';
 const HAS_GIT = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
 
@@ -107,7 +107,7 @@ describe('aof-tools commit: staged removals of ignored files (TRD 44-06)', () =>
     afterMigration(p);
     fs.writeFileSync(path.join(p.root, GUARD), '{\n  "count": 42\n}\n');
 
-    const r = dfCommit(p, 'chore: x', [GITIGNORE, GUARD, '.planning/config.json']);
+    const r = dfCommit(p, 'chore: x', [GITIGNORE, GUARD, '.aoforge/config.json']);
     assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
     assert.equal(r.json && r.json.committed, true, r.out);
     assert.ok(!headFiles(p).includes(GUARD));
@@ -136,30 +136,30 @@ describe('aof-tools commit: staged removals of ignored files (TRD 44-06)', () =>
   test('4. regression: a normal pathspec commit of modified tracked files is unchanged; foreign staged work stays out', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project({ tracked: [] });
-    fs.appendFileSync(path.join(p.root, '.planning', 'STATE.md'), '\n- extra line\n');
-    fs.appendFileSync(path.join(p.root, '.planning', 'ROADMAP.md'), '\n### Objective 3: Gamma\n');
+    fs.appendFileSync(path.join(p.root, '.aoforge', 'STATE.md'), '\n- extra line\n');
+    fs.appendFileSync(path.join(p.root, '.aoforge', 'ROADMAP.md'), '\n### Objective 3: Gamma\n');
     fs.writeFileSync(path.join(p.root, 'notes.txt'), 'mine\n');
     git(p, 'add', '--', 'notes.txt');
 
-    const r = dfCommit(p, 'docs: update', ['.planning/STATE.md', '.planning/ROADMAP.md']);
+    const r = dfCommit(p, 'docs: update', ['.aoforge/STATE.md', '.aoforge/ROADMAP.md']);
     assert.equal(r.status, 0, r.out);
     assert.equal(r.json && r.json.committed, true, r.out);
-    assert.deepEqual(lastCommitFiles(p), ['.planning/ROADMAP.md', '.planning/STATE.md']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/ROADMAP.md', '.aoforge/STATE.md']);
     assert.equal(git(p, 'diff', '--cached', '--name-only'), 'notes.txt', 'notes.txt still staged, not committed');
   });
 
   test('4b. regression: a plain git rm (file gone from disk) still commits by pathspec beside foreign staged work', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project({ tracked: [] });
-    git(p, 'rm', '-q', '--', '.planning/ROADMAP.md');
+    git(p, 'rm', '-q', '--', '.aoforge/ROADMAP.md');
     fs.writeFileSync(path.join(p.root, 'notes.txt'), 'mine\n');
     git(p, 'add', '--', 'notes.txt');
 
-    const r = dfCommit(p, 'docs: drop roadmap', ['.planning/ROADMAP.md']);
+    const r = dfCommit(p, 'docs: drop roadmap', ['.aoforge/ROADMAP.md']);
     assert.equal(r.status, 0, r.out);
     assert.equal(r.json && r.json.committed, true, r.out);
-    assert.deepEqual(lastCommitFiles(p), ['.planning/ROADMAP.md']);
-    assert.ok(!headFiles(p).includes('.planning/ROADMAP.md'));
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/ROADMAP.md']);
+    assert.ok(!headFiles(p).includes('.aoforge/ROADMAP.md'));
     assert.equal(git(p, 'diff', '--cached', '--name-only'), 'notes.txt', 'notes.txt still staged');
   });
 
@@ -173,13 +173,13 @@ describe('aof-tools commit: staged removals of ignored files (TRD 44-06)', () =>
     git(p, 'config', 'user.name', 'AOForge Fixture');
     git(p, 'config', 'user.email', 'fixture@aoforge.invalid');
     git(p, 'config', 'commit.gpgsign', 'false');
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), '{"commit_docs":true}\n');
-    fs.writeFileSync(path.join(root, '.planning', 'NOTES.md'), 'first\n');
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), '{"commit_docs":true}\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'NOTES.md'), 'first\n');
 
-    const r = dfCommit(p, 'docs: first', ['.planning/config.json', '.planning/NOTES.md']);
+    const r = dfCommit(p, 'docs: first', ['.aoforge/config.json', '.aoforge/NOTES.md']);
     assert.equal(r.status, 0, r.out);
     assert.equal(r.json && r.json.committed, true, r.out);
-    assert.deepEqual(headFiles(p).sort(), ['.planning/NOTES.md', '.planning/config.json']);
+    assert.deepEqual(headFiles(p).sort(), ['.aoforge/NOTES.md', '.aoforge/config.json']);
   });
 });

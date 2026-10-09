@@ -13,6 +13,7 @@
 // 14. userDotFile prefers the new dot dir, falls back to the old one, else the new write path.
 // 15. runtimeHome and legacyRuntimeHome.
 // 16. Source guard: compat.cjs spells no legacy name.
+// 17-19 (TRD 72-05): planningRel, PLANNING_DIR_NAMES/isPlanningDirName, planningDirLabel.
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
@@ -140,6 +141,40 @@ describe('compat planning directory', () => {
     } finally {
       t.cleanup();
     }
+  });
+});
+
+describe('compat planning-directory helpers for callers (TRD 72-05)', () => {
+  it('17. planningRel names a path inside the resolved directory, posix, relative to the root', () => {
+    const want = { aoforge: '.aoforge', legacy: '.planning', both: '.aoforge', none: '.aoforge' };
+    for (const [layout, dir] of Object.entries(want)) {
+      const t = projectTree({ layout });
+      try {
+        assert.equal(compat.planningRel(t.root), dir, `layout ${layout}`);
+        assert.equal(compat.planningRel(t.root, 'STATE.md'), `${dir}/STATE.md`, `layout ${layout}`);
+        assert.equal(
+          compat.planningRel(t.root, 'objectives', '01-x/OBJECTIVE.md'),
+          `${dir}/objectives/01-x/OBJECTIVE.md`,
+          `layout ${layout}`,
+        );
+      } finally {
+        t.cleanup();
+      }
+    }
+  });
+
+  it('18. PLANNING_DIR_NAMES lists the new name first, then the legacy one; isPlanningDirName matches only those', () => {
+    assert.deepEqual(compat.PLANNING_DIR_NAMES, ['.aoforge', '.planning']);
+    assert.equal(Object.isFrozen(compat.PLANNING_DIR_NAMES), true);
+    assert.equal(compat.isPlanningDirName('.aoforge'), true);
+    assert.equal(compat.isPlanningDirName('.planning'), true);
+    for (const other of ['aoforge', 'planning', '.aoforge/', '.devflow', '', null, undefined]) {
+      assert.equal(compat.isPlanningDirName(other), false, String(other));
+    }
+  });
+
+  it('19. planningDirLabel names both directories for a "not found" message', () => {
+    assert.equal(compat.planningDirLabel(), '.aoforge/ (or legacy .planning/)');
   });
 });
 

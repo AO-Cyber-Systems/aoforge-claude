@@ -25,7 +25,7 @@ const client = require('./gh-client.cjs');
 const { cmdGhPull } = require('./gh-pull.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 
-const PLANNING = (root, ...p) => path.join(root, '.planning', ...p);
+const PLANNING = (root, ...p) => path.join(root, '.aoforge', ...p);
 const MAPPING = (root) => PLANNING(root, '.gh-mapping.json');
 const SYNC_STATE = (root) => PLANNING(root, '.gh-sync-state.json');
 const OBJ_MD = (root, dir) => PLANNING(root, 'objectives', dir, 'OBJECTIVE.md');

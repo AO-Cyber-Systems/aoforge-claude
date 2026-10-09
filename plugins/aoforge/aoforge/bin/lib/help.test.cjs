@@ -103,7 +103,7 @@ describe('the global help scan knows what is data and what is addressed to it (i
   test('finding 6 (end to end): handoff create actually queues the forwarded command', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-help-handoff-'));
     try {
-      fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+      fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
       const r = run(['handoff', 'create', 'gh', 'auth', 'login', '--help'], dir);
       assert.doesNotMatch(r.out, /^Usage: aof-tools handoff/m,
         `aof-tools answered for gh: ${r.out}`);

@@ -104,7 +104,7 @@ function useProject({ store = false, sync = false } = {}) {
   });
 }
 
-const planningFile = (rel) => path.join(S.root, '.planning', ...rel.split('/'));
+const planningFile = (rel) => path.join(S.root, '.aoforge', ...rel.split('/'));
 const draft = (name, text) => {
   const f = path.join(S.tmp, name);
   fs.writeFileSync(f, text);
@@ -150,7 +150,7 @@ describe('local mode (in-process)', () => {
 
     const prose = capture(() => cli().cmdPlan(S.root, ['put-trd', '7', '07-05-y-TRD.md', '--from', draft('y.md', smallTrd('05'))], false));
     assert.equal(prose.code, 0, prose.stderr);
-    assert.match(prose.stdout, /plan put-trd: wrote \.planning\/objectives\/07-store-demo\/07-05-y-TRD\.md \(local mode\)/);
+    assert.match(prose.stdout, /plan put-trd: wrote \.aoforge\/objectives\/07-store-demo\/07-05-y-TRD\.md \(local mode\)/);
 
     const bad = capture(() => cli().cmdPlan(S.root, ['put-trd', '7', '07-06-z-TRD.md'], false));
     assert.equal(bad.code, 1);
@@ -188,7 +188,7 @@ describe('store mode (in-process)', () => {
       const f = draft('sum.md', text);
       const r = capture(() => cli().cmdSummary(S.root, ['post', '7-01', '--from', f], false));
       assert.equal(r.code, 0, r.stdout + r.stderr);
-      assert.match(r.stdout, /summary post: wrote \.planning\/objectives\/07-store-demo\/07-01-alpha-SUMMARY\.md \(store mode\)/);
+      assert.match(r.stdout, /summary post: wrote \.aoforge\/objectives\/07-store-demo\/07-01-alpha-SUMMARY\.md \(store mode\)/);
       const issue = mappingLib.getTrd(mappingLib.readMappingV3(S.root), '7-01').issue_number;
       const summaries = S.fake.comments.filter((c) => c.issue_number === issue && c.body.includes('kind=summary'));
       assert.equal(summaries.length, 1, 'one summary comment on the TRD issue');

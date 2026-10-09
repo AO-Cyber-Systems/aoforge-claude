@@ -35,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { scanWrites, scanSet, GROUP_PATHS } = require('./planning-audit.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
@@ -291,7 +292,7 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
       const clean = measure().findings.filter((x) => x.file === rel);
       assert.deepEqual(clean, [], `${rel} must have zero findings`);
       const original = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
-      const text = `${original.replace(/\n?$/, '\n')}\nCreate the TRD file at .planning/objectives/01-x/01-01-TRD.md\n`;
+      const text = `${original.replace(/\n?$/, '\n')}\nCreate the TRD file at .aoforge/objectives/01-x/01-01-TRD.md\n`;
       const hit = measure({ override: { [rel]: text } }).findings.filter((x) => x.file === rel);
       assert.equal(hit.length, 1, `expected the scanner to flag the injected line, got ${JSON.stringify(hit)}`);
     });
@@ -334,6 +335,14 @@ describe('planning-writes.repo.test.cjs', { skip: SKIP }, () => {
   });
 
   describe('GROUP table', () => {
+    test('the scan set holds no path under the planning tree, by either name (TRD 72-05)', () => {
+      // this repository keeps the legacy directory until 72-21 moves it; the gate must exclude both
+      const prefixes = [`${NAMES.planningDir}/`, `${LEGACY.planningDir}/`];
+      const scanned = scanSet(REPO_ROOT);
+      assert.ok(scanned.length > 0, 'the scan set is empty');
+      assert.deepEqual(scanned.filter((s) => prefixes.some((p) => s.startsWith(p))), []);
+    });
+
     test('every pinned group path is a scanned file (or a prefix of one)', () => {
       const scanned = scanSet(REPO_ROOT);
       for (const [group, paths] of Object.entries(GROUP_PATHS)) {

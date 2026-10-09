@@ -790,9 +790,9 @@ test('buildBacktest: an estimate\'s dir is the relative path estimateObjective r
   const set = measuredSet([ONES]);
   const [estimate] = set.estimates;
   assert.strictEqual(estimate.dir, '90-o0');
-  set.estimates = [{ ...estimate, dir: '.planning/objectives/90-o0' }];
+  set.estimates = [{ ...estimate, dir: '.aoforge/objectives/90-o0' }];
   const [row] = backtest.buildBacktest(set).objectives;
-  assert.strictEqual(row.dir, '.planning/objectives/90-o0', 'the row keeps the dir the estimate carried');
+  assert.strictEqual(row.dir, '.aoforge/objectives/90-o0', 'the row keeps the dir the estimate carried');
   assert.strictEqual(row.agent_minutes.excluded, null, 'the 100 measured minutes were found');
   assert.strictEqual(row.agent_minutes.actual, 100);
   assert.strictEqual(row.agent_minutes.ratio, 1);

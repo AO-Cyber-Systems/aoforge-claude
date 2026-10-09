@@ -418,18 +418,18 @@ describe('ghPaginate', () => {
 
 // ─── Enabled gate (tests 17-19) ──────────────────────────────────────────────
 
-/** Build a throwaway project dir with hand-written .planning files. */
+/** Build a throwaway project dir with hand-written .aoforge files. */
 function makeProject({ config, projectMd } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-client-'));
   tmpDirs.push(dir);
-  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
   if (config !== undefined) {
     fs.writeFileSync(
-      path.join(dir, '.planning', 'config.json'),
+      path.join(dir, '.aoforge', 'config.json'),
       typeof config === 'string' ? config : JSON.stringify(config),
     );
   }
-  if (projectMd !== undefined) fs.writeFileSync(path.join(dir, '.planning', 'PROJECT.md'), projectMd);
+  if (projectMd !== undefined) fs.writeFileSync(path.join(dir, '.aoforge', 'PROJECT.md'), projectMd);
   return dir;
 }
 

@@ -8,9 +8,10 @@ const fs = require('fs');
 const path = require('path');
 const { extractFrontmatter, spliceFrontmatter } = require('./frontmatter.cjs');
 const { VALID_KINDS, VALID_WORKS } = require('./intent.cjs');
+const { planningRoot, planningDirLabel } = require('./compat.cjs');
 
 function loadProject(projectRoot) {
-  const projectPath = path.join(projectRoot, '.planning', 'PROJECT.md');
+  const projectPath = path.join(planningRoot(projectRoot), 'PROJECT.md');
   if (!fs.existsSync(projectPath)) {
     return { exists: false };
   }
@@ -20,7 +21,7 @@ function loadProject(projectRoot) {
 }
 
 function listObjectives(projectRoot) {
-  const objDir = path.join(projectRoot, '.planning', 'objectives');
+  const objDir = path.join(planningRoot(projectRoot), 'objectives');
   if (!fs.existsSync(objDir)) return [];
   return fs.readdirSync(objDir).filter((entry) => {
     const full = path.join(objDir, entry);
@@ -29,7 +30,7 @@ function listObjectives(projectRoot) {
 }
 
 function loadObjective(projectRoot, id) {
-  const objPath = path.join(projectRoot, '.planning', 'objectives', id, 'OBJECTIVE.md');
+  const objPath = path.join(planningRoot(projectRoot), 'objectives', id, 'OBJECTIVE.md');
   if (!fs.existsSync(objPath)) {
     return { exists: false, id };
   }
@@ -50,7 +51,7 @@ function plan({ projectRoot }) {
   const errors = [];
   const project = loadProject(projectRoot);
   if (!project.exists) {
-    errors.push(`No PROJECT.md at ${path.join(projectRoot, '.planning', 'PROJECT.md')}`);
+    errors.push(`No PROJECT.md at ${path.join(planningRoot(projectRoot), 'PROJECT.md')}`);
     return { project: null, objectives: [], alreadyMigrated: false, errors };
   }
 
@@ -83,9 +84,9 @@ function backupTimestamp() {
 }
 
 function backup(projectRoot, label = backupTimestamp()) {
-  const planningDir = path.join(projectRoot, '.planning');
+  const planningDir = planningRoot(projectRoot);
   if (!fs.existsSync(planningDir)) {
-    throw new Error(`No .planning/ directory at ${planningDir}`);
+    throw new Error(`No ${planningDirLabel()} directory at ${planningDir}`);
   }
   const backupDir = path.join(planningDir, `.migrate-backup-${label}`);
   fs.mkdirSync(backupDir, { recursive: true });
@@ -116,7 +117,7 @@ function backup(projectRoot, label = backupTimestamp()) {
 //   workChoices — { [objectiveId]: workValue } for each objective needing work
 //   dryRun — if true, return plan without writing
 //   backup — default true: copy PROJECT.md + OBJECTIVE.md files into an in-repo
-//            `.planning/.migrate-backup-<ts>/` before writing (the standalone
+//            `.aoforge/.migrate-backup-<ts>/` before writing (the standalone
 //            `aof-tools migrate apply`). Upgrade migration 0006 passes false because
 //            the upgrade runner has already backed up outside the repo (TRD 36-04b).
 function apply({ projectRoot, kind, defaultWork, workChoices = {}, dryRun = false, backup: doBackup = true }) {
@@ -150,7 +151,7 @@ function apply({ projectRoot, kind, defaultWork, workChoices = {}, dryRun = fals
 
   // PROJECT.md
   if (result.project.needsKind) {
-    const projectPath = path.join(projectRoot, '.planning', 'PROJECT.md');
+    const projectPath = path.join(planningRoot(projectRoot), 'PROJECT.md');
     const content = fs.readFileSync(projectPath, 'utf-8');
     const fm = extractFrontmatter(content) || {};
     fm.kind = kind;
@@ -164,7 +165,7 @@ function apply({ projectRoot, kind, defaultWork, workChoices = {}, dryRun = fals
     if (!objInfo.exists || !objInfo.needsWork) continue;
     const work = workChoices[objInfo.id] || defaultWork;
     if (!work) continue; // user can opt to leave it blank — falls back at resolve time
-    const objPath = path.join(projectRoot, '.planning', 'objectives', objInfo.id, 'OBJECTIVE.md');
+    const objPath = path.join(planningRoot(projectRoot), 'objectives', objInfo.id, 'OBJECTIVE.md');
     const content = fs.readFileSync(objPath, 'utf-8');
     const fm = extractFrontmatter(content) || {};
     fm.work = work;

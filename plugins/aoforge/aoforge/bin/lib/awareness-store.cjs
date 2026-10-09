@@ -6,7 +6,7 @@
  * Out-of-tree, per-repo persistence for the cross-repo awareness cache.
  *
  * Why this exists: awareness-cache-populate.js (SessionStart) and `aof-tools awareness`
- * used to rewrite <project>/.planning/.awareness-cache.json on every scan. On a busy
+ * used to rewrite <project>/.aoforge/.awareness-cache.json on every scan. On a busy
  * workspace that file runs to ~640KB, and Claude Code's file watcher attaches any
  * in-tree file that changes to the next tool result. Repos that committed it also
  * churned on every session. Same lesson, same fix as progress-guard-store.cjs
@@ -26,7 +26,7 @@
  * (tmp + rename) because concurrent sessions on one repo share the file.
  *
  * There is deliberately NO fallback read of the legacy in-tree
- * .planning/.awareness-cache.json. It is dead state; LEGACY_CACHE_REL is exported
+ * .aoforge/.awareness-cache.json. It is dead state; LEGACY_CACHE_REL is exported
  * only so migration and doctor can name it.
  */
 
@@ -35,7 +35,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 
-const LEGACY_CACHE_REL = '.planning/.awareness-cache.json';
+const LEGACY_CACHE_REL = '.aoforge/.awareness-cache.json';
 
 /**
  * @param {NodeJS.ProcessEnv} [env]

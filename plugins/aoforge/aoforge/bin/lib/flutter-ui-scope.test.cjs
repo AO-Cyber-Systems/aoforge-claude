@@ -135,7 +135,7 @@ test.describe('aof-tools detect flutter-ui-scope (REQ-10-03)', () => {
 
   function makeTempObjective(trdFiles) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flutter-ui-scope-obj-'));
-    const objDir = path.join(tmp, '.planning', 'objectives', '99-test-objective');
+    const objDir = path.join(tmp, '.aoforge', 'objectives', '99-test-objective');
     fs.mkdirSync(objDir, { recursive: true });
     fs.writeFileSync(path.join(objDir, '99-01-TRD.md'),
 `---

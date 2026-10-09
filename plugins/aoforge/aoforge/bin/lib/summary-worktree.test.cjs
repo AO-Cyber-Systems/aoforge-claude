@@ -8,15 +8,15 @@
  * every parallel executor left an untracked SUMMARY in main, committed its own copy on `df/exec-*`, and `git merge` then
  * refused to overwrite the untracked file.
  *
- *   1  local mode, real git: both verbs write `<wt>/.planning/objectives/<dir>/<NN-MM>-SUMMARY.md` and nothing under
+ *   1  local mode, real git: both verbs write `<wt>/.aoforge/objectives/<dir>/<NN-MM>-SUMMARY.md` and nothing under
  *      main; `aof-tools commit` from the worktree commits it; `git merge --no-ff` into main exits 0, the SUMMARY arrives
  *      tracked and `git status --porcelain` is empty
  *   2  gate-executor-stop finds a SUMMARY that exists only in the worktree (the hook needs no change)
  *   3  store mode (set in MAIN's config): `summary checkpoint` still writes MAIN's `.trd-progress/<trd>.md` and creates
- *      nothing under the worktree's `.planning/` (D-14)
+ *      nothing under the worktree's `.aoforge/` (D-14)
  *   6  an existing `07-01-demo-SUMMARY.md` committed in the worktree is overwritten, no second `07-01-SUMMARY.md`
  *   g  guards that hold before and after the fix: from the main checkout the verbs write main (D-01); a worktree with no
- *      `.planning/` (planning untracked) falls back to main
+ *      `.aoforge/` (planning untracked) falls back to main
  *
  * no_llm_test_data: every repo is a disposable `git init -b main` under the OS temp dir with a fake HOME and
  * GIT_CONFIG_GLOBAL=/dev/null. aof-tools runs as a child process with `--cwd`. `summary post` is local mode in every test
@@ -32,14 +32,15 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
 const fx = require('./__fixtures__/upgrade-fixtures.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 const HOOK_PATH = path.join(__dirname, '..', '..', '..', 'hooks', 'gate-executor-stop.js');
 const HAS_GIT = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
 
 const OBJ_DIR = '07-demo';
-const SUMMARY_REL = `.planning/objectives/${OBJ_DIR}/07-01-SUMMARY.md`;
-const NAMED_SUMMARY_REL = `.planning/objectives/${OBJ_DIR}/07-01-demo-SUMMARY.md`;
+const SUMMARY_REL = `.aoforge/objectives/${OBJ_DIR}/07-01-SUMMARY.md`;
+const NAMED_SUMMARY_REL = `.aoforge/objectives/${OBJ_DIR}/07-01-demo-SUMMARY.md`;
 const CHECKPOINT_TEXT = '# Summary 07-01\n\n## Progress\n- [x] Task 1: first — (this commit)\n- [ ] Task 2: second — next step: edit a.cjs\n';
 const POST_TEXT = '# Summary 07-01\n\n## Progress\n- [x] Task 1: first — abc1234\n- [x] Task 2: second — def5678\n\n## Self-Check: PASSED\n';
 
@@ -78,18 +79,18 @@ function gitOk(p, dir, ...args) {
 
 /**
  * A git repo on `main`: config (tracked), ROADMAP and the 07-01 TRD, one init commit. `ignorePlanning` instead ignores
- * `.planning/` so the directory exists on disk in main but is untracked (a linked worktree then has none).
+ * `.aoforge/` so the directory exists on disk in main but is untracked (a linked worktree then has none).
  */
-function project({ config = {}, ignorePlanning = false } = {}) {
+function project({ config = {}, ignorePlanning = false, planningDir = '.aoforge' } = {}) {
   const home = fx.makeFakeHome();
   const main = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-sum-wt-main-')));
   const holder = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-sum-wt-tree-')));
   cleanup.push(main, home, holder);
-  write(main, '.planning/config.json', `${JSON.stringify(config)}\n`);
-  write(main, '.planning/ROADMAP.md', '# Roadmap\n\n### Objective 7: Demo\n');
-  write(main, `.planning/objectives/${OBJ_DIR}/07-01-demo-TRD.md`, '# TRD 07-01\n');
+  write(main, `${planningDir}/config.json`, `${JSON.stringify(config)}\n`);
+  write(main, `${planningDir}/ROADMAP.md`, '# Roadmap\n\n### Objective 7: Demo\n');
+  write(main, `${planningDir}/objectives/${OBJ_DIR}/07-01-demo-TRD.md`, '# TRD 07-01\n');
   write(main, 'src/keep.cjs', 'module.exports = 0;\n');
-  if (ignorePlanning) write(main, '.gitignore', '.planning/\n');
+  if (ignorePlanning) write(main, '.gitignore', `${planningDir}/\n`);
   fx.initGitFixture(main, home);
   return { main, home, holder };
 }
@@ -143,11 +144,13 @@ describe('summary verbs in a linked worktree, local mode (TRD 53-01)', { skip: !
   });
 
   test('2. gate-executor-stop finds a SUMMARY that exists only in the worktree', () => {
-    const p = project();
+    // The hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
+    const p = project({ planningDir: LEGACY.planningDir });
     const wt = addWorktree(p);
     const r = summaryVerb(p, wt, 'checkpoint', CHECKPOINT_TEXT);
     assert.equal(r.status, 0, r.err || r.out);
-    assert.equal(exists(p.main, SUMMARY_REL), false);
+    assert.ok(exists(wt, `${LEGACY.planningDir}/objectives/${OBJ_DIR}/07-01-SUMMARY.md`), 'the checkpoint landed in the worktree');
+    assert.equal(exists(p.main, `${LEGACY.planningDir}/objectives/${OBJ_DIR}/07-01-SUMMARY.md`), false);
 
     const hook = require(HOOK_PATH);
     assert.equal(hook.summaryExists('07-01', [p.main]), false, 'main alone does not hold it');
@@ -185,31 +188,31 @@ describe('summary verbs, guards that hold before and after the fix', { skip: !HA
     assert.equal(post.json.rel, `objectives/${OBJ_DIR}/07-01-SUMMARY.md`);
   });
 
-  test('g2. a worktree with no .planning/ (planning untracked) falls back to main', () => {
+  test('g2. a worktree with no .aoforge/ (planning untracked) falls back to main', () => {
     const p = project({ ignorePlanning: true });
     const wt = addWorktree(p);
-    assert.equal(exists(wt, '.planning'), false, 'fixture: the worktree has no .planning/');
+    assert.equal(exists(wt, '.aoforge'), false, 'fixture: the worktree has no .aoforge/');
     const r = summaryVerb(p, wt, 'post', POST_TEXT);
     assert.equal(r.status, 0, r.err || r.out);
     assert.equal(read(p.main, SUMMARY_REL), POST_TEXT, 'main took the write');
-    assert.equal(exists(wt, '.planning'), false, 'the worktree gained no .planning/');
+    assert.equal(exists(wt, '.aoforge'), false, 'the worktree gained no .aoforge/');
   });
 });
 
 describe('summary checkpoint in a linked worktree, store mode (D-14 unchanged)', { skip: !HAS_GIT && 'git not available' }, () => {
-  test('3. writes MAIN .planning/.trd-progress/<trd>.md and creates nothing under the worktree .planning/', () => {
+  test('3. writes MAIN .aoforge/.trd-progress/<trd>.md and creates nothing under the worktree .aoforge/', () => {
     const p = project({ config: { github: { enabled: true, store: true } } });
     const wt = addWorktree(p);
-    const before = fs.readdirSync(path.join(wt, '.planning')).sort();
+    const before = fs.readdirSync(path.join(wt, '.aoforge')).sort();
 
     const r = summaryVerb(p, wt, 'checkpoint', CHECKPOINT_TEXT);
     assert.equal(r.status, 0, r.err || r.out);
     assert.equal(r.json.mode, 'store');
     // The progress file is named by the normalized TRD id (ghMapping.toTrdId): `7-01`, not `07-01`.
-    assert.equal(read(p.main, '.planning/.trd-progress/7-01.md'), CHECKPOINT_TEXT, "main's progress file holds it");
-    assert.equal(exists(wt, '.planning/.trd-progress'), false, 'no progress file in the worktree');
+    assert.equal(read(p.main, '.aoforge/.trd-progress/7-01.md'), CHECKPOINT_TEXT, "main's progress file holds it");
+    assert.equal(exists(wt, '.aoforge/.trd-progress'), false, 'no progress file in the worktree');
     assert.equal(exists(wt, SUMMARY_REL), false, 'no SUMMARY in the worktree');
     assert.equal(exists(p.main, SUMMARY_REL), false, 'no SUMMARY in main either: store mode keeps it in .trd-progress');
-    assert.deepEqual(fs.readdirSync(path.join(wt, '.planning')).sort(), before, 'the worktree .planning/ is untouched');
+    assert.deepEqual(fs.readdirSync(path.join(wt, '.aoforge')).sort(), before, 'the worktree .aoforge/ is untouched');
   });
 });

@@ -20,21 +20,21 @@ const { gitEnv, initGitFixture } = require('../__fixtures__/upgrade-fixtures.cjs
 
 const NOW = new Date('2026-10-01T12:00:00.000Z');
 const FIX_COMMAND = 'aof-tools upgrade --apply --only 0010 --confirm';
-const BLOCK = '# >>> aoforge store (0010) >>>\n.planning/*\n!.planning/config.json\n!.planning/STACK.md\n# <<< aoforge store (0010) <<<\n';
+const BLOCK = '# >>> aoforge store (0010) >>>\n.aoforge/*\n!.aoforge/config.json\n!.aoforge/STACK.md\n# <<< aoforge store (0010) <<<\n';
 
 function ctxFor(root, home) {
   return doctor.buildContext({ projectRoot: root, userHome: home, env: gitEnv(home), now: NOW });
 }
 
 function setStore(root, store) {
-  const file = path.join(root, '.planning', 'config.json');
+  const file = path.join(root, '.aoforge', 'config.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
   cfg.github = { enabled: true, store, repo: 'acme/widgets' };
   fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');
 }
 
 function trackedPlanning(root, home) {
-  return execFileSync('git', ['-C', root, 'ls-files', '--', '.planning'], { env: gitEnv(home), encoding: 'utf-8' })
+  return execFileSync('git', ['-C', root, 'ls-files', '--', '.aoforge'], { env: gitEnv(home), encoding: 'utf-8' })
     .split('\n').filter(Boolean);
 }
 
@@ -54,13 +54,13 @@ describe('store-cache-tracked: test 15', () => {
     const { root, home } = makeDoctorProject();
     setStore(root, true);
     const before = trackedPlanning(root, home);
-    assert.ok(before.length > 1, 'precondition: the fixture tracks several .planning/ files');
+    assert.ok(before.length > 1, 'precondition: the fixture tracks several .aoforge/ files');
 
     const r = check.run(ctxFor(root, home));
     assert.equal(r.severity, 'warn');
     assert.equal(r.fixable, false);
     assert.equal(r.fix_command, FIX_COMMAND);
-    assert.match(r.finding, new RegExp(`^store mode is on but ${before.length - 1} \\.planning/ path\\(s\\) are still tracked`));
+    assert.match(r.finding, new RegExp(`^store mode is on but ${before.length - 1} \\.aoforge/ path\\(s\\) are still tracked`));
     assert.deepEqual(trackedPlanning(root, home), before, 'run() is read-only');
 
     const report = doctor.runDoctor({ projectRoot: root, userHome: home, env: gitEnv(home), now: NOW, checks: [check] });
@@ -79,7 +79,7 @@ describe('store-cache-tracked: test 15', () => {
     assert.equal(r.fixable, false);
   });
 
-  test('15c. no project / no .planning / not a git repo → ok', () => {
+  test('15c. no project / no .aoforge / not a git repo → ok', () => {
     const home = makeDoctorHome();
     const none = doctor.buildContext({ projectRoot: null, userHome: home, env: gitEnv(home), now: NOW });
     assert.equal(check.run(none).severity, 'ok');
@@ -97,12 +97,12 @@ describe('store-cache-tracked: test 15', () => {
   test('15d. store mode with only config.json tracked and the block current → ok', () => {
     const home = makeDoctorHome();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor-24-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), '{"github":{"enabled":true,"store":true}}\n');
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap (ignored cache)\n');
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), '{"github":{"enabled":true,"store":true}}\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap (ignored cache)\n');
     fs.writeFileSync(path.join(root, '.gitignore'), BLOCK);
     initGitFixture(root, home);
-    assert.deepEqual(trackedPlanning(root, home), ['.planning/config.json']);
+    assert.deepEqual(trackedPlanning(root, home), ['.aoforge/config.json']);
 
     const r = check.run(ctxFor(root, home));
     assert.equal(r.severity, 'ok', r.finding);
@@ -111,8 +111,8 @@ describe('store-cache-tracked: test 15', () => {
   test('15e. store mode, nothing extra tracked but the block missing → warn naming the block', () => {
     const home = makeDoctorHome();
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor-24-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), '{"github":{"enabled":true,"store":true}}\n');
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), '{"github":{"enabled":true,"store":true}}\n');
     initGitFixture(root, home);
 
     const r = check.run(ctxFor(root, home));

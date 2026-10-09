@@ -27,12 +27,12 @@ const {
 
 describe('classifySession', () => {
   test('case 1: returns skip when hasDeclineMarker is true regardless of other inputs', () => {
-    const input = buildClassifyInput({ planningDir: '/tmp/p/.planning', hasGitDir: true, hasDeclineMarker: true });
+    const input = buildClassifyInput({ planningDir: '/tmp/p/.aoforge', hasGitDir: true, hasDeclineMarker: true });
     assert.equal(classifySession(input), 'skip');
   });
 
   test('case 2: returns ambient when planningDir is non-null and no decline marker', () => {
-    const input = buildClassifyInput({ planningDir: '/tmp/p/.planning', hasGitDir: true, hasDeclineMarker: false });
+    const input = buildClassifyInput({ planningDir: '/tmp/p/.aoforge', hasGitDir: true, hasDeclineMarker: false });
     assert.equal(classifySession(input), 'ambient');
   });
 
@@ -47,7 +47,7 @@ describe('classifySession', () => {
   });
 
   test('case 5: decline marker takes precedence over ambient (planningDir set + decline marker → skip)', () => {
-    const input = buildClassifyInput({ planningDir: '/some/.planning', hasGitDir: false, hasDeclineMarker: true });
+    const input = buildClassifyInput({ planningDir: '/some/.aoforge', hasGitDir: false, hasDeclineMarker: true });
     assert.equal(classifySession(input), 'skip');
   });
 
@@ -74,7 +74,7 @@ describe('classifySession', () => {
   test('case 6f: truth table exhaustive — all combinations of 3 booleans return one of {ambient, init-offer, skip}', () => {
     const VALID = new Set(['ambient', 'init-offer', 'skip']);
     const bools = [true, false];
-    for (const planningDir of ['/tmp/p/.planning', null]) {
+    for (const planningDir of ['/tmp/p/.aoforge', null]) {
       for (const hasGitDir of bools) {
         for (const hasDeclineMarker of bools) {
           const result = classifySession({ planningDir, hasGitDir, hasDeclineMarker });

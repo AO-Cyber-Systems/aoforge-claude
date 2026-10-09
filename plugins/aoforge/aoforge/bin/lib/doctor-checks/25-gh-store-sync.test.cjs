@@ -93,7 +93,7 @@ const queue = (root) => {
 /** Freeze TRD 7-02 at its current text, then edit it: one W060. */
 function driftFrozen(root) {
   const file = '07-02-beta-TRD.md';
-  const trdPath = path.join(root, '.planning', 'objectives', proj.objectiveDir, file);
+  const trdPath = path.join(root, '.aoforge', 'objectives', proj.objectiveDir, file);
   const original = fs.readFileSync(trdPath, 'utf8');
   const body = ghTrd.encodeTrdBody({ id: '7-02', file, text: original });
   const base = flush.baseFromIssue({ number: 702, id: 7002, body, updated_at: '2026-10-01T00:00:00Z' }, null);

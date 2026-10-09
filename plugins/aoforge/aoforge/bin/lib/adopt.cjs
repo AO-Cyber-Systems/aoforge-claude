@@ -28,10 +28,12 @@ const { loadClaudeMdTemplate } = require('./migrations/0005-claude-md-block.cjs'
 const upgrade = require('./upgrade.cjs');
 const backupPrune = require('./backup-prune.cjs');
 const { mdCell } = require('./text-escape.cjs');
+const { planningRoot, planningRel, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 const ADOPT_BRANCH = 'aoforge/adopt';
 const MARKER_NAME = 'aoforge-adopt.json';
-const OWNED_PATHS = ['.planning', 'CLAUDE.md'];
+// both planning-directory names: a project that still has the legacy one owns it too
+const OWNED_PATHS = [...PLANNING_DIR_NAMES, 'CLAUDE.md'];
 // Stack-draft notes carried in the marker and turned into report rows (TRD 42-07); bounded so a
 // sprawling monorepo cannot bloat the marker or the report.
 const MAX_STACK_NOTES = 100;
@@ -85,7 +87,7 @@ function parsePorcelainZ(out) {
 }
 
 function isOwnedPath(rel) {
-  return rel === 'CLAUDE.md' || rel === '.planning' || rel.startsWith('.planning/');
+  return rel === 'CLAUDE.md' || PLANNING_DIR_NAMES.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
 }
 
 /**
@@ -126,7 +128,7 @@ function gitFacts(root, { env = process.env } = {}) {
   const branchExistsRes = git(root, env, ['show-ref', '--verify', '--quiet', `refs/heads/${ADOPT_BRANCH}`]);
   const branch_exists = branchExistsRes.ok;
 
-  const roadmapRes = git(root, env, ['ls-files', '--error-unmatch', '.planning/ROADMAP.md']);
+  const roadmapRes = git(root, env, ['ls-files', '--error-unmatch', planningRel(root, 'ROADMAP.md')]);
   const roadmap_tracked = roadmapRes.ok;
 
   return { is_repo, toplevel, branch, head_sha, detached, unborn, busy, dirty, branch_exists, roadmap_tracked };
@@ -169,21 +171,21 @@ function writeMarker(root, env, marker) {
 function resumeSteps(root, marker) {
   const mapped = CODEBASE_DOC_NAMES.every((name) => {
     try {
-      return fs.statSync(path.join(root, '.planning', 'codebase', `${name}.md`)).size > 0;
+      return fs.statSync(path.join(planningRoot(root), 'codebase', `${name}.md`)).size > 0;
     } catch {
       return false;
     }
   });
 
   let project_md = false;
-  const pmTxt = safeReadFile(path.join(root, '.planning', 'PROJECT.md'));
+  const pmTxt = safeReadFile(path.join(planningRoot(root), 'PROJECT.md'));
   if (pmTxt) {
     const fm = extractFrontmatter(pmTxt);
     project_md = VALID_KINDS.includes(fm.kind);
   }
 
   const scaffolded = !!(marker && marker.steps && marker.steps.scaffolded === true);
-  const reported = fs.existsSync(path.join(root, '.planning', 'ADOPT-REPORT.md'));
+  const reported = fs.existsSync(path.join(planningRoot(root), 'ADOPT-REPORT.md'));
 
   return { mapped, project_md, scaffolded, reported };
 }
@@ -209,7 +211,7 @@ function nextForResume(steps) {
 //   6. an in-progress adopt marker -> resume, or refuse
 //      adopt-in-progress-elsewhere / dirty-tree (owned paths exempt)
 //   7. dirty tree (tracked or untracked), no marker -> refuse dirty-tree
-//   8. .planning/ present -> upgrade
+//   8. .aoforge/ present -> upgrade
 //   9. greenfield (no code, no manifest) -> new-project
 //   10. no commits yet -> refuse no-commits
 //   11. aoforge/adopt branch already exists, no marker -> refuse adopt-branch-exists
@@ -408,10 +410,10 @@ function begin(root, opts = {}) {
   let sw = git(target, env, ['switch', '-c', ADOPT_BRANCH]);
   if (!sw.ok) sw = git(target, env, ['checkout', '-b', ADOPT_BRANCH]);
 
-  // Ensure `.planning/` exists before the caller marks a skill active (the
+  // Ensure `.aoforge/` exists before the caller marks a skill active (the
   // scripted pipeline runs `skill-active --start adopt` here, ahead of the
   // stand-in maps / scaffold that would otherwise create it first).
-  fs.mkdirSync(path.join(target, '.planning'), { recursive: true });
+  fs.mkdirSync(planningRoot(target), { recursive: true });
 
   const marker = {
     version: 1,
@@ -471,22 +473,22 @@ function extractCoreValue(body) {
  * message before writing anything.
  */
 function readProjectMd(root) {
-  const p = path.join(root, '.planning', 'PROJECT.md');
+  const p = path.join(planningRoot(root), 'PROJECT.md');
   const text = safeReadFile(p);
   if (text === null) {
-    return { ok: false, error: `.planning/PROJECT.md is missing` };
+    return { ok: false, error: `${planningRel(root, 'PROJECT.md')} is missing` };
   }
   const fm = extractFrontmatter(text);
   if (!fm.kind || !VALID_KINDS.includes(fm.kind)) {
     return {
       ok: false,
-      error: `.planning/PROJECT.md frontmatter 'kind' must be one of ${VALID_KINDS.join(', ')} (got ${JSON.stringify(fm.kind || null)})`,
+      error: `${planningRel(root, 'PROJECT.md')} frontmatter 'kind' must be one of ${VALID_KINDS.join(', ')} (got ${JSON.stringify(fm.kind || null)})`,
     };
   }
   if (!fm.default_work || !VALID_WORKS.includes(fm.default_work)) {
     return {
       ok: false,
-      error: `.planning/PROJECT.md frontmatter 'default_work' must be one of ${VALID_WORKS.join(', ')} (got ${JSON.stringify(fm.default_work || null)})`,
+      error: `${planningRel(root, 'PROJECT.md')} frontmatter 'default_work' must be one of ${VALID_WORKS.join(', ')} (got ${JSON.stringify(fm.default_work || null)})`,
     };
   }
   const body = stripFrontmatter(text);
@@ -499,11 +501,11 @@ function readProjectMd(root) {
  * renderState({name, coreValue, date, version}) -> STATE.md text (pure).
  * `name` is accepted for interface symmetry with renderRoadmap but does not appear in STATE.md.
  */
-function renderState({ coreValue, date, version }) {
+function renderState({ coreValue, date, version, planningDir = '.aoforge' }) {
   return (
     '# Project State\n\n' +
     '## Project Reference\n\n' +
-    'See: .planning/PROJECT.md\n\n' +
+    `See: ${planningDir}/PROJECT.md\n\n` +
     `**Core value:** ${coreValue}\n` +
     '**Current focus:** No objectives yet — add one with /aoforge:objective add\n\n' +
     '## Current Position\n\n' +
@@ -513,7 +515,7 @@ function renderState({ coreValue, date, version }) {
     '## Blockers\n\n' +
     'None.\n\n' +
     '## Session Log\n\n' +
-    `- ${date}: Adopted by /aoforge:adopt (AOForge v${version}); see .planning/ADOPT-REPORT.md\n`
+    `- ${date}: Adopted by /aoforge:adopt (AOForge v${version}); see ${planningDir}/ADOPT-REPORT.md\n`
   );
 }
 
@@ -532,11 +534,11 @@ function renderRoadmap({ name, date }) {
 }
 
 /** Deterministic CLAUDE.md block content, only ever used when no block exists yet. */
-function renderClaudeMdOverview(tpl) {
+function renderClaudeMdOverview(tpl, planningDir = '.aoforge') {
   return (
     '# Project Overview\n\n' +
-    'See `.planning/PROJECT.md` (what this is, core value) and `.planning/codebase/` (how it is built).\n' +
-    'Adopted by `/aoforge:adopt`; review `.planning/ADOPT-REPORT.md`.\n\n' +
+    `See \`${planningDir}/PROJECT.md\` (what this is, core value) and \`${planningDir}/codebase/\` (how it is built).\n` +
+    `Adopted by \`/aoforge:adopt\`; review \`${planningDir}/ADOPT-REPORT.md\`.\n\n` +
     tpl.rules
   );
 }
@@ -582,29 +584,29 @@ function scaffold(root, opts = {}) {
   const created = [];
   const skipped = [];
 
-  const statePath = path.join(target, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(target), 'STATE.md');
   if (!fs.existsSync(statePath)) {
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.writeFileSync(statePath, renderState({ name: pm.name, coreValue: pm.coreValue, date, version: pluginVersion }), 'utf-8');
-    created.push('.planning/STATE.md');
+    fs.writeFileSync(statePath, renderState({ name: pm.name, coreValue: pm.coreValue, date, version: pluginVersion, planningDir: planningRel(target) }), 'utf-8');
+    created.push(planningRel(target, 'STATE.md'));
   } else {
-    skipped.push('.planning/STATE.md');
+    skipped.push(planningRel(target, 'STATE.md'));
   }
 
-  const roadmapPath = path.join(target, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(target), 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) {
     fs.mkdirSync(path.dirname(roadmapPath), { recursive: true });
     fs.writeFileSync(roadmapPath, renderRoadmap({ name: pm.name, date }), 'utf-8');
-    created.push('.planning/ROADMAP.md');
+    created.push(planningRel(target, 'ROADMAP.md'));
   } else {
-    skipped.push('.planning/ROADMAP.md');
+    skipped.push(planningRel(target, 'ROADMAP.md'));
   }
 
-  const stackPath = path.join(target, '.planning', 'STACK.md');
+  const stackPath = path.join(planningRoot(target), 'STACK.md');
   let stackSummary;
   if (!fs.existsSync(stackPath)) {
     const ip = stackProfile.initProfile({ projectRoot: target, userHome, from: 'codebase', write: true, now });
-    if (ip.action === 'written') created.push('.planning/STACK.md');
+    if (ip.action === 'written') created.push(planningRel(target, 'STACK.md'));
     // TRD 42-07: the grounded draft says which keys it VERIFIED, which the tier supplies, and why
     // any candidate was not proposed (notes); the report reads all of it back from the marker.
     const resolvedKeys = Array.isArray(ip.resolvedKeys) ? ip.resolvedKeys : [];
@@ -619,13 +621,13 @@ function scaffold(root, opts = {}) {
     };
   } else {
     const vp = stackProfile.validateProfile({ projectRoot: target, userHome });
-    skipped.push('.planning/STACK.md');
+    skipped.push(planningRel(target, 'STACK.md'));
     stackSummary = { action: 'existing', ok: !!vp.ok, errors: vp.errors || [], evidence_keys: [] };
   }
 
   let claudeAction;
   if (!claudeBlock) {
-    const content = renderClaudeMdOverview(tpl);
+    const content = renderClaudeMdOverview(tpl, planningRel(target));
     const next = managedBlock.upsert(claudeText, content, { v: tpl.version, src: 'claude-md' }, { position: 'prepend' });
     fs.writeFileSync(claudePath, next, 'utf-8');
     claudeAction = claudeText === '' ? 'created' : 'prepended';
@@ -671,15 +673,18 @@ function scaffold(root, opts = {}) {
 
 // ─── report(root, opts) — deterministic + LLM-inference review report ─────
 //
-// Only runs from the resume state with scaffold already done. Redacts secrets in owned .planning
+// Only runs from the resume state with scaffold already done. Redacts secrets in owned .aoforge
 // docs + PROJECT.md + the CLAUDE.md block (never touching bytes outside it), folds the LLM's
-// confidence records (`.planning/.adopt-inferences.json`) together with deterministic findings
+// confidence records (`.aoforge/.adopt-inferences.json`) together with deterministic findings
 // (invalid STACK.md, missing loop evidence, short/missing codebase docs, health warnings/errors,
-// scratch state) into `.planning/ADOPT-REPORT.md`, and returns the exact file list + message the
+// scratch state) into `.aoforge/ADOPT-REPORT.md`, and returns the exact file list + message the
 // workflow commits with (37-09) — adopt report never commits.
 
-const REPORT_REL = '.planning/ADOPT-REPORT.md';
-const INFERENCES_REL = '.planning/.adopt-inferences.json';
+// The default-layout paths (exported); adopt reads and writes them under the target's resolved planning directory.
+const REPORT_FILE = 'ADOPT-REPORT.md';
+const INFERENCES_FILE = '.adopt-inferences.json';
+const REPORT_REL = `.aoforge/${REPORT_FILE}`;
+const INFERENCES_REL = `.aoforge/${INFERENCES_FILE}`;
 
 // Verbatim from workflows/map-codebase.md:304, split into named kinds for the report.
 const SECRET_PATTERNS = [
@@ -695,11 +700,11 @@ const SECRET_PATTERNS = [
   { kind: 'jwt', re: /eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\./g },
 ];
 
-const TRANSIENT_COMMIT_EXCLUDES = new Set([
-  '.planning/.skill-active',
-  INFERENCES_REL,
-  '.planning/.aoforge-notices.json',
-]);
+const TRANSIENT_COMMIT_EXCLUDES = new Set(PLANNING_DIR_NAMES.flatMap((dir) => [
+  `${dir}/.skill-active`,
+  `${dir}/${INFERENCES_FILE}`,
+  `${dir}/.aoforge-notices.json`,
+]));
 
 /** redactBlob(text, fileLabel) -> { text, rows:[{file, line, kind}] }. Never returns the secret. */
 function redactBlob(text, fileLabel) {
@@ -783,7 +788,7 @@ function loadInferences(target, marker) {
   if (marker.no_inference_record === true) {
     return { raw: [], noRecord: true, markerPatch: {}, deleteInferenceFile: null };
   }
-  const infPath = path.join(target, INFERENCES_REL);
+  const infPath = path.join(planningRoot(target), INFERENCES_FILE);
   const text = safeReadFile(infPath);
   if (text === null) {
     return { raw: [], noRecord: true, markerPatch: { no_inference_record: true }, deleteInferenceFile: null };
@@ -838,7 +843,7 @@ function renderHighTable(rows) {
 function renderReport(ctx) {
   const {
     name, date, version, baseBranch, baseSha7, docsCount, claudeVerb, claudeVersion,
-    backupPath, registryKey, needsReviewRows, highRows, stackReportLinked,
+    backupPath, registryKey, needsReviewRows, highRows, stackReportLinked, planningDir = '.aoforge',
   } = ctx;
   return (
     `# Adopt report — ${name}\n\n` +
@@ -846,18 +851,18 @@ function renderReport(ctx) {
     '## Needs review\n\n' +
     renderNeedsReviewTable(needsReviewRows) + '\n' +
     (stackReportLinked
-      ? 'See .planning/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).\n\n'
+      ? `See ${planningDir}/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).\n\n`
       : '') +
     '## Inferred with high confidence\n\n' +
     renderHighTable(highRows) + '\n' +
     '## What adopt did\n\n' +
-    `- Mapped the codebase into \`.planning/codebase/\` (${docsCount} documents).\n` +
+    `- Mapped the codebase into \`${planningDir}/codebase/\` (${docsCount} documents).\n` +
     '- Wrote PROJECT.md, STACK.md, STATE.md, ROADMAP.md (no objectives), config.json, state.json.\n' +
     `- CLAUDE.md: ${claudeVerb} AOForge block v${claudeVersion}.\n` +
     `- Stamped AOForge v${version}; pre-apply backup: \`${backupPath || 'none'}\`.\n` +
     `- Registered for backup pruning as \`${registryKey}\`.\n\n` +
     '## Next steps\n\n' +
-    '1. Work through **Needs review**; edit `.planning/PROJECT.md` / `.planning/STACK.md` as needed.\n' +
+    `1. Work through **Needs review**; edit \`${planningDir}/PROJECT.md\` / \`${planningDir}/STACK.md\` as needed.\n` +
     `2. When satisfied: \`git switch ${baseBranch} && git merge ${ADOPT_BRANCH}\`. Nothing was pushed.\n` +
     '3. Add a first objective with `/aoforge:objective add`.\n'
   );
@@ -895,9 +900,9 @@ function report(root, opts = {}) {
     }
   };
   for (const name of CODEBASE_DOC_NAMES) {
-    pushSecretRows(redactPlainFile(target, `.planning/codebase/${name}.md`));
+    pushSecretRows(redactPlainFile(target, planningRel(target, 'codebase', `${name}.md`)));
   }
-  pushSecretRows(redactPlainFile(target, '.planning/PROJECT.md'));
+  pushSecretRows(redactPlainFile(target, planningRel(target, 'PROJECT.md')));
   pushSecretRows(redactClaudeMdBlock(target));
 
   // ── Deterministic finding: STACK.md invalid ──────────────────────────────
@@ -905,7 +910,7 @@ function report(root, opts = {}) {
     const errs = scaffoldInfo.stack.errors || [];
     rows.push({
       confidence: 'priority',
-      item: '.planning/STACK.md failed validation',
+      item: `${planningRel(target, 'STACK.md')} failed validation`,
       inferred: errs.length ? errs.join('; ') : '(no error detail recorded)',
       evidence: 'stack-profile.validateProfile at scaffold time',
     });
@@ -985,7 +990,7 @@ function report(root, opts = {}) {
   }
   for (const key of ['test', 'lint', 'build']) {
     if (resolvedKeys.has(key) || inheritedKeys.has(key) || evidenceKeys.has(key)) continue;
-    rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: 'checked .planning/STACK.md loop commands at scaffold time' });
+    rows.push({ confidence: 'low', item: `no command evidence for '${key}'`, inferred: '(none)', evidence: `checked ${planningRel(target, 'STACK.md')} loop commands at scaffold time` });
   }
 
   // ── Deterministic finding: scratch repo state ────────────────────────────
@@ -996,7 +1001,7 @@ function report(root, opts = {}) {
   // ── Deterministic finding: missing/short codebase docs ──────────────────
   let docsCount = 0;
   for (const name of CODEBASE_DOC_NAMES) {
-    const rel = `.planning/codebase/${name}.md`;
+    const rel = planningRel(target, 'codebase', `${name}.md`);
     const text = safeReadFile(path.join(target, rel));
     if (text === null) {
       rows.push({ confidence: 'medium', item: rel, inferred: '(missing)', evidence: 'expected from adopt mapping' });
@@ -1018,7 +1023,7 @@ function report(root, opts = {}) {
   try {
     const stackReport = require('./stack-report.cjs');
     const built = stackReport.buildReport({ projectRoot: target, userHome, now, verifyOpts: { env } });
-    if (!fs.existsSync(path.join(target, stackReport.REPORT_REL))) stackReport.writeReport(target, built.text);
+    if (!fs.existsSync(path.join(target, planningRel(target, 'STACK-REPORT.md')))) stackReport.writeReport(target, built.text);
     for (const f of built.findings.filter((x) => x.severity === 'gap')) {
       const proposal = f.snippet ? `${f.proposal} \`${f.snippet}\`` : f.proposal;
       rows.push({
@@ -1062,9 +1067,10 @@ function report(root, opts = {}) {
     needsReviewRows: rows,
     highRows,
     stackReportLinked,
+    planningDir: planningRel(target),
   });
 
-  const reportPath = path.join(target, REPORT_REL);
+  const reportPath = path.join(planningRoot(target), REPORT_FILE);
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, reportText, 'utf-8');
 
@@ -1081,7 +1087,7 @@ function report(root, opts = {}) {
   return {
     route: 'report',
     target,
-    report_path: REPORT_REL,
+    report_path: planningRel(target, REPORT_FILE),
     needs_review: rows,
     high: highRows,
     redactions,

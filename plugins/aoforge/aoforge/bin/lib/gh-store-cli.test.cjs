@@ -124,7 +124,7 @@ function haltOnRemoteEdit() {
   return n;
 }
 
-const setConfig = (github) => fs.writeFileSync(path.join(S.root, '.planning', 'config.json'), JSON.stringify({ github }));
+const setConfig = (github) => fs.writeFileSync(path.join(S.root, '.aoforge', 'config.json'), JSON.stringify({ github }));
 
 // ─── Task 1: gh outbox status | flush | resolve (tests 1-6, 12) ──────────────
 
@@ -614,7 +614,7 @@ describe('gh orphans', () => {
   test('11. lists unlinked TRD issues and linked TRDs without a local file; zero writes', () => {
     const { missingLocal, unlinked } = seedOrphans();
     const writes = ghWrites();
-    const mapping = fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8');
+    const mapping = fs.readFileSync(path.join(S.root, '.aoforge', '.gh-mapping.json'), 'utf8');
 
     const raw = orphansCmd(['7']);
     assert.equal(exitOf(raw), 0, raw.stdout + raw.stderr);
@@ -629,7 +629,7 @@ describe('gh orphans', () => {
     assert.match(prose.stdout, /nothing was (deleted|changed)/i);
 
     assert.equal(ghWrites(), writes);
-    assert.equal(fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8'), mapping);
+    assert.equal(fs.readFileSync(path.join(S.root, '.aoforge', '.gh-mapping.json'), 'utf8'), mapping);
   });
 
   test('11b. a clean objective says so; an objective with no issue is exit 1', () => {
@@ -801,7 +801,7 @@ describe('48-11: a drained flush settles the verb-write ledger', () => {
   test('14b. matching entries are baselined and forgotten; drifted and (not queued) entries stay', () => {
     const ledgerLib = require('./planning-ledger.cjs');
     const write = (rel, text) => {
-      const file = path.join(S.root, '.planning', ...rel.split('/'));
+      const file = path.join(S.root, '.aoforge', ...rel.split('/'));
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, text);
     };
@@ -827,7 +827,7 @@ describe('48-11: a drained flush settles the verb-write ledger', () => {
 
   test('14c. a flush that does not drain the journal settles nothing', () => {
     const ledgerLib = require('./planning-ledger.cjs');
-    const file = path.join(S.root, '.planning', 'research', 'match.md');
+    const file = path.join(S.root, '.aoforge', 'research', 'match.md');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, 'm\n');
     ledgerLib.record(S.root, 'research/match.md', 'm\n', { verb: 'doc put' });
@@ -840,7 +840,7 @@ describe('48-11: a drained flush settles the verb-write ledger', () => {
 
 // ─── 49-06: the scope gate, `gh trd confirm-scope` and `gh trd start` ────────
 
-const readOverrideLog = () => overrideLib.readOverrides({ planningDir: path.join(S.root, '.planning') });
+const readOverrideLog = () => overrideLib.readOverrides({ planningDir: path.join(S.root, '.aoforge') });
 const scopeBy = (number, n, text, login) => S.fake.seedComment(number, trd.buildScopeComment(n, text), { login });
 const userReads = () => S.fake.calls().filter((a) => a[0] === 'api' && a[1] === 'user');
 

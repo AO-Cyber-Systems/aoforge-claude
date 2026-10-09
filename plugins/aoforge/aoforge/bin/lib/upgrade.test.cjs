@@ -32,7 +32,7 @@
 //
 // apply():
 //   13. Applies 0001 only (0003 confirm, not named) → applied=[0001], pending_confirm=[0003],
-//       changed_files = 0001's paths + .planning/config.json.
+//       changed_files = 0001's paths + .aoforge/config.json.
 //   14. only:['0003'] → runs 0003 not 0001; stamp version NOT advanced; migrations_applied has 0003.
 //   15. confirm:true → runs 0001 and 0003; stamp version === to.
 //   16. only:['9999'] → throws RegistryError "unknown migration id 9999".
@@ -46,7 +46,7 @@
 //       lists what WOULD change.
 //   22. Second apply → applied [], changed_files [], backup null, tree byte-identical.
 //   23. Stamp-only: stamped 2.0.0, nothing applies, to 2.10.1 → stamp rewritten,
-//       changed_files ['.planning/config.json'], backup null, other keys + key order preserved.
+//       changed_files ['.aoforge/config.json'], backup null, other keys + key order preserved.
 //   24. ctx shape: a probe records {projectRoot, userHome, pluginVersion, dryRun, options} exactly.
 //
 // Stamp helpers:
@@ -101,24 +101,24 @@ describe('fixtures (upgrade-fixtures.cjs)', () => {
   test('F1: makeV1Project() has the v1 shape', () => {
     const root = v1();
     for (const rel of [
-      '.planning/PROJECT.md', '.planning/ROADMAP.md', '.planning/STATE.md', '.planning/config.json',
-      '.planning/objectives/01-alpha/OBJECTIVE.md', '.planning/objectives/01-alpha/01-01-JOB.md',
-      '.planning/objectives/01-alpha/01-01-SUMMARY.md', '.planning/objectives/02-beta/02-01-JOB.md',
+      '.aoforge/PROJECT.md', '.aoforge/ROADMAP.md', '.aoforge/STATE.md', '.aoforge/config.json',
+      '.aoforge/objectives/01-alpha/OBJECTIVE.md', '.aoforge/objectives/01-alpha/01-01-JOB.md',
+      '.aoforge/objectives/01-alpha/01-01-SUMMARY.md', '.aoforge/objectives/02-beta/02-01-JOB.md',
       'CLAUDE.md',
     ]) {
       assert.ok(exists(root, rel), `missing ${rel}`);
     }
-    assert.ok(!exists(root, '.planning/state.json'));
-    assert.ok(!exists(root, '.planning/objectives/02-beta/OBJECTIVE.md'));
-    const config = JSON.parse(read(root, '.planning/config.json'));
+    assert.ok(!exists(root, '.aoforge/state.json'));
+    assert.ok(!exists(root, '.aoforge/objectives/02-beta/OBJECTIVE.md'));
+    const config = JSON.parse(read(root, '.aoforge/config.json'));
     assert.equal(config.commit_docs, true);
     assert.equal(config.job_checker, false);
     assert.equal(config.parallelization, false);
     assert.equal(config.aoforge, undefined);
-    assert.doesNotMatch(read(root, '.planning/PROJECT.md'), /^kind:/m);
-    assert.match(read(root, '.planning/PROJECT.md'), /## What This Is/);
-    assert.match(read(root, '.planning/ROADMAP.md'), /### Objective 2: Beta\n\*\*Goal:\*\* Beta goal/);
-    assert.match(read(root, '.planning/STATE.md'), /\*\*Current Objective:\*\* 01/);
+    assert.doesNotMatch(read(root, '.aoforge/PROJECT.md'), /^kind:/m);
+    assert.match(read(root, '.aoforge/PROJECT.md'), /## What This Is/);
+    assert.match(read(root, '.aoforge/ROADMAP.md'), /### Objective 2: Beta\n\*\*Goal:\*\* Beta goal/);
+    assert.match(read(root, '.aoforge/STATE.md'), /\*\*Current Objective:\*\* 01/);
     const claude = read(root, 'CLAUDE.md');
     assert.ok(claude.startsWith('# My notes\n\nkeep me\n\n'));
     assert.ok(claude.includes(LEGACY_CLAUDE_MD_BLOCK));
@@ -126,12 +126,12 @@ describe('fixtures (upgrade-fixtures.cjs)', () => {
 
     const modern = v1({ flatConfig: false, jobFiles: false, stateJson: true, missingObjectiveMd: false,
       projectKind: 'api', claudeMdBlock: null });
-    assert.ok(exists(modern, '.planning/objectives/02-beta/02-01-TRD.md'));
-    assert.ok(exists(modern, '.planning/objectives/02-beta/OBJECTIVE.md'));
-    assert.ok(exists(modern, '.planning/state.json'));
+    assert.ok(exists(modern, '.aoforge/objectives/02-beta/02-01-TRD.md'));
+    assert.ok(exists(modern, '.aoforge/objectives/02-beta/OBJECTIVE.md'));
+    assert.ok(exists(modern, '.aoforge/state.json'));
     assert.ok(!exists(modern, 'CLAUDE.md'));
-    assert.match(read(modern, '.planning/PROJECT.md'), /^kind: api$/m);
-    assert.equal(typeof JSON.parse(read(modern, '.planning/config.json')).workflow, 'object');
+    assert.match(read(modern, '.aoforge/PROJECT.md'), /^kind: api$/m);
+    assert.equal(typeof JSON.parse(read(modern, '.aoforge/config.json')).workflow, 'object');
 
     const none = v1({ claudeMdBlock: 'none' });
     assert.doesNotMatch(read(none, 'CLAUDE.md'), /AOFORGE:START/);
@@ -152,16 +152,16 @@ describe('fixtures (upgrade-fixtures.cjs)', () => {
 
   test('F3: makeStampedProject() is current-shape and stamped', () => {
     const root = track(makeStampedProject('2.0.0', { migrations_applied: ['0001'] }));
-    const config = JSON.parse(read(root, '.planning/config.json'));
+    const config = JSON.parse(read(root, '.aoforge/config.json'));
     assert.equal(config.aoforge.version, '2.0.0');
     assert.deepEqual(config.aoforge.migrations_applied, ['0001']);
     assert.equal(typeof config.aoforge.upgraded_at, 'string');
     assert.equal(typeof config.workflow, 'object');
-    assert.ok(exists(root, '.planning/state.json'));
-    assert.ok(exists(root, '.planning/objectives/01-alpha/01-01-TRD.md'));
-    assert.ok(!exists(root, '.planning/objectives/01-alpha/01-01-JOB.md'));
-    assert.ok(exists(root, '.planning/objectives/02-beta/OBJECTIVE.md'));
-    assert.match(read(root, '.planning/PROJECT.md'), /^kind: /m);
+    assert.ok(exists(root, '.aoforge/state.json'));
+    assert.ok(exists(root, '.aoforge/objectives/01-alpha/01-01-TRD.md'));
+    assert.ok(!exists(root, '.aoforge/objectives/01-alpha/01-01-JOB.md'));
+    assert.ok(exists(root, '.aoforge/objectives/02-beta/OBJECTIVE.md'));
+    assert.match(read(root, '.aoforge/PROJECT.md'), /^kind: /m);
     assert.doesNotMatch(read(root, 'CLAUDE.md'), /AOFORGE:START/);
   });
 
@@ -193,11 +193,11 @@ describe('fixtures (upgrade-fixtures.cjs)', () => {
 
     const root = v1();
     const a = snapshot(root);
-    assert.ok(a['.planning/config.json']);
+    assert.ok(a['.aoforge/config.json']);
     fs.writeFileSync(path.join(root, 'new.txt'), 'x');
-    fs.writeFileSync(path.join(root, '.planning/STATE.md'), 'changed');
+    fs.writeFileSync(path.join(root, '.aoforge/STATE.md'), 'changed');
     fs.rmSync(path.join(root, 'CLAUDE.md'));
-    assert.deepEqual(diffSnapshots(a, snapshot(root)), ['.planning/STATE.md', 'CLAUDE.md', 'new.txt']);
+    assert.deepEqual(diffSnapshots(a, snapshot(root)), ['.aoforge/STATE.md', 'CLAUDE.md', 'new.txt']);
   });
 });
 
@@ -333,16 +333,16 @@ const NOW_DIR = '2026-09-27T12-00-00-000Z';
 const REPORT_KEYS = ['applied', 'backup', 'changed_files', 'failed', 'from', 'pending', 'pending_confirm',
   'skipped', 'to', 'up_to_date'];
 
-// Idempotent marker migration: applies while `.planning/MIGRATED-<id>` is absent, honours dryRun.
+// Idempotent marker migration: applies while `.aoforge/MIGRATED-<id>` is absent, honours dryRun.
 function markerMigration(id, { safety = 'auto' } = {}) {
   return migrationSource({
     id,
     title: `mark ${id}`,
     safety,
-    detect: `    const p = path.join(ctx.projectRoot, '.planning', 'MIGRATED-${id}');
+    detect: `    const p = path.join(ctx.projectRoot, '.aoforge', 'MIGRATED-${id}');
     return fs.existsSync(p) ? { applies: false, reason: 'marker present' } : { applies: true, reason: 'marker ${id} missing' };`,
-    apply: `    if (!ctx.dryRun) fs.writeFileSync(path.join(ctx.projectRoot, '.planning', 'MIGRATED-${id}'), 'ok\\n');
-    return { changed: ['.planning/MIGRATED-${id}'], notes: 'wrote marker ${id}' };`,
+    apply: `    if (!ctx.dryRun) fs.writeFileSync(path.join(ctx.projectRoot, '.aoforge', 'MIGRATED-${id}'), 'ok\\n');
+    return { changed: ['.aoforge/MIGRATED-${id}'], notes: 'wrote marker ${id}' };`,
   });
 }
 
@@ -466,15 +466,15 @@ describe('apply', () => {
     const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
       registryDir: standardRegistry(), now: NOW });
     assert.deepEqual(Object.keys(r).sort(), REPORT_KEYS);
-    assert.deepEqual(r.applied, [{ id: '0001', title: 'mark 0001', changed: ['.planning/MIGRATED-0001'],
+    assert.deepEqual(r.applied, [{ id: '0001', title: 'mark 0001', changed: ['.aoforge/MIGRATED-0001'],
       notes: 'wrote marker 0001' }]);
     assert.deepEqual(r.pending, []);
     assert.deepEqual(r.pending_confirm.map((p) => p.id), ['0003']);
     assert.deepEqual(r.skipped, [{ id: '0002', reason: 'not needed here' }]);
     assert.deepEqual(r.failed, []);
-    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0001', '.planning/config.json']);
-    assert.ok(exists(project, '.planning/MIGRATED-0001'));
-    assert.ok(!exists(project, '.planning/MIGRATED-0003'));
+    assert.deepEqual(r.changed_files, ['.aoforge/MIGRATED-0001', '.aoforge/config.json']);
+    assert.ok(exists(project, '.aoforge/MIGRATED-0001'));
+    assert.ok(!exists(project, '.aoforge/MIGRATED-0003'));
     assert.deepEqual(upgrade.readStamp(project),
       { version: PV, migrations_applied: ['0001'], upgraded_at: NOW.toISOString() });
     assert.equal(r.from, null);
@@ -488,12 +488,12 @@ describe('apply', () => {
       registryDir: standardRegistry(), only: ['0003'], now: NOW });
     assert.deepEqual(r.applied.map((a) => a.id), ['0003']);
     assert.deepEqual(r.pending.map((p) => [p.id, p.safety]), [['0001', 'auto']]);
-    assert.ok(exists(project, '.planning/MIGRATED-0003'));
-    assert.ok(!exists(project, '.planning/MIGRATED-0001'));
+    assert.ok(exists(project, '.aoforge/MIGRATED-0003'));
+    assert.ok(!exists(project, '.aoforge/MIGRATED-0001'));
     const stamp = upgrade.readStamp(project);
     assert.equal(stamp.version, null);
     assert.deepEqual(stamp.migrations_applied, ['0003']);
-    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0003', '.planning/config.json']);
+    assert.deepEqual(r.changed_files, ['.aoforge/MIGRATED-0003', '.aoforge/config.json']);
 
     const stamped = track(makeStampedProject('2.0.0'));
     upgrade.apply({ projectRoot: stamped, userHome: h, pluginVersion: PV,
@@ -536,7 +536,7 @@ describe('apply', () => {
   test('17: backup lives under <home>/.claude/aoforge/backups/<slug>-<hash8>/<ts>/ with PRE-apply bytes', () => {
     const project = v1();
     const h = home();
-    const configBefore = read(project, '.planning/config.json');
+    const configBefore = read(project, '.aoforge/config.json');
     const claudeBefore = read(project, 'CLAUDE.md');
     const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
       registryDir: standardRegistry(), now: NOW });
@@ -546,10 +546,10 @@ describe('apply', () => {
     const hash8 = crypto.createHash('sha1').update(real).digest('hex').slice(0, 8);
     assert.equal(r.backup, path.join(backupsRoot(h), `${slug}-${hash8}`, NOW_DIR));
     assert.match(path.basename(path.dirname(r.backup)), /-[0-9a-f]{8}$/);
-    assert.equal(fs.readFileSync(path.join(r.backup, '.planning', 'config.json'), 'utf-8'), configBefore);
+    assert.equal(fs.readFileSync(path.join(r.backup, '.aoforge', 'config.json'), 'utf-8'), configBefore);
     assert.equal(fs.readFileSync(path.join(r.backup, 'CLAUDE.md'), 'utf-8'), claudeBefore);
-    assert.ok(fs.existsSync(path.join(r.backup, '.planning', 'objectives', '01-alpha', '01-01-JOB.md')));
-    assert.ok(!fs.existsSync(path.join(r.backup, '.planning', 'MIGRATED-0001')), 'backup taken before the first write');
+    assert.ok(fs.existsSync(path.join(r.backup, '.aoforge', 'objectives', '01-alpha', '01-01-JOB.md')));
+    assert.ok(!fs.existsSync(path.join(r.backup, '.aoforge', 'MIGRATED-0001')), 'backup taken before the first write');
     assert.ok(path.relative(project, r.backup).startsWith('..'));
 
     // backupDirFor agrees with apply for a fresh timestamp, and refuses a dir inside the project.
@@ -563,7 +563,7 @@ describe('apply', () => {
     const bare = v1({ claudeMdBlock: null });
     const r2 = upgrade.apply({ projectRoot: bare, userHome: h, pluginVersion: PV,
       registryDir: standardRegistry(), now: NOW });
-    assert.ok(fs.existsSync(path.join(r2.backup, '.planning', 'config.json')));
+    assert.ok(fs.existsSync(path.join(r2.backup, '.aoforge', 'config.json')));
     assert.ok(!fs.existsSync(path.join(r2.backup, 'CLAUDE.md')));
   });
 
@@ -575,7 +575,7 @@ describe('apply', () => {
         id: '0001',
         title: 'always',
         detect: "    return { applies: true, reason: 'always' };",
-        apply: "    if (!ctx.dryRun) fs.appendFileSync(path.join(ctx.projectRoot, '.planning', 'COUNTER'), 'x');\n    return { changed: ['.planning/COUNTER'], notes: null };",
+        apply: "    if (!ctx.dryRun) fs.appendFileSync(path.join(ctx.projectRoot, '.aoforge', 'COUNTER'), 'x');\n    return { changed: ['.aoforge/COUNTER'], notes: null };",
       }),
     });
     const r1 = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW });
@@ -585,8 +585,8 @@ describe('apply', () => {
     assert.equal(path.basename(r1.backup), NOW_DIR);
     assert.equal(path.basename(r2.backup), `${NOW_DIR}-1`);
     assert.deepEqual(diffSnapshots(firstBackup, snapshot(r1.backup)), []);
-    assert.ok(!fs.existsSync(path.join(r1.backup, '.planning', 'COUNTER')));
-    assert.equal(fs.readFileSync(path.join(r2.backup, '.planning', 'COUNTER'), 'utf-8'), 'x');
+    assert.ok(!fs.existsSync(path.join(r1.backup, '.aoforge', 'COUNTER')));
+    assert.equal(fs.readFileSync(path.join(r2.backup, '.aoforge', 'COUNTER'), 'utf-8'), 'x');
   });
 
   test('19: an apply that throws → failed, later migrations do not run, version not advanced, no throw', () => {
@@ -606,22 +606,22 @@ describe('apply', () => {
     assert.equal(r.failed[0].id, '0002');
     assert.equal(r.failed[0].phase, 'apply');
     assert.match(r.failed[0].error, /apply boom 0002/);
-    assert.ok(!exists(project, '.planning/MIGRATED-0003'), '0003 must not run after 0002 failed');
+    assert.ok(!exists(project, '.aoforge/MIGRATED-0003'), '0003 must not run after 0002 failed');
     assert.deepEqual(r.pending.map((p) => p.id), ['0003']);
     const stamp = upgrade.readStamp(project);
     assert.equal(stamp.version, null);
     assert.deepEqual(stamp.migrations_applied, ['0001']);
-    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0001', '.planning/config.json']);
+    assert.deepEqual(r.changed_files, ['.aoforge/MIGRATED-0001', '.aoforge/config.json']);
     assert.equal(r.up_to_date, false);
     assert.ok(r.backup);
 
     // A stamped project whose only migration throws keeps its version and its config bytes.
     const stamped = track(makeStampedProject('2.0.0'));
-    const configBefore = read(stamped, '.planning/config.json');
+    const configBefore = read(stamped, '.aoforge/config.json');
     const r2 = upgrade.apply({ projectRoot: stamped, userHome: h, pluginVersion: PV,
       registryDir: registry({ '0001-boom.cjs': throwingApply('0001') }), now: NOW });
     assert.equal(r2.failed[0].phase, 'apply');
-    assert.equal(read(stamped, '.planning/config.json'), configBefore);
+    assert.equal(read(stamped, '.aoforge/config.json'), configBefore);
     assert.deepEqual(r2.changed_files, []);
   });
 
@@ -663,7 +663,7 @@ describe('apply', () => {
     assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
     assert.equal(upgrade.readStamp(project), null);
     assert.deepEqual(r.applied.map((a) => a.id), ['0001', '0002']);
-    assert.deepEqual(r.changed_files, ['.planning/MIGRATED-0002', '.planning/config.json', 'PROBE.txt']);
+    assert.deepEqual(r.changed_files, ['.aoforge/MIGRATED-0002', '.aoforge/config.json', 'PROBE.txt']);
     assert.equal(r.up_to_date, false);
   });
 
@@ -689,20 +689,20 @@ describe('apply', () => {
   test('23: stamp-only — version rewritten, nothing else touched, key order preserved, no backup', () => {
     const project = track(makeStampedProject('2.0.0', { migrations_applied: ['0001'] }));
     const h = home();
-    const before = JSON.parse(read(project, '.planning/config.json'));
+    const before = JSON.parse(read(project, '.aoforge/config.json'));
     const snapBefore = snapshot(project);
     const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: '2.10.1',
       registryDir: registry({ '0002-noop.cjs': notApplicable('0002') }), now: NOW });
     assert.deepEqual(r.applied, []);
-    assert.deepEqual(r.changed_files, ['.planning/config.json']);
+    assert.deepEqual(r.changed_files, ['.aoforge/config.json']);
     assert.equal(r.backup, null);
     assert.ok(!fs.existsSync(backupsRoot(h)));
     assert.equal(r.from, '2.0.0');
     assert.equal(r.to, '2.10.1');
     assert.equal(r.up_to_date, true);
-    assert.deepEqual(diffSnapshots(snapBefore, snapshot(project)), ['.planning/config.json']);
+    assert.deepEqual(diffSnapshots(snapBefore, snapshot(project)), ['.aoforge/config.json']);
 
-    const raw = read(project, '.planning/config.json');
+    const raw = read(project, '.aoforge/config.json');
     const after = JSON.parse(raw);
     assert.equal(raw, JSON.stringify(after, null, 2) + '\n');
     assert.deepEqual(Object.keys(after), Object.keys(before));
@@ -753,7 +753,7 @@ describe('stamp helpers', () => {
   test('25: readStamp → null without config.json or without aoforge; the stamp otherwise', () => {
     assert.equal(upgrade.readStamp(v1()), null);
     const noConfig = v1();
-    fs.rmSync(path.join(noConfig, '.planning', 'config.json'));
+    fs.rmSync(path.join(noConfig, '.aoforge', 'config.json'));
     assert.equal(upgrade.readStamp(noConfig), null);
     const noPlanning = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-upgrade-empty-')));
     assert.equal(upgrade.readStamp(noPlanning), null);
@@ -765,11 +765,11 @@ describe('stamp helpers', () => {
     // writeStamp creates config.json when absent, and preserves every other key when present.
     const stamp = { version: PV, migrations_applied: ['0001'], upgraded_at: NOW.toISOString() };
     upgrade.writeStamp(noConfig, stamp);
-    assert.equal(read(noConfig, '.planning/config.json'), JSON.stringify({ aoforge: stamp }, null, 2) + '\n');
+    assert.equal(read(noConfig, '.aoforge/config.json'), JSON.stringify({ aoforge: stamp }, null, 2) + '\n');
     const flat = v1();
-    const flatBefore = JSON.parse(read(flat, '.planning/config.json'));
+    const flatBefore = JSON.parse(read(flat, '.aoforge/config.json'));
     upgrade.writeStamp(flat, stamp);
-    const flatAfter = JSON.parse(read(flat, '.planning/config.json'));
+    const flatAfter = JSON.parse(read(flat, '.aoforge/config.json'));
     assert.deepEqual(Object.keys(flatAfter), [...Object.keys(flatBefore), 'aoforge']);
     assert.deepEqual(upgrade.readStamp(flat), stamp);
   });
@@ -777,11 +777,11 @@ describe('stamp helpers', () => {
   test('26: invalid config.json → apply never writes it; failed has {id:"stamp"}', () => {
     const project = v1();
     const h = home();
-    fs.writeFileSync(path.join(project, '.planning', 'config.json'), '{ not json');
+    fs.writeFileSync(path.join(project, '.aoforge', 'config.json'), '{ not json');
     const before = snapshot(project);
     const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV,
       registryDir: standardRegistry(), now: NOW });
-    assert.equal(read(project, '.planning/config.json'), '{ not json');
+    assert.equal(read(project, '.aoforge/config.json'), '{ not json');
     const stampFailure = r.failed.find((f) => f.id === 'stamp');
     assert.ok(stampFailure, JSON.stringify(r.failed));
     assert.equal(typeof stampFailure.error, 'string');

@@ -147,8 +147,8 @@ describe('one gh seam (TRD 46-08)', () => {
 
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-seam-'));
     try {
-      fs.mkdirSync(path.join(root, '.planning', 'objectives', '02-a'), { recursive: true });
-      const file = path.join(root, '.planning', '.gh-mapping.json');
+      fs.mkdirSync(path.join(root, '.aoforge', 'objectives', '02-a'), { recursive: true });
+      const file = path.join(root, '.aoforge', '.gh-mapping.json');
       fs.writeFileSync(file, JSON.stringify({ milestone_id: 4, objectives: { 2: 7 } }));
       const m = gh.readMappingV2(root);
       assert.strictEqual(m.version, 3);

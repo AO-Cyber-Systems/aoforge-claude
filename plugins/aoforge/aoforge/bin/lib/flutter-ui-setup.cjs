@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { resolveFlutterPackageDir } = require('./flutter-package-dir.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ───── detectMissingTools ────────────────────────────────────────────────────
 
@@ -195,12 +196,12 @@ function cmdFlutterUISetup(cwd, args, raw) {
   const plan = buildInstallPlan({ missing: stillMissing, platform });
 
   // ── Idempotency short-circuit (must run BEFORE any handoff dispatch):
-  //    all tools present AND .planning/.flutter-ui-bootstrap-done marker present
+  //    all tools present AND .aoforge/.flutter-ui-bootstrap-done marker present
   //    AND bootstrap detector reports action:'skip' → exit 0 with status:'already-set-up'.
   //    Note: --print-only intentionally bypasses this short-circuit so the user
   //    can always preview the plan (which will be empty in this case).
   if (!flags.print_only && stillMissing.length === 0) {
-    const markerPath = path.join(cwd, '.planning', '.flutter-ui-bootstrap-done');
+    const markerPath = path.join(planningRoot(cwd), '.flutter-ui-bootstrap-done');
     if (fs.existsSync(markerPath)) {
       const { checkBootstrapState: peek } = require('./flutter-ui-bootstrap.cjs');
       const peeked = peek({ projectDir: cwd });

@@ -199,7 +199,7 @@ describe('cache location', () => {
     assert.equal(gp.cacheDir({ AOFORGE_GH_CACHE_DIR: '/somewhere/else' }), '/somewhere/else');
     const def = gp.cacheDir({});
     assert.equal(def, path.join(os.homedir(), '.claude', 'aoforge', 'state', 'gh-project'));
-    assert.ok(!def.includes('.planning'));
+    assert.ok(!def.includes('.aoforge'));
     assert.equal(gp.DEFAULT_TTL_MINUTES, 360);
   });
 
@@ -624,7 +624,7 @@ describe('repo guard (test 12)', () => {
     const src = fs.readFileSync(path.join(libDir, 'gh-project.cjs'), 'utf-8');
     assert.ok(!src.includes('__fixtures__'), 'module must not reference __fixtures__');
     assert.ok(!src.includes('PVT_kwDODwqLrc4BRsOP'), 'module must not hardcode a project node id');
-    assert.ok(!src.includes('.planning'), 'cache must not live under .planning/');
+    assert.ok(!src.includes('.aoforge'), 'cache must not live under .aoforge/');
   });
 
   // Enabled by 46-07. runtime-digest.cjs (skips the fixtures dir when hashing the bundle) and

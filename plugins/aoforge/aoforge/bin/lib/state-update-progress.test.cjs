@@ -65,11 +65,11 @@ function projectWith(stateText, extra = {}) {
 }
 
 function readState(dir) {
-  return fs.readFileSync(path.join(dir, '.planning', 'STATE.md'), 'utf-8');
+  return fs.readFileSync(path.join(dir, '.aoforge', 'STATE.md'), 'utf-8');
 }
 
 function stateJsonPath(dir) {
-  return path.join(dir, '.planning', 'state.json');
+  return path.join(dir, '.aoforge', 'state.json');
 }
 
 describe('state update-progress (TRD 70-01)', () => {

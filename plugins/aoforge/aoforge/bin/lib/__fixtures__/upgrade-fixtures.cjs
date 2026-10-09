@@ -15,6 +15,15 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const { execFileSync } = require('child_process');
+const { NAMES } = require('../legacy-names.cjs');
+
+// The planning-directory name every builder writes (TRD 72-05). The hooks resolve only the legacy name until 72-06
+// moves them onto the resolver, so the hook tests that build projects here call setPlanningDir(LEGACY.planningDir)
+// once at load; 72-06 drops those calls. node --test runs each file in its own process, so the switch never leaks.
+let PLANNING = NAMES.planningDir;
+function setPlanningDir(name) {
+  PLANNING = name;
+}
 
 // The current nested config.json shape. Read from the shipped template so a "modern" fixture
 // project always carries every top-level section the template has (migration 0001 treats a
@@ -206,7 +215,7 @@ function makeFakeHome({ legacy = false, claudeMd = null } = {}) {
  *
  *   flatConfig         true  → flat v1 config.json keys; false → the nested template shape
  *   jobFiles           true  → NN-NN-JOB.md plan files; false → NN-NN-TRD.md
- *   stateJson          false → no .planning/state.json; true → seeded state.json
+ *   stateJson          false → no .aoforge/state.json; true → seeded state.json
  *   missingObjectiveMd true  → objectives/02-beta has no OBJECTIVE.md
  *   projectKind        null  → PROJECT.md frontmatter has no `kind`; a string adds `kind: <it>`
  *   claudeMdBlock      'legacy' → CLAUDE.md with the unversioned AOFORGE block between user text
@@ -224,18 +233,18 @@ function makeV1Project({
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-upgrade-project-'));
   const plan = jobFiles ? 'JOB' : 'TRD';
 
-  writeRel(root, '.planning/PROJECT.md', projectMd(projectKind));
-  writeRel(root, '.planning/ROADMAP.md', ROADMAP_MD);
-  writeRel(root, '.planning/STATE.md', STATE_MD);
-  writeJson(root, '.planning/config.json', flatConfig ? { ...V1_FLAT_CONFIG } : nestedTemplateConfig());
-  if (stateJson) writeJson(root, '.planning/state.json', STATE_JSON);
+  writeRel(root, `${PLANNING}/PROJECT.md`, projectMd(projectKind));
+  writeRel(root, `${PLANNING}/ROADMAP.md`, ROADMAP_MD);
+  writeRel(root, `${PLANNING}/STATE.md`, STATE_MD);
+  writeJson(root, `${PLANNING}/config.json`, flatConfig ? { ...V1_FLAT_CONFIG } : nestedTemplateConfig());
+  if (stateJson) writeJson(root, `${PLANNING}/state.json`, STATE_JSON);
 
-  writeRel(root, '.planning/objectives/01-alpha/OBJECTIVE.md', objectiveMd('01-alpha', 'Alpha', 'Alpha goal'));
-  writeRel(root, `.planning/objectives/01-alpha/01-01-${plan}.md`, planMd('01-alpha', '01', plan, 'Alpha first job'));
-  writeRel(root, '.planning/objectives/01-alpha/01-01-SUMMARY.md', SUMMARY_MD);
-  writeRel(root, `.planning/objectives/02-beta/02-01-${plan}.md`, planMd('02-beta', '01', plan, 'Beta first job'));
+  writeRel(root, `${PLANNING}/objectives/01-alpha/OBJECTIVE.md`, objectiveMd('01-alpha', 'Alpha', 'Alpha goal'));
+  writeRel(root, `${PLANNING}/objectives/01-alpha/01-01-${plan}.md`, planMd('01-alpha', '01', plan, 'Alpha first job'));
+  writeRel(root, `${PLANNING}/objectives/01-alpha/01-01-SUMMARY.md`, SUMMARY_MD);
+  writeRel(root, `${PLANNING}/objectives/02-beta/02-01-${plan}.md`, planMd('02-beta', '01', plan, 'Beta first job'));
   if (!missingObjectiveMd) {
-    writeRel(root, '.planning/objectives/02-beta/OBJECTIVE.md', objectiveMd('02-beta', 'Beta', 'Beta goal'));
+    writeRel(root, `${PLANNING}/objectives/02-beta/OBJECTIVE.md`, objectiveMd('02-beta', 'Beta', 'Beta goal'));
   }
 
   if (claudeMdBlock === 'legacy') {
@@ -265,7 +274,7 @@ function makeStampedProject(version, { migrations_applied = [] } = {}) {
     projectKind: 'app',
     claudeMdBlock: 'none',
   });
-  const configPath = path.join(root, '.planning', 'config.json');
+  const configPath = path.join(root, PLANNING, 'config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   config.aoforge = {
     version,
@@ -320,9 +329,10 @@ function initGitFixture(root, home) {
 
 // Hand-written runtime-state bodies (TRD 44-06). Shaped like what guard-no-progress.js and
 // awareness-cache-populate.js write, but literal and tiny — the migration never parses them.
+// keyed by file name: the content is the same under either planning-directory name
 const RUNTIME_STATE_CONTENT = {
-  '.planning/.progress-guard.json': '{\n  "last": "Bash:9f2c1e",\n  "count": 1\n}\n',
-  '.planning/.awareness-cache.json': '{\n  "generated_at": "2026-01-01T00:00:00.000Z",\n  "branches": []\n}\n',
+  '.progress-guard.json': '{\n  "last": "Bash:9f2c1e",\n  "count": 1\n}\n',
+  '.awareness-cache.json': '{\n  "generated_at": "2026-01-01T00:00:00.000Z",\n  "branches": []\n}\n',
 };
 
 /**
@@ -342,7 +352,7 @@ const RUNTIME_STATE_CONTENT = {
  * Every git call runs through initGitFixture/gitEnv(home) — local identity, no signing.
  */
 function makeTrackedRuntimeStateProject({
-  tracked = ['.planning/.progress-guard.json'],
+  tracked = [`${PLANNING}/.progress-guard.json`],
   untrackedPresent = [],
   gitignore = null,
   version = '2.0.0',
@@ -350,7 +360,7 @@ function makeTrackedRuntimeStateProject({
 } = {}) {
   const fakeHome = home || makeFakeHome();
   const root = makeStampedProject(version);
-  const contentFor = (rel) => RUNTIME_STATE_CONTENT[rel] || '{\n  "fixture": true\n}\n';
+  const contentFor = (rel) => RUNTIME_STATE_CONTENT[path.posix.basename(rel)] || '{\n  "fixture": true\n}\n';
 
   for (const rel of tracked) writeRel(root, rel, contentFor(rel));
   initGitFixture(root, fakeHome);
@@ -433,6 +443,7 @@ function diffSnapshots(a, b) {
 }
 
 module.exports = {
+  setPlanningDir,
   makeFakeHome,
   HAND_WRITTEN_ROUTING,
   makeV1Project,

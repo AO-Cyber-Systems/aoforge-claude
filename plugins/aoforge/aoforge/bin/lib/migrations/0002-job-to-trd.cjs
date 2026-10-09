@@ -2,7 +2,7 @@
 
 // Migration 0002 — job-to-trd (TRD 36-04a).
 //
-// Renames every legacy plan file `.planning/objectives/<dir>/*-JOB.md` (and a bare `JOB.md`) to
+// Renames every legacy plan file `.aoforge/objectives/<dir>/*-JOB.md` (and a bare `JOB.md`) to
 // its `-TRD.md` / `TRD.md` name, then appends one dated line under STATE.md's `## Session Log`.
 //
 // A JOB whose TRD counterpart already exists is a conflict: it is never renamed (that would
@@ -16,9 +16,11 @@
 
 const fs = require('fs');
 const path = require('path');
+const { planningRel } = require('../compat.cjs');
 
-const OBJECTIVES_REL = '.planning/objectives';
-const STATE_REL = '.planning/STATE.md';
+// under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const objectivesRel = (root) => planningRel(root, 'objectives');
+const stateRel = (root) => planningRel(root, 'STATE.md');
 const SESSION_LOG_RE = /^##\s+Session Log[^\n]*$/m;
 
 function isLegacyJobName(name) {
@@ -40,6 +42,7 @@ function abs(projectRoot, rel) {
  * project-relative posix paths; `conflict` is true when `to` already exists.
  */
 function findLegacyJobFiles(projectRoot) {
+  const OBJECTIVES_REL = objectivesRel(projectRoot);
   const objectivesDir = abs(projectRoot, OBJECTIVES_REL);
   const found = [];
   let entries;
@@ -87,7 +90,7 @@ function detect(ctx) {
   if (conflicts.length) {
     return { applies: false, reason: `no renamable JOB.md files${conflictNote(conflicts)}` };
   }
-  return { applies: false, reason: `no legacy JOB.md files under ${OBJECTIVES_REL}/` };
+  return { applies: false, reason: `no legacy JOB.md files under ${objectivesRel(ctx.projectRoot)}/` };
 }
 
 // -> the new STATE.md content, or null when there is no `## Session Log` section.
@@ -117,6 +120,7 @@ function apply(ctx) {
     changed.push(f.from, f.to);
   }
 
+  const STATE_REL = stateRel(root);
   const statePath = abs(root, STATE_REL);
   if (migrated.length && fs.existsSync(statePath)) {
     const today = new Date().toISOString().split('T')[0];

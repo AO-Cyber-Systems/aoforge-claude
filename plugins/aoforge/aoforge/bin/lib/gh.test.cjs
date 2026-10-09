@@ -633,10 +633,10 @@ describe('cmdGhResolve / aof-tools gh resolve', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-test-'));
-    // Create required .planning structure
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
+    // Create required .aoforge structure
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
     // TRD 46-08: resolve sits behind the enabled gate (disabled -> skipped, zero gh calls).
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'),
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ github: { enabled: true, repo: 'AO-Cyber-Systems/aoforge-claude' } }));
   });
 
@@ -648,13 +648,13 @@ describe('cmdGhResolve / aof-tools gh resolve', () => {
   test('H1: reads OBJECTIVE.md + PROJECT.md, calls resolveChain, prints JSON to stdout', () => {
     // Create PROJECT.md with github_repo and org_project
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'PROJECT.md'),
+      path.join(tmpDir, '.aoforge', 'PROJECT.md'),
       '---\nkind: plugin\ngithub_repo: AO-Cyber-Systems/aoforge-claude\norg_project: PVT_kwDODwqLrc4BRsOP\n---\n\n# Test Project\n',
       'utf-8'
     );
 
     // Create OBJECTIVE.md with github fields
-    const objDir = path.join(tmpDir, '.planning', 'objectives', '01-foo');
+    const objDir = path.join(tmpDir, '.aoforge', 'objectives', '01-foo');
     fs.mkdirSync(objDir, { recursive: true });
     fs.writeFileSync(
       path.join(objDir, 'OBJECTIVE.md'),
@@ -695,12 +695,12 @@ describe('cmdGhResolve / aof-tools gh resolve', () => {
 
   test('H2: raw=true produces one-line JSON; raw=false produces pretty-printed JSON', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'PROJECT.md'),
+      path.join(tmpDir, '.aoforge', 'PROJECT.md'),
       '---\nkind: plugin\ngithub_repo: AO-Cyber-Systems/aoforge-claude\n---\n\n# Test\n',
       'utf-8'
     );
 
-    const objDir = path.join(tmpDir, '.planning', 'objectives', '01-bar');
+    const objDir = path.join(tmpDir, '.aoforge', 'objectives', '01-bar');
     fs.mkdirSync(objDir, { recursive: true });
     fs.writeFileSync(
       path.join(objDir, 'OBJECTIVE.md'),
@@ -775,12 +775,12 @@ describe('cmdGhResolve / aof-tools gh resolve', () => {
 
   test('H4: OBJECTIVE.md with no GH-link fields → succeeds with all provenance = absent', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'PROJECT.md'),
+      path.join(tmpDir, '.aoforge', 'PROJECT.md'),
       '---\nkind: plugin\n---\n\n# Test\n',
       'utf-8'
     );
 
-    const objDir = path.join(tmpDir, '.planning', 'objectives', '01-nogithub');
+    const objDir = path.join(tmpDir, '.aoforge', 'objectives', '01-nogithub');
     fs.mkdirSync(objDir, { recursive: true });
     fs.writeFileSync(
       path.join(objDir, 'OBJECTIVE.md'),
@@ -1128,13 +1128,13 @@ describe('cmdGhResolve — auth hard-fail', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-auth-test-'));
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
     // TRD 46-08: resolve sits behind the enabled gate. D3 removes this file to test the disabled path.
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'),
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ github: { enabled: true, repo: 'AO-Cyber-Systems/aoforge-claude' } }));
 
     // Create a valid OBJECTIVE.md so cmdGhResolve doesn't fail on missing file
-    const objDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const objDir = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(objDir, { recursive: true });
     fs.writeFileSync(
       path.join(objDir, 'OBJECTIVE.md'),
@@ -1142,7 +1142,7 @@ describe('cmdGhResolve — auth hard-fail', () => {
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'PROJECT.md'),
+      path.join(tmpDir, '.aoforge', 'PROJECT.md'),
       '---\nkind: plugin\ngithub_repo: AO-Cyber-Systems/aoforge-claude\n---\n\n# Test\n',
       'utf-8'
     );
@@ -1239,7 +1239,7 @@ describe('cmdGhResolve — auth hard-fail', () => {
     process.exit = (code) => { exitCodeCalled = code; };
 
     // No config.json in tmpDir — so ghStatus returns enabled:false, reason: 'github.enabled is false...'
-    fs.rmSync(path.join(tmpDir, '.planning', 'config.json'), { force: true });
+    fs.rmSync(path.join(tmpDir, '.aoforge', 'config.json'), { force: true });
     try {
       gh.cmdGhSyncObjectives(tmpDir, false);
     } finally {
@@ -1635,7 +1635,7 @@ describe('cmdGhSyncObjective', () => {
   // 46-07: sync is gated by github.enabled (a disabled project is a skip, exit 0), so the failure
   // cases below run against an enabled config.
   function enableGithub(root, enabled = true) {
-    const file = path.join(root, '.planning', 'config.json');
+    const file = path.join(root, '.aoforge', 'config.json');
     let cfg = {};
     try { cfg = JSON.parse(fs.readFileSync(file, 'utf-8')); } catch { cfg = {}; }
     cfg.github = { ...(cfg.github || {}), enabled, repo: 'AO-Cyber-Systems/aoforge-claude' };
@@ -1752,12 +1752,13 @@ describe('cmdGhSyncObjective', () => {
 });
 
 // ─── Group H (01-06): OBJECTIVE.md backfill — obj 0 ─────────────────────────
-// Tests are RED because .planning/objectives/00-refine-defaults-table/OBJECTIVE.md
+// Tests are RED because .aoforge/objectives/00-refine-defaults-table/OBJECTIVE.md
 // does not exist yet.
 
+// this repository's planning tree, wherever it is (`.planning/` until 72-21 moves it, `.aoforge/` after)
 const OBJ0_PATH = path.join(
-  __dirname, '..', '..', '..', '..', '..',
-  '.planning', 'objectives', '00-refine-defaults-table', 'OBJECTIVE.md'
+  require('./compat.cjs').planningRoot(path.join(__dirname, '..', '..', '..', '..', '..')),
+  'objectives', '00-refine-defaults-table', 'OBJECTIVE.md'
 );
 const { extractFrontmatter } = require('./frontmatter.cjs');
 // The planning tree is history: objective 0 recorded its issues under the repository's name at

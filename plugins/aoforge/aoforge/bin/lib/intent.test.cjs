@@ -81,7 +81,7 @@ describe('intent.resolve', () => {
         objectives: [{ id: '01-foo', work: 'prototype' }],
       });
 
-      const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+      const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
       fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'tdd' }), 'utf-8');
 
       const result = intent.resolve({
@@ -604,7 +604,7 @@ describe('new fields — constraints', () => {
       projectFrontmatter: { kind: 'api' },
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ allow_generated_test_data: true }), 'utf-8');
 
     const result = intent.resolve({
@@ -624,7 +624,7 @@ describe('new fields — constraints', () => {
       projectFrontmatter: { kind: 'api' },
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ use_property_based: true }), 'utf-8');
 
     const result = intent.resolve({
@@ -644,7 +644,7 @@ describe('new fields — constraints', () => {
       projectFrontmatter: { kind: 'api' },
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ use_gherkin: true }), 'utf-8');
 
     const result = intent.resolve({
@@ -664,7 +664,7 @@ describe('new fields — constraints', () => {
       projectFrontmatter: { kind: 'api' },
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({
       allow_generated_test_data: true,
       use_property_based: true,
@@ -737,7 +737,7 @@ describe('new fields — multi_tenant_required injection', () => {
       projectFrontmatter: { kind: 'api' },
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ skip_multi_tenant_check: true }), 'utf-8');
 
     const result = intent.resolve({
@@ -963,7 +963,7 @@ describe('cell_provenance (TRD 21-05)', () => {
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
     fs.writeFileSync(
-      path.join(project.root, '.planning', 'defaults-table.md'),
+      path.join(project.root, '.aoforge', 'defaults-table.md'),
       fxDefaults.buildPartialDefaultsTable({ cells: { 'api.feature': { depth: 'project-depth-override' } } }),
       'utf-8'
     );
@@ -991,7 +991,7 @@ describe('cell_provenance (TRD 21-05)', () => {
       'utf-8'
     );
     fs.writeFileSync(
-      path.join(project.root, '.planning', 'defaults-table.md'),
+      path.join(project.root, '.aoforge', 'defaults-table.md'),
       fxDefaults.buildPartialDefaultsTable({ cells: { 'api.feature': { depth: 'project-depth' } } }),
       'utf-8'
     );
@@ -1014,13 +1014,13 @@ describe('cell_provenance (TRD 21-05)', () => {
     });
     // Project-tier override of tdd
     fs.writeFileSync(
-      path.join(project.root, '.planning', 'defaults-table.md'),
+      path.join(project.root, '.aoforge', 'defaults-table.md'),
       fxDefaults.buildPartialDefaultsTable({ cells: { 'api.feature': { tdd: 'project-tdd' } } }),
       'utf-8'
     );
 
     // TRD frontmatter that triggers type:tdd override path
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'tdd' }), 'utf-8');
 
     const result = intent.resolve({

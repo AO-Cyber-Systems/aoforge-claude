@@ -12,7 +12,7 @@
  *   aof-tools summary post <trd-id> --from <path|-> [--file <name>]
  *   aof-tools summary checkpoint <trd-id> --from <path|->
  *   aof-tools verification post <objective> --from <path|-> [--file <name>]
- *   aof-tools doc put <rel-under-.planning> --from <path|-> [--message <text>]
+ *   aof-tools doc put <rel-under-.aoforge> --from <path|-> [--message <text>]
  *   aof-tools decision open <trd-id> --question <text|@path>
  *   aof-tools decision answer <trd-id>-d<k> --from <path|-> | --text <t>      (local ids are DECISION-NNN)
  *   aof-tools todo add --from <path|-> [--stem <stem>]
@@ -48,6 +48,9 @@ const backfill = require('./gh-backfill.cjs');
 const planningMode = require('./planning-mode.cjs');
 const { EXIT } = require('./gh-store-cli.cjs');
 const { mdCell } = require('./text-escape.cjs');
+const { NAMES } = require('./legacy-names.cjs');
+const { planningRel } = require('./compat.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Arguments ───────────────────────────────────────────────────────────────
 
@@ -142,6 +145,17 @@ function exitOf(res) {
   return res.ok === false ? EXIT.ERROR : EXIT.OK;
 }
 
+/**
+ * The planning directory a verb's file lives in (`.aoforge`, or a legacy one), read off the result's absolute `path`
+ * and its planning-relative `rel`; the new name when the result carries no file.
+ */
+function planningDirOfResult(res) {
+  if (typeof res.path !== 'string' || typeof res.rel !== 'string' || res.rel === '') return NAMES.planningDir;
+  let dir = res.path;
+  for (let i = 0; i < res.rel.split('/').length; i++) dir = path.dirname(dir);
+  return path.basename(dir);
+}
+
 function headline(verb, res) {
   if (res.refused === 'budget') {
     const chars = Number.isInteger(res.chars) ? ` (${res.chars} encoded chars; the limit is 60,000)` : '';
@@ -152,8 +166,9 @@ function headline(verb, res) {
   if (res.dry_run === true && res.prose) return null; // a dry run's prose opens with its own DRY RUN banner
   if (res.skipped) return `${verb}: nothing to do (${res.skipped}).`;
   let what = 'done';
-  if (res.from && res.rel) what = `moved .planning/${res.from} -> .planning/${res.rel}`;
-  else if (res.rel) what = `wrote .planning/${res.rel}`;
+  const dir = planningDirOfResult(res);
+  if (res.from && res.rel) what = `moved ${dir}/${res.from} -> ${dir}/${res.rel}`;
+  else if (res.rel) what = `wrote ${dir}/${res.rel}`;
   const id = res.id ? `, id ${res.id}` : '';
   return `${verb}: ${what}${id} (${res.mode || 'local'} mode).`;
 }
@@ -262,7 +277,7 @@ function cmdDoc(cwd, args, raw, io = {}) {
   const [sub, ...rest] = args;
   const pos = positionals(rest);
   if (sub === 'put') {
-    if (pos.length < 1) return needs('doc put', raw, 'doc put <rel-under-.planning> --from <path|-> [--message <text>]');
+    if (pos.length < 1) return needs('doc put', raw, 'doc put <rel-under-.aoforge> --from <path|-> [--message <text>]');
     return withInput('doc put', cwd, rest, raw, io, (text, from) =>
       verbs.docPut(cwd, { rel: pos[0], text, from, message: flagValue(rest, '--message'), ...flushOpts(rest) }));
   }
@@ -305,7 +320,7 @@ function cmdDecision(cwd, args, raw, io = {}) {
 /** Local `todo complete` takes today's file name; a bare stem whose `<stem>.md` is pending is accepted too. */
 function localTodoFile(cwd, arg) {
   if (typeof arg !== 'string' || arg.endsWith('.md')) return arg;
-  const pending = path.join(cwd, '.planning', 'todos', 'pending');
+  const pending = path.join(planningRoot(cwd), 'todos', 'pending');
   if (!fs.existsSync(path.join(pending, arg)) && fs.existsSync(path.join(pending, `${arg}.md`))) return `${arg}.md`;
   return arg;
 }
@@ -469,7 +484,7 @@ function cmdPlanningVerb(cwd, args, raw) {
     return finish(EXIT.OK);
   }
   if (sub === 'draft') {
-    if (pos.length < 1) return needs('planning draft', raw, 'planning draft <rel-under-.planning>');
+    if (pos.length < 1) return needs('planning draft', raw, 'planning draft <rel-under-.aoforge>');
     let res;
     try {
       res = drafts.prepareDraft(cwd, pos[0]);
@@ -485,7 +500,7 @@ function cmdPlanningVerb(cwd, args, raw) {
       if (res.reseeded) {
         line(
           'stderr',
-          `planning draft: reseeded ${res.path} from .planning/${pos[0]}: the live file changed after the draft was ` +
+          `planning draft: reseeded ${res.path} from ${planningRel(planningMode.resolveMainRoot(cwd) || cwd, pos[0])}: the live file changed after the draft was ` +
             `seeded. Your previous draft is at ${res.stale_copy}.`,
         );
       }

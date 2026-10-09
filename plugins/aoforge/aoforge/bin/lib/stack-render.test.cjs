@@ -78,7 +78,7 @@ describe('renderCommand', () => {
 
   // TRD 42-05: renderCommand is the ONE place a component's path joins the command cwd.
   test('C1c: a resolved component joins its path onto the command cwd', () => {
-    const svc = { path: 'svc/', profile: '.planning/stacks/svc.md' };
+    const svc = { path: 'svc/', profile: '.aoforge/stacks/svc.md' };
     const bare = makeResolved({ component: svc, frontmatter: { commands: { test: { run: 'unit-run' } } } });
     assert.strictEqual(stackRender.renderCommand(bare, 'test').cwd, 'svc');
     const nested = makeResolved({ component: svc, frontmatter: { commands: { test: { run: 'unit-run', cwd: 'internal' } } } });

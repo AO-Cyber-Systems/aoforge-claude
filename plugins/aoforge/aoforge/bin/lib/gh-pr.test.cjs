@@ -63,18 +63,18 @@ function seedTrd(id) {
 }
 
 /**
- * A git clone with a store-shaped `.planning/` cache inside it, a fake GitHub whose `main` is the clone's tip, and
+ * A git clone with a store-shaped `.aoforge/` cache inside it, a fake GitHub whose `main` is the clone's tip, and
  * the objective (and, by default, TRDs 7-01 and 7-02) issued and mapped.
  */
 function setup({ store = true, wiki = false, mapObjective = true, trds = ['7-01', '7-02'] } = {}) {
   const envh = hermeticEnv();
   const g = makeGitRemote();
   const project = makeStoreProject({ store, hasWiki: false });
-  fs.cpSync(path.join(project.root, '.planning'), path.join(g.work, '.planning'), { recursive: true });
+  fs.cpSync(path.join(project.root, '.aoforge'), path.join(g.work, '.aoforge'), { recursive: true });
   project.cleanup();
   const root = g.work;
   // Two TRD files and one SUMMARY: "TRDs complete 1/2".
-  fs.rmSync(path.join(root, '.planning', 'objectives', '07-store-demo', TRD_FILES['7-03']));
+  fs.rmSync(path.join(root, '.aoforge', 'objectives', '07-store-demo', TRD_FILES['7-03']));
 
   const c0 = g.git(root, ['rev-parse', 'HEAD']);
   const fake = createFakeGitHub({

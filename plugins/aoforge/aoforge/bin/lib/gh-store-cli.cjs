@@ -31,6 +31,7 @@ const ghCache = require('./gh-cache.cjs');
 const ledgerLib = require('./planning-ledger.cjs');
 const planningMode = require('./planning-mode.cjs');
 const overrideLib = require('./override.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1, HALTED: 2, PENDING: 3 });
 
@@ -468,7 +469,7 @@ function trdConfirmScope(cwd, args, trdId, n) {
         { assignees: ctx.assignees }
       );
     }
-    const planningDir = path.join(planningMode.planningMode(cwd).root || cwd, '.planning');
+    const planningDir = planningRoot(planningMode.planningMode(cwd).root || cwd);
     const rec = overrideLib.recordOverride({ planningDir, gate: 'scope-confirm', reason });
     if (!rec.ok) return failure(rec.message);
     overrideLib.pruneLog(planningDir);
@@ -533,7 +534,7 @@ function trdVerb(cwd, verb, args) {
   if (g.result) return g.result;
 
   if (STORE_ONLY_TRD_VERBS.includes(verb) && !planningMode.isStoreMode(cwd)) {
-    return skipped(`github.store is not true in .planning/config.json: gh trd ${verb} is a store-mode verb`);
+    return skipped(`github.store is not true in .aoforge/config.json: gh trd ${verb} is a store-mode verb`);
   }
 
   if (verb === 'spec') return trdSpec(cwd, trdId);

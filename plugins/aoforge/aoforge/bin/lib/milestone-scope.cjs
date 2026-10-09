@@ -30,6 +30,7 @@ const {
   parseObjectiveDirName,
   canonicalObjectiveNumber,
 } = require('./helpers.cjs');
+const { planningRoot, planningDirName, planningRel } = require('./compat.cjs');
 
 // A single number or an `A–B` range (en dash, em dash or hyphen); decimals are objective numbers like 4.1.
 const NUM = String.raw`\d+(?:\.\d+)?`;
@@ -129,7 +130,7 @@ function objectiveDirectories(cwd) {
     if (found.has(key)) return;
     found.set(key, { dir: rel.split(path.sep).join('/'), slug: parsed.slug });
   };
-  const current = path.join(cwd, '.planning', 'objectives');
+  const current = path.join(planningRoot(cwd), 'objectives');
   let entries = [];
   try {
     entries = fs.readdirSync(current, { withFileTypes: true });
@@ -137,7 +138,7 @@ function objectiveDirectories(cwd) {
     if (err.code !== 'ENOENT') throw err;
   }
   for (const e of entries.filter((d) => d.isDirectory()).sort((a, b) => (a.name < b.name ? -1 : 1))) {
-    add(e.name, path.join('.planning', 'objectives', e.name));
+    add(e.name, path.join(planningDirName(cwd), 'objectives', e.name));
   }
   for (const a of getArchivedObjectiveDirs(cwd)) add(a.name, path.join(a.basePath, a.name));
   return found;
@@ -172,7 +173,7 @@ function isCancelled(cwd, dir) {
 function selectMilestoneObjectives(cwd, { version } = {}) {
   let text;
   try {
-    text = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+    text = fs.readFileSync(path.join(planningRoot(cwd), 'ROADMAP.md'), 'utf-8');
   } catch (err) {
     if (err.code === 'ENOENT') throw new Error('ROADMAP.md not found');
     throw err;
@@ -235,7 +236,7 @@ function entryFor(cwd, number, name, d) {
 function sectionObjectives(cwd) {
   let text;
   try {
-    text = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+    text = fs.readFileSync(path.join(planningRoot(cwd), 'ROADMAP.md'), 'utf-8');
   } catch (err) {
     if (err.code === 'ENOENT') return [];
     throw err;
@@ -248,15 +249,15 @@ function sectionObjectives(cwd) {
     .map((number) => entryFor(cwd, number, sections.get(number), dirs.get(number)));
 }
 
-/** Every directory under `.planning/objectives/` (archived milestones' directories are not current), named by its ROADMAP.md section when it has one, else by its slug. */
+/** Every directory under `.aoforge/objectives/` (archived milestones' directories are not current), named by its ROADMAP.md section when it has one, else by its slug. */
 function currentDirObjectives(cwd) {
   let sections = new Map();
   try {
-    sections = roadmapSections(fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8'));
+    sections = roadmapSections(fs.readFileSync(path.join(planningRoot(cwd), 'ROADMAP.md'), 'utf-8'));
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
-  const currentPrefix = '.planning/objectives/';
+  const currentPrefix = `${planningRel(cwd, 'objectives')}/`;
   const dirs = objectiveDirectories(cwd);
   return [...dirs.keys()]
     .filter((number) => dirs.get(number).dir.startsWith(currentPrefix))

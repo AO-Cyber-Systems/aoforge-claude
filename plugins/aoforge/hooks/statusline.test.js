@@ -22,6 +22,8 @@ const fs = require('fs');
 const os = require('os');
 const { mkdtempSync, rmSync } = fs;
 const fixtures = require('../aoforge/bin/lib/__fixtures__/daemon-polish-fixtures.cjs');
+// This hook reads only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
+fixtures.setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
 
 // ---------------------------------------------------------------------------
 // Helper: build a self-contained tmp tree per test, return {tmp, env, stdout}

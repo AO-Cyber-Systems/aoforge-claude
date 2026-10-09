@@ -394,7 +394,7 @@ function detectCapabilities(cwd, opts = {}) {
   if (!repo) {
     return {
       ok: false,
-      error: 'github.repo is not set (need an owner/name in .planning/config.json github.repo or PROJECT.md github_repo)',
+      error: 'github.repo is not set (need an owner/name in .aoforge/config.json github.repo or PROJECT.md github_repo)',
     };
   }
   const now = nowMs(opts.now);

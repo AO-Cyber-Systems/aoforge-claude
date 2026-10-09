@@ -163,7 +163,7 @@ function useProject({ store = false, sync = false, types = DEFAULT_TYPES } = {})
   });
 }
 
-const planning = (...rel) => path.join(S.root, '.planning', ...rel.join('/').split('/'));
+const planning = (...rel) => path.join(S.root, '.aoforge', ...rel.join('/').split('/'));
 const readRel = (rel) => fs.readFileSync(planning(rel), 'utf8');
 const exists = (rel) => fs.existsSync(planning(rel));
 const journalExists = () => fs.existsSync(outbox.journalPath(S.root));
@@ -174,10 +174,10 @@ const entity = (id) => mappingLib.getEntity(mappingLib.readMappingV3(S.root), id
 const issueOf = (id) => S.fake.issues.find((i) => i.number === entity(id).issue_number);
 const commentsOn = (number) => S.fake.comments.filter((c) => c.issue_number === number || c.issueNumber === number);
 
-/** A second bare project (a `.planning/` dir only), cleaned up with the test. */
+/** A second bare project (a `.aoforge/` dir only), cleaned up with the test. */
 function tempProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'entity-verbs-ref-'));
-  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
   S.extra.push(dir);
   return dir;
 }
@@ -219,8 +219,8 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assert.equal(readRel('todos/pending/2026-10-01-fix-thing.md'), TODO_TEXT);
 
     const ref = tempProject();
-    fs.mkdirSync(path.join(ref, '.planning', 'todos', 'pending'), { recursive: true });
-    fs.writeFileSync(path.join(ref, '.planning', 'todos', 'pending', '2026-10-01-fix-thing.md'), TODO_TEXT);
+    fs.mkdirSync(path.join(ref, '.aoforge', 'todos', 'pending'), { recursive: true });
+    fs.writeFileSync(path.join(ref, '.aoforge', 'todos', 'pending', '2026-10-01-fix-thing.md'), TODO_TEXT);
     const cli = spawnSync(process.execPath, [DF_TOOLS, 'todo', 'complete', '2026-10-01-fix-thing.md'], { cwd: ref, encoding: 'utf8' });
     assert.equal(cli.status, 0, cli.stderr);
 
@@ -230,7 +230,7 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assert.equal(exists('todos/pending/2026-10-01-fix-thing.md'), false);
     assert.equal(
       readRel('todos/completed/2026-10-01-fix-thing.md'),
-      fs.readFileSync(path.join(ref, '.planning', 'todos', 'completed', '2026-10-01-fix-thing.md'), 'utf8'),
+      fs.readFileSync(path.join(ref, '.aoforge', 'todos', 'completed', '2026-10-01-fix-thing.md'), 'utf8'),
     );
     assert.equal(ev.todoComplete(S.root, { stem: 'nope' }).ok, false, 'a missing todo is an error');
     assertLocalInvariant();
@@ -255,7 +255,7 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(r.id, 'DECISION-001');
     assert.equal(r.rel, 'decisions/pending/DECISION-001.md');
-    const refFile = (d) => fs.readFileSync(path.join(ref, '.planning', 'decisions', d, 'DECISION-001.md'), 'utf8');
+    const refFile = (d) => fs.readFileSync(path.join(ref, '.aoforge', 'decisions', d, 'DECISION-001.md'), 'utf8');
     assert.equal(readRel('decisions/pending/DECISION-001.md'), refFile('pending'));
 
     decisionQueue.resolveDecision(ref, 'DECISION-001', 'B');
@@ -275,7 +275,7 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
   // TRD 52-05: a multi-line answer used to keep only its first line (and lose resolved_at at a `---` line).
   test('52-05 #1: CLI `decision answer --from` keeps a multi-line answer whole; a one-line file answer stays one line', () => {
     const dir = tempProject();
-    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{}\n');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), '{}\n');
     const run = (...args) => spawnSync(process.execPath, [DF_TOOLS, '--cwd', dir, ...args], {
       encoding: 'utf8',
       env: { ...process.env, NOTIFIER_DISABLE: '1' },
@@ -288,7 +288,7 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     r = run('decision', 'answer', 'DECISION-001', '--from', ans);
     assert.equal(r.status, 0, r.stderr + r.stdout);
 
-    const file = path.join(dir, '.planning', 'decisions', 'resolved', 'DECISION-001.md');
+    const file = path.join(dir, '.aoforge', 'decisions', 'resolved', 'DECISION-001.md');
     const fm = extractFrontmatter(fs.readFileSync(file, 'utf8'));
     assert.equal(fm.resolution, 'Option B.\nReason: second line with colon\n---\n  indented line\n\nlast');
     assert.equal(fm.status, 'resolved');
@@ -301,7 +301,7 @@ describe('48-12 local mode writes today\'s files (github.store off)', () => {
     assert.equal(r.status, 0, r.stderr + r.stdout);
     r = run('decision', 'answer', 'DECISION-002', '--from', ans);
     assert.equal(r.status, 0, r.stderr + r.stdout);
-    const one = fs.readFileSync(path.join(dir, '.planning', 'decisions', 'resolved', 'DECISION-002.md'), 'utf8');
+    const one = fs.readFileSync(path.join(dir, '.aoforge', 'decisions', 'resolved', 'DECISION-002.md'), 'utf8');
     assert.match(one, /\nresolution: Option A\n/);
   });
 

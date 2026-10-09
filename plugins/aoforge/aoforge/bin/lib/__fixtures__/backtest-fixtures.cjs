@@ -1,7 +1,7 @@
 'use strict';
 
 // Fixtures for the estimate backtest (TRD 64-01; 64-04 reuses makeBacktestProject for the CLI tests). Everything is a
-// hand-built literal: estimate objects, collectProject records, run states and `.planning` trees written into mkdtemp
+// hand-built literal: estimate objects, collectProject records, run states and `.aoforge` trees written into mkdtemp
 // directories. No generated data, no real repository, and never the real ~/.claude/aoforge.
 //
 // Every builder returns a fresh object, so a test may change what it gets back. Overrides are named options:
@@ -195,7 +195,7 @@ const BACKTEST_SPEC = {
   ],
 };
 
-/** Writes a `.planning` tree for `spec` (default BACKTEST_SPEC) into a mkdtemp directory and returns its root. */
+/** Writes a `.aoforge` tree for `spec` (default BACKTEST_SPEC) into a mkdtemp directory and returns its root. */
 function makeBacktestProject(spec) {
   return calibrationFixtures.makeCalibrationProject(spec || calibrationFixtures.cloneSpec(BACKTEST_SPEC));
 }

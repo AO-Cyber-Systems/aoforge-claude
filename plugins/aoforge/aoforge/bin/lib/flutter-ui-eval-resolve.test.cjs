@@ -7,7 +7,7 @@
 // statuses: not_applicable | absent | invalid | resolved.
 //
 // Hand-built fixtures only (fixture_strategy: generators) — every case builds its own
-// hermetic temp tree with fs.mkdtempSync. Nothing reads the real .planning/.
+// hermetic temp tree with fs.mkdtempSync. Nothing reads the real .aoforge/.
 //
 // RED (task 1): this import fails until flutter-ui-eval-resolve.cjs is created.
 
@@ -24,7 +24,7 @@ const { resolveUIEvalTarget, classifyUIEvalOutcome } = require('./flutter-ui-eva
 // makeObjectiveTree({ id, slug, trds: [{ name, frontmatter }], manifest, repoManifest })
 //   -> { cwd, objectiveDir }   built under fs.mkdtempSync(path.join(os.tmpdir(), 'ui-eval-resolve-'))
 //
-// Writes a real <tmp>/.planning/objectives/<id>-<slug>/<name>-TRD.md for each entry, with a
+// Writes a real <tmp>/.aoforge/objectives/<id>-<slug>/<name>-TRD.md for each entry, with a
 // real `---` frontmatter block, because findObjectiveInternal + extractFrontmatter both
 // read from disk.
 
@@ -59,7 +59,7 @@ function makeObjectiveTree({
   TMP_DIRS.push(tmp);
 
   const objectiveDirName = `${id}-${slug}`;
-  const objectiveDir = path.join(tmp, '.planning', 'objectives', objectiveDirName);
+  const objectiveDir = path.join(tmp, '.aoforge', 'objectives', objectiveDirName);
   fs.mkdirSync(objectiveDir, { recursive: true });
 
   for (const trd of trds) {
@@ -176,7 +176,7 @@ test('Case M1 — argument is an existing file path -> resolved, no objective lo
   const manifestPath = path.join(tmp, 'some-captured.manifest.json');
   fs.writeFileSync(manifestPath, validManifestJSON('M1'), 'utf-8');
 
-  // No .planning/objectives tree at all in this tmp — an objective lookup would fail.
+  // No .aoforge/objectives tree at all in this tmp — an objective lookup would fail.
   const result = resolveUIEvalTarget(tmp, manifestPath);
   assert.strictEqual(result.resolution, 'resolved');
   assert.strictEqual(result.manifest_path, manifestPath);

@@ -13,10 +13,12 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { output, error, pluginVersion } = require('./helpers.cjs');
+const { planningRel } = require('./compat.cjs');
 
 const DEFAULT_SINCE = '2026-06-01';
 const DEFAULT_PATHS = ['flutter/lib'];
-const DEFAULT_OUT = '.planning/ui-metrics-baseline.json';
+// relative to the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const DEFAULT_OUT_FILE = 'ui-metrics-baseline.json';
 
 const SUBJECT_TYPE_RE = /^(\w+)(\(|:)/;
 const QUICK_FIX_RE = /quick-\d+/;
@@ -94,7 +96,7 @@ function cmdUiMetrics(cwd, args, raw) {
     // Same usage error as a missing value.
     error(`ui metrics: --paths requires a value (usage: ui metrics baseline [--since YYYY-MM-DD] [--paths p1,p2] [--out file])`);
   }
-  const outRel = flagValue(args, '--out', DEFAULT_OUT);
+  const outRel = flagValue(args, '--out', planningRel(cwd, DEFAULT_OUT_FILE));
 
   let baseline;
   try {

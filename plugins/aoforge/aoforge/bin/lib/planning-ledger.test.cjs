@@ -33,7 +33,7 @@ let root;
 beforeEach(() => {
   env = hermeticEnv();
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'planning-ledger-root-'));
-  fs.mkdirSync(path.join(root, '.planning'));
+  fs.mkdirSync(path.join(root, '.aoforge'));
 });
 
 afterEach(() => {
@@ -56,7 +56,7 @@ function tree(dir) {
 }
 
 function writePlanning(rel, text) {
-  const file = path.join(root, '.planning', ...rel.split('/'));
+  const file = path.join(root, '.aoforge', ...rel.split('/'));
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, text);
 }
@@ -243,7 +243,7 @@ describe('settleCandidates', () => {
     assert.deepStrictEqual(seen.sort(), ['PROJECT.md', 'debug/x.md', 'objectives/07-x/07-01-a-TRD.md', 'todos/pending/a.md']);
   });
 
-  test('14b. without a readFile it reads <root>/.planning/<rel>; a readFile that throws counts as drifted', () => {
+  test('14b. without a readFile it reads <root>/.aoforge/<rel>; a readFile that throws counts as drifted', () => {
     writePlanning('PROJECT.md', 'project');
     writePlanning('REQUIREMENTS.md', 'requirements');
     ledger.record(root, 'PROJECT.md', 'project', { verb: 'doc put', now: NOW });
@@ -287,11 +287,12 @@ describe('per-repo files', () => {
 });
 
 describe('module hygiene', () => {
-  test('never spawns: no child_process, and requires only the outbox, gh-trd, sync-state and planning-paths', () => {
+  test('never spawns: no child_process, and requires only the outbox, gh-trd, sync-state, planning-paths and compat', () => {
     const src = fs.readFileSync(path.join(__dirname, 'planning-ledger.cjs'), 'utf8');
     assert.doesNotMatch(src, /child_process/);
     const required = [...new Set([...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]))];
-    const allowed = ['fs', 'path', './gh-outbox.cjs', './gh-trd.cjs', './sync-state.cjs', './planning-paths.cjs'];
+    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, path and legacy-names.cjs
+    const allowed = ['fs', 'path', './gh-outbox.cjs', './gh-trd.cjs', './sync-state.cjs', './planning-paths.cjs', './compat.cjs'];
     assert.deepStrictEqual(required.filter((r) => !allowed.includes(r)), []);
   });
 });

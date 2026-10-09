@@ -20,8 +20,8 @@ const { makeDoctorProject } = require('../__fixtures__/doctor-fixtures.cjs');
 const { gitEnv } = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const NOW = new Date('2026-10-04T12:00:00.000Z');
-const RESOLVED_DIR = '.planning/decisions/resolved';
-const PENDING_DIR = '.planning/decisions/pending';
+const RESOLVED_DIR = '.aoforge/decisions/resolved';
+const PENDING_DIR = '.aoforge/decisions/pending';
 const REPAIRABLE_REL = `${RESOLVED_DIR}/DECISION-007.md`;
 const INTACT_REL = `${RESOLVED_DIR}/DECISION-002.md`;
 const UNRECOVERABLE_REL = `${RESOLVED_DIR}/DECISION-008.md`;
@@ -84,7 +84,7 @@ function read(root, rel) {
 }
 
 function setStore(root) {
-  const file = path.join(root, '.planning', 'config.json');
+  const file = path.join(root, '.aoforge', 'config.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
   cfg.github = { enabled: true, store: true };
   fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');
@@ -303,7 +303,7 @@ describe('decision-resolution: test 2, store mode is report-only', () => {
   test('github.store false (mirror mode) is local mode: fixable', () => {
     const { root, home } = makeDoctorProject();
     put(root, REPAIRABLE_REL, REPAIRABLE);
-    const file = path.join(root, '.planning', 'config.json');
+    const file = path.join(root, '.aoforge', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
     cfg.github = { enabled: true, store: false };
     fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');

@@ -21,6 +21,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { NAMES } = require('../legacy-names.cjs');
+
+// The planning-directory name the project builders write (TRD 72-05). The todo-sync hook resolves only the legacy name
+// until 72-06 moves it onto the resolver, so its tests call setPlanningDir(LEGACY.planningDir) once at load; 72-06
+// drops those calls. node --test runs each file in its own process, so the switch never leaks.
+let PLANNING = NAMES.planningDir;
+function setPlanningDir(name) {
+  PLANNING = name;
+}
 
 const doc = (lines, { trailingNewline = true } = {}) => lines.join('\n') + (trailingNewline ? '\n' : '');
 
@@ -303,7 +312,7 @@ const STORE_FIXTURE = deepFreeze({
  */
 function makeStoreProject({ ownerType = 'Organization', hasWiki = true, enabled = true, store = false } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-store-'));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, PLANNING);
   const objective = path.join(planning, 'objectives', STORE_FIXTURE.objectiveDir);
   fs.mkdirSync(objective, { recursive: true });
 
@@ -431,4 +440,5 @@ function hermeticEnv() {
   return { env: { ...env }, root, restore };
 }
 
-module.exports = { STORE_FIXTURE, makeStoreProject, oversizedTrdText, hermeticEnv };
+module.exports = {
+  setPlanningDir, STORE_FIXTURE, makeStoreProject, oversizedTrdText, hermeticEnv };

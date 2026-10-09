@@ -5,7 +5,7 @@
 // The 43-06 goldens pass on invented fixtures built to fit the rules; the real fleet still drifted
 // (43-VERIFICATION.md). This is the outermost test: it redrafts each fleet repo with the CHECKOUT's
 // `aof-tools --cwd <repo> stack init` (no --write, no --run) and compares the draft with the repo's
-// committed `.planning/STACK.md`, read from HEAD and never from the work tree, in exactly the 43-07
+// committed `.aoforge/STACK.md`, read from HEAD and never from the work tree, in exactly the 43-07
 // dry-run scope (stack-drift-compare.cjs).
 //
 //  12  per repo      no CONFLICT outside ACCEPTED (as a conflict); more-specific rows, ACCEPTED rows and
@@ -50,7 +50,10 @@ const { HAND_ONLY, KEY_ALIASES } = golden;
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 const FLEET_ROOT = process.env.AOFORGE_FLEET_ROOT || path.join(os.homedir(), 'dev');
-const COMMITTED = '.planning/STACK.md';
+// A fleet repository may still use the legacy planning directory (it moves when that repository upgrades): read the
+// new name first, then the legacy one (TRD 72-05).
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const COMMITTED_CANDIDATES = [`${NAMES.planningDir}/STACK.md`, `${LEGACY.planningDir}/STACK.md`];
 const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
 
 /** git(repo, args) -> spawnSync result. Read-only verbs only: rev-parse, status, show. */
@@ -66,10 +69,13 @@ function snapshot(repo) {
   };
 }
 
-/** committedText(repo) -> the committed STACK.md from HEAD, or null when there is none. */
+/** committedText(repo) -> the committed STACK.md from HEAD (either planning directory), or null when there is none. */
 function committedText(repo) {
-  const r = git(repo, ['show', `HEAD:${COMMITTED}`]);
-  return r.status === 0 ? r.stdout : null;
+  for (const rel of COMMITTED_CANDIDATES) {
+    const r = git(repo, ['show', `HEAD:${rel}`]);
+    if (r.status === 0) return r.stdout;
+  }
+  return null;
 }
 
 /** Large `stack init` results print as a single `@file:<path>` line: read that file for the JSON. */
@@ -180,7 +186,7 @@ describe('stack init against the real fleet (TRD 43-08)', { skip: fleetSkipReaso
       }
       const text = committedText(dir);
       if (text === null) {
-        t.skip(`${repo} has no committed ${COMMITTED} at HEAD`);
+        t.skip(`${repo} has no committed ${COMMITTED_CANDIDATES.join(' or ')} at HEAD`);
         return;
       }
 

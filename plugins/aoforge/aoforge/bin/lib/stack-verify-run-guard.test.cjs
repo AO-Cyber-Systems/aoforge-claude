@@ -251,7 +251,7 @@ describe('CLI: stack verify --run with the effect guard (test 12)', { skip: SKIP
       '  format: { run: "flutter analyze --no-fatal-infos" }'].join('\n');
     const root = track(fx.gitDartRepo({
       preDirty: true,
-      files: { '.planning/STACK.md': profileFx.profileMd({ yaml }) },
+      files: { '.aoforge/STACK.md': profileFx.profileMd({ yaml }) },
     }));
     const bin = track(fx.mutatingToolBin('flutter', ANALYZE_MUTATION));
     const home = track(fx.fakeHome({}));
@@ -422,7 +422,7 @@ describe('CLI: build outputs (TRD 71-04)', { skip: SKIP }, () => {
       '  build: { run: "fakebuild" }',
       'components:',
       '  - { path: "client/", profile: flutter }'].join('\n');
-    const root = track(fx.componentRepo({ rootFiles: { '.planning/STACK.md': profileFx.profileMd({ yaml }) } }));
+    const root = track(fx.componentRepo({ rootFiles: { '.aoforge/STACK.md': profileFx.profileMd({ yaml }) } }));
     const buildBin = track(fx.mutatingToolBin('fakebuild', 'mkdir -p bin && echo x > bin/app'));
     const flutterBin = track(fx.mutatingToolBin('flutter', ':'));
     // The flutter tier's `format` gate is `dart format ...`: stub it so the run never needs a real Dart SDK.

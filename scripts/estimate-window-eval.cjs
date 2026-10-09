@@ -24,6 +24,7 @@ const est = require('../plugins/aoforge/aoforge/bin/lib/estimate.cjs');
 const em = require('../plugins/aoforge/aoforge/bin/lib/estimate-math.cjs');
 const { BAND, COVERAGE_TARGET, median } = require('../plugins/aoforge/aoforge/bin/lib/estimate-backtest.cjs');
 const { findPlanFiles, trdKey } = require('../plugins/aoforge/aoforge/bin/lib/helpers.cjs');
+const { planningRoot, planningDirName, planningDirLabel } = require('../plugins/aoforge/aoforge/bin/lib/compat.cjs');
 
 // ─── Constants of the pre-registered rule ─────────────────────────────────────
 
@@ -77,7 +78,8 @@ function recentObjectives(ranked, window) {
  * Copies into `dest` the objectives a calibration run at `before` would see: sample-bearing objectives numbered below
  * `before`, the last `window` of them (`null` keeps all), plus STATE_ARCHIVE.md and state.json when the snapshot has
  * them (collectProject reads the minutes of a TRD with no SUMMARY duration from there). `dest` always gets a
- * `.planning/objectives` directory so an empty history is still a project. `project` (collectProject of the snapshot) may
+ * `<planning dir>/objectives` directory (the snapshot's own name: `.aoforge`, or a legacy one) so an empty history is
+ * still a project. `project` (collectProject of the snapshot) may
  * be passed to avoid reading the snapshot again.
  * @returns {{kept: string[]}}
  */
@@ -92,13 +94,13 @@ function cutProject({ snapshotRoot, before, window, dest, project = null }) {
   };
   const sampled = new Set(sampleObjectives(below));
   const kept = ci.windowObjectives(below, window).kept.filter((dir) => sampled.has(dir));
-  const planning = path.join(dest, '.planning');
+  const planning = path.join(dest, planningDirName(snapshotRoot));
   fs.mkdirSync(path.join(planning, 'objectives'), { recursive: true });
   for (const dir of kept) {
-    fs.cpSync(path.join(snapshotRoot, '.planning', 'objectives', dir), path.join(planning, 'objectives', dir), { recursive: true });
+    fs.cpSync(path.join(planningRoot(snapshotRoot), 'objectives', dir), path.join(planning, 'objectives', dir), { recursive: true });
   }
   for (const file of ['STATE_ARCHIVE.md', 'state.json']) {
-    const src = path.join(snapshotRoot, '.planning', file);
+    const src = path.join(planningRoot(snapshotRoot), file);
     if (fs.existsSync(src)) fs.copyFileSync(src, path.join(planning, file));
   }
   return { kept };
@@ -111,7 +113,7 @@ function cutProject({ snapshotRoot, before, window, dest, project = null }) {
  * `{id, k, actual, p50, p90}` (k = non-checkpoint tasks). A TRD whose estimate has no minutes is left out.
  */
 function trdRows(cal, snapshotRoot, project, dir) {
-  const dirPath = path.join(snapshotRoot, '.planning', 'objectives', dir);
+  const dirPath = path.join(planningRoot(snapshotRoot), 'objectives', dir);
   const planByKey = new Map();
   for (const file of findPlanFiles(fs.readdirSync(dirPath).sort())) {
     const key = trdKey(file);
@@ -664,7 +666,7 @@ function parseArgs(argv) {
 
 function isProjectDir(dir) {
   try {
-    return fs.statSync(path.join(dir, '.planning', 'objectives')).isDirectory();
+    return fs.statSync(path.join(planningRoot(dir), 'objectives')).isDirectory();
   } catch {
     return false; // absent or unreadable: not a snapshot
   }
@@ -679,7 +681,7 @@ function main(argv, io = {}) {
     for (const [flag, value] of [['--snapshot', options.snapshot], ['--json', options.json]]) {
       if (value !== null && isUnderClaudeHome(value)) throw new UsageError(`${flag} refuses a path under ~/.claude`);
     }
-    if (!isProjectDir(options.snapshot)) throw new UsageError('--snapshot must be a directory that holds .planning/objectives');
+    if (!isProjectDir(options.snapshot)) throw new UsageError(`--snapshot must be a directory that holds ${planningDirLabel()} objectives`);
 
     const result = report({ snapshotRoot: path.resolve(options.snapshot), evalObjectives: options.evalList, windows: options.gridList, label: options.label });
     const json = `${JSON.stringify(result, null, 2)}\n`;

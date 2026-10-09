@@ -4,7 +4,7 @@
 //
 // no_llm_test_data: every project is a disposable temp directory from upgrade-fixtures.cjs
 // (makeStampedProject) plus hand-written `.gh-*.json` files, with a fake HOME from makeFakeHome.
-// Nothing here touches this repository's .planning/, the real ~/.claude, git or the network.
+// Nothing here touches this repository's .aoforge/, the real ~/.claude, git or the network.
 
 const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,8 +15,8 @@ const upgrade = require('../upgrade.cjs');
 const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0009-gh-mapping-v3.cjs');
-const MAPPING = '.planning/.gh-mapping.json';
-const SYNC_STATE = '.planning/.gh-sync-state.json';
+const MAPPING = '.aoforge/.gh-mapping.json';
+const SYNC_STATE = '.aoforge/.gh-sync-state.json';
 const PLUGIN_VERSION = '2.13.0';
 
 // This repository's real v2 file, hand-copied.
@@ -62,7 +62,7 @@ function project({ mapping, sync, objectives = [] } = {}) {
   if (mapping !== undefined) write(root, MAPPING, mapping);
   if (sync !== undefined) write(root, SYNC_STATE, sync);
   for (const [dir, githubIssue] of objectives) {
-    write(root, `.planning/objectives/${dir}/OBJECTIVE.md`, `---\nobjective: ${dir}\ngithub_issue: ${githubIssue}\n---\n\n# ${dir}\n`);
+    write(root, `.aoforge/objectives/${dir}/OBJECTIVE.md`, `---\nobjective: ${dir}\ngithub_issue: ${githubIssue}\n---\n\n# ${dir}\n`);
   }
   return { root, home };
 }

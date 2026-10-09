@@ -18,7 +18,7 @@
 // 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path.
 // 5. Sensitivity: a sample text with one of each token yields three findings; the preserved
 //    product names (the ...ops product and the .cloud domain) yield none.
-// 5b. Planning-tree exemption: in a scratch git repo with tracked `.planning/x.md` and
+// 5b. Planning-tree exemption: in a scratch git repo with tracked `.aoforge/x.md` and
 //    `.aoforge/x.md`, each containing the legacy product word, scanRepo yields zero findings for
 //    both (the planning tree stays history after 72-21's move), while the same word in the
 //    tracked live user guide yields one. (`docs/x.md` is design history under the codemod's
@@ -337,7 +337,7 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
           assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
         };
         git('init', '-q');
-        const files = ['.planning/x.md', '.aoforge/x.md', 'docs/x.md', 'docs/USER-GUIDE.md'];
+        const files = ['.aoforge/x.md', '.aoforge/x.md', 'docs/x.md', 'docs/USER-GUIDE.md'];
         for (const rel of files) {
           fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
           fs.writeFileSync(path.join(tmp, rel), `A ${LEGACY.product} note.\n`);

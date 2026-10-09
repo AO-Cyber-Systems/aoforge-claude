@@ -1096,7 +1096,7 @@ describe('joinParts', () => {
 // ─── Entity codec (48-02, tests 2-4) ─────────────────────────────────────────
 //
 // Todos, debug sessions and quick tasks are issues whose body is the entity codec:
-// an entity id line, a file line carrying the path RELATIVE TO `.planning/`, then
+// an entity id line, a file line carrying the path RELATIVE TO `.aoforge/`, then
 // the file verbatim. It is a separate codec from the TRD one, so neither decoder
 // accepts the other's body.
 
@@ -1195,7 +1195,7 @@ describe('entity codec (48-02)', () => {
     assert.strictEqual(ghTrd.decodeEntityBody(noFile).ok, false);
   });
 
-  test('3. an entity body whose file path would escape .planning/ is refused', () => {
+  test('3. an entity body whose file path would escape .aoforge/ is refused', () => {
     for (const file of ['../x.md', '/etc/passwd', 'todos/../x.md', 'todos//x.md', 'todos/', '.skill-active', 'todos/.x', 'a\\b.md']) {
       const body = `<!-- aoforge:id=todo-a -->\n<!-- aoforge:file=${file} -->\nx\n`;
       assert.strictEqual(ghTrd.decodeEntityBody(body).ok, false, file);
@@ -1246,7 +1246,7 @@ describe('entity codec (48-02)', () => {
     assert.ok(!ghTrd.ENTITY_ID_LINE_RE.test('<!-- aoforge:id=47-01 -->'));
   });
 
-  test('isSafeEntityPath accepts .planning-relative paths of safe segments only', () => {
+  test('isSafeEntityPath accepts .aoforge-relative paths of safe segments only', () => {
     for (const p of ['todos/pending/a.md', 'todos/completed/a.md', 'debug/resolved/x.md', 'quick/12-fix-x/12-JOB.md', 'debug/x.md']) {
       assert.strictEqual(ghTrd.isSafeEntityPath(p), true, p);
     }

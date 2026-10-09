@@ -13,17 +13,17 @@
 //   3. node-cli → package.json (`bin`, `scripts.test = "node --test"`), bin/todo.js,
 //      lib/store.js, lib/format.js, test/store.test.js, README.md; one commit; clean.
 //   4. empty → only README.md tracked; one commit; clean.
-//   5. aoforge → go-service shape plus .planning/PROJECT.md (frontmatter `kind: api`),
-//      .planning/ROADMAP.md, .planning/STATE.md, .planning/config.json with an `aoforge` stamp;
+//   5. aoforge → go-service shape plus .aoforge/PROJECT.md (frontmatter `kind: api`),
+//      .aoforge/ROADMAP.md, .aoforge/STATE.md, .aoforge/config.json with an `aoforge` stamp;
 //      all committed; clean.
 //   6. dirty → go-service committed, then main.go modified and notes.txt untracked: porcelain
 //      lists exactly " M main.go" and "?? notes.txt".
 //   7. writeMappedDocs(root) writes the 8 docs (STACK, INTEGRATIONS, ARCHITECTURE, STRUCTURE,
-//      CONVENTIONS, TESTING, PATTERNS, CONCERNS) under .planning/codebase/, each >= 21 lines;
+//      CONVENTIONS, TESTING, PATTERNS, CONCERNS) under .aoforge/codebase/, each >= 21 lines;
 //      writeProjectMd(root, {name, kind, defaultWork}) writes frontmatter kind/default_work and
 //      the sections ## What This Is, ## Core Value, ## Requirements (### Validated, ### Active,
 //      ### Out of Scope), ## Constraints; writeInferences(root, items) writes
-//      .planning/.adopt-inferences.json as a JSON array.
+//      .aoforge/.adopt-inferences.json as a JSON array.
 //   8. Factory CLI: `node adopt-fixtures.cjs make go-service <dir>` prints {"root": "<abs>"} and
 //      exits 0; the same command on a non-empty <dir> exits non-zero and writes nothing; a <dir>
 //      whose parent is inside a git work tree (a fixture repo) exits non-zero and writes nothing.
@@ -196,11 +196,11 @@ describe('makeFixture — self-checks', () => {
   test('5. aoforge: go-service shape + planning docs, committed, clean', () => {
     const root = makeFixture('aoforge', { parent, home });
     assert.ok(fs.existsSync(path.join(root, 'go.mod')));
-    const projectMd = fs.readFileSync(path.join(root, '.planning/PROJECT.md'), 'utf-8');
+    const projectMd = fs.readFileSync(path.join(root, '.aoforge/PROJECT.md'), 'utf-8');
     assert.match(projectMd, /kind: api/);
-    assert.ok(fs.existsSync(path.join(root, '.planning/ROADMAP.md')));
-    assert.ok(fs.existsSync(path.join(root, '.planning/STATE.md')));
-    const config = JSON.parse(fs.readFileSync(path.join(root, '.planning/config.json'), 'utf-8'));
+    assert.ok(fs.existsSync(path.join(root, '.aoforge/ROADMAP.md')));
+    assert.ok(fs.existsSync(path.join(root, '.aoforge/STATE.md')));
+    const config = JSON.parse(fs.readFileSync(path.join(root, '.aoforge/config.json'), 'utf-8'));
     assert.ok(config.aoforge && config.aoforge.version);
     assert.strictEqual(porcelain(root), '');
   });
@@ -216,7 +216,7 @@ describe('makeFixture — self-checks', () => {
     const docs = writeMappedDocs(root);
     const names = ['STACK', 'INTEGRATIONS', 'ARCHITECTURE', 'STRUCTURE', 'CONVENTIONS', 'TESTING', 'PATTERNS', 'CONCERNS'];
     for (const name of names) {
-      const file = path.join(root, '.planning/codebase', `${name}.md`);
+      const file = path.join(root, '.aoforge/codebase', `${name}.md`);
       assert.ok(fs.existsSync(file), `expected ${name}.md`);
       const lineCount = fs.readFileSync(file, 'utf-8').split('\n').length;
       assert.ok(lineCount >= 21, `${name}.md has ${lineCount} lines`);
@@ -224,7 +224,7 @@ describe('makeFixture — self-checks', () => {
     assert.strictEqual(docs.length, 8);
 
     writeProjectMd(root, { name: 'Fixture App', kind: 'api', defaultWork: 'feature' });
-    const projectMd = fs.readFileSync(path.join(root, '.planning/PROJECT.md'), 'utf-8');
+    const projectMd = fs.readFileSync(path.join(root, '.aoforge/PROJECT.md'), 'utf-8');
     assert.match(projectMd, /kind: api/);
     assert.match(projectMd, /default_work: feature/);
     for (const heading of [
@@ -240,7 +240,7 @@ describe('makeFixture — self-checks', () => {
     }
 
     writeInferences(root, [{ field: 'kind', value: 'api', confidence: 'high', evidence: 'go.mod' }]);
-    const inferences = JSON.parse(fs.readFileSync(path.join(root, '.planning/.adopt-inferences.json'), 'utf-8'));
+    const inferences = JSON.parse(fs.readFileSync(path.join(root, '.aoforge/.adopt-inferences.json'), 'utf-8'));
     assert.ok(Array.isArray(inferences));
     assert.strictEqual(inferences[0].field, 'kind');
 

@@ -47,7 +47,7 @@ beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ghob-'));
   stateDir = path.join(tmp, 'state');
   root = path.join(tmp, 'proj');
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   writeConfig({ github: { enabled: true, repo: 'o/r' } });
   savedEnv = { OUT: process.env.AOFORGE_OUTBOX_DIR, HOME: process.env.HOME };
   process.env.AOFORGE_OUTBOX_DIR = stateDir;
@@ -63,7 +63,7 @@ afterEach(() => {
 });
 
 function writeConfig(obj) {
-  fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(obj));
+  fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify(obj));
 }
 
 /** Hand-built op factory. */
@@ -254,8 +254,8 @@ describe('journalPath() / stateDir()', () => {
 
   test('4c. nothing is written inside the project', () => {
     outbox.enqueue(root, [VALID['link-sub-issue']], { now: T0 });
-    assert.deepEqual(fs.readdirSync(path.join(root, '.planning')), ['config.json']);
-    assert.deepEqual(fs.readdirSync(root), ['.planning']);
+    assert.deepEqual(fs.readdirSync(path.join(root, '.aoforge')), ['config.json']);
+    assert.deepEqual(fs.readdirSync(root), ['.aoforge']);
   });
 });
 
@@ -433,10 +433,10 @@ describe('enqueue()', () => {
 
   test('7b. isEnabled is false for a missing config, bad JSON and a non-true value', () => {
     assert.equal(outbox.isEnabled(root), true);
-    fs.rmSync(path.join(root, '.planning', 'config.json'));
+    fs.rmSync(path.join(root, '.aoforge', 'config.json'));
     assert.equal(outbox.isEnabled(root), false);
     assert.equal(outbox.enqueue(root, [link('07', '07-01')], { now: T0 }).skipped, true);
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), '{ not json');
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), '{ not json');
     assert.equal(outbox.isEnabled(root), false);
     writeConfig({ github: { enabled: 'true' } });
     assert.equal(outbox.isEnabled(root), false);
@@ -975,12 +975,13 @@ describe('hygiene', () => {
     assert.deepEqual(snapshotDir(REAL_OUTBOX), REAL_OUTBOX_BEFORE);
   });
 
-  test('17a. gh-outbox.cjs requires only fs, os, path, crypto and ./sync-state.cjs', () => {
+  test('17a. gh-outbox.cjs requires only fs, os, path, crypto, ./sync-state.cjs and ./compat.cjs', () => {
     const src = fs.readFileSync(path.join(__dirname, 'gh-outbox.cjs'), 'utf8');
     const all = src.match(/\brequire\(/g) || [];
     const literal = [...src.matchAll(/\brequire\(\s*(['"])([^'"]+)\1\s*\)/g)].map((m) => m[2]);
     assert.equal(literal.length, all.length, 'every require() takes a string literal');
-    assert.deepEqual([...new Set(literal)].sort(), ['./sync-state.cjs', 'crypto', 'fs', 'os', 'path']);
+    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, path and legacy-names.cjs
+    assert.deepEqual([...new Set(literal)].sort(), ['./compat.cjs', './sync-state.cjs', 'crypto', 'fs', 'os', 'path']);
     assert.ok(!/\bimport\s*\(/.test(src), 'no dynamic import()');
   });
 

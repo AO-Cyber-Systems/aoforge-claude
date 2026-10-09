@@ -69,7 +69,7 @@ function installFake(opts) {
 function makeProject({ github = { enabled: true, repo: 'o/r' }, roadmap = ROADMAP, mapping = null, objectives } = {}) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-issue-'));
   tmpDirs.push(cwd);
-  const planning = path.join(cwd, '.planning');
+  const planning = path.join(cwd, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
   fs.writeFileSync(path.join(planning, 'config.json'), JSON.stringify({ github }));
   fs.writeFileSync(path.join(planning, 'PROJECT.md'), '# Demo Project\n\nA project.\n');
@@ -128,7 +128,7 @@ describe('createRunContext', () => {
 
   it('defaults: label aoforge:objective, prefix v, project name falls back to the repo name', () => {
     const cwd = makeProject();
-    fs.rmSync(path.join(cwd, '.planning', 'PROJECT.md'));
+    fs.rmSync(path.join(cwd, '.aoforge', 'PROJECT.md'));
     const ctx = createRunContext(cwd);
     assert.equal(ctx.label, 'aoforge:objective');
     assert.equal(ctx.prefix, 'v');

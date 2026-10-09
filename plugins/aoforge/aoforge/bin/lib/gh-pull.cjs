@@ -31,6 +31,7 @@ const { recordSync, hashFrontmatter, getLastSync } = require('./sync-state.cjs')
 const ghClient = require('./gh-client.cjs');
 const { resolveObjective, readMappingV3WithReport, getEntry } = require('./gh-mapping.cjs');
 const conflictMod = require('./conflict.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // Local emitter — bypasses helpers.output() because that helper always exits 0
 // and inverts raw semantics (raw=true→prose). cmdGhPull contract: raw=true→JSON,
@@ -214,7 +215,7 @@ function applyDrift({ projectRoot, objectiveId, drift, ghIssue, hasLastSync = tr
     };
   }
 
-  const objPath = path.join(projectRoot, '.planning', 'objectives', objectiveId, 'OBJECTIVE.md');
+  const objPath = path.join(planningRoot(projectRoot), 'objectives', objectiveId, 'OBJECTIVE.md');
   if (!fs.existsSync(objPath)) {
     return { ok: false, error: `OBJECTIVE.md not found: ${objPath}` };
   }
@@ -281,7 +282,7 @@ function cmdGhPullAll(cwd, args, raw) {
  * cmdGhPull(cwd, args, raw) — CLI entry point.
  * Usage: aof-tools gh pull <objective> [--apply] [--resolve=disk|gh|merge] [--resolved] | --all [--force]
  *
- * `--all` (TRD 47-10) rebuilds the whole `.planning/` cache from GitHub (gh-cache.pullAll); the
+ * `--all` (TRD 47-10) rebuilds the whole `.aoforge/` cache from GitHub (gh-cache.pullAll); the
  * per-objective drift pull below is unchanged.
  */
 function cmdGhPull(cwd, args, raw) {
@@ -327,7 +328,7 @@ function cmdGhPull(cwd, args, raw) {
   const objective = resolveObjective(cwd, objectiveArg);
   if (!objective || !objective.dir) {
     const msg = `objective not found: ${objectiveArg}`
-      + (objective ? ' (it is in the ROADMAP but has no directory under .planning/objectives/)' : '');
+      + (objective ? ' (it is in the ROADMAP but has no directory under .aoforge/objectives/)' : '');
     _emit({ ok: false, error: msg }, msg + '\n', raw, 1);
     return;
   }
@@ -358,7 +359,7 @@ function cmdGhPull(cwd, args, raw) {
   const entry = getEntry(report.mapping, objective.id);
   if (!entry || !entry.issue_id) {
     const msg = report.conflicts && report.conflicts[objective.id]
-      ? `Objective ${objective.id} maps to conflicting GitHub issues in .planning/.gh-mapping.json; resolve that before pulling.`
+      ? `Objective ${objective.id} maps to conflicting GitHub issues in .aoforge/.gh-mapping.json; resolve that before pulling.`
       : `Objective ${objective.id} has no GitHub issue. Run \`aof-tools gh sync ${objective.id}\` first to create one before pulling.`;
     _emit({ ok: false, error: msg }, msg + '\n', raw, 1);
     return;
@@ -379,7 +380,7 @@ function cmdGhPull(cwd, args, raw) {
   }
 
   // Read disk frontmatter
-  const objPath = path.join(cwd, '.planning', 'objectives', objective.dir, 'OBJECTIVE.md');
+  const objPath = path.join(planningRoot(cwd), 'objectives', objective.dir, 'OBJECTIVE.md');
   if (!fs.existsSync(objPath)) {
     const msg = `OBJECTIVE.md not found: ${objPath}`;
     _emit({ ok: false, error: msg }, msg + '\n', raw, 1);

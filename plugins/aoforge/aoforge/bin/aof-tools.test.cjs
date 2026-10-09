@@ -59,7 +59,7 @@ function runGsdToolsArgv(argv, cwd = process.cwd()) {
 // Create temp directory structure
 function createTempProject() {
   const tmpDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'df-test-'));
-  fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
   return tmpDir;
 }
 
@@ -91,7 +91,7 @@ describe('history-digest command', () => {
 
   test('nested frontmatter fields extracted correctly', () => {
     // Create objective directory with SUMMARY containing nested frontmatter
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     const summaryContent = `---
@@ -164,7 +164,7 @@ key-decisions:
 
   test('multiple objectives merged into single digest', () => {
     // Create objective 01
-    const phase01Dir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const phase01Dir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(phase01Dir, { recursive: true });
     fs.writeFileSync(
       path.join(phase01Dir, '01-01-SUMMARY.md'),
@@ -182,7 +182,7 @@ key-decisions:
     );
 
     // Create objective 02
-    const phase02Dir = path.join(tmpDir, '.planning', 'objectives', '02-api');
+    const phase02Dir = path.join(tmpDir, '.aoforge', 'objectives', '02-api');
     fs.mkdirSync(phase02Dir, { recursive: true });
     fs.writeFileSync(
       path.join(phase02Dir, '02-01-SUMMARY.md'),
@@ -219,7 +219,7 @@ tech-stack:
   });
 
   test('malformed SUMMARY.md skipped gracefully', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     // Valid summary
@@ -262,7 +262,7 @@ broken: [unclosed
   });
 
   test('flat provides field still works (backward compatibility)', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -287,7 +287,7 @@ provides:
   });
 
   test('inline array syntax supported', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -343,9 +343,9 @@ describe('objectives list command', () => {
 
   test('lists objective directories sorted numerically', () => {
     // Create out-of-order directories
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '10-final'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-api'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-foundation'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '10-final'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-foundation'), { recursive: true });
 
     const result = runGsdTools('objectives list', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -360,10 +360,10 @@ describe('objectives list command', () => {
   });
 
   test('handles decimal objectives in sort order', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-api'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02.1-hotfix'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02.2-patch'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-ui'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02.1-hotfix'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02.2-patch'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-ui'), { recursive: true });
 
     const result = runGsdTools('objectives list', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -377,7 +377,7 @@ describe('objectives list command', () => {
   });
 
   test('--type jobs lists only JOB.md files', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '01-01-JOB.md'), '# Job 1');
     fs.writeFileSync(path.join(objectiveDir, '01-02-JOB.md'), '# Job 2');
@@ -396,7 +396,7 @@ describe('objectives list command', () => {
   });
 
   test('--type summaries lists only SUMMARY.md files', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(objectiveDir, '01-01-SUMMARY.md'), '# Summary 1');
@@ -414,8 +414,8 @@ describe('objectives list command', () => {
   });
 
   test('--objective filters to specific objective directory', () => {
-    const phase01 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
-    const phase02 = path.join(tmpDir, '.planning', 'objectives', '02-api');
+    const phase01 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
+    const phase02 = path.join(tmpDir, '.aoforge', 'objectives', '02-api');
     fs.mkdirSync(phase01, { recursive: true });
     fs.mkdirSync(phase02, { recursive: true });
     fs.writeFileSync(path.join(phase01, '01-01-JOB.md'), '# Plan');
@@ -447,7 +447,7 @@ describe('roadmap get-objective command', () => {
 
   test('extracts objective section from ROADMAP.md', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0
 
 ## Objectives
@@ -476,7 +476,7 @@ Some description here.
 
   test('returns not found for missing objective', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0
 
 ### Objective 1: Foundation
@@ -493,7 +493,7 @@ Some description here.
 
   test('handles decimal objective numbers', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ### Objective 2: Main
@@ -515,7 +515,7 @@ Some description here.
 
   test('extracts full section content', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ### Objective 1: Setup
@@ -551,7 +551,7 @@ This objective covers:
 
   test('accepts ## objective headers (two hashes)', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0
 
 ## Objective 1: Foundation
@@ -574,7 +574,7 @@ This objective covers:
 
   test('detects malformed ROADMAP with summary list but no detail sections', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0
 
 ## Objectives
@@ -636,7 +636,7 @@ describe('objective-job-index command', () => {
   });
 
   test('empty objective directory returns empty jobs array', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-api'), { recursive: true });
 
     const result = runGsdTools('objective-job-index 03', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -650,7 +650,7 @@ describe('objective-job-index command', () => {
   });
 
   test('extracts single job with frontmatter', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -685,7 +685,7 @@ files-modified: [prisma/schema.prisma, src/lib/db.ts]
     // quick-24: TRDs write `files_modified:`, but the index only read the legacy
     // `files-modified:` key, so files_modified was always [] and the >8-files
     // executor-model rule never fired.
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -711,7 +711,7 @@ files_modified:
   });
 
   test('files_modified wins over legacy files-modified when both are present', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -738,7 +738,7 @@ files_modified:
   });
 
   test('groups multiple jobs by wave', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -787,7 +787,7 @@ objective: API routes
   });
 
   test('detects incomplete jobs (no matching summary)', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     // Job with summary
@@ -807,7 +807,7 @@ objective: API routes
   });
 
   test('detects checkpoints (autonomous: false)', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -842,7 +842,7 @@ objective: Manual review needed
   // is a checkpoint written mid-run (44-01 executor contract), not a completion. Old-style
   // SUMMARYs with neither heading stay complete, so historical objectives never re-run.
   test('Progress-only SUMMARY is a checkpoint (incomplete); Self-Check and old-style SUMMARYs stay complete', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '77-resume');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     const trd = (wave) => `---\nwave: ${wave}\n---\n\n<tasks>\n<task type="auto">\n  <name>Task 1: do it</name>\n</task>\n</tasks>\n`;
@@ -887,7 +887,7 @@ objective: Manual review needed
   // TRD 44-08 test 2: task_count counts `<task ...>` XML elements (the TRD format), else the
   // legacy `## Task N` headings. Before 44-08 it read 0 for every modern TRD.
   test('task_count counts <task> XML elements in a TRD (the <tasks> wrapper does not count)', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '77-resume');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(
       path.join(objectiveDir, '77-01-TRD.md'),
@@ -901,7 +901,7 @@ objective: Manual review needed
   });
 
   test('task_count falls back to ## Task N headings for a legacy JOB', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '78-legacy');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '78-legacy');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(
       path.join(objectiveDir, '78-01-JOB.md'),
@@ -915,7 +915,7 @@ objective: Manual review needed
   });
 
   test('task_count prefers the XML count when a TRD has both forms', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '77-resume');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(
       path.join(objectiveDir, '77-01-TRD.md'),
@@ -933,7 +933,7 @@ objective: Manual review needed
   // tasks) and 11 for 14-01's TRD (3). task_count picks the executor's model tier
   // (execute-objective: <=2 sonnet, >5 opus), so only real task elements may count.
   test('task_count ignores inline `<task` mentions and fenced XML examples', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '77-resume');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '77-resume');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(
       path.join(objectiveDir, '77-01-TRD.md'),
@@ -996,7 +996,7 @@ describe('state-snapshot command', () => {
 
   test('extracts basic fields from STATE.md', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# Project State
 
 **Current Objective:** 03
@@ -1027,7 +1027,7 @@ describe('state-snapshot command', () => {
 
   test('extracts decisions table', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# Project State
 
 **Current Objective:** 01
@@ -1053,7 +1053,7 @@ describe('state-snapshot command', () => {
 
   test('extracts blockers list', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# Project State
 
 **Current Objective:** 03
@@ -1077,7 +1077,7 @@ describe('state-snapshot command', () => {
 
   test('extracts session continuity info', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# Project State
 
 **Current Objective:** 03
@@ -1086,7 +1086,7 @@ describe('state-snapshot command', () => {
 
 **Last Date:** 2024-01-15
 **Stopped At:** Objective 3, Job 2, Task 1
-**Resume File:** .planning/objectives/03-api/03-02-JOB.md
+**Resume File:** .aoforge/objectives/03-api/03-02-JOB.md
 `
     );
 
@@ -1096,12 +1096,12 @@ describe('state-snapshot command', () => {
     const output = JSON.parse(result.output);
     assert.strictEqual(output.session.last_date, '2024-01-15', 'session date extracted');
     assert.strictEqual(output.session.stopped_at, 'Objective 3, Job 2, Task 1', 'stopped at extracted');
-    assert.strictEqual(output.session.resume_file, '.planning/objectives/03-api/03-02-JOB.md', 'resume file extracted');
+    assert.strictEqual(output.session.resume_file, '.aoforge/objectives/03-api/03-02-JOB.md', 'resume file extracted');
   });
 
   test('handles paused_at field', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# Project State
 
 **Current Objective:** 03
@@ -1133,7 +1133,7 @@ describe('summary-extract command', () => {
   });
 
   test('missing file returns error', () => {
-    const result = runGsdTools('summary-extract .planning/objectives/01-test/01-01-SUMMARY.md', tmpDir);
+    const result = runGsdTools('summary-extract .aoforge/objectives/01-test/01-01-SUMMARY.md', tmpDir);
     assert.ok(result.success, `Command should succeed: ${result.error}`);
 
     const output = JSON.parse(result.output);
@@ -1141,7 +1141,7 @@ describe('summary-extract command', () => {
   });
 
   test('extracts all fields from SUMMARY.md', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -1169,11 +1169,11 @@ Full summary content here.
 `
     );
 
-    const result = runGsdTools('summary-extract .planning/objectives/01-foundation/01-01-SUMMARY.md', tmpDir);
+    const result = runGsdTools('summary-extract .aoforge/objectives/01-foundation/01-01-SUMMARY.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const output = JSON.parse(result.output);
-    assert.strictEqual(output.path, '.planning/objectives/01-foundation/01-01-SUMMARY.md', 'path correct');
+    assert.strictEqual(output.path, '.aoforge/objectives/01-foundation/01-01-SUMMARY.md', 'path correct');
     assert.strictEqual(output.one_liner, 'Set up Prisma with User and Project models', 'one-liner extracted');
     assert.deepStrictEqual(output.key_files, ['prisma/schema.prisma', 'src/lib/db.ts'], 'key files extracted');
     assert.deepStrictEqual(output.tech_added, ['prisma', 'zod'], 'tech added extracted');
@@ -1182,7 +1182,7 @@ Full summary content here.
   });
 
   test('selective extraction with --fields', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -1202,7 +1202,7 @@ key-decisions:
 `
     );
 
-    const result = runGsdTools('summary-extract .planning/objectives/01-foundation/01-01-SUMMARY.md --fields one_liner,key_files', tmpDir);
+    const result = runGsdTools('summary-extract .aoforge/objectives/01-foundation/01-01-SUMMARY.md --fields one_liner,key_files', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const output = JSON.parse(result.output);
@@ -1214,7 +1214,7 @@ key-decisions:
   });
 
   test('handles missing frontmatter fields gracefully', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -1227,7 +1227,7 @@ one-liner: Minimal summary
 `
     );
 
-    const result = runGsdTools('summary-extract .planning/objectives/01-foundation/01-01-SUMMARY.md', tmpDir);
+    const result = runGsdTools('summary-extract .aoforge/objectives/01-foundation/01-01-SUMMARY.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const output = JSON.parse(result.output);
@@ -1239,7 +1239,7 @@ one-liner: Minimal summary
   });
 
   test('parses key-decisions with rationale', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(objectiveDir, { recursive: true });
 
     fs.writeFileSync(
@@ -1252,7 +1252,7 @@ key-decisions:
 `
     );
 
-    const result = runGsdTools('summary-extract .planning/objectives/01-foundation/01-01-SUMMARY.md', tmpDir);
+    const result = runGsdTools('summary-extract .aoforge/objectives/01-foundation/01-01-SUMMARY.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const output = JSON.parse(result.output);
@@ -1279,15 +1279,15 @@ describe('init commands with --include flag', () => {
   });
 
   test('init execute-objective includes state and config content', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '03-01-JOB.md'), '# Plan');
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       '# State\n\n**Current Objective:** 03\n**Status:** In progress'
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
+      path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ model_profile: 'balanced' })
     );
 
@@ -1302,10 +1302,10 @@ describe('init commands with --include flag', () => {
   });
 
   test('init execute-objective without --include omits content', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '03-01-JOB.md'), '# Plan');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# State');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), '# State');
 
     const result = runGsdTools('init execute-objective 03', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -1316,11 +1316,11 @@ describe('init commands with --include flag', () => {
   });
 
   test('init plan-objective includes multiple file contents', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# Project State');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap v1.0');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'REQUIREMENTS.md'), '# Requirements');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), '# Project State');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap v1.0');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'), '# Requirements');
     fs.writeFileSync(path.join(objectiveDir, '03-CONTEXT.md'), '# Phase Context');
     fs.writeFileSync(path.join(objectiveDir, '03-RESEARCH.md'), '# Research Findings');
 
@@ -1338,7 +1338,7 @@ describe('init commands with --include flag', () => {
   });
 
   test('init plan-objective includes verification and uat content', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '03-VERIFICATION.md'), '# Verification Results');
     fs.writeFileSync(path.join(objectiveDir, '03-UAT.md'), '# UAT Findings');
@@ -1354,11 +1354,11 @@ describe('init commands with --include flag', () => {
   });
 
   test('init progress includes state, roadmap, project, config', () => {
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# State');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'PROJECT.md'), '# Project');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), '# State');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'PROJECT.md'), '# Project');
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
+      path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ model_profile: 'quality' })
     );
 
@@ -1373,7 +1373,7 @@ describe('init commands with --include flag', () => {
   });
 
   test('missing files return null in content fields', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '03-01-JOB.md'), '# Plan');
 
@@ -1386,11 +1386,11 @@ describe('init commands with --include flag', () => {
   });
 
   test('partial includes work correctly', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '03-01-JOB.md'), '# Plan');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# State');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), '# State');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap');
 
     // Only request state, not roadmap
     const result = runGsdTools('init execute-objective 03 --include state', tmpDir);
@@ -1427,7 +1427,7 @@ describe('roadmap analyze command', () => {
 
   test('parses objectives with goals and disk status', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0
 
 ### Objective 1: Foundation
@@ -1442,12 +1442,12 @@ describe('roadmap analyze command', () => {
     );
 
     // Create objective dirs with varying completion
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
 
-    const p2 = path.join(tmpDir, '.planning', 'objectives', '02-authentication');
+    const p2 = path.join(tmpDir, '.aoforge', 'objectives', '02-authentication');
     fs.mkdirSync(p2, { recursive: true });
     fs.writeFileSync(path.join(p2, '02-01-JOB.md'), '# Plan');
 
@@ -1468,7 +1468,7 @@ describe('roadmap analyze command', () => {
 
   test('extracts goals and dependencies', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ### Objective 1: Setup
@@ -1509,7 +1509,7 @@ describe('objective add command', () => {
 
   test('adds objective after highest existing', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0
 
 ### Objective 1: Foundation
@@ -1531,19 +1531,19 @@ describe('objective add command', () => {
 
     // Verify directory created
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '03-user-dashboard')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '03-user-dashboard')),
       'directory should be created'
     );
 
     // Verify ROADMAP updated
-    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(roadmap.includes('### Objective 3: User Dashboard'), 'roadmap should include new phase');
     assert.ok(roadmap.includes('**Depends on:** Objective 2'), 'should depend on previous');
   });
 
   test('handles empty roadmap', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0\n`
     );
 
@@ -1556,7 +1556,7 @@ describe('objective add command', () => {
 
   test('caps slug at 60 chars and strips trailing hyphen for long description', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: Foundation\n**Goal:** Setup\n`
     );
     // ~150-char description
@@ -1569,7 +1569,7 @@ describe('objective add command', () => {
     // Directory must exist with capped slug
     const dirName = `${parsed.padded}-${parsed.slug}`;
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', dirName)),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', dirName)),
       `directory not created: ${dirName}`
     );
     assert.ok(dirName.length <= 65, `dir name too long: ${dirName}`);
@@ -1578,7 +1578,7 @@ describe('objective add command', () => {
   test('rejects flag-like description (starts with --) with no side effects', () => {
     const roadmapContent = `# Roadmap\n### Objective 1: Foundation\n**Goal:** Setup\n`;
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       roadmapContent
     );
     // `--help` is now answered by the dispatcher (issue #87) — it prints usage
@@ -1596,25 +1596,25 @@ describe('objective add command', () => {
       `error should mention flag-like arg; got: ${combined}`
     );
     // No directory named --help should have been created
-    const objectivesDir = path.join(tmpDir, '.planning', 'objectives');
+    const objectivesDir = path.join(tmpDir, '.aoforge', 'objectives');
     const entries = fs.readdirSync(objectivesDir);
     assert.ok(
       !entries.some(e => e.includes('--help') || e.includes('-help') || e.includes('fles')),
       `should not create directory for a flag-like description; found: ${entries.join(', ')}`
     );
     // ROADMAP.md must be unchanged
-    const roadmapAfter = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmapAfter = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.strictEqual(roadmapAfter, roadmapContent, 'ROADMAP.md must not be modified');
   });
 
   test('number = max(ROADMAP headings, dir prefixes) + 1 — dir ahead of roadmap wins', () => {
     // ROADMAP only has objectives 1 and 2
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n\n### Objective 1: Foundation\n**Goal:** Setup\n\n### Objective 2: API\n**Goal:** Build\n\n---\n`
     );
     // But a directory with prefix 11 exists on disk
-    const dir11 = path.join(tmpDir, '.planning', 'objectives', '11-phase-d-verifier-wiring');
+    const dir11 = path.join(tmpDir, '.aoforge', 'objectives', '11-phase-d-verifier-wiring');
     fs.mkdirSync(dir11, { recursive: true });
 
     const result = runGsdTools('objective add New Feature', tmpDir);
@@ -1622,10 +1622,10 @@ describe('objective add command', () => {
     const parsed = JSON.parse(result.output);
     assert.strictEqual(parsed.objective_number, 12, `expected 12, got ${parsed.objective_number}`);
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '12-new-feature')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '12-new-feature')),
       'directory 12-new-feature should exist'
     );
-    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(roadmap.includes('### Objective 12:'), 'ROADMAP must include Objective 12');
   });
 });
@@ -1658,20 +1658,20 @@ describe('commit command pathspec isolation', () => {
   });
 
   test('--files commits only named paths; unrelated staged changes remain staged', () => {
-    // Create the target file in .planning
-    fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'STATE.md'), '# State\n');
+    // Create the target file in .aoforge
+    fs.mkdirSync(path.join(tmpDir, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), '# State\n');
 
     // Create an unrelated file and stage it (simulates parallel executor)
     fs.writeFileSync(path.join(tmpDir, 'other.txt'), 'other change\n');
     execSync('git add other.txt', { cwd: tmpDir, stdio: 'pipe' });
 
-    const result = runGsdTools('commit "test(quick-3): isolation" --files .planning/STATE.md', tmpDir);
+    const result = runGsdTools('commit "test(quick-3): isolation" --files .aoforge/STATE.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
-    // Only .planning/STATE.md should be in the commit
+    // Only .aoforge/STATE.md should be in the commit
     const showResult = execSync('git show --name-only --format= HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
-    assert.ok(showResult.includes('.planning/STATE.md'), `STATE.md not in commit; got: ${showResult}`);
+    assert.ok(showResult.includes('.aoforge/STATE.md'), `STATE.md not in commit; got: ${showResult}`);
     assert.ok(!showResult.includes('other.txt'), `other.txt was swept into commit; got: ${showResult}`);
 
     // other.txt must still be staged (not swept away)
@@ -1680,23 +1680,23 @@ describe('commit command pathspec isolation', () => {
   });
 
   test('untracked named file passed via --files gets added and committed', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'NEW.md'), '# New\n');
+    fs.mkdirSync(path.join(tmpDir, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'NEW.md'), '# New\n');
 
-    const result = runGsdTools('commit "test(quick-3): new-file" --files .planning/NEW.md', tmpDir);
+    const result = runGsdTools('commit "test(quick-3): new-file" --files .aoforge/NEW.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const showResult = execSync('git show --name-only --format= HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
-    assert.ok(showResult.includes('.planning/NEW.md'), `NEW.md not in commit; got: ${showResult}`);
+    assert.ok(showResult.includes('.aoforge/NEW.md'), `NEW.md not in commit; got: ${showResult}`);
   });
 
-  test('no --files commits .planning/ ONLY — a staged file elsewhere is not swept in', () => {
-    // Issue #87 part 3. The fallback path staged `.planning/` but then ran a
+  test('no --files commits .aoforge/ ONLY — a staged file elsewhere is not swept in', () => {
+    // Issue #87 part 3. The fallback path staged `.aoforge/` but then ran a
     // bare `git commit -m`, which commits EVERYTHING already in the index. The
     // blast radius of an aof-tools commit was therefore the whole dirty tree,
     // not the planning docs the command is named for.
-    fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'DEFAULT.md'), '# Default\n');
+    fs.mkdirSync(path.join(tmpDir, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'DEFAULT.md'), '# Default\n');
     fs.mkdirSync(path.join(tmpDir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(tmpDir, 'src', 'unrelated.txt'), 'someone else\'s work\n');
     execSync('git add src/unrelated.txt', { cwd: tmpDir, stdio: 'pipe' });
@@ -1705,38 +1705,38 @@ describe('commit command pathspec isolation', () => {
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const show = execSync('git show --name-only --format= HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
-    assert.ok(show.includes('.planning/DEFAULT.md'), `DEFAULT.md not in commit; got: ${show}`);
+    assert.ok(show.includes('.aoforge/DEFAULT.md'), `DEFAULT.md not in commit; got: ${show}`);
     assert.ok(!show.includes('src/unrelated.txt'), `unrelated staged file was swept in; got: ${show}`);
 
     const cached = execSync('git diff --cached --name-only', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     assert.ok(cached.includes('src/unrelated.txt'), `unrelated file should still be staged; cached: ${cached}`);
   });
 
-  test('no --files falls back to staging .planning/ and commits normally', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'DEFAULT.md'), '# Default\n');
+  test('no --files falls back to staging .aoforge/ and commits normally', () => {
+    fs.mkdirSync(path.join(tmpDir, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'DEFAULT.md'), '# Default\n');
 
     const result = runGsdTools('commit "test(quick-3): default-behavior"', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const showResult = execSync('git show --name-only --format= HEAD', { cwd: tmpDir, encoding: 'utf-8' }).trim();
-    assert.ok(showResult.includes('.planning/DEFAULT.md'), `DEFAULT.md not in commit; got: ${showResult}`);
+    assert.ok(showResult.includes('.aoforge/DEFAULT.md'), `DEFAULT.md not in commit; got: ${showResult}`);
   });
 
-  // ── quick-24: commit_docs:false / gitignored .planning gate ONLY .planning/ paths ──
+  // ── quick-24: commit_docs:false / gitignored .aoforge gate ONLY .aoforge/ paths ──
   // Both gates used to skip the WHOLE commit, so code passed via --files was silently
   // never committed. They now drop only the planning paths and report them.
 
   function setCommitDocsFalse(dir) {
-    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{"commit_docs":false}\n');
+    fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), '{"commit_docs":false}\n');
   }
 
   // One approach throughout: write .gitignore and commit it with plain git in the setup.
   function gitignorePlanning(dir) {
-    fs.writeFileSync(path.join(dir, '.gitignore'), '.planning/\n');
+    fs.writeFileSync(path.join(dir, '.gitignore'), '.aoforge/\n');
     execSync('git add .gitignore', { cwd: dir, stdio: 'pipe' });
-    execSync('git commit -m "chore: ignore .planning"', {
+    execSync('git commit -m "chore: ignore .aoforge"', {
       cwd: dir,
       stdio: 'pipe',
       env: { ...process.env, AOFORGE_ALLOW_RAW_COMMIT: '1' },
@@ -1746,8 +1746,8 @@ describe('commit command pathspec isolation', () => {
   function writeCodeAndState(dir) {
     fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'src', 'a.js'), 'module.exports = 1;\n');
-    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '# State\n');
+    fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.aoforge', 'STATE.md'), '# State\n');
   }
 
   function headSha(dir) {
@@ -1766,32 +1766,32 @@ describe('commit command pathspec isolation', () => {
     writeCodeAndState(tmpDir);
     const before = headSha(tmpDir);
 
-    const result = runGsdTools('commit "fix(q24): code with docs off" --files src/a.js .planning/STATE.md', tmpDir);
+    const result = runGsdTools('commit "fix(q24): code with docs off" --files src/a.js .aoforge/STATE.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
     const out = JSON.parse(result.output);
 
     assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
     assert.strictEqual(out.reason, 'committed');
     assert.ok(out.hash, 'hash reported');
-    assert.deepStrictEqual(out.skipped_planning, ['.planning/STATE.md']);
+    assert.deepStrictEqual(out.skipped_planning, ['.aoforge/STATE.md']);
     assert.notStrictEqual(headSha(tmpDir), before, 'HEAD moved');
     assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js'], 'only the code file is in HEAD');
-    const tracked = execSync('git ls-files -- .planning/STATE.md', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    const tracked = execSync('git ls-files -- .aoforge/STATE.md', { cwd: tmpDir, encoding: 'utf-8' }).trim();
     assert.strictEqual(tracked, '', 'STATE.md was never staged');
   });
 
-  test('quick-24 case 5: gitignored .planning commits code, drops and reports the planning path', () => {
+  test('quick-24 case 5: gitignored .aoforge commits code, drops and reports the planning path', () => {
     gitignorePlanning(tmpDir);
     writeCodeAndState(tmpDir);
     const before = headSha(tmpDir);
 
-    const result = runGsdTools('commit "fix(q24): code with planning ignored" --files src/a.js .planning/STATE.md', tmpDir);
+    const result = runGsdTools('commit "fix(q24): code with planning ignored" --files src/a.js .aoforge/STATE.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error} / ${result.output}`);
     const out = JSON.parse(result.output);
 
     assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
     assert.strictEqual(out.reason, 'committed');
-    assert.deepStrictEqual(out.skipped_planning, ['.planning/STATE.md']);
+    assert.deepStrictEqual(out.skipped_planning, ['.aoforge/STATE.md']);
     assert.notStrictEqual(headSha(tmpDir), before, 'HEAD moved');
     assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js'], 'only the code file is in HEAD');
   });
@@ -1801,7 +1801,7 @@ describe('commit command pathspec isolation', () => {
     writeCodeAndState(tmpDir);
     const before = headSha(tmpDir);
 
-    const result = runGsdTools('commit "docs(q24): planning only" --files .planning/STATE.md', tmpDir);
+    const result = runGsdTools('commit "docs(q24): planning only" --files .aoforge/STATE.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
     assert.deepStrictEqual(JSON.parse(result.output), {
       committed: false,
@@ -1810,13 +1810,13 @@ describe('commit command pathspec isolation', () => {
     });
     assert.strictEqual(headSha(tmpDir), before, 'HEAD unchanged');
 
-    const rawResult = runGsdTools('commit "docs(q24): planning only" --files .planning/STATE.md --raw', tmpDir);
+    const rawResult = runGsdTools('commit "docs(q24): planning only" --files .aoforge/STATE.md --raw', tmpDir);
     assert.ok(rawResult.success, `Command failed: ${rawResult.error}`);
     assert.strictEqual(rawResult.output, 'skipped', 'raw output unchanged');
     assert.strictEqual(headSha(tmpDir), before, 'HEAD unchanged after raw run');
   });
 
-  test('quick-24 case 7: gitignored .planning with no --files is exactly today\'s skip', () => {
+  test('quick-24 case 7: gitignored .aoforge with no --files is exactly today\'s skip', () => {
     gitignorePlanning(tmpDir);
     writeCodeAndState(tmpDir);
     const before = headSha(tmpDir);
@@ -1850,16 +1850,16 @@ describe('commit command pathspec isolation', () => {
     assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js']);
   });
 
-  test('quick-24 case 9: ./.planning/STATE.md spelling counts as a planning path', () => {
+  test('quick-24 case 9: ./.aoforge/STATE.md spelling counts as a planning path', () => {
     setCommitDocsFalse(tmpDir);
     writeCodeAndState(tmpDir);
 
-    const result = runGsdTools('commit "fix(q24): dot-slash spelling" --files src/a.js ./.planning/STATE.md', tmpDir);
+    const result = runGsdTools('commit "fix(q24): dot-slash spelling" --files src/a.js ./.aoforge/STATE.md', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
     const out = JSON.parse(result.output);
 
     assert.strictEqual(out.committed, true, `expected a commit; got ${result.output}`);
-    assert.deepStrictEqual(out.skipped_planning, ['./.planning/STATE.md']);
+    assert.deepStrictEqual(out.skipped_planning, ['./.aoforge/STATE.md']);
     assert.deepStrictEqual(headFiles(tmpDir), ['src/a.js'], 'only the code file is in HEAD');
   });
 });
@@ -1881,10 +1881,10 @@ describe('objective insert command (deprecated)', () => {
 
   test('returns deprecation error JSON and exits 1 (I2 survey: 0% usage)', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: Foundation\n**Goal:** Setup\n`
     );
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-foundation'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-foundation'), { recursive: true });
 
     const result = runGsdTools('objective insert 1 Fix Critical Bug', tmpDir);
     // Should exit non-zero (deprecation error)
@@ -1913,7 +1913,7 @@ describe('objective remove command', () => {
   test('removes objective directory and renumbers subsequent', () => {
     // Setup 3 objectives
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ### Objective 1: Foundation
@@ -1930,11 +1930,11 @@ describe('objective remove command', () => {
 `
     );
 
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-foundation'), { recursive: true });
-    const p2 = path.join(tmpDir, '.planning', 'objectives', '02-auth');
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-foundation'), { recursive: true });
+    const p2 = path.join(tmpDir, '.aoforge', 'objectives', '02-auth');
     fs.mkdirSync(p2, { recursive: true });
     fs.writeFileSync(path.join(p2, '02-01-JOB.md'), '# Plan');
-    const p3 = path.join(tmpDir, '.planning', 'objectives', '03-features');
+    const p3 = path.join(tmpDir, '.aoforge', 'objectives', '03-features');
     fs.mkdirSync(p3, { recursive: true });
     fs.writeFileSync(path.join(p3, '03-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p3, '03-02-JOB.md'), '# Job 2');
@@ -1949,37 +1949,37 @@ describe('objective remove command', () => {
 
     // Objective 3 should be renumbered to 02
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '02-features')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '02-features')),
       'objective 3 should be renumbered to 02-features'
     );
     assert.ok(
-      !fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '03-features')),
+      !fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '03-features')),
       'old 03-features should not exist'
     );
 
     // Files inside should be renamed
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '02-features', '02-01-JOB.md')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '02-features', '02-01-JOB.md')),
       'job file should be renumbered to 02-01'
     );
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '02-features', '02-02-JOB.md')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '02-features', '02-02-JOB.md')),
       'job 2 should be renumbered to 02-02'
     );
 
     // ROADMAP should be updated
-    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(!roadmap.includes('Objective 2: Auth'), 'removed objective should not be in roadmap');
     assert.ok(roadmap.includes('Objective 2: Features'), 'objective 3 should be renumbered to 2');
   });
 
   test('rejects removal of objective with summaries unless --force', () => {
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: Test\n**Goal:** Test\n`
     );
 
@@ -1994,7 +1994,7 @@ describe('objective remove command', () => {
     // A success-only assertion on a destructive command cannot tell a real
     // deletion from a no-op dry run — assert the directory is actually gone.
     assert.ok(
-      !fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '01-test')),
+      !fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '01-test')),
       '--force --confirm must actually delete the objective directory'
     );
   });
@@ -2004,45 +2004,45 @@ describe('objective remove command', () => {
     // Removing a decimal objective now just deletes the target directory;
     // remaining sibling decimals are NOT renumbered.
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 6: Main\n**Goal:** Main\n### Objective 6.1: Fix A\n**Goal:** Fix A\n### Objective 6.2: Fix B\n**Goal:** Fix B\n### Objective 6.3: Fix C\n**Goal:** Fix C\n`
     );
 
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '06-main'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '06.1-fix-a'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '06.2-fix-b'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '06.3-fix-c'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '06-main'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '06.1-fix-a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '06.2-fix-b'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '06.3-fix-c'), { recursive: true });
 
     const result = runGsdTools('objective remove 6.2 --confirm', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     // 06.2 directory is deleted
     assert.ok(
-      !fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '06.2-fix-b')),
+      !fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '06.2-fix-b')),
       '06.2 directory should be deleted'
     );
     // 06.3 stays as 06.3 (no sibling renumbering anymore)
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '06.3-fix-c')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '06.3-fix-c')),
       '06.3 should remain unchanged (no sibling renumber)'
     );
   });
 
   test('updates STATE.md objective count', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: A\n**Goal:** A\n### Objective 2: B\n**Goal:** B\n`
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 1\n**Total Objectives:** 2\n`
     );
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-a'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-b'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-b'), { recursive: true });
 
     runGsdTools('objective remove 2 --confirm', tmpDir);
 
-    const state = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), 'utf-8');
     assert.ok(state.includes('**Total Objectives:** 1'), 'total objectives should be decremented');
   });
 
@@ -2058,7 +2058,7 @@ describe('objective remove command', () => {
   // Hand-built fixtures — three integer objectives, 2 is the removal target.
   function setupThreeObjectives(dir) {
     fs.writeFileSync(
-      path.join(dir, '.planning', 'ROADMAP.md'),
+      path.join(dir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ### Objective 1: Foundation
@@ -2072,14 +2072,14 @@ describe('objective remove command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(dir, '.planning', 'STATE.md'),
+      path.join(dir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 1\n**Total Objectives:** 3\n`
     );
-    fs.mkdirSync(path.join(dir, '.planning', 'objectives', '01-foundation'), { recursive: true });
-    const p2 = path.join(dir, '.planning', 'objectives', '02-auth');
+    fs.mkdirSync(path.join(dir, '.aoforge', 'objectives', '01-foundation'), { recursive: true });
+    const p2 = path.join(dir, '.aoforge', 'objectives', '02-auth');
     fs.mkdirSync(p2, { recursive: true });
     fs.writeFileSync(path.join(p2, '02-01-JOB.md'), '# Plan');
-    const p3 = path.join(dir, '.planning', 'objectives', '03-features');
+    const p3 = path.join(dir, '.aoforge', 'objectives', '03-features');
     fs.mkdirSync(p3, { recursive: true });
     fs.writeFileSync(path.join(p3, '03-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p3, '03-02-JOB.md'), '# Job 2');
@@ -2087,12 +2087,12 @@ describe('objective remove command', () => {
 
   // One objective carrying an executed SUMMARY.md — the --force rail's fixture.
   function setupExecutedObjective(dir) {
-    const p1 = path.join(dir, '.planning', 'objectives', '01-test');
+    const p1 = path.join(dir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
     fs.writeFileSync(
-      path.join(dir, '.planning', 'ROADMAP.md'),
+      path.join(dir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: Test\n**Goal:** Test\n`
     );
   }
@@ -2103,19 +2103,19 @@ describe('objective remove command', () => {
   // it to 06-later and the assertion below goes red.
   function setupDecimalObjectives(dir) {
     fs.writeFileSync(
-      path.join(dir, '.planning', 'ROADMAP.md'),
+      path.join(dir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 6: Main\n### Objective 6.1: Fix A\n### Objective 6.2: Fix B\n### Objective 6.3: Fix C\n### Objective 7: Later\n`
     );
     for (const d of ['06-main', '06.1-fix-a', '06.2-fix-b', '06.3-fix-c', '07-later']) {
-      fs.mkdirSync(path.join(dir, '.planning', 'objectives', d), { recursive: true });
+      fs.mkdirSync(path.join(dir, '.aoforge', 'objectives', d), { recursive: true });
     }
   }
 
   test('case 1 — without --confirm, nothing on disk changes', () => {
     setupThreeObjectives(tmpDir);
-    const objectives = path.join(tmpDir, '.planning', 'objectives');
-    const roadmapPath = path.join(tmpDir, '.planning', 'ROADMAP.md');
-    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    const objectives = path.join(tmpDir, '.aoforge', 'objectives');
+    const roadmapPath = path.join(tmpDir, '.aoforge', 'ROADMAP.md');
+    const statePath = path.join(tmpDir, '.aoforge', 'STATE.md');
     const roadmapBefore = fs.readFileSync(roadmapPath, 'utf-8');
     const stateBefore = fs.readFileSync(statePath, 'utf-8');
 
@@ -2171,7 +2171,7 @@ describe('objective remove command', () => {
 
   test('case 3 — --confirm executes the plan', () => {
     setupThreeObjectives(tmpDir);
-    const objectives = path.join(tmpDir, '.planning', 'objectives');
+    const objectives = path.join(tmpDir, '.aoforge', 'objectives');
 
     const result = runGsdTools('objective remove 2 --confirm', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2190,7 +2190,7 @@ describe('objective remove command', () => {
       'inner job file renumbered'
     );
 
-    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(roadmap.includes('Objective 2: Features'), 'ROADMAP renumbered');
   });
 
@@ -2225,7 +2225,7 @@ describe('objective remove command', () => {
     assert.ok(!result.success, '--confirm must not override the summaries refusal');
     assert.ok(result.error.includes('executed job'), 'error mentions executed jobs');
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '01-test')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '01-test')),
       'directory survives the refusal'
     );
   });
@@ -2239,7 +2239,7 @@ describe('objective remove command', () => {
     assert.strictEqual(out.dry_run, true);
     assert.strictEqual(out.mutated, false);
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '01-test')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '01-test')),
       '--force does not authorize the destructive cascade'
     );
   });
@@ -2253,12 +2253,12 @@ describe('objective remove command', () => {
     assert.strictEqual(out.dry_run, false);
     assert.strictEqual(out.mutated, true);
     assert.strictEqual(out.directory_deleted, '01-test');
-    assert.ok(!fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '01-test')));
+    assert.ok(!fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '01-test')));
   });
 
   test('case 9 — decimal removal leaves the 07- integer sibling alone', () => {
     setupDecimalObjectives(tmpDir);
-    const objectives = path.join(tmpDir, '.planning', 'objectives');
+    const objectives = path.join(tmpDir, '.aoforge', 'objectives');
 
     const result = runGsdTools('objective remove 6.2 --confirm', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2287,7 +2287,7 @@ describe('objective remove command', () => {
     assert.deepStrictEqual(out.renamed_directories, []);
     assert.deepStrictEqual(out.renamed_files, []);
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '06.2-fix-b')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '06.2-fix-b')),
       '06.2 survives a dry run'
     );
   });
@@ -2332,7 +2332,7 @@ describe('objective complete command', () => {
 
   test('marks objective complete and transitions to next', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 - [ ] Objective 1: Foundation
@@ -2347,15 +2347,15 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 01\n**Current Objective Name:** Foundation\n**Status:** In progress\n**Current Job:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working on objective 1\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-api'), { recursive: true });
 
     const result = runGsdTools('objective complete 1', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2367,28 +2367,28 @@ describe('objective complete command', () => {
     assert.strictEqual(output.is_last_objective, false);
 
     // Verify STATE.md updated
-    const state = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), 'utf-8');
     assert.ok(state.includes('**Current Objective:** 02'), 'should advance to objective 02');
     assert.ok(state.includes('**Status:** Ready to plan'), 'status should be ready to plan');
     assert.ok(state.includes('**Current Job:** Not started'), 'plan should be reset');
 
     // Verify ROADMAP checkbox
-    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(roadmap.includes('[x]'), 'objective should be checked off');
     assert.ok(roadmap.includes('completed'), 'completion date should be added');
   });
 
   test('detects last objective in milestone', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: Only Phase\n**Goal:** Everything\n`
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 01\n**Status:** In progress\n**Current Job:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-only-phase');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-only-phase');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
@@ -2400,13 +2400,13 @@ describe('objective complete command', () => {
     assert.strictEqual(output.is_last_objective, true, 'should detect last phase');
     assert.strictEqual(output.next_objective, null, 'no next objective');
 
-    const state = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), 'utf-8');
     assert.ok(state.includes('Milestone complete'), 'status should be milestone complete');
   });
 
   test('updates REQUIREMENTS.md traceability when objective completes', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 - [ ] Objective 1: Auth
@@ -2422,7 +2422,7 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'REQUIREMENTS.md'),
+      path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'),
       `# Requirements
 
 ## v1 Requirements
@@ -2448,20 +2448,20 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 01\n**Current Objective Name:** Auth\n**Status:** In progress\n**Current Job:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-auth');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-auth');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-api'), { recursive: true });
 
     const result = runGsdTools('objective complete 1', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
-    const req = fs.readFileSync(path.join(tmpDir, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    const req = fs.readFileSync(path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'), 'utf-8');
 
     // Checkboxes updated for objective 1 requirements
     assert.ok(req.includes('- [x] **AUTH-01**'), 'AUTH-01 checkbox should be checked');
@@ -2479,7 +2479,7 @@ describe('objective complete command', () => {
 
   test('handles requirements with bracket format [REQ-01, REQ-02]', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 - [ ] Objective 1: Auth
@@ -2495,7 +2495,7 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'REQUIREMENTS.md'),
+      path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'),
       `# Requirements
 
 ## v1 Requirements
@@ -2521,20 +2521,20 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 01\n**Current Objective Name:** Auth\n**Status:** In progress\n**Current Job:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-auth');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-auth');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-api'), { recursive: true });
 
     const result = runGsdTools('objective complete 1', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
-    const req = fs.readFileSync(path.join(tmpDir, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    const req = fs.readFileSync(path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'), 'utf-8');
 
     // Checkboxes updated for objective 1 requirements (brackets stripped)
     assert.ok(req.includes('- [x] **AUTH-01**'), 'AUTH-01 checkbox should be checked');
@@ -2552,7 +2552,7 @@ describe('objective complete command', () => {
 
   test('handles objective with no requirements mapping', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 - [ ] Objective 1: Setup
@@ -2563,7 +2563,7 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'REQUIREMENTS.md'),
+      path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'),
       `# Requirements
 
 ## v1 Requirements
@@ -2578,11 +2578,11 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 01\n**Status:** In progress\n**Current Job:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-setup');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-setup');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
@@ -2591,14 +2591,14 @@ describe('objective complete command', () => {
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     // REQUIREMENTS.md should be unchanged
-    const req = fs.readFileSync(path.join(tmpDir, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    const req = fs.readFileSync(path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'), 'utf-8');
     assert.ok(req.includes('- [ ] **REQ-01**'), 'REQ-01 should remain unchecked');
     assert.ok(req.includes('| REQ-01 | Objective 2 | Pending |'), 'REQ-01 should remain Pending');
   });
 
   test('handles missing REQUIREMENTS.md gracefully', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 - [ ] Objective 1: Foundation
@@ -2609,11 +2609,11 @@ describe('objective complete command', () => {
 `
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Current Objective:** 01\n**Status:** In progress\n**Current Job:** 01-01\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Summary');
@@ -2640,19 +2640,19 @@ describe('milestone complete command', () => {
 
   test('archives roadmap, requirements, creates MILESTONES.md', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0 MVP\n\n### Objective 1: Foundation\n**Goal:** Setup\n`
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'REQUIREMENTS.md'),
+      path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'),
       `# Requirements\n\n- [ ] User auth\n- [ ] Dashboard\n`
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(
       path.join(p1, '01-01-SUMMARY.md'),
@@ -2670,42 +2670,42 @@ describe('milestone complete command', () => {
 
     // Verify archive files exist
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'milestones', 'v1.0-ROADMAP.md')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'milestones', 'v1.0-ROADMAP.md')),
       'archived roadmap should exist'
     );
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'milestones', 'v1.0-REQUIREMENTS.md')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'milestones', 'v1.0-REQUIREMENTS.md')),
       'archived requirements should exist'
     );
 
     // Verify MILESTONES.md created
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'MILESTONES.md')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'MILESTONES.md')),
       'MILESTONES.md should be created'
     );
-    const milestones = fs.readFileSync(path.join(tmpDir, '.planning', 'MILESTONES.md'), 'utf-8');
+    const milestones = fs.readFileSync(path.join(tmpDir, '.aoforge', 'MILESTONES.md'), 'utf-8');
     assert.ok(milestones.includes('v1.0 MVP Foundation'), 'milestone entry should contain name');
     assert.ok(milestones.includes('Set up project infrastructure'), 'accomplishments should be listed');
   });
 
   test('appends to existing MILESTONES.md', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'MILESTONES.md'),
+      path.join(tmpDir, '.aoforge', 'MILESTONES.md'),
       `# Milestones\n\n## v0.9 Alpha (Shipped: 2025-01-01)\n\n---\n\n`
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0\n`
     );
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'STATE.md'),
+      path.join(tmpDir, '.aoforge', 'STATE.md'),
       `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
     );
 
     const result = runGsdTools('milestone complete v1.0 --name Beta', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
-    const milestones = fs.readFileSync(path.join(tmpDir, '.planning', 'MILESTONES.md'), 'utf-8');
+    const milestones = fs.readFileSync(path.join(tmpDir, '.aoforge', 'MILESTONES.md'), 'utf-8');
     assert.ok(milestones.includes('v0.9 Alpha'), 'existing entry should be preserved');
     assert.ok(milestones.includes('v1.0 Beta'), 'new entry should be appended');
   });
@@ -2728,12 +2728,12 @@ describe('validate consistency command', () => {
 
   test('passes for consistent project', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: A\n### Objective 2: B\n### Objective 3: C\n`
     );
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-a'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-b'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-c'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-b'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-c'), { recursive: true });
 
     const result = runGsdTools('validate consistency', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2745,11 +2745,11 @@ describe('validate consistency command', () => {
 
   test('warns about objective on disk but not in roadmap', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: A\n`
     );
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-a'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '02-orphan'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '02-orphan'), { recursive: true });
 
     const result = runGsdTools('validate consistency', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2764,11 +2764,11 @@ describe('validate consistency command', () => {
 
   test('warns about gaps in objective numbering', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap\n### Objective 1: A\n### Objective 3: C\n`
     );
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-a'), { recursive: true });
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-c'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-a'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-c'), { recursive: true });
 
     const result = runGsdTools('validate consistency', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2798,10 +2798,10 @@ describe('progress command', () => {
 
   test('renders JSON progress', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0 MVP\n`
     );
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Done');
@@ -2820,10 +2820,10 @@ describe('progress command', () => {
 
   test('renders bar format', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0\n`
     );
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-test');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-test');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(p1, '01-01-SUMMARY.md'), '# Done');
@@ -2836,10 +2836,10 @@ describe('progress command', () => {
 
   test('renders table format', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap v1.0 MVP\n`
     );
-    const p1 = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const p1 = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(p1, { recursive: true });
     fs.writeFileSync(path.join(p1, '01-01-JOB.md'), '# Plan');
 
@@ -2866,7 +2866,7 @@ describe('todo complete command', () => {
   });
 
   test('moves todo from pending to completed', () => {
-    const pendingDir = path.join(tmpDir, '.planning', 'todos', 'pending');
+    const pendingDir = path.join(tmpDir, '.aoforge', 'todos', 'pending');
     fs.mkdirSync(pendingDir, { recursive: true });
     fs.writeFileSync(
       path.join(pendingDir, 'add-dark-mode.md'),
@@ -2881,17 +2881,17 @@ describe('todo complete command', () => {
 
     // Verify moved
     assert.ok(
-      !fs.existsSync(path.join(tmpDir, '.planning', 'todos', 'pending', 'add-dark-mode.md')),
+      !fs.existsSync(path.join(tmpDir, '.aoforge', 'todos', 'pending', 'add-dark-mode.md')),
       'should be removed from pending'
     );
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'todos', 'completed', 'add-dark-mode.md')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'todos', 'completed', 'add-dark-mode.md')),
       'should be in completed'
     );
 
     // Verify completion timestamp added
     const content = fs.readFileSync(
-      path.join(tmpDir, '.planning', 'todos', 'completed', 'add-dark-mode.md'),
+      path.join(tmpDir, '.aoforge', 'todos', 'completed', 'add-dark-mode.md'),
       'utf-8'
     );
     assert.ok(content.startsWith('completed:'), 'should have completed timestamp');
@@ -2920,7 +2920,7 @@ describe('scaffold command', () => {
   });
 
   test('scaffolds context file', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-api'), { recursive: true });
 
     const result = runGsdTools('scaffold context --objective 3', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2930,7 +2930,7 @@ describe('scaffold command', () => {
 
     // Verify file content
     const content = fs.readFileSync(
-      path.join(tmpDir, '.planning', 'objectives', '03-api', '03-CONTEXT.md'),
+      path.join(tmpDir, '.aoforge', 'objectives', '03-api', '03-CONTEXT.md'),
       'utf-8'
     );
     assert.ok(content.includes('Objective 3'), 'should reference objective number');
@@ -2943,7 +2943,7 @@ describe('scaffold command', () => {
   });
 
   test('scaffolds UAT file', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-api'), { recursive: true });
 
     const result = runGsdTools('scaffold uat --objective 3', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2952,7 +2952,7 @@ describe('scaffold command', () => {
     assert.strictEqual(output.created, true);
 
     const content = fs.readFileSync(
-      path.join(tmpDir, '.planning', 'objectives', '03-api', '03-UAT.md'),
+      path.join(tmpDir, '.aoforge', 'objectives', '03-api', '03-UAT.md'),
       'utf-8'
     );
     assert.ok(content.includes('User Acceptance Testing'), 'should have UAT heading');
@@ -2960,7 +2960,7 @@ describe('scaffold command', () => {
   });
 
   test('scaffolds verification file', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '03-api'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '03-api'), { recursive: true });
 
     const result = runGsdTools('scaffold verification --objective 3', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -2969,7 +2969,7 @@ describe('scaffold command', () => {
     assert.strictEqual(output.created, true);
 
     const content = fs.readFileSync(
-      path.join(tmpDir, '.planning', 'objectives', '03-api', '03-VERIFICATION.md'),
+      path.join(tmpDir, '.aoforge', 'objectives', '03-api', '03-VERIFICATION.md'),
       'utf-8'
     );
     assert.ok(content.includes('Goal-Backward Verification'), 'should have verification heading');
@@ -2982,13 +2982,13 @@ describe('scaffold command', () => {
     const output = JSON.parse(result.output);
     assert.strictEqual(output.created, true);
     assert.ok(
-      fs.existsSync(path.join(tmpDir, '.planning', 'objectives', '05-user-dashboard')),
+      fs.existsSync(path.join(tmpDir, '.aoforge', 'objectives', '05-user-dashboard')),
       'directory should be created'
     );
   });
 
   test('does not overwrite existing files', () => {
-    const objectiveDir = path.join(tmpDir, '.planning', 'objectives', '03-api');
+    const objectiveDir = path.join(tmpDir, '.aoforge', 'objectives', '03-api');
     fs.mkdirSync(objectiveDir, { recursive: true });
     fs.writeFileSync(path.join(objectiveDir, '03-CONTEXT.md'), '# Existing content');
 
@@ -3018,7 +3018,7 @@ describe('workstreams analyze command', () => {
 
   test('detects parallel workstream candidates from non-linear deps', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ## Objectives
@@ -3049,7 +3049,7 @@ describe('workstreams analyze command', () => {
     );
 
     // Mark objective 1 as complete on disk
-    const phase1Dir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const phase1Dir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(phase1Dir, { recursive: true });
     fs.writeFileSync(path.join(phase1Dir, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(phase1Dir, '01-01-SUMMARY.md'), '# Summary');
@@ -3078,7 +3078,7 @@ describe('workstreams analyze command', () => {
 
   test('returns no parallelism for linear dependencies', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ## Objective Details
@@ -3097,7 +3097,7 @@ describe('workstreams analyze command', () => {
 `
     );
 
-    const phase1Dir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
+    const phase1Dir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
     fs.mkdirSync(phase1Dir, { recursive: true });
     fs.writeFileSync(path.join(phase1Dir, '01-01-JOB.md'), '# Plan');
     fs.writeFileSync(path.join(phase1Dir, '01-01-SUMMARY.md'), '# Summary');
@@ -3112,7 +3112,7 @@ describe('workstreams analyze command', () => {
 
   test('handles no completed objectives', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ## Objective Details
@@ -3171,17 +3171,17 @@ describe('workstreams provision command', () => {
     cleanup(worktreeDir);
   });
 
-  test('provisions .planning/ with filtered state', () => {
-    // Setup source .planning/
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'PROJECT.md'), '# Project\nTest project');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'REQUIREMENTS.md'), '# Requirements');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap');
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), '{"mode":"interactive"}');
+  test('provisions .aoforge/ with filtered state', () => {
+    // Setup source .aoforge/
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'PROJECT.md'), '# Project\nTest project');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'REQUIREMENTS.md'), '# Requirements');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'config.json'), '{"mode":"interactive"}');
 
     // Create objective directories
-    const phase1Dir = path.join(tmpDir, '.planning', 'objectives', '01-foundation');
-    const phase2Dir = path.join(tmpDir, '.planning', 'objectives', '02-auth');
-    const phase3Dir = path.join(tmpDir, '.planning', 'objectives', '03-content');
+    const phase1Dir = path.join(tmpDir, '.aoforge', 'objectives', '01-foundation');
+    const phase2Dir = path.join(tmpDir, '.aoforge', 'objectives', '02-auth');
+    const phase3Dir = path.join(tmpDir, '.aoforge', 'objectives', '03-content');
     fs.mkdirSync(phase1Dir, { recursive: true });
     fs.mkdirSync(phase2Dir, { recursive: true });
     fs.mkdirSync(phase3Dir, { recursive: true });
@@ -3190,12 +3190,12 @@ describe('workstreams provision command', () => {
     fs.writeFileSync(path.join(phase3Dir, '03-01-JOB.md'), '# Job 3');
 
     // Create research dir
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'research'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'research', 'SUMMARY.md'), '# Research');
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'research'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'research', 'SUMMARY.md'), '# Research');
 
     // Create workstreams.json
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'workstreams.json'),
+      path.join(tmpDir, '.aoforge', 'workstreams.json'),
       JSON.stringify({
         version: '1.0',
         base_branch: 'main',
@@ -3223,37 +3223,37 @@ describe('workstreams provision command', () => {
     assert.strictEqual(output.workstream, 'ws-auth');
 
     // Verify shared files copied
-    assert.ok(fs.existsSync(path.join(worktreeDir, '.planning', 'PROJECT.md')), 'PROJECT.md copied');
-    assert.ok(fs.existsSync(path.join(worktreeDir, '.planning', 'ROADMAP.md')), 'ROADMAP.md copied');
-    assert.ok(fs.existsSync(path.join(worktreeDir, '.planning', 'config.json')), 'config.json copied');
-    assert.ok(fs.existsSync(path.join(worktreeDir, '.planning', 'research', 'SUMMARY.md')), 'research copied');
+    assert.ok(fs.existsSync(path.join(worktreeDir, '.aoforge', 'PROJECT.md')), 'PROJECT.md copied');
+    assert.ok(fs.existsSync(path.join(worktreeDir, '.aoforge', 'ROADMAP.md')), 'ROADMAP.md copied');
+    assert.ok(fs.existsSync(path.join(worktreeDir, '.aoforge', 'config.json')), 'config.json copied');
+    assert.ok(fs.existsSync(path.join(worktreeDir, '.aoforge', 'research', 'SUMMARY.md')), 'research copied');
 
     // Verify workstream objective directory copied
     assert.ok(
-      fs.existsSync(path.join(worktreeDir, '.planning', 'objectives', '02-auth', '02-01-JOB.md')),
+      fs.existsSync(path.join(worktreeDir, '.aoforge', 'objectives', '02-auth', '02-01-JOB.md')),
       'objective 2 copied'
     );
 
     // Verify completed dependency objective also copied (for context)
     assert.ok(
-      fs.existsSync(path.join(worktreeDir, '.planning', 'objectives', '01-foundation', '01-01-JOB.md')),
+      fs.existsSync(path.join(worktreeDir, '.aoforge', 'objectives', '01-foundation', '01-01-JOB.md')),
       'objective 1 (dependency) copied for context'
     );
 
     // Verify objective 3 NOT copied (not in this workstream)
     assert.ok(
-      !fs.existsSync(path.join(worktreeDir, '.planning', 'objectives', '03-content')),
+      !fs.existsSync(path.join(worktreeDir, '.aoforge', 'objectives', '03-content')),
       'objective 3 should not be copied'
     );
 
     // Verify filtered STATE.md
-    const state = fs.readFileSync(path.join(worktreeDir, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(worktreeDir, '.aoforge', 'STATE.md'), 'utf-8');
     assert.ok(state.includes('Workstream Context'), 'STATE.md has workstream context');
     assert.ok(state.includes('ws-auth'), 'STATE.md references workstream id');
 
     // Verify marker
     const marker = JSON.parse(
-      fs.readFileSync(path.join(worktreeDir, '.planning', 'workstream-marker.json'), 'utf-8')
+      fs.readFileSync(path.join(worktreeDir, '.aoforge', 'workstream-marker.json'), 'utf-8')
     );
     assert.strictEqual(marker.id, 'ws-auth');
     assert.deepStrictEqual(marker.objectives, [2]);
@@ -3284,7 +3284,7 @@ describe('workstreams reconcile command', () => {
   test('reconciles merged workstreams and regenerates state', () => {
     // Setup ROADMAP with objectives
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       `# Roadmap
 
 ## Objectives
@@ -3317,11 +3317,11 @@ describe('workstreams reconcile command', () => {
 `
     );
 
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'PROJECT.md'), '# Project\n**Core value:** Test app');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'PROJECT.md'), '# Project\n**Core value:** Test app');
 
     // Create completed objective directories
-    const phase2Dir = path.join(tmpDir, '.planning', 'objectives', '02-auth');
-    const phase3Dir = path.join(tmpDir, '.planning', 'objectives', '03-content');
+    const phase2Dir = path.join(tmpDir, '.aoforge', 'objectives', '02-auth');
+    const phase3Dir = path.join(tmpDir, '.aoforge', 'objectives', '03-content');
     fs.mkdirSync(phase2Dir, { recursive: true });
     fs.mkdirSync(phase3Dir, { recursive: true });
     fs.writeFileSync(path.join(phase2Dir, '02-01-JOB.md'), '# Plan');
@@ -3331,7 +3331,7 @@ describe('workstreams reconcile command', () => {
 
     // Create workstreams.json with merged workstreams
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'workstreams.json'),
+      path.join(tmpDir, '.aoforge', 'workstreams.json'),
       JSON.stringify({
         version: '1.0',
         base_branch: 'main',
@@ -3355,12 +3355,12 @@ describe('workstreams reconcile command', () => {
     assert.strictEqual(output.state_regenerated, true);
 
     // Verify STATE.md regenerated
-    const state = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(tmpDir, '.aoforge', 'STATE.md'), 'utf-8');
     assert.ok(state.includes('Ready to plan'), 'STATE.md ready for next objective');
 
     // Verify workstreams.json updated
     const wsData = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, '.planning', 'workstreams.json'), 'utf-8')
+      fs.readFileSync(path.join(tmpDir, '.aoforge', 'workstreams.json'), 'utf-8')
     );
     assert.strictEqual(wsData.status, 'merged');
     assert.strictEqual(wsData.workstreams.length, 0, 'active workstreams should be empty');
@@ -3394,7 +3394,7 @@ describe('gh command', () => {
 
   test('status reports disabled when github.enabled is false', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
+      path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ github: { enabled: false } })
     );
     const result = runGsdTools('gh status', tmpDir);
@@ -3404,7 +3404,7 @@ describe('gh command', () => {
 
   test('status rejects malformed repo string', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
+      path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ github: { enabled: true, repo: 'not-a-valid-repo' } })
     );
     const result = runGsdTools('gh status', tmpDir);
@@ -3429,7 +3429,7 @@ describe('gh command', () => {
 
   test('sync-release rejects missing tag', () => {
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'config.json'),
+      path.join(tmpDir, '.aoforge', 'config.json'),
       JSON.stringify({ github: { enabled: false, repo: 'owner/name' } })
     );
     const result = runGsdTools('gh sync-release', tmpDir);
@@ -3651,9 +3651,9 @@ describe('verify trd-pre command', () => {
   });
 
   test('unknown objective → error key in JSON output', () => {
-    // Only create .planning dir with no objective matching "nonexistent-999"
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+    // Only create .aoforge dir with no objective matching "nonexistent-999"
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
     const result = runGsdTools('verify trd-pre nonexistent-999', tmpDir);
     // Either error goes to stderr or JSON has error key
     const combined = result.output + (result.error || '');
@@ -3784,11 +3784,11 @@ describe('--help never mutates (issue #87)', () => {
     execSync('git config user.email "test@test.com"', { cwd: dir, stdio: 'pipe' });
     execSync('git config user.name "Test User"', { cwd: dir, stdio: 'pipe' });
     execSync('git config commit.gpgsign false', { cwd: dir, stdio: 'pipe' });
-    fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '# State\n');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'STATE.md'), '# State\n');
     execSync('git add -A', { cwd: dir, stdio: 'pipe' });
     execSync('git commit -m "chore: init"', { cwd: dir, stdio: 'pipe' });
     // The blast radius: an unrelated file a different tool left modified.
-    fs.writeFileSync(path.join(dir, '.planning', '.progress-guard.json'), '{"dirty":true}\n');
+    fs.writeFileSync(path.join(dir, '.aoforge', '.progress-guard.json'), '{"dirty":true}\n');
     return dir;
   }
 
@@ -3828,7 +3828,7 @@ describe('--help never mutates (issue #87)', () => {
   });
 
   test('help covers every subcommand, not just commit — state --help does not touch STATE.md', () => {
-    const statePath = path.join(tmpDir, '.planning', 'STATE.md');
+    const statePath = path.join(tmpDir, '.aoforge', 'STATE.md');
     const before = fs.readFileSync(statePath, 'utf-8');
     const result = runGsdToolsArgv(['state', '--help'], tmpDir);
     assert.strictEqual(result.status, 0, `state --help must exit 0; stderr: ${result.stderr}`);
@@ -3837,10 +3837,10 @@ describe('--help never mutates (issue #87)', () => {
   });
 
   test('objective add --help does not append an objective named "--help"', () => {
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n\n## Objectives\n');
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n\n## Objectives\n');
     const result = runGsdToolsArgv(['objective', 'add', '--help'], tmpDir);
     assert.strictEqual(result.status, 0, `objective add --help must exit 0; stderr: ${result.stderr}`);
-    const roadmap = fs.readFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(!roadmap.includes('--help'), `roadmap gained a "--help" objective:\n${roadmap}`);
   });
 
@@ -3848,7 +3848,7 @@ describe('--help never mutates (issue #87)', () => {
   // Each row was verified to MUTATE on the pre-fix tool (6c0e9b5): config-set
   // wrote a key named "--help", milestone complete archived a milestone called
   // "--help", handoff create queued a record, micro start created
-  // .planning/quick/1-help/, changelog update wrote an entry for version
+  // .aoforge/quick/1-help/, changelog update wrote an entry for version
   // "--help", project-decline recorded a decline.
   for (const argv of [
     ['config-set'],
@@ -3859,8 +3859,8 @@ describe('--help never mutates (issue #87)', () => {
     ['project-decline'],
   ]) {
     test(`${argv.join(' ')} --help prints usage and changes nothing on disk`, () => {
-      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), '{"commit_docs":true}\n');
-      fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n');
+      fs.writeFileSync(path.join(tmpDir, '.aoforge', 'config.json'), '{"commit_docs":true}\n');
+      fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
       const snapshot = () => execSync(
         'find . -path ./.git -prune -o -type f -print | sort | xargs shasum',
         { cwd: tmpDir, encoding: 'utf-8' });
@@ -3888,7 +3888,7 @@ describe('--help never mutates (issue #87)', () => {
   test('a normal commit still works (differential control for the guards above)', () => {
     const before = headSha(tmpDir);
     const result = runGsdToolsArgv(
-      ['commit', 'docs: real message', '--files', '.planning/.progress-guard.json'], tmpDir);
+      ['commit', 'docs: real message', '--files', '.aoforge/.progress-guard.json'], tmpDir);
     assert.strictEqual(result.status, 0, `normal commit failed; stderr: ${result.stderr}`);
     assert.notStrictEqual(headSha(tmpDir), before, 'normal commit did not move HEAD');
   });

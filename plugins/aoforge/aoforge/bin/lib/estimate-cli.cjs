@@ -274,7 +274,7 @@ function runMilestone(parsed, env, base) {
 const MS_PER_MINUTE = 60 * 1000;
 const isoOf = (ms) => new Date(ms).toISOString();
 
-/** The directory that holds `.planning`, which keys the run state; cwd itself when there is none above it. */
+/** The directory that holds `.aoforge`, which keys the run state; cwd itself when there is none above it. */
 const runRoot = (base) => store.findProjectRoot(base) || base;
 
 function newWave(wave, trds, minutes) {

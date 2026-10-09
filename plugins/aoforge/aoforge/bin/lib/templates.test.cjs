@@ -182,7 +182,7 @@ test('48-14 char 8: local template fill summary writes today\'s draft, exact byt
   withTfProject({ store: false }, (p) => {
     const r = p.run(['template', 'fill', 'summary', '--objective', '7', '--job', '02']);
     strict.equal(r.status, 0, r.stderr);
-    strict.equal(r.stdout, JSON.stringify({ created: true, path: `.planning/${TF_SUMMARY_REL}`, template: 'summary' }, null, 2));
+    strict.equal(r.stdout, JSON.stringify({ created: true, path: `.aoforge/${TF_SUMMARY_REL}`, template: 'summary' }, null, 2));
     strict.equal(p.read(TF_SUMMARY_REL), expectedSummary(new Date().toISOString().split('T')[0]));
     strict.deepEqual(p.ghCalls(), []);
     strict.deepEqual(p.ledgerEntries(), {});
@@ -195,7 +195,7 @@ test('48-14 store 9: template fill writes the draft into the cache, records it i
     strict.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
     strict.equal(out.created, true);
-    strict.equal(out.path, `.planning/${TF_SUMMARY_REL}`);
+    strict.equal(out.path, `.aoforge/${TF_SUMMARY_REL}`);
     strict.equal(out.publish_with, 'summary post');
     const text = p.read(TF_SUMMARY_REL);
     strict.equal(text, expectedSummary(new Date().toISOString().split('T')[0]));

@@ -8,7 +8,7 @@
 //   3. A linked worktree written by hand (no git spawn): `main/.git/worktrees/wt1/commondir` = `../..`, `wt/.git` is a file
 //      `gitdir: <main>/.git/worktrees/wt1` -> resolveMainRoot(wt) is main, and planningMode(wt) reads MAIN's config (D-14).
 //      Also: no `commondir` (older git), a relative gitdir, and a `.git` file that is not a worktree (submodule shape).
-//   4. A non-git temp dir with `.planning/` -> that dir; no `.planning/` anywhere -> null.
+//   4. A non-git temp dir with `.aoforge/` -> that dir; no `.aoforge/` anywhere -> null.
 //
 // Fixtures are hand-built temp trees. Nothing here spawns git or touches ~/.claude.
 
@@ -39,16 +39,16 @@ function mkdirs(...parts) {
 }
 
 function writeConfig(root, value) {
-  mkdirs(root, '.planning');
+  mkdirs(root, '.aoforge');
   const text = typeof value === 'string' ? value : JSON.stringify(value);
-  fs.writeFileSync(path.join(root, '.planning', 'config.json'), text);
+  fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), text);
 }
 
-/** A main checkout: `<tmp>/<name>/.git/` (a directory) and `.planning/`. */
+/** A main checkout: `<tmp>/<name>/.git/` (a directory) and `.aoforge/`. */
 function mainCheckout(name = 'main') {
   const root = mkdirs(tmp, name);
   mkdirs(root, '.git');
-  mkdirs(root, '.planning');
+  mkdirs(root, '.aoforge');
   return root;
 }
 
@@ -69,7 +69,7 @@ function linkedWorktree(main, { id = 'wt1', name = 'wt', commondir = true, relat
 }
 
 describe('planningMode: the D-01 switch', () => {
-  test('1a. no .planning/config.json -> local', () => {
+  test('1a. no .aoforge/config.json -> local', () => {
     const root = mainCheckout();
     const got = mode.planningMode(root);
     assert.strictEqual(got.mode, 'local');
@@ -166,9 +166,9 @@ describe('resolveMainRoot: main checkout (D-14)', () => {
     assert.strictEqual(mode.resolveMainRoot(deep), real(root));
   });
 
-  test('2c. from inside .planning/ itself -> the root', () => {
+  test('2c. from inside .aoforge/ itself -> the root', () => {
     const root = mainCheckout();
-    const inside = mkdirs(root, '.planning', 'objectives', '48-x');
+    const inside = mkdirs(root, '.aoforge', 'objectives', '48-x');
     assert.strictEqual(mode.resolveMainRoot(inside), real(root));
   });
 });
@@ -177,7 +177,7 @@ describe('resolveMainRoot: linked worktree, no git spawn (D-14)', () => {
   test('3a. a worktree resolves to the MAIN checkout via commondir', () => {
     const main = mainCheckout();
     const wt = linkedWorktree(main);
-    mkdirs(wt, '.planning');
+    mkdirs(wt, '.aoforge');
     assert.strictEqual(mode.resolveMainRoot(wt), real(main));
     assert.strictEqual(mode.resolveMainRoot(mkdirs(wt, 'src', 'x')), real(main));
   });
@@ -217,35 +217,35 @@ describe('resolveMainRoot: linked worktree, no git spawn (D-14)', () => {
     const modGitdir = mkdirs(superRoot, '.git', 'modules', 'sub');
     const sub = mkdirs(superRoot, 'sub');
     fs.writeFileSync(path.join(sub, '.git'), `gitdir: ${modGitdir}\n`);
-    mkdirs(sub, '.planning');
+    mkdirs(sub, '.aoforge');
     assert.strictEqual(mode.resolveMainRoot(sub), real(sub));
   });
 
-  test('3g. main has no .planning/ but the worktree does -> falls back to the worktree', () => {
+  test('3g. main has no .aoforge/ but the worktree does -> falls back to the worktree', () => {
     const main = mkdirs(tmp, 'bare-main');
     mkdirs(main, '.git');
     const wt = linkedWorktree(main);
-    mkdirs(wt, '.planning');
+    mkdirs(wt, '.aoforge');
     assert.strictEqual(mode.resolveMainRoot(wt), real(wt));
   });
 
   test('3h. an unreadable gitdir pointer never throws', () => {
     const wt = mkdirs(tmp, 'broken');
     fs.writeFileSync(path.join(wt, '.git'), 'not a gitdir line\n');
-    mkdirs(wt, '.planning');
+    mkdirs(wt, '.aoforge');
     assert.strictEqual(mode.resolveMainRoot(wt), real(wt));
   });
 });
 
 describe('resolveMainRoot: outside git', () => {
-  test('4a. a non-git temp dir with .planning/ -> that dir', () => {
+  test('4a. a non-git temp dir with .aoforge/ -> that dir', () => {
     const root = mkdirs(tmp, 'plain');
-    mkdirs(root, '.planning');
+    mkdirs(root, '.aoforge');
     assert.strictEqual(mode.resolveMainRoot(root), real(root));
     assert.strictEqual(mode.resolveMainRoot(mkdirs(root, 'a', 'b')), real(root));
   });
 
-  test('4b. no .planning/ anywhere -> null, and planningMode is local', () => {
+  test('4b. no .aoforge/ anywhere -> null, and planningMode is local', () => {
     const root = mkdirs(tmp, 'nothing', 'here');
     assert.strictEqual(mode.resolveMainRoot(root), null);
     const got = mode.planningMode(root);
@@ -253,9 +253,9 @@ describe('resolveMainRoot: outside git', () => {
     assert.strictEqual(got.root, null);
   });
 
-  test('4c. a .planning FILE is not a planning directory', () => {
+  test('4c. a .aoforge FILE is not a planning directory', () => {
     const root = mkdirs(tmp, 'file-not-dir');
-    fs.writeFileSync(path.join(root, '.planning'), 'x');
+    fs.writeFileSync(path.join(root, '.aoforge'), 'x');
     assert.strictEqual(mode.resolveMainRoot(root), null);
   });
 
@@ -267,10 +267,10 @@ describe('resolveMainRoot: outside git', () => {
 // TRD 53-01: the checkout that holds cwd. Local-mode summary verbs write it (so the SUMMARY is committed by the checkout
 // that wrote it); store mode keeps resolveMainRoot. fs-only, same worktree fixture as above.
 describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
-  test('5a. inside a linked worktree that has .planning/ -> the worktree root, not main', () => {
+  test('5a. inside a linked worktree that has .aoforge/ -> the worktree root, not main', () => {
     const main = mainCheckout();
     const wt = linkedWorktree(main);
-    mkdirs(wt, '.planning');
+    mkdirs(wt, '.aoforge');
     assert.strictEqual(mode.resolveCheckoutRoot(wt), real(wt));
     assert.notStrictEqual(mode.resolveCheckoutRoot(wt), mode.resolveMainRoot(wt));
   });
@@ -278,12 +278,12 @@ describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
   test('5b. from a nested subdir of that worktree -> still the worktree root', () => {
     const main = mainCheckout();
     const wt = linkedWorktree(main);
-    mkdirs(wt, '.planning');
+    mkdirs(wt, '.aoforge');
     assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(wt, 'src', 'x')), real(wt));
-    assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(wt, '.planning', 'objectives', '53-x')), real(wt));
+    assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(wt, '.aoforge', 'objectives', '53-x')), real(wt));
   });
 
-  test('5c. a worktree with no .planning/ (planning untracked) falls back to resolveMainRoot -> main', () => {
+  test('5c. a worktree with no .aoforge/ (planning untracked) falls back to resolveMainRoot -> main', () => {
     const main = mainCheckout();
     const wt = linkedWorktree(main);
     assert.strictEqual(mode.resolveCheckoutRoot(wt), real(main));
@@ -297,20 +297,20 @@ describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
     assert.strictEqual(mode.resolveCheckoutRoot(deep), mode.resolveMainRoot(deep));
   });
 
-  test('5e. a non-git dir holding .planning/ equals resolveMainRoot', () => {
+  test('5e. a non-git dir holding .aoforge/ equals resolveMainRoot', () => {
     const root = mkdirs(tmp, 'plain');
-    mkdirs(root, '.planning');
+    mkdirs(root, '.aoforge');
     assert.strictEqual(mode.resolveCheckoutRoot(root), real(root));
     const deep = mkdirs(root, 'a', 'b');
     assert.strictEqual(mode.resolveCheckoutRoot(deep), mode.resolveMainRoot(deep));
   });
 
-  test('5f. no .planning/ anywhere, a missing cwd and a broken .git pointer: null or the holder, never a throw', () => {
+  test('5f. no .aoforge/ anywhere, a missing cwd and a broken .git pointer: null or the holder, never a throw', () => {
     assert.strictEqual(mode.resolveCheckoutRoot(mkdirs(tmp, 'nothing', 'here')), null);
     assert.strictEqual(mode.resolveCheckoutRoot(path.join(tmp, 'missing', 'dir')), null);
     const broken = mkdirs(tmp, 'broken');
     fs.writeFileSync(path.join(broken, '.git'), 'not a gitdir line\n');
-    mkdirs(broken, '.planning');
+    mkdirs(broken, '.aoforge');
     assert.strictEqual(mode.resolveCheckoutRoot(broken), real(broken));
   });
 
@@ -326,10 +326,11 @@ describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
 });
 
 describe('module hygiene', () => {
-  test('requires only fs, path and os (hook-safe, no child_process)', () => {
+  test('requires only fs, path, os and ./compat.cjs (hook-safe, no child_process)', () => {
     const src = fs.readFileSync(path.join(__dirname, 'planning-mode.cjs'), 'utf8');
     const required = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]).sort();
-    assert.deepStrictEqual([...new Set(required)].filter((r) => !['fs', 'os', 'path'].includes(r)), []);
+    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, path and legacy-names.cjs
+    assert.deepStrictEqual([...new Set(required)].filter((r) => !['fs', 'os', 'path', './compat.cjs'].includes(r)), []);
     assert.doesNotMatch(src, /child_process/);
   });
 });

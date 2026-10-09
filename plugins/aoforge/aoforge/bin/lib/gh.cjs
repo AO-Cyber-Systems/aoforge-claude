@@ -3,11 +3,11 @@
 /**
  * GitHub integration for AOForge.
  *
- * One-way push from .planning/ -> GitHub via the `gh` CLI. Planning files
+ * One-way push from .aoforge/ -> GitHub via the `gh` CLI. Planning files
  * remain authoritative; if GitHub is unavailable or this module fails the
  * caller must continue without error.
  *
- * Issue ids are persisted to .planning/.gh-mapping.json in the v3 shape owned by gh-mapping.cjs
+ * Issue ids are persisted to .aoforge/.gh-mapping.json in the v3 shape owned by gh-mapping.cjs
  * (`objectives: { "<id>": { issue_id, state_comment_id, verified_at } }`). Every gh invocation goes through
  * gh-client (ghRead / ghWrite); every command sits behind gh-client.requireEnabled (TRD 46-08).
  *
@@ -31,6 +31,7 @@ const client = require('./gh-client.cjs');
 const bodyLib = require('./gh-body.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const objectiveNameLib = require('./objective-name.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Test injection + per-process cache (TRD 01-02) ──────────────────────────
 
@@ -586,7 +587,7 @@ function cmdGhResolve(cwd, objectiveId, raw, argv) {
   // Any spelling of the objective (2, 02, 02-name); an exact directory name still works.
   const resolvedObj = mappingLib.resolveObjective(cwd, objectiveId);
   const objDirName = resolvedObj && resolvedObj.dir ? resolvedObj.dir : objectiveId;
-  const objPath = path.join(cwd, '.planning', 'objectives', objDirName, 'OBJECTIVE.md');
+  const objPath = path.join(planningRoot(cwd), 'objectives', objDirName, 'OBJECTIVE.md');
   if (!fs.existsSync(objPath)) {
     process.stderr.write(`Error: objective not found: ${objectiveId}\n`);
     process.stderr.write(`  expected: ${objPath}\n`);
@@ -599,7 +600,7 @@ function cmdGhResolve(cwd, objectiveId, raw, argv) {
   const objFm = extractFrontmatter(objContent) || {};
   objFm._objectiveId = objectiveId;
 
-  const projectPath = path.join(cwd, '.planning', 'PROJECT.md');
+  const projectPath = path.join(planningRoot(cwd), 'PROJECT.md');
   let projectFm = {};
   if (fs.existsSync(projectPath)) {
     projectFm = extractFrontmatter(fs.readFileSync(projectPath, 'utf-8')) || {};
@@ -639,7 +640,7 @@ function ghStatus(cwd) {
 const GOAL_RE = new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)', 'i');
 
 function listObjectives(cwd) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) return [];
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   const headerRe = /#{2,4}\s*Objective\s+([\d.]+):\s*([^\n]+)/gi;
@@ -965,8 +966,8 @@ function buildIssueBody(state) {
   lines.push(
     '_Tracked by [AOForge](https://github.com/AO-Cyber-Systems/aoforge-claude). ' +
       (state.store === true
-        ? 'This issue is the source of truth (store mode); `.planning/` in a checkout is a local cache rebuilt from it._'
-        : `Source of truth: \`.planning/objectives/${objId}/\` in this repo._`)
+        ? 'This issue is the source of truth (store mode); `.aoforge/` in a checkout is a local cache rebuilt from it._'
+        : `Source of truth: \`.aoforge/objectives/${objId}/\` in this repo._`)
   );
   return lines.join('\n');
 }
@@ -1104,7 +1105,7 @@ function updateProjectFields(issueRef, projectId, fields = {}, opts = {}) {
  * Returns structured state object used by buildIssueBody + buildStickyComment.
  */
 function readObjectiveState(objectiveId, projectRoot) {
-  const objDir = path.join(projectRoot, '.planning', 'objectives', objectiveId);
+  const objDir = path.join(planningRoot(projectRoot), 'objectives', objectiveId);
   if (!fs.existsSync(objDir)) {
     throw new Error(`objective directory not found: ${objDir}`);
   }
@@ -1223,7 +1224,7 @@ function roadmapOnlyState(projectRoot, resolved) {
 }
 
 function readProjectFrontmatter(projectRoot) {
-  const projectPath = path.join(projectRoot, '.planning', 'PROJECT.md');
+  const projectPath = path.join(planningRoot(projectRoot), 'PROJECT.md');
   if (!fs.existsSync(projectPath)) return {};
   try {
     return extractFrontmatter(fs.readFileSync(projectPath, 'utf-8')) || {};
@@ -1259,7 +1260,7 @@ function storeEnabled(cfg) {
 const OFFLINE_WARNING = 'offline: state comment and Project fields not updated (GitHub is unreachable); '
   + 'the hierarchy was queued, run `aof-tools gh outbox flush` once online';
 
-/** `.planning/`-relative paths of every file a push of `plan` carried to GitHub (the pull-side baseline). */
+/** `.aoforge/`-relative paths of every file a push of `plan` carried to GitHub (the pull-side baseline). */
 function pushedCachePaths(plan) {
   const base = `objectives/${plan.objective.dir}`;
   const rels = plan.trds.map((t) => `${base}/${t.file}`);
@@ -1462,7 +1463,7 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
   if (!resolved) return { ok: false, error: `objective not found: ${objectiveArg}`, warnings: allWarnings() };
 
   const objPath = resolved.dir
-    ? path.join(projectRoot, '.planning', 'objectives', resolved.dir, 'OBJECTIVE.md')
+    ? path.join(planningRoot(projectRoot), 'objectives', resolved.dir, 'OBJECTIVE.md')
     : null;
   let objFm = {};
   if (objPath && fs.existsSync(objPath)) {
@@ -1477,7 +1478,7 @@ function syncObjective(objectiveArg, projectRoot, opts = {}) {
   let plan = null;
   if (storeMode) {
     if (!resolved.dir) {
-      warnings.push(`store: objective ${resolved.id} has no directory under .planning/objectives yet; its hierarchy was not pushed`);
+      warnings.push(`store: objective ${resolved.id} has no directory under .aoforge/objectives yet; its hierarchy was not pushed`);
     } else {
       plan = require('./gh-hierarchy.cjs').planPush(projectRoot, resolved.id);
       if (!plan.ok) {
@@ -1830,7 +1831,7 @@ function syncAll(root) {
   }
 
   const warnings = [...runCtx.warnings];
-  if (index.length === 0) warnings.push('no objectives found (.planning/objectives/ and ROADMAP.md are empty)');
+  if (index.length === 0) warnings.push('no objectives found (.aoforge/objectives/ and ROADMAP.md are empty)');
   const wm = mappingLib.writeMappingV3(root, runCtx.mapping);
   if (!wm.ok) warnings.push(`mapping not written: ${wm.error}`);
   const failed = results.filter((x) => !x.ok).length;

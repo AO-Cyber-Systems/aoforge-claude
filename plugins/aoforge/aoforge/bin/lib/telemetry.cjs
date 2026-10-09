@@ -7,10 +7,10 @@
  * run is visible without a forensic transcript audit.
  *
  * Sources, all local and already being written:
- *   .planning/.override-log.jsonl   — structured gate overrides (TRD 30-04)
+ *   .aoforge/.override-log.jsonl   — structured gate overrides (TRD 30-04)
  *   ~/.claude/aoforge/state/progress-guard/<session>.json — stuck-loop detection state, one
  *                                     file per session, filtered to this project (TRD 28-04;
- *                                     moved out of .planning/ in quick task 25)
+ *                                     moved out of .aoforge/ in quick task 25)
  *   session transcripts             — blocking events (TRD 31-03)
  *   doc-staleness.collect()         — documentation-staleness W05x issues (TRD 38-07, merged here TRD 38-11)
  *
@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const { readOverrides } = require('./override.cjs');
 const store = require('./progress-guard-store.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 /** The `blocks` section of the result, from a session-audit report. */
 function summarizeBlocks(sessionReport) {
@@ -55,8 +56,8 @@ function blockAdvisories(sessionReport) {
 function collect({ planningDir, sessionReport, userHome = null, progressGuardDir = store.stateDir() }) {
   const out = { overrides: null, progress_guard: null, blocks: null, docs: null, advisories: [] };
   if (!planningDir) {
-    const notProject = 'no .planning/ — not an AOForge project';
-    // Blocks come from transcripts, not .planning/, so a scan outside a project still reports them.
+    const notProject = `no ${planningDirLabel()} — not an AOForge project`;
+    // Blocks come from transcripts, not .aoforge/, so a scan outside a project still reports them.
     // Without a report this early return is byte-identical to what it always was.
     if (!sessionReport) return { ...out, advisories: [notProject] };
     return { ...out, blocks: summarizeBlocks(sessionReport), advisories: [notProject, ...blockAdvisories(sessionReport)] };
@@ -73,7 +74,7 @@ function collect({ planningDir, sessionReport, userHome = null, progressGuardDir
 
   // --- progress guard ------------------------------------------------------
   // Per-session files are shared across every project on the machine, so keep only this
-  // project's. No fallback to the legacy .planning/.progress-guard.json: migration 0008
+  // project's. No fallback to the legacy .aoforge/.progress-guard.json: migration 0008
   // untracks it, so it is dead and stale, and reading it would report ghost streaks.
   try {
     const dirOfProject = path.dirname(planningDir);

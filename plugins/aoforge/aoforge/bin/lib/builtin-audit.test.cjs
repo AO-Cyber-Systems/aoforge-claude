@@ -67,7 +67,7 @@ describe('scanPrompts: prose-choice', () => {
   describe('2. positive literals', () => {
     const positives = [
       "Does this capture what you're building? (yes / adjust)",
-      'Otherwise show the draft and ask: "Write this as .planning/STACK.md? (yes / edit / skip)".',
+      'Otherwise show the draft and ask: "Write this as .aoforge/STACK.md? (yes / edit / skip)".',
       '(yes / wait / adjust scope)',
       'Ask: "Push tag to remote? (y/n)"',
       'Reply with a number to resume, or provide an objective number to start new.',

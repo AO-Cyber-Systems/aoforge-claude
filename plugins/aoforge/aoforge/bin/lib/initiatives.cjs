@@ -21,6 +21,7 @@ const path = require('path');
 const os = require('os');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const gh = require('./gh.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── TRD 05-01: Constants ─────────────────────────────────────────────────────
 
@@ -543,7 +544,7 @@ async function _runStaleDeletionLoop({ home, stale_entries, force }) {
 function defaultProjectId(cwd) {
   const nonEmpty = (v) => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
   try {
-    const fm = extractFrontmatter(fs.readFileSync(path.join(cwd, '.planning', 'PROJECT.md'), 'utf-8')) || {};
+    const fm = extractFrontmatter(fs.readFileSync(path.join(planningRoot(cwd), 'PROJECT.md'), 'utf-8')) || {};
     if (nonEmpty(fm.org_project)) return nonEmpty(fm.org_project);
   } catch { /* no PROJECT.md */ }
   const cfg = require('./gh-client.cjs').readConfig(cwd);
@@ -555,8 +556,8 @@ function defaultProjectId(cwd) {
  *
  * @param {object} opts
  * @param {string} opts.home          - target dir; defaults to defaultInitiativesHome()
- * @param {string} opts.project_id    - project node id; defaults to <cwd>/.planning/PROJECT.md `org_project`,
- *                                      then <cwd>/.planning/config.json `awareness.org_project_id` (TRD 46-08)
+ * @param {string} opts.project_id    - project node id; defaults to <cwd>/.aoforge/PROJECT.md `org_project`,
+ *                                      then <cwd>/.aoforge/config.json `awareness.org_project_id` (TRD 46-08)
  * @param {string} opts.cwd           - project root for that default; defaults to process.cwd()
  * @param {string} opts.initiative    - sync ONLY this slug (skips all others; skips stale-deletion)
  * @param {boolean} opts.force        - delete stale files without confirmation (TRD 05-03)
@@ -578,7 +579,7 @@ async function syncInitiatives(opts) {
     return {
       ok: false,
       written, deleted, skipped,
-      warnings: ['no project_id: pass --project-id, or set org_project in .planning/PROJECT.md (or awareness.org_project_id in .planning/config.json)'],
+      warnings: ['no project_id: pass --project-id, or set org_project in .aoforge/PROJECT.md (or awareness.org_project_id in .aoforge/config.json)'],
     };
   }
 

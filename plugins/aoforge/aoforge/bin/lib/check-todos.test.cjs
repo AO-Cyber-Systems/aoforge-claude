@@ -54,8 +54,8 @@ describe('check-todos: Group A — aggregate', () => {
         if (p.includes('.dup-detect-log')) return false;
         if (p.includes('.check-todos-cache')) return false;
         if (p.includes('PROJECT.md')) return true;
-        // .planning dir exists so mkdirSync is skipped during cache write
-        if (p.endsWith('.planning')) return true;
+        // .aoforge dir exists so mkdirSync is skipped during cache write
+        if (p.endsWith('.aoforge')) return true;
         return false;
       },
       readFileSync: (p, enc) => {
@@ -268,7 +268,7 @@ describe('check-todos: Group F — _fetchLocalTodos', () => {
 
   it('F1: empty pending dir → []', () => {
     const fixture = buildCheckTodosFixtures({ localTodos: [] });
-    const pendingDir = path.join(fixture.projectRoot, '.planning', 'todos', 'pending');
+    const pendingDir = path.join(fixture.projectRoot, '.aoforge', 'todos', 'pending');
     const mockFs = {
       existsSync: (p) => p === pendingDir,
       readdirSync: (p) => [],
@@ -314,7 +314,7 @@ describe('check-todos: Group F — _fetchLocalTodos', () => {
 
   it('F4: mixed files (.md + README + .DS_Store) → only .md returned', () => {
     const fixture = buildCheckTodosFixtures();
-    const pendingDir = path.join(fixture.projectRoot, '.planning', 'todos', 'pending');
+    const pendingDir = path.join(fixture.projectRoot, '.aoforge', 'todos', 'pending');
     const files = ['task-one.md', 'README', '.DS_Store', 'task-two.md'];
     ct._setRunFs({
       existsSync: (p) => p === pendingDir,
@@ -333,7 +333,7 @@ describe('check-todos: Group F — _fetchLocalTodos', () => {
 
   it('F5: malformed todo (no title: line) → entry uses Untitled placeholder', () => {
     const fixture = buildCheckTodosFixtures();
-    const pendingDir = path.join(fixture.projectRoot, '.planning', 'todos', 'pending');
+    const pendingDir = path.join(fixture.projectRoot, '.aoforge', 'todos', 'pending');
     ct._setRunFs({
       existsSync: (p) => p === pendingDir,
       readdirSync: () => ['broken.md'],
@@ -365,7 +365,7 @@ describe('check-todos: Group F — _fetchLocalTodos', () => {
     });
     const result = ct._fetchLocalTodos(fixture.projectRoot, {});
     assert.strictEqual(result.length, 1);
-    assert.ok(result[0].path.startsWith('.planning/todos/pending/'), `path was: ${result[0].path}`);
+    assert.ok(result[0].path.startsWith('.aoforge/todos/pending/'), `path was: ${result[0].path}`);
     fixture.cleanup();
   });
 });
@@ -692,7 +692,7 @@ describe('check-todos: Group D — _fetchDupDetectLog', () => {
     const fs = require('fs');
     const os = require('os');
     const projectRoot = fs.mkdtempSync(require('path').join(os.tmpdir(), 'dup-d3-'));
-    const planningDir = require('path').join(projectRoot, '.planning');
+    const planningDir = require('path').join(projectRoot, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
     const logPath = require('path').join(planningDir, '.dup-detect-log.jsonl');
     fs.writeFileSync(logPath, [
@@ -710,7 +710,7 @@ describe('check-todos: Group D — _fetchDupDetectLog', () => {
     const fs = require('fs');
     const os = require('os');
     const projectRoot = fs.mkdtempSync(require('path').join(os.tmpdir(), 'dup-d4-'));
-    const planningDir = require('path').join(projectRoot, '.planning');
+    const planningDir = require('path').join(projectRoot, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
     fs.writeFileSync(require('path').join(planningDir, '.dup-detect-log.jsonl'), '', 'utf-8');
 
@@ -932,9 +932,9 @@ describe('check-todos: Group C — readCheckTodosCache / writeCheckTodosCache', 
     fixture.cleanup();
   });
 
-  it('C7: writeCheckTodosCache lazy-creates .planning/ directory if missing', () => {
+  it('C7: writeCheckTodosCache lazy-creates .aoforge/ directory if missing', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ct-c7-'));
-    // Note: .planning dir is NOT created yet
+    // Note: .aoforge dir is NOT created yet
     ct.writeCheckTodosCache(tmpRoot, { local_todos: { data: [], fetched_at: new Date().toISOString() } });
     const cachePath = path.join(tmpRoot, ct.CHECK_TODOS_CACHE_REL);
     assert.ok(fs.existsSync(cachePath), 'cache file should exist after lazy-create');
@@ -1301,7 +1301,7 @@ function buildTestEntry(source, i) {
         created: '2026-05-04',
         title: `Local todo item ${i}`,
         area: 'dev',
-        path: `.planning/todos/pending/todo-${i}.md`,
+        path: `.aoforge/todos/pending/todo-${i}.md`,
       };
     default:
       return { source, idx: i };
@@ -1563,11 +1563,11 @@ describe('check-todos: Group FE — entry rendering + attribution (via formatChe
       created: '2026-05-04',
       title: 'Fix the thing',
       area: 'backend',
-      path: '.planning/todos/pending/todo-1.md',
+      path: '.aoforge/todos/pending/todo-1.md',
     };
     const out = ct.formatCheckTodosMarkdown(makeAgg('ideas', entry), { date: '2026-05-05' });
     assert.match(out, /\*\*backend\*\* — Fix the thing/);
-    assert.match(out, /via local todo: \.planning\/todos\/pending\/todo-1\.md/);
+    assert.match(out, /via local todo: \.aoforge\/todos\/pending\/todo-1\.md/);
   });
 
   it('FE9: gh entry with missing optional fields renders without crash', () => {

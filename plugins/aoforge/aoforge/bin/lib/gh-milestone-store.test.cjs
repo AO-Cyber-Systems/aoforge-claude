@@ -122,7 +122,7 @@ describe('native milestone writes (tests 7-12)', () => {
 
   test('7b. the title honours github.milestone_prefix; a bad version or an oversized description is refused before any call', () => {
     setup();
-    const cfgPath = path.join(project.root, '.planning', 'config.json');
+    const cfgPath = path.join(project.root, '.aoforge', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
     cfg.github.milestone_prefix = 'M-';
     fs.writeFileSync(cfgPath, JSON.stringify(cfg));

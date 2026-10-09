@@ -10,7 +10,7 @@
  *   - a capture-adapter stub (web_e2e/lib/uiEval/captureWeb.js)
  *   - baseline dirs (web __screenshots__ + widget goldens)
  *   - a `ui_eval` Playwright project entry (playwright.config.js)
- *   - a `.planning/.flutter-ui-eval-bootstrap-done` marker (written LAST)
+ *   - a `.aoforge/.flutter-ui-eval-bootstrap-done` marker (written LAST)
  *
  * Pure logic, no LLM, no network. Two-part split mirrors flutter-ui-bootstrap.cjs:
  *   - checkScaffoldState({ projectDir })  — PURE planner (existence-reads only, no writes)
@@ -23,8 +23,8 @@
  * Monorepo support (W0-4): the Flutter package may live at `projectDir/pubspec.yaml`
  * OR `projectDir/flutter/pubspec.yaml` (eden-biz/aodex layout). resolveFlutterPackageDir
  * (flutter-package-dir.cjs) finds it; every scaffold target path below resolves against
- * the resulting `packageDir`, while the `.planning/` marker always stays at `projectDir`
- * (the repo root — where AOForge's `.planning/` and the executor's cwd live).
+ * the resulting `packageDir`, while the `.aoforge/` marker always stays at `projectDir`
+ * (the repo root — where AOForge's `.aoforge/` and the executor's cwd live).
  *
  * Idempotency contract: scaffolding is a no-op on re-run. Presence is decided by
  * checking each target path; the marker is the LAST write so a failed run retries.
@@ -35,6 +35,7 @@ const path = require('path');
 const { output } = require('./helpers.cjs');
 const { resolveFlutterPackageDir } = require('./flutter-package-dir.cjs');
 const { hasHelpFlag } = require('./help.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Canonical scaffold target paths (repo-relative) ─────────────────────────
 
@@ -43,7 +44,8 @@ const ADAPTER_REL = path.join('web_e2e', 'lib', 'uiEval', 'captureWeb.js');
 const BASELINE_WEB_REL = path.join('web_e2e', 'tests', 'ui_eval', '__screenshots__');
 const BASELINE_GOLDENS_REL = path.join('test', 'ui_eval', 'goldens');
 const PLAYWRIGHT_REL = 'playwright.config.js';
-const MARKER_REL = path.join('.planning', '.flutter-ui-eval-bootstrap-done');
+// inside the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const MARKER_FILE = '.flutter-ui-eval-bootstrap-done';
 
 // Token used to detect (and to mark) the `ui_eval` Playwright project entry.
 const PLAYWRIGHT_PROJECT_TOKEN = "name: 'ui_eval'";
@@ -220,10 +222,10 @@ function scaffoldUIEval({ projectDir }) {
 
   // Marker LAST — only reached if every earlier write succeeded, so a failed
   // run leaves no marker and the next run retries the missing pieces. The
-  // marker always lives at the repo root's `.planning/` (projectDir), never
-  // under packageDir — `.planning/` is AOForge's own bookkeeping location,
+  // marker always lives at the repo root's `.aoforge/` (projectDir), never
+  // under packageDir — `.aoforge/` is AOForge's own bookkeeping location,
   // not part of the Flutter package.
-  const markerPath = path.join(projectDir, MARKER_REL);
+  const markerPath = path.join(planningRoot(projectDir), MARKER_FILE);
   fs.mkdirSync(path.dirname(markerPath), { recursive: true });
   fs.writeFileSync(markerPath, '');
 

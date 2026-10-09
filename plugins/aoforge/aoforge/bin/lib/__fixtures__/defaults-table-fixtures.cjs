@@ -54,9 +54,9 @@ function buildPartialDefaultsTable({ cells = {}, includeConstraints = false } = 
  */
 function buildTempProjectWithDefaults({ projectTable = null, orgTable = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-defaults-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (projectTable !== null) {
-    fs.writeFileSync(path.join(root, '.planning', 'defaults-table.md'), projectTable, 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'defaults-table.md'), projectTable, 'utf-8');
   }
 
   const userHome = fs.mkdtempSync(path.join(os.tmpdir(), 'df-userhome-'));

@@ -4,7 +4,7 @@
 // TRD 37-03: backup pruning — pure policy, throttled runner, registration (objective 37, ADP-05).
 //
 // Local helper: seedBackups(home, repoDir, ages) creates
-//   <home>/.claude/aoforge/backups/<repoDir>/<ts>/.planning/config.json for each age in days, with
+//   <home>/.claude/aoforge/backups/<repoDir>/<ts>/.aoforge/config.json for each age in days, with
 //   ts = new Date(NOW - age*86400000).toISOString().replace(/[:.]/g, '-'). A name collision (two
 //   ages that round to the same ts) gets '-1', '-2', ... appended, exactly like upgrade.cjs
 //   backupDirFor. NOW is a fixed new Date('2026-09-28T12:00:00.000Z').
@@ -98,7 +98,7 @@ function stampPath(home) { return path.join(backupsRoot(home), '.last-prune.json
 
 /**
  * seedBackups(home, repoDir, ages) — writes
- * <home>/.claude/aoforge/backups/<repoDir>/<ts>/.planning/config.json for each age (days before
+ * <home>/.claude/aoforge/backups/<repoDir>/<ts>/.aoforge/config.json for each age (days before
  * NOW). A ts collision (two ages that round to the same ISO string) gets '-1', '-2', ... appended,
  * exactly like upgrade.cjs backupDirFor. Returns the ts directory names created, in call order.
  */
@@ -109,8 +109,8 @@ function seedBackups(home, repoDir, ages) {
     const ts = t.toISOString().replace(/[:.]/g, '-');
     let name = ts;
     for (let n = 1; fs.existsSync(path.join(backupsRoot(home), repoDir, name)); n++) name = `${ts}-${n}`;
-    fs.mkdirSync(path.join(backupsRoot(home), repoDir, name, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(backupsRoot(home), repoDir, name, '.planning', 'config.json'), '{}\n');
+    fs.mkdirSync(path.join(backupsRoot(home), repoDir, name, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(backupsRoot(home), repoDir, name, '.aoforge', 'config.json'), '{}\n');
     names.push(name);
   }
   return names;

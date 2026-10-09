@@ -11,6 +11,7 @@
 const { output, error } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const aw = require('./awareness.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Flag parsing (pure) ──────────────────────────────────────────────────────
 
@@ -246,13 +247,13 @@ function cmdAwarenessShow(cwd, args, raw) {
   const wantPeer = !flags.org_only;
   const wantOrg = !flags.peer_only;
 
-  // Read awareness TTL from .planning/config.json (optional)
+  // Read awareness TTL from .aoforge/config.json (optional)
   let cfg = {};
   try {
     const fs = require('fs');
     const path = require('path');
     cfg = JSON.parse(
-      fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf-8')
+      fs.readFileSync(path.join(planningRoot(cwd), 'config.json'), 'utf-8')
     ).awareness || {};
   } catch { /* config optional */ }
   const ttl = cfg.cache_ttl_minutes != null ? cfg.cache_ttl_minutes : aw.DEFAULT_TTL_MINUTES;

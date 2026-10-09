@@ -1,6 +1,6 @@
 'use strict';
 
-// Hand-built `.planning` trees for calibration-inputs tests (TRD 57-02). Literal TRD, SUMMARY and STATE_ARCHIVE text
+// Hand-built `.aoforge` trees for calibration-inputs tests (TRD 57-02). Literal TRD, SUMMARY and STATE_ARCHIVE text
 // written into mkdtemp directories: no generated data, no real repository, no ~/.claude.
 //
 // spec = {
@@ -76,7 +76,7 @@ function archiveText(rows) {
 function makeCalibrationProject(spec) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-calibration-')));
   const root = path.join(parent, spec.name || 'project');
-  const objectivesDir = path.join(root, '.planning', 'objectives');
+  const objectivesDir = path.join(root, '.aoforge', 'objectives');
   fs.mkdirSync(objectivesDir, { recursive: true });
   for (const objective of spec.objectives || []) {
     const dirPath = path.join(objectivesDir, objective.dir);
@@ -94,10 +94,10 @@ function makeCalibrationProject(spec) {
     }
   }
   if (Array.isArray(spec.stateArchiveRows)) {
-    fs.writeFileSync(path.join(root, '.planning', 'STATE_ARCHIVE.md'), archiveText(spec.stateArchiveRows));
+    fs.writeFileSync(path.join(root, '.aoforge', 'STATE_ARCHIVE.md'), archiveText(spec.stateArchiveRows));
   }
   if (spec.stateJson) {
-    fs.writeFileSync(path.join(root, '.planning', 'state.json'), JSON.stringify(spec.stateJson, null, 2) + '\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'state.json'), JSON.stringify(spec.stateJson, null, 2) + '\n');
   }
   return fs.realpathSync(root);
 }

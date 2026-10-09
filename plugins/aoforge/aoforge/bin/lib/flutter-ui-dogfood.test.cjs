@@ -8,8 +8,8 @@ const { execFileSync } = require('node:child_process');
 
 const FIXTURE_DIR = path.join(__dirname, '__fixtures__', 'flutter-ui-dogfood');
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
-const FIXTURE_TRD = path.join(FIXTURE_DIR, '.planning', 'objectives', '99-sample', '99-01-TRD.md');
-const FIXTURE_UAT = path.join(FIXTURE_DIR, '.planning', 'objectives', '99-sample', '99-sample-UAT.md');
+const FIXTURE_TRD = path.join(FIXTURE_DIR, '.aoforge', 'objectives', '99-sample', '99-01-TRD.md');
+const FIXTURE_UAT = path.join(FIXTURE_DIR, '.aoforge', 'objectives', '99-sample', '99-sample-UAT.md');
 
 function run(argv, cwdArg) {
   return JSON.parse(execFileSync(process.execPath, [DF_TOOLS, ...argv, '--raw'], { encoding: 'utf-8', cwd: cwdArg || FIXTURE_DIR }));
@@ -52,7 +52,7 @@ test.describe('Flutter UI dogfood end-to-end (REQ-10-03/04/05/06/07)', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dogfood-drift-'));
     fs.cpSync(FIXTURE_DIR, tmp, { recursive: true });
     fs.writeFileSync(path.join(tmp, 'lib', 'api', 'sample_client.dart'), '// drift\n');
-    const tmpTrd = path.join(tmp, '.planning', 'objectives', '99-sample', '99-01-TRD.md');
+    const tmpTrd = path.join(tmp, '.aoforge', 'objectives', '99-sample', '99-01-TRD.md');
     const result = JSON.parse(execFileSync(process.execPath, [DF_TOOLS, 'verify', 'api-contract', tmpTrd, '--raw'], { encoding: 'utf-8', cwd: tmp }));
     assert.strictEqual(result.ok, false);
     assert.strictEqual(result.drift.length, 1);

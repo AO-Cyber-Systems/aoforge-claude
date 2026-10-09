@@ -18,9 +18,11 @@ const fs = require('fs');
 const path = require('path');
 const managedBlock = require('../managed-block.cjs');
 const docRefs = require('../doc-refs.cjs');
+const { planningRel } = require('../compat.cjs');
 
 const CLAUDE_REL = 'CLAUDE.md';
-const STATE_REL = '.planning/STATE.md';
+// STATE.md under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const stateRel = (root) => planningRel(root, 'STATE.md');
 const SESSION_LOG_RE = /^##\s+Session Log[^\n]*$/m;
 const NEXT_H2_RE = /^##[ \t]/m;
 
@@ -92,6 +94,7 @@ function applyClaudeTarget(ctx, info) {
  * rewrite — it is a record of what already happened. Everything else in the file is in scope.
  */
 function stateTargetInfo(ctx) {
+  const STATE_REL = stateRel(ctx.projectRoot);
   const statePath = path.join(ctx.projectRoot, STATE_REL);
   const text = readTextIfExists(statePath);
   if (text === null) return { present: false, skip: `no ${STATE_REL}` };
@@ -183,6 +186,7 @@ function aggregateRewrites(file, changesList) {
 }
 
 function apply(ctx) {
+  const STATE_REL = stateRel(ctx.projectRoot);
   const claudeInfo = claudeTargetInfo(ctx);
   const stateInfo = stateTargetInfo(ctx);
   const claudeRes = applyClaudeTarget(ctx, claudeInfo);

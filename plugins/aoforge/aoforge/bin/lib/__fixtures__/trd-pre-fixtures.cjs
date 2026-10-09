@@ -88,7 +88,7 @@ ${taskBlocks.join('\n')}
 // ─── setupObjectiveDir ────────────────────────────────────────────────────────
 
 /**
- * Creates a .planning/ scaffold in tmpRoot for use in trd-pre-check tests.
+ * Creates a .aoforge/ scaffold in tmpRoot for use in trd-pre-check tests.
  *
  * @param {string} tmpRoot - absolute path to a temp directory
  * @param {object} opts
@@ -104,7 +104,7 @@ function setupObjectiveDir(tmpRoot, {
   roadmap_requirements,
   trds = [],
 } = {}) {
-  const objectiveDir = path.join(tmpRoot, '.planning', 'objectives', objective);
+  const objectiveDir = path.join(tmpRoot, '.aoforge', 'objectives', objective);
   fs.mkdirSync(objectiveDir, { recursive: true });
 
   // Write TRD files
@@ -130,7 +130,7 @@ function setupObjectiveDir(tmpRoot, {
   }
   roadmapContent += `**Status:** In progress\n`;
 
-  fs.writeFileSync(path.join(tmpRoot, '.planning', 'ROADMAP.md'), roadmapContent, 'utf-8');
+  fs.writeFileSync(path.join(tmpRoot, '.aoforge', 'ROADMAP.md'), roadmapContent, 'utf-8');
 
   return objectiveDir;
 }

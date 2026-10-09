@@ -7,15 +7,15 @@
  *   - verify-commits.js   `autonomous-retry-<agent>`      (SubagentStop, block once per agent)
  *   - verify-completion.js `autonomous-resume-<objective>` (Stop, resume-attempt counter)
  *
- * Why this exists: both used to be written as `<project>/.planning/.autonomous-*`.
- * SC1 says no hook writes runtime state into a project's `.planning/` per call or per
+ * Why this exists: both used to be written as `<project>/.aoforge/.autonomous-*`.
+ * SC1 says no hook writes runtime state into a project's `.aoforge/` per call or per
  * session, because Claude Code's file watcher attaches every changed in-tree file to the
  * next tool result and the repo shows up dirty. Same lineage as quick-25
  * (progress-guard-store.cjs) and TRD 45-01 (awareness-store.cjs): state lives outside the
  * repo, keyed by repo, so nothing the watcher sees changes and two projects never share a file.
  *
  * Location: $AOFORGE_HOOK_MARKER_DIR, else <home>/.claude/aoforge/state/hook-markers/,
- * then one directory per project named by upgrade.repoKey(<dir that contains .planning>)
+ * then one directory per project named by upgrade.repoKey(<dir that contains .aoforge>)
  * (`<slug>-<hash8>` of the realpath, the same key backups and the prune registry use).
  *
  * Loaded from a hook, so node builtins only, plus upgrade.cjs, which itself loads only
@@ -67,7 +67,7 @@ function repoKeyOf(projectRoot) {
 
 /**
  * The per-project marker directory: <markerRoot>/<repo-key>. Never inside the project.
- * @param {string} projectRoot the directory that CONTAINS `.planning/`
+ * @param {string} projectRoot the directory that CONTAINS `.aoforge/`
  * @param {{env?: NodeJS.ProcessEnv, home?: string}} [opts]
  */
 function markerDir(projectRoot, opts) {

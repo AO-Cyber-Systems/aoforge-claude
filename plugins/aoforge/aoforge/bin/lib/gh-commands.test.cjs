@@ -18,7 +18,7 @@ const gh = require('./gh.cjs');
 const client = require('./gh-client.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 
-const MAPPING = (root) => path.join(root, '.planning', '.gh-mapping.json');
+const MAPPING = (root) => path.join(root, '.aoforge', '.gh-mapping.json');
 
 const ROADMAP = [
   '# Roadmap',
@@ -38,7 +38,7 @@ const ROADMAP = [
 
 function buildProject({ enabled = true } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-cmds-'));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   for (const [dir, n] of [['02-a', '2'], ['02.1-b', '2.1'], ['03-c', '3']]) {
     fs.mkdirSync(path.join(planning, 'objectives', dir), { recursive: true });
     fs.writeFileSync(path.join(planning, 'objectives', dir, 'OBJECTIVE.md'),

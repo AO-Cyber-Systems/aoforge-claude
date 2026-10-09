@@ -51,7 +51,7 @@
 //       to 'upgrade' even with the marker still present.
 //
 // Pure `decideRoute(facts)` (18) — one row per rule plus precedence rows
-// (busy beats detached; resume beats dirty; dirty beats `.planning` present;
+// (busy beats detached; resume beats dirty; dirty beats `.aoforge` present;
 // greenfield beats unborn; adopt-branch-exists only for brownfield/scratch).
 //
 // Help (19): `aof-tools adopt --help` prints `Usage: aof-tools adopt`;
@@ -293,8 +293,8 @@ describe('aof-tools adopt begin (spawned)', () => {
 
     const fixture2 = makeFixture('go-service', { parent: mkdtemp('df-adopt-parent-'), home: fakeHome });
     runAdopt(fixture2, 'begin');
-    fs.mkdirSync(path.join(fixture2, '.planning', 'codebase'), { recursive: true });
-    fs.writeFileSync(path.join(fixture2, '.planning', 'codebase', 'STACK.md'), '# STACK\n\nSome content.\n', 'utf-8');
+    fs.mkdirSync(path.join(fixture2, '.aoforge', 'codebase'), { recursive: true });
+    fs.writeFileSync(path.join(fixture2, '.aoforge', 'codebase', 'STACK.md'), '# STACK\n\nSome content.\n', 'utf-8');
     ({ status, report, out } = runAdopt(fixture2, 'preflight'));
     assert.strictEqual(status, 0, out);
     assert.strictEqual(report.route, 'resume');
@@ -343,7 +343,7 @@ describe('aof-tools adopt begin (spawned)', () => {
     runAdopt(fixture, 'begin');
     writeMappedDocs(fixture);
     writeProjectMd(fixture, { name: 'Orders service', kind: 'api' });
-    fs.writeFileSync(path.join(fixture, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+    fs.writeFileSync(path.join(fixture, '.aoforge', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
     execFileSync('git', ['-C', fixture, 'add', '-A'], { env: gitEnv(fakeHome), stdio: ['ignore', 'pipe', 'pipe'] });
     execFileSync('git', ['-C', fixture, 'commit', '-q', '-m', 'adopt'], { env: gitEnv(fakeHome), stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -383,10 +383,10 @@ describe('decideRoute — pure rule-order table (test 18)', () => {
     { name: 'active marker, branch matches, clean -> resume', facts: makeFacts({ marker: { status: 'in_progress', branch: 'aoforge/adopt' }, git: { branch: 'aoforge/adopt' } }), route: 'resume', reason: null },
     { name: 'active marker, branch mismatch -> refuse adopt-in-progress-elsewhere', facts: makeFacts({ marker: { status: 'in_progress', branch: 'aoforge/adopt' }, git: { branch: 'main' } }), route: 'refuse', reason: 'adopt-in-progress-elsewhere' },
     { name: 'active marker, non-owned dirty -> refuse dirty-tree (resume beats dirty only when owned)', facts: makeFacts({ marker: { status: 'in_progress', branch: 'aoforge/adopt' }, git: { branch: 'aoforge/adopt', dirty: ['main.go'] } }), route: 'refuse', reason: 'dirty-tree' },
-    { name: 'active marker, owned-only dirty -> resume (resume beats dirty)', facts: makeFacts({ marker: { status: 'in_progress', branch: 'aoforge/adopt' }, git: { branch: 'aoforge/adopt', dirty: ['.planning/codebase/STACK.md', 'CLAUDE.md'] } }), route: 'resume', reason: null },
+    { name: 'active marker, owned-only dirty -> resume (resume beats dirty)', facts: makeFacts({ marker: { status: 'in_progress', branch: 'aoforge/adopt' }, git: { branch: 'aoforge/adopt', dirty: ['.aoforge/codebase/STACK.md', 'CLAUDE.md'] } }), route: 'resume', reason: null },
     { name: 'no marker, dirty tree -> refuse dirty-tree', facts: makeFacts({ git: { dirty: ['x.txt'] } }), route: 'refuse', reason: 'dirty-tree' },
-    { name: 'dirty beats .planning present -> refuse dirty-tree, not upgrade', facts: makeFacts({ state: 'aoforge', git: { dirty: ['x.txt'] } }), route: 'refuse', reason: 'dirty-tree' },
-    { name: '.planning present -> upgrade', facts: makeFacts({ state: 'aoforge' }), route: 'upgrade', reason: null },
+    { name: 'dirty beats .aoforge present -> refuse dirty-tree, not upgrade', facts: makeFacts({ state: 'aoforge', git: { dirty: ['x.txt'] } }), route: 'refuse', reason: 'dirty-tree' },
+    { name: '.aoforge present -> upgrade', facts: makeFacts({ state: 'aoforge' }), route: 'upgrade', reason: null },
     { name: 'greenfield -> new-project', facts: makeFacts({ state: 'greenfield' }), route: 'new-project', reason: null },
     { name: 'greenfield beats unborn -> new-project', facts: makeFacts({ state: 'greenfield', git: { unborn: true } }), route: 'new-project', reason: null },
     { name: 'no commits yet (brownfield, unborn) -> refuse no-commits', facts: makeFacts({ state: 'brownfield', git: { unborn: true } }), route: 'refuse', reason: 'no-commits' },

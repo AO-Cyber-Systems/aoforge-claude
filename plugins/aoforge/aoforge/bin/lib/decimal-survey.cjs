@@ -3,7 +3,7 @@
 // ─── Decimal-objective survey ─────────────────────────────────────────────────
 //
 // Walks a root directory (default ~/Source), scans each subdirectory for a
-// .planning/objectives/ tree, and counts integer vs decimal objective
+// .aoforge/objectives/ tree, and counts integer vs decimal objective
 // directories. Returns a JSON report with a recommendation to keep or drop
 // decimal-objective support based on a 5% usage threshold.
 //
@@ -13,6 +13,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Injectable I/O (test seam) ───────────────────────────────────────────────
 
@@ -32,7 +33,7 @@ const BANNER = 'AOForge — aof-tools survey decimal-objectives v1.0';
 // ─── Core logic ───────────────────────────────────────────────────────────────
 
 /**
- * Walk rootPath, scan each subdirectory for .planning/objectives/, and return
+ * Walk rootPath, scan each subdirectory for .aoforge/objectives/, and return
  * per-project counts of total vs decimal objective directories.
  *
  * @param {string} rootPath  Absolute path to the root directory to scan.
@@ -76,7 +77,7 @@ function surveyDecimalObjectives(rootPath) {
   for (const e of entries) {
     if (!e.isDirectory()) continue;
 
-    const planningDir = path.join(rootPath, e.name, '.planning', 'objectives');
+    const planningDir = path.join(planningRoot(path.join(rootPath, e.name)), 'objectives');
     if (!_runFs.existsSync(planningDir)) continue;
 
     let objDirs;

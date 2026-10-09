@@ -4,7 +4,7 @@
  *
  * TRD 18-03 — Group 18I: check-todos + awareness init previews
  * TRD 02-06 — Group I: awareness_refresh flag tests
- * TRD 45-01 — awareness cache is read from the out-of-tree awareness-store (not .planning/)
+ * TRD 45-01 — awareness cache is read from the out-of-tree awareness-store (not .aoforge/)
  */
 
 const test = require('node:test');
@@ -47,12 +47,12 @@ afterEach(() => {
  */
 function buildProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-init-test-'));
-  // Minimal .planning structure expected by init commands
-  fs.mkdirSync(path.join(dir, '.planning', 'objectives', '01-test'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{}');
-  fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), '## Objective 1: Test\n');
+  // Minimal .aoforge structure expected by init commands
+  fs.mkdirSync(path.join(dir, '.aoforge', 'objectives', '01-test'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), '{}');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'ROADMAP.md'), '## Objective 1: Test\n');
   fs.writeFileSync(
-    path.join(dir, '.planning', 'objectives', '01-test', 'OBJECTIVE.md'),
+    path.join(dir, '.aoforge', 'objectives', '01-test', 'OBJECTIVE.md'),
     '---\nwork: feature\n---\n# Test Objective\n'
   );
   return {
@@ -78,7 +78,7 @@ function runInit(subcommand, cwd) {
 
 /**
  * Build a minimal fixture directory with optional cache files.
- * The awareness cache is seeded through awareness-store (TRD 45-01), never under .planning/.
+ * The awareness cache is seeded through awareness-store (TRD 45-01), never under .aoforge/.
  * Returns the path to the tmp root.
  * Per TDD Playbook habit 4: hand-built factory function, no LLM-generated test data.
  *
@@ -87,10 +87,10 @@ function runInit(subcommand, cwd) {
  */
 function makeFixture({ checkTodosCache, awarenessCache } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'init-preview-test-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (checkTodosCache !== undefined) {
     fs.writeFileSync(
-      path.join(root, '.planning', '.check-todos-cache.json'),
+      path.join(root, '.aoforge', '.check-todos-cache.json'),
       typeof checkTodosCache === 'string' ? checkTodosCache : JSON.stringify(checkTodosCache)
     );
   }
@@ -123,8 +123,8 @@ function makeFixture({ checkTodosCache, awarenessCache } = {}) {
 // 18I8 — Integration: cmdInitExecuteObjective JSON contains check_todos_preview + awareness_preview + advisories_warnings keys
 // 18I9 — Integration: cmdInitPlanObjective JSON contains the same three keys (DRY)
 // 18I10 — Integration: when cache files absent, all three keys present with null/[] values (back-compat)
-// 18I11 — _buildAwarenessPreview: a legacy in-tree .planning/.awareness-cache.json with no store file → {line:null, warning:null} (TRD 45-01, no fallback)
-// 18I12 — _buildAwarenessPreview: seeded store file (2 other branches) → the '2 other branches' line, and nothing was written under .planning/ (TRD 45-01)
+// 18I11 — _buildAwarenessPreview: a legacy in-tree .aoforge/.awareness-cache.json with no store file → {line:null, warning:null} (TRD 45-01, no fallback)
+// 18I12 — _buildAwarenessPreview: seeded store file (2 other branches) → the '2 other branches' line, and nothing was written under .aoforge/ (TRD 45-01)
 // 18I13 — _buildAwarenessPreview: garbage store file → {line:null, warning:null} (a parse error can no longer surface)
 // 18I14 — Integration: a legacy-only in-tree cache does not surface awareness_preview (TRD 45-01)
 
@@ -226,7 +226,7 @@ test('18I11 — _buildAwarenessPreview: legacy in-tree file with no store file �
   const repo = makeFixture({});
   try {
     fs.writeFileSync(
-      path.join(repo, '.planning', '.awareness-cache.json'),
+      path.join(repo, '.aoforge', '.awareness-cache.json'),
       JSON.stringify({
         peer: { current_branch: 'main', branches: [{ branch: 'feature-a' }, { branch: 'feature-b' }] },
       })
@@ -239,7 +239,7 @@ test('18I11 — _buildAwarenessPreview: legacy in-tree file with no store file �
   }
 });
 
-test('18I12 — _buildAwarenessPreview: reads the store file (2 other branches) and writes nothing under .planning/', () => {
+test('18I12 — _buildAwarenessPreview: reads the store file (2 other branches) and writes nothing under .aoforge/', () => {
   const repo = makeFixture({
     awarenessCache: {
       peer: {
@@ -254,7 +254,7 @@ test('18I12 — _buildAwarenessPreview: reads the store file (2 other branches) 
     assert.strictEqual(r.line, '⚠ 2 other branches active (run aof-tools awareness show)');
     assert.strictEqual(r.warning, null);
     assert.ok(
-      !fs.existsSync(path.join(repo, '.planning', '.awareness-cache.json')),
+      !fs.existsSync(path.join(repo, '.aoforge', '.awareness-cache.json')),
       'no legacy in-tree file'
     );
   } finally {
@@ -276,10 +276,10 @@ test('18I13 — _buildAwarenessPreview: garbage store file → {line:null, warni
 test('18I8 — Integration: cmdInitExecuteObjective emits check_todos_preview + awareness_preview + advisories_warnings', () => {
   const repo = makeFixture({ checkTodosCache: { now: [{ id: 1 }], blocked: [], soon: [], ideas: [] } });
   try {
-    // Need minimal .planning structure for init execute-objective to succeed
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-test'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '## Objective 1: Test\n');
+    // Need minimal .aoforge structure for init execute-objective to succeed
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '01-test'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '## Objective 1: Test\n');
 
     const stdout = execSync(`node "${DF_TOOLS}" init execute-objective 1`, {
       cwd: repo,
@@ -304,20 +304,20 @@ test('18I8 — Integration: cmdInitExecuteObjective emits check_todos_preview + 
 test('FIX-1: init execute-objective triggers bootstrapObjectiveMd scoped to the target objective only', () => {
   const repo = makeFixture({});
   try {
-    // Build .planning with TWO objective dirs, neither has OBJECTIVE.md.
+    // Build .aoforge with TWO objective dirs, neither has OBJECTIVE.md.
     // Under the scoped contract (quick-4 fix), only the target dir (01-foo)
     // should be backfilled when running `init execute-objective 1`.
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-foo'), { recursive: true });
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '02-bar'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'),
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '01-foo'), { recursive: true });
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '02-bar'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'),
       '## Milestone v1.0\n\n### Objective 1: Foo\n**Goal:** Test foo\n\n### Objective 2: Bar\n**Goal:** Test bar\n');
-    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+    fs.writeFileSync(path.join(repo, '.aoforge', 'PROJECT.md'),
       '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
 
     // Pre-condition: neither OBJECTIVE.md exists
-    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '01-foo', 'OBJECTIVE.md')), false);
-    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '02-bar', 'OBJECTIVE.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '01-foo', 'OBJECTIVE.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '02-bar', 'OBJECTIVE.md')), false);
 
     const stdout = execSync(`node "${DF_TOOLS}" init execute-objective 1`, {
       cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
@@ -334,12 +334,12 @@ test('FIX-1: init execute-objective triggers bootstrapObjectiveMd scoped to the 
 
     // Target objective backfilled; non-target objective MUST NOT be touched.
     assert.strictEqual(
-      fs.existsSync(path.join(repo, '.planning', 'objectives', '01-foo', 'OBJECTIVE.md')),
+      fs.existsSync(path.join(repo, '.aoforge', 'objectives', '01-foo', 'OBJECTIVE.md')),
       true,
       'target objective 01-foo should have been backfilled'
     );
     assert.strictEqual(
-      fs.existsSync(path.join(repo, '.planning', 'objectives', '02-bar', 'OBJECTIVE.md')),
+      fs.existsSync(path.join(repo, '.aoforge', 'objectives', '02-bar', 'OBJECTIVE.md')),
       false,
       'non-target objective 02-bar must NOT be backfilled (regression: bug item 5 from aoforge-efficiency-handoff)'
     );
@@ -351,13 +351,13 @@ test('FIX-1: init execute-objective triggers bootstrapObjectiveMd scoped to the 
 test('FIX-1: init plan-objective triggers bootstrapObjectiveMd scoped to the target objective', () => {
   const repo = makeFixture({});
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '03-baz'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 3: Baz\n**Goal:** Test\n');
-    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '03-baz'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '### Objective 3: Baz\n**Goal:** Test\n');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'PROJECT.md'),
       '---\ngithub_repo: own/repo\n---\n# P\n');
 
-    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '03-baz', 'OBJECTIVE.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '03-baz', 'OBJECTIVE.md')), false);
 
     const stdout = execSync(`node "${DF_TOOLS}" init plan-objective 3`, {
       cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
@@ -368,7 +368,7 @@ test('FIX-1: init plan-objective triggers bootstrapObjectiveMd scoped to the tar
       'expected exactly 1 applied for scoped bootstrap');
     assert.strictEqual(json.bootstrap_objectives.scanned, 1,
       'expected scanned=1 — bootstrap is now scoped to target objective only');
-    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '03-baz', 'OBJECTIVE.md')), true);
+    assert.strictEqual(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '03-baz', 'OBJECTIVE.md')), true);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -376,7 +376,7 @@ test('FIX-1: init plan-objective triggers bootstrapObjectiveMd scoped to the tar
 
 // TRD 36-07 test list:
 // 1. init execute-objective 2 on a fixture where 02-bar lacks OBJECTIVE.md ->
-//    bootstrap_objectives.paths deep-equals ['.planning/objectives/02-bar/OBJECTIVE.md'].
+//    bootstrap_objectives.paths deep-equals ['.aoforge/objectives/02-bar/OBJECTIVE.md'].
 // 2. Same command a second time -> bootstrap_objectives.applied === 0 and paths deep-equals [].
 // 3. init plan-objective 1 on a fixture where 01-foo lacks OBJECTIVE.md -> paths names it
 //    (both init commands carry the field).
@@ -384,13 +384,13 @@ test('FIX-1: init plan-objective triggers bootstrapObjectiveMd scoped to the tar
 test('36-07-1: init execute-objective reports bootstrap_objectives.paths for the created OBJECTIVE.md', () => {
   const repo = makeFixture({});
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '02-bar'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 2: Bar\n**Goal:** Test bar\n');
-    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '02-bar'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '### Objective 2: Bar\n**Goal:** Test bar\n');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'PROJECT.md'),
       '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
 
-    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '02-bar', 'OBJECTIVE.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '02-bar', 'OBJECTIVE.md')), false);
 
     const stdout = execSync(`node "${DF_TOOLS}" init execute-objective 2`, {
       cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
@@ -400,7 +400,7 @@ test('36-07-1: init execute-objective reports bootstrap_objectives.paths for the
     assert.ok('bootstrap_objectives' in json, 'bootstrap_objectives key must be present');
     assert.deepStrictEqual(
       json.bootstrap_objectives.paths,
-      ['.planning/objectives/02-bar/OBJECTIVE.md'],
+      ['.aoforge/objectives/02-bar/OBJECTIVE.md'],
       `expected paths to name the created file, got: ${JSON.stringify(json.bootstrap_objectives.paths)}`
     );
   } finally {
@@ -411,10 +411,10 @@ test('36-07-1: init execute-objective reports bootstrap_objectives.paths for the
 test('36-07-2: init execute-objective run a second time reports applied=0 and paths=[]', () => {
   const repo = makeFixture({});
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '02-bar'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 2: Bar\n**Goal:** Test bar\n');
-    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '02-bar'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '### Objective 2: Bar\n**Goal:** Test bar\n');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'PROJECT.md'),
       '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
 
     execSync(`node "${DF_TOOLS}" init execute-objective 2`, {
@@ -438,13 +438,13 @@ test('36-07-2: init execute-objective run a second time reports applied=0 and pa
 test('36-07-3: init plan-objective reports bootstrap_objectives.paths for the created OBJECTIVE.md', () => {
   const repo = makeFixture({});
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-foo'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '### Objective 1: Foo\n**Goal:** Test foo\n');
-    fs.writeFileSync(path.join(repo, '.planning', 'PROJECT.md'),
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '01-foo'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '### Objective 1: Foo\n**Goal:** Test foo\n');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'PROJECT.md'),
       '---\ngithub_repo: own/repo\ndefault_work: feature\n---\n# P\n');
 
-    assert.strictEqual(fs.existsSync(path.join(repo, '.planning', 'objectives', '01-foo', 'OBJECTIVE.md')), false);
+    assert.strictEqual(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '01-foo', 'OBJECTIVE.md')), false);
 
     const stdout = execSync(`node "${DF_TOOLS}" init plan-objective 1`, {
       cwd: repo, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
@@ -454,7 +454,7 @@ test('36-07-3: init plan-objective reports bootstrap_objectives.paths for the cr
     assert.ok('bootstrap_objectives' in json, 'bootstrap_objectives key must be present');
     assert.deepStrictEqual(
       json.bootstrap_objectives.paths,
-      ['.planning/objectives/01-foo/OBJECTIVE.md'],
+      ['.aoforge/objectives/01-foo/OBJECTIVE.md'],
       `expected paths to name the created file, got: ${JSON.stringify(json.bootstrap_objectives.paths)}`
     );
   } finally {
@@ -472,9 +472,9 @@ test('18I9 — Integration: cmdInitPlanObjective emits check_todos_preview + awa
     },
   });
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-test'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '## Objective 1: Test\n');
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '01-test'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '## Objective 1: Test\n');
 
     const stdout = execSync(`node "${DF_TOOLS}" init plan-objective 1`, {
       cwd: repo,
@@ -498,9 +498,9 @@ test('18I9 — Integration: cmdInitPlanObjective emits check_todos_preview + awa
 test('18I10 — Integration: cache files absent → all three keys present with null/[] values (back-compat)', () => {
   const repo = makeFixture({});
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-test'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '## Objective 1: Test\n');
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '01-test'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '## Objective 1: Test\n');
 
     const stdout = execSync(`node "${DF_TOOLS}" init plan-objective 1`, {
       cwd: repo,
@@ -522,11 +522,11 @@ test('18I10 — Integration: cache files absent → all three keys present with 
 test('18I14 — Integration: a legacy-only in-tree cache does not surface awareness_preview', () => {
   const repo = makeFixture({});
   try {
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives', '01-test'), { recursive: true });
-    fs.writeFileSync(path.join(repo, '.planning', 'config.json'), '{}');
-    fs.writeFileSync(path.join(repo, '.planning', 'ROADMAP.md'), '## Objective 1: Test\n');
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '01-test'), { recursive: true });
+    fs.writeFileSync(path.join(repo, '.aoforge', 'config.json'), '{}');
+    fs.writeFileSync(path.join(repo, '.aoforge', 'ROADMAP.md'), '## Objective 1: Test\n');
     fs.writeFileSync(
-      path.join(repo, '.planning', '.awareness-cache.json'),
+      path.join(repo, '.aoforge', '.awareness-cache.json'),
       JSON.stringify({
         peer: { current_branch: 'main', branches: [{ branch: 'feature-a' }, { branch: 'feature-b' }] },
       })
@@ -650,7 +650,7 @@ const {
  */
 function buildProjectWithState() {
   const p = buildProject();
-  fs.writeFileSync(path.join(p.cwd, '.planning', 'STATE.md'), '# State\n\n**Current Objective:** 01\n');
+  fs.writeFileSync(path.join(p.cwd, '.aoforge', 'STATE.md'), '# State\n\n**Current Objective:** 01\n');
   return p;
 }
 
@@ -736,7 +736,7 @@ test('22A7 — _readStateBranch(cwd, working_tree) missing STATE.md returns null
 test('22A8 — _readStateBranch(cwd, git_show) + mock ok returns content', () => {
   const fakeContent = '# State on feature/x\n\n**Current Objective:** 99\n';
   _setRunGit((args) => {
-    if (args[0] === 'show' && args[1] && args[1].includes('feature/x:.planning/STATE.md')) {
+    if (args[0] === 'show' && args[1] && args[1].includes('feature/x:.aoforge/STATE.md')) {
       return { ok: true, status: 0, stdout: fakeContent, stderr: '' };
     }
     return { ok: false, status: 128, stdout: '', stderr: 'unknown call' };

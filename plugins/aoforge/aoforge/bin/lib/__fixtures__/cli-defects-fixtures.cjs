@@ -155,17 +155,17 @@ function trdText(frontmatter, body = DEFAULT_TRD_BODY) {
 // ─── makeProject ──────────────────────────────────────────────────────────────
 
 /**
- * A mkdtemp project with a `.planning/` tree.
+ * A mkdtemp project with a `.aoforge/` tree.
  * @param {object} [opts]
- * @param {string} [opts.stateMd] - written to .planning/STATE.md when a string
- * @param {object} [opts.stateJson] - written to .planning/state.json when given
+ * @param {string} [opts.stateMd] - written to .aoforge/STATE.md when a string
+ * @param {object} [opts.stateJson] - written to .aoforge/state.json when given
  * @param {Record<string, Record<string, string>>} [opts.objectives] - { '07-x': { '07-01-a-TRD.md': '<text>' } }
- * @param {object} [opts.config] - written to .planning/config.json when given
+ * @param {object} [opts.config] - written to .aoforge/config.json when given
  * @returns {string} absolute project root
  */
 function makeProject({ stateMd: stateText, stateJson, objectives, config } = {}) {
   const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-cli-defects-')));
-  const planning = path.join(dir, '.planning');
+  const planning = path.join(dir, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
   if (typeof stateText === 'string') {
     fs.writeFileSync(path.join(planning, 'STATE.md'), stateText, 'utf-8');

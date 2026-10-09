@@ -37,9 +37,9 @@ const LEGACY_TRD_RE = /^objectives\/([^/]+)\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 const pad = (n) => String(n).padStart(2, '0');
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 
-/** Every file under `<root>/.planning`, as sorted rels relative to `.planning/` (posix). */
+/** Every file under `<root>/.aoforge`, as sorted rels relative to `.aoforge/` (posix). */
 function planningFiles(root) {
-  const base = path.join(root, '.planning');
+  const base = path.join(root, '.aoforge');
   const out = [];
   const walk = (dir, rel) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -56,10 +56,10 @@ function planningFiles(root) {
 function treeCounts(root) {
   const files = planningFiles(root);
   const inObjective = (re) => files.filter((rel) => /^objectives\/[^/]+\/[^/]+$/.test(rel) && re.test(path.posix.basename(rel)));
-  const objectiveDirs = fs.readdirSync(path.join(root, '.planning', 'objectives'), { withFileTypes: true })
+  const objectiveDirs = fs.readdirSync(path.join(root, '.aoforge', 'objectives'), { withFileTypes: true })
     .filter((e) => e.isDirectory()).map((e) => e.name);
   const decisions = files.filter((rel) => rel.startsWith('decisions/'));
-  const withTrd = decisions.filter((rel) => extractFrontmatter(fs.readFileSync(path.join(root, '.planning', rel), 'utf8')).trd);
+  const withTrd = decisions.filter((rel) => extractFrontmatter(fs.readFileSync(path.join(root, '.aoforge', rel), 'utf8')).trd);
   const quickDirs = new Set(files.filter((rel) => rel.startsWith('quick/')).map((rel) => rel.split('/')[1]));
   return {
     objectives: objectiveDirs.length,
@@ -71,7 +71,7 @@ function treeCounts(root) {
     quick: quickDirs.size,
     decisionsWithTrd: withTrd.length,
     decisionsWithoutTrd: decisions.length - withTrd.length,
-    milestones: milestoneSections(fs.readFileSync(path.join(root, '.planning', 'MILESTONES.md'), 'utf8')).length,
+    milestones: milestoneSections(fs.readFileSync(path.join(root, '.aoforge', 'MILESTONES.md'), 'utf8')).length,
     files: files.length,
   };
 }
@@ -81,7 +81,7 @@ function objectiveDirOf(n) {
 }
 
 function readPlanning(root, rel) {
-  return fs.readFileSync(path.join(root, '.planning', ...rel.split('/')), 'utf8');
+  return fs.readFileSync(path.join(root, '.aoforge', ...rel.split('/')), 'utf8');
 }
 
 const HAS_GIT = gitAvailable();
@@ -123,13 +123,13 @@ describe('51-02 makeBackfillProject (default build)', () => {
     assert.deepEqual([...built.files].sort(), planningFiles(built.root), 'and lists exactly the files in the tree');
 
     for (const rel of ['PROJECT.md', 'REQUIREMENTS.md', 'ROADMAP.md', 'MILESTONES.md', 'research/a.md', 'config.json']) {
-      assert.ok(fs.existsSync(path.join(built.root, '.planning', rel)), `${rel} exists`);
+      assert.ok(fs.existsSync(path.join(built.root, '.aoforge', rel)), `${rel} exists`);
     }
     assert.deepEqual(milestoneSections(readPlanning(built.root, 'MILESTONES.md')).map((s) => s.version), ['v0.1', 'v0.2']);
 
     for (let n = 1; n <= 20; n++) {
       const dir = objectiveDirOf(n);
-      assert.ok(fs.existsSync(path.join(built.root, '.planning', 'objectives', dir, 'OBJECTIVE.md')), `${dir}/OBJECTIVE.md`);
+      assert.ok(fs.existsSync(path.join(built.root, '.aoforge', 'objectives', dir, 'OBJECTIVE.md')), `${dir}/OBJECTIVE.md`);
       for (let m = 1; m <= 5; m++) {
         const file = `${pad(n)}-${pad(m)}-step-${pad(m)}-TRD.md`;
         const text = readPlanning(built.root, `objectives/${dir}/${file}`);
@@ -154,7 +154,7 @@ describe('51-02 makeBackfillProject (default build)', () => {
     const decisions = built.files.filter((rel) => rel.startsWith('decisions/'));
     const trdOf = decisions.map((rel) => extractFrontmatter(readPlanning(built.root, rel)).trd).filter(Boolean);
     assert.deepEqual(trdOf.map(String), ['16-03']);
-    assert.ok(fs.existsSync(path.join(built.root, '.planning', 'objectives', objectiveDirOf(16), '16-03-step-03-TRD.md')));
+    assert.ok(fs.existsSync(path.join(built.root, '.aoforge', 'objectives', objectiveDirOf(16), '16-03-step-03-TRD.md')));
   });
 
   test('2: objective statuses, progress rows, SUMMARY placement; 03-05 is deferred with no SUMMARY', () => {
@@ -171,20 +171,20 @@ describe('51-02 makeBackfillProject (default build)', () => {
       assert.match(roadmap, row, `progress row for objective ${n} reads ${progressWord[expected(n)]}`);
 
       for (let m = 1; m <= 5; m++) {
-        const summary = path.join(built.root, '.planning', 'objectives', dir, `${pad(n)}-${pad(m)}-SUMMARY.md`);
+        const summary = path.join(built.root, '.aoforge', 'objectives', dir, `${pad(n)}-${pad(m)}-SUMMARY.md`);
         let want;
         if (n <= 15) want = !(n === 3 && m === 5);
         else if (n <= 18) want = m <= 2;
         else want = false;
         assert.equal(fs.existsSync(summary), want, `${pad(n)}-${pad(m)} SUMMARY ${want ? 'present' : 'absent'}`);
       }
-      const verification = path.join(built.root, '.planning', 'objectives', dir, `${pad(n)}-VERIFICATION.md`);
+      const verification = path.join(built.root, '.aoforge', 'objectives', dir, `${pad(n)}-VERIFICATION.md`);
       const wantVerification = n <= 15 && n % 2 === 1;
       assert.equal(fs.existsSync(verification), wantVerification, `${pad(n)} VERIFICATION`);
       if (wantVerification) assert.equal(extractFrontmatter(fs.readFileSync(verification, 'utf8')).status, 'passed');
     }
 
-    assert.ok(fs.existsSync(path.join(built.root, '.planning', 'objectives', objectiveDirOf(3), '03-05-step-05-TRD.md')),
+    assert.ok(fs.existsSync(path.join(built.root, '.aoforge', 'objectives', objectiveDirOf(3), '03-05-step-05-TRD.md')),
       'the deferred TRD itself exists');
     assert.equal(built.paths.deferredTrd, 'objectives/03-objective-03/03-05-step-05-TRD.md');
     assert.match(roadmap, /^- \[ \] 03-05-step-05-TRD\.md .*deferred/m, 'ROADMAP marks 03-05 deferred');
@@ -211,16 +211,16 @@ describe('51-02 makeBackfillProject (default build)', () => {
     assert.deepEqual(check.pending_confirm.map((p) => p.id), ['0011'], `pending_confirm: ${JSON.stringify(check.pending_confirm)}`);
   });
 
-  test('4: every written file is tracked under .planning and the tree is clean', (t) => {
+  test('4: every written file is tracked under .aoforge and the tree is clean', (t) => {
     if (!HAS_GIT) {
       t.skip('git is not available');
       return;
     }
     const git = (...args) => execFileSync('git', ['-C', built.root, ...args], { env: gitEnv(built.home), encoding: 'utf8' });
-    const tracked = git('ls-files', '.planning').split('\n').filter(Boolean);
-    assert.equal(tracked.length, built.files.length, 'git ls-files .planning | wc -l equals the files written');
+    const tracked = git('ls-files', '.aoforge').split('\n').filter(Boolean);
+    assert.equal(tracked.length, built.files.length, 'git ls-files .aoforge | wc -l equals the files written');
     assert.equal(tracked.length, BACKFILL_SHAPE.files);
-    assert.deepEqual(tracked.map((rel) => rel.replace(/^\.planning\//, '')).sort(), [...built.files].sort());
+    assert.deepEqual(tracked.map((rel) => rel.replace(/^\.aoforge\//, '')).sort(), [...built.files].sort());
     assert.equal(git('status', '--porcelain'), '', 'clean tree');
     assert.equal(git('rev-list', '--count', 'HEAD').trim(), '1', 'one commit');
   });
@@ -293,7 +293,7 @@ describe('51-02 useBackfillEnv harness', () => {
 
     assert.equal(env.fake.calls().length, 0, 'smoke: no gh call during setup');
     assert.equal(env.shape.objectives, 2, 'builder options pass through');
-    assert.ok(fs.existsSync(path.join(env.root, '.planning', 'objectives', '01-objective-01', 'OBJECTIVE.md')));
+    assert.ok(fs.existsSync(path.join(env.root, '.aoforge', 'objectives', '01-objective-01', 'OBJECTIVE.md')));
 
     // Hermetic env: HOME, outbox, cache and git config all point at temp dirs; the wiki remote is the local bare repo.
     assert.equal(process.env.HOME, env.home);

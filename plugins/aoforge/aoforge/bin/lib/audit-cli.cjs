@@ -30,6 +30,7 @@ const sessionAudit = require('./session-audit.cjs');
 const transcriptExport = require('./transcript-export.cjs');
 const overrideLib = require('./override.cjs');
 const telemetry = require('./telemetry.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 /** `--limit` default for the scanning commands when the flag is omitted. */
 const DEFAULT_LIMIT = 150;
@@ -203,7 +204,7 @@ function runSessionAudit({ argv = [] } = {}) {
  * exactly `collect({planningDir, userHome})`: `blocks` stays null, there is no `scan` key and no
  * transcript is read, so a status view that calls plain `telemetry` stays fast.
  *
- * `--scan` reads transcripts, not `.planning/`, so it still reports blocks outside an AOForge
+ * `--scan` reads transcripts, not `.aoforge/`, so it still reports blocks outside an AOForge
  * project (`collect` handles the null `planningDir`).
  *
  * @param {{argv?: string[], cwd: string, userHome?: string}} opts
@@ -216,7 +217,7 @@ function runTelemetry({ argv = [], cwd, userHome = os.homedir() }) {
     return { ok: false, message: '--limit, --since and --root need --scan' };
   }
 
-  const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+  const planningDir = fs.existsSync(planningRoot(cwd)) ? planningRoot(cwd) : null;
 
   if (!parsed.scan) {
     const result = telemetry.collect({ planningDir, userHome });
@@ -306,9 +307,9 @@ function formatOverrideRaw(result) {
  * (`--gate <g> --reason <why>`), or list recent overrides (`--list`).
  *
  * `planningDir` resolves the same way `telemetry`'s case block does: a plain
- * existence check against `<cwd>/.planning`, with the `null` case handed to
- * `recordOverride`, which owns the "No .planning/ directory found" message.
- * `--list` against a missing `.planning/` is not an error — `readOverrides`
+ * existence check against `<cwd>/.aoforge`, with the `null` case handed to
+ * `recordOverride`, which owns the "No .aoforge/ directory found" message.
+ * `--list` against a missing `.aoforge/` is not an error — `readOverrides`
  * returns an empty result and the CLI exits 0.
  *
  * @param {{argv?: string[], cwd: string}} opts
@@ -318,7 +319,7 @@ function runOverride({ argv = [], cwd }) {
   const parsed = parseAuditArgs(argv, { values: ['--gate', '--reason', '--limit'], bools: ['--list'] });
   if (!parsed.ok) return parsed;
 
-  const planningDir = fs.existsSync(path.join(cwd, '.planning')) ? path.join(cwd, '.planning') : null;
+  const planningDir = fs.existsSync(planningRoot(cwd)) ? planningRoot(cwd) : null;
 
   if (parsed.list) {
     if (parsed.gate !== undefined || parsed.reason !== undefined) {

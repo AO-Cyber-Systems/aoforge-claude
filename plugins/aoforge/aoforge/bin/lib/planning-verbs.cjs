@@ -5,7 +5,7 @@
  * GWP-01). One primitive, `writeThrough`, with two branches, and the core verbs on top of it.
  *
  * INVARIANT (D-01): with `github.store` off (`local` mode, planning-mode.cjs) a verb writes exactly the file today's
- * prose writes: same path under the MAIN checkout's `.planning/`, the same bytes as its input. It makes zero gh calls,
+ * prose writes: same path under the MAIN checkout's `.aoforge/`, the same bytes as its input. It makes zero gh calls,
  * writes no outbox journal and no ledger. Size and bulk findings are warnings only.
  *
  * STORE mode (`github.enabled && github.store`): the verb validates, writes the cache file atomically, records the
@@ -17,11 +17,11 @@
  * `(not queued)` verb mark (gh-store-cli UNQUEUED_MARK). W055 stays quiet (the hash matches), but no flush settles
  * it, because GitHub does not have it yet. The next verb that queues the file (or `plan push`) clears the mark.
  *
- * Every verb resolves the MAIN checkout first (D-14), so a call from a worktree writes the main `.planning/` and uses
+ * Every verb resolves the MAIN checkout first (D-14), so a call from a worktree writes the main `.aoforge/` and uses
  * the main journal, ledger and cache index.
  *
  * ONE exception, local mode only (TRD 53-01): `summary post|checkpoint` write the checkout that holds the caller
- * (planning-mode.resolveCheckoutRoot), so an executor in a linked worktree writes its own `.planning/` and commits the
+ * (planning-mode.resolveCheckoutRoot), so an executor in a linked worktree writes its own `.aoforge/` and commits the
  * SUMMARY on its `df/exec-*` branch. Writing main there left an untracked copy that made the wave merge refuse to
  * overwrite it (objective 52, five times). Visibility is unaffected: gate-executor-stop scans every worktree and the
  * orchestrator reads a parallel plan's SUMMARY from that plan's worktree. Store mode keeps the rule above: the cache,
@@ -84,6 +84,7 @@ const { extractFrontmatter, setFrontmatterField } = require('./frontmatter.cjs')
 const storeCli = require('./gh-store-cli.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRoot, planningDirLabel } = require('./compat.cjs');
 
 const { EXIT, UNQUEUED_MARK } = storeCli;
 const { LOCAL, STORE } = planningMode;
@@ -106,18 +107,18 @@ function fail(error, base = {}, extra = {}) {
   return { ok: false, mode: null, rel: null, path: null, warnings: [], ...base, ...extra, error, exit: EXIT.ERROR };
 }
 
-/** The MAIN checkout root (D-14), or null when there is no `.planning/` above `root`. */
+/** The MAIN checkout root (D-14), or null when there is no `.aoforge/` above `root`. */
 function mainRoot(root) {
   return planningMode.resolveMainRoot(root);
 }
 
-/** `rel` as a safe `.planning/`-relative path; throws TypeError (planning-paths' rule) for anything unsafe. */
+/** `rel` as a safe `.aoforge/`-relative path; throws TypeError (planning-paths' rule) for anything unsafe. */
 function safeRel(rel) {
   planningPaths.classify(rel);
   return rel;
 }
 
-const planningFile = (main, rel) => path.join(main, '.planning', ...rel.split('/'));
+const planningFile = (main, rel) => path.join(planningRoot(main), ...rel.split('/'));
 
 function readOrNull(file) {
   try {
@@ -234,7 +235,7 @@ function enqueueAndFlush(main, base, { enqueue, covers = [], rel = null, text = 
 /**
  * writeThrough(root, {rel, text, verb, enqueue, covers, noFlush, noWait, warnings, writeRoot}) — the one write primitive.
  *
- *   local  atomic write of `<main>/.planning/<rel>` (directories created), nothing else. `writeRoot` (the summary verbs
+ *   local  atomic write of `<main>/.aoforge/<rel>` (directories created), nothing else. `writeRoot` (the summary verbs
  *          only, 53-01) names another checkout to write instead of `<main>`; store mode ignores it.
  *   store  atomic write -> ledger.record(rel, text, {verb}) -> `enqueue(main)` -> flush unless `noFlush`
  *          -> on a drained flush, baseline + forget `rel` and `covers`.
@@ -254,7 +255,7 @@ function writeThrough(root, opts = {}) {
   }
   if (typeof o.text !== 'string') return fail(`text must be a string, got ${o.text === null ? 'null' : typeof o.text}`, { rel, warnings });
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`, { rel, warnings });
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`, { rel, warnings });
 
   const { mode } = planningMode.planningMode(main);
   // `writeRoot` redirects the LOCAL write only; store mode always writes the cache under main (D-14).
@@ -285,7 +286,7 @@ function writeThrough(root, opts = {}) {
 
 // ─── Hierarchy (plan put-trd / plan push) ────────────────────────────────────
 
-/** `.planning/`-relative paths of everything a hierarchy push of `plan` carries to GitHub. */
+/** `.aoforge/`-relative paths of everything a hierarchy push of `plan` carries to GitHub. */
 function pushedRels(plan) {
   const base = `objectives/${plan.objective.dir}`;
   const rels = plan.trds.map((t) => `${base}/${t.file}`);
@@ -315,8 +316,8 @@ const REGISTER_HINT = 'register a new objective with aof-tools objective add "<d
 function objectiveTarget(main, objective) {
   const resolved = ghMapping.resolveObjective(main, objective);
   const label = String(objective === undefined ? null : objective).trim();
-  if (!resolved) return { error: `objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives); ${REGISTER_HINT}` };
-  if (!resolved.dir) return { error: `objective ${resolved.id} has no directory under .planning/objectives yet` };
+  if (!resolved) return { error: `objective ${label} is not known (no ROADMAP entry or directory under .aoforge/objectives); ${REGISTER_HINT}` };
+  if (!resolved.dir) return { error: `objective ${resolved.id} has no directory under .aoforge/objectives yet` };
   return { id: resolved.id, dir: resolved.dir };
 }
 
@@ -331,7 +332,7 @@ function objectiveTarget(main, objective) {
 function putTrd(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   if (typeof o.text !== 'string') return fail('plan put-trd needs the TRD text');
   const target = objectiveTarget(main, o.objective);
   if (target.error) return fail(target.error);
@@ -390,7 +391,7 @@ function putTrd(root, opts = {}) {
 function planPush(root, objective, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   const { mode } = planningMode.planningMode(main);
   if (mode === LOCAL) return { ok: true, mode, rel: null, path: null, warnings: [], skipped: 'local mode', exit: EXIT.OK };
   const target = objectiveTarget(main, objective);
@@ -480,7 +481,7 @@ function writeObjective(main, target, text, o, { verb, patch = null } = {}) {
 function objectivePut(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   if (typeof o.text !== 'string') return fail('objective put needs the OBJECTIVE.md text');
   const target = objectiveTarget(main, o.id);
   if (target.error) return fail(target.error);
@@ -515,7 +516,7 @@ function objectiveSetStatus(root, opts = {}) {
     return fail(`unknown objective status ${JSON.stringify(o.status === undefined ? null : o.status)}; expected one of: ${STATUSES.join(', ')}`);
   }
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   const target = objectiveTarget(main, o.id);
   if (target.error) return fail(target.error);
   const rel = `objectives/${target.dir}/OBJECTIVE.md`;
@@ -580,7 +581,7 @@ function trdTarget(main, trd) {
   }
   const objective = objectiveTarget(main, id.replace(/-\d+$/, ''));
   if (objective.error) return { error: objective.error };
-  const files = listDir(path.join(main, '.planning', 'objectives', objective.dir));
+  const files = listDir(path.join(planningRoot(main), 'objectives', objective.dir));
   const trdFile = files.find((f) => {
     const m = TRD_FILE_RE.exec(f);
     return m && ghMapping.toTrdId(m[1]) === id;
@@ -612,7 +613,7 @@ function summaryWriteRoot(root, main) {
 
 /** The SUMMARY file name, chosen from the WRITE root's objective dir so a worktree's committed `NN-MM-<slug>-SUMMARY.md` is reused. */
 function summaryNameIn(writeRoot, t, file) {
-  const files = listDir(path.join(writeRoot, '.planning', 'objectives', t.objective.dir));
+  const files = listDir(path.join(planningRoot(writeRoot), 'objectives', t.objective.dir));
   return summaryFileOf({ ...t, files }, file);
 }
 
@@ -671,7 +672,7 @@ function upsertPrOp(main, id, payload) {
 function trdProgress(main, objective, trdId) {
   const total = new Set([trdId]);
   const done = new Set([trdId]); // the SUMMARY being posted is already in the cache
-  for (const f of listDir(path.join(main, '.planning', 'objectives', objective.dir))) {
+  for (const f of listDir(path.join(planningRoot(main), 'objectives', objective.dir))) {
     const trd = TRD_FILE_RE.exec(f);
     const trdFileId = trd ? ghMapping.toTrdId(trd[1]) : null;
     if (trdFileId !== null) total.add(trdFileId);
@@ -817,7 +818,7 @@ function verificationEnqueue(main, target, file, text) {
 function summaryPost(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   if (typeof o.text !== 'string') return fail('summary post needs the SUMMARY text');
   const t = trdTarget(main, o.trd);
   if (t.error) return fail(t.error);
@@ -845,13 +846,13 @@ function summaryPost(root, opts = {}) {
 
 /**
  * summaryCheckpoint(root, {trd, text, file?}) — per-task progress (D-12). Local: the SUMMARY file, exactly as
- * summary post writes it (the checkout holding `root`, 53-01). Store: `.planning/.trd-progress/<trd>.md`, a runtime file: no ledger, never queued (80
+ * summary post writes it (the checkout holding `root`, 53-01). Store: `.aoforge/.trd-progress/<trd>.md`, a runtime file: no ledger, never queued (80
  * writes/min is GitHub's budget; a comment per task would spend it). `summary post` replaces it at the end.
  */
 function summaryCheckpoint(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   if (typeof o.text !== 'string') return fail('summary checkpoint needs the SUMMARY text');
   const t = trdTarget(main, o.trd);
   if (t.error) return fail(t.error);
@@ -908,11 +909,11 @@ function unpushedGuard(main, id, text) {
 function verificationPost(root, opts = {}) {
   const o = opts && typeof opts === 'object' ? opts : {};
   const main = mainRoot(root);
-  if (!main) return fail(`no .planning/ directory at or above ${root}`);
+  if (!main) return fail(`no ${planningDirLabel()} directory at or above ${root}`);
   if (typeof o.text !== 'string') return fail('verification post needs the VERIFICATION text');
   const target = objectiveTarget(main, o.objective);
   if (target.error) return fail(target.error);
-  const existing = listDir(path.join(main, '.planning', 'objectives', target.dir)).find((f) => /^(?:\d+(?:\.\d+)?-)?VERIFICATION\.md$/.test(f));
+  const existing = listDir(path.join(planningRoot(main), 'objectives', target.dir)).find((f) => /^(?:\d+(?:\.\d+)?-)?VERIFICATION\.md$/.test(f));
   const name = o.file !== undefined && o.file !== null ? o.file : existing || `${dirPrefix(target)}-VERIFICATION.md`;
   const bad = checkFileName(name, 'the VERIFICATION file');
   if (bad) return fail(bad);

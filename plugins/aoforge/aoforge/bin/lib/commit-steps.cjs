@@ -7,7 +7,7 @@
 // emitter builds its text here, so the sequences cannot drift apart: `gh setup --apply` (gh-setup-cli.cjs), doctor
 // checks 20 and 21, and migration 0010 (whose STORE_COMMIT_STEPS 0011 prints again after a backfill).
 //
-//   store form (reason given)  new branch → commit with the logged escape (gate `gh` in .planning/.override-log.jsonl)
+//   store form (reason given)  new branch → commit with the logged escape (gate `gh` in .aoforge/.override-log.jsonl)
 //                              → push → `gh pr create --head <branch> --fill`, plus the linked-branch alternative: on a
 //                              branch `aof-tools gh pr start <objective>` linked, the bare command is accepted as is.
 //   plain form (reason null)   new branch → bare command → push → `gh pr create --head <branch> --fill`. Mirror or local

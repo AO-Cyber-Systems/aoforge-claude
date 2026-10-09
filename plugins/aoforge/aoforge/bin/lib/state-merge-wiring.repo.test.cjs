@@ -16,6 +16,7 @@ const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 const PLUGIN = path.join(__dirname, '..', '..', '..');
 const EXECUTE_OBJECTIVE = path.join(PLUGIN, 'aoforge', 'workflows', 'execute-objective.md');
@@ -130,8 +131,11 @@ describe('TRD 59-06 — the Branch merge protocol resolves state.json and STATE_
   test('8: the section names both paths and has the `merge-driver resolve <planning_path>` line', () => {
     const section = mergeProtocolSection(read(EXECUTE_OBJECTIVE));
     assert.ok(section, 'execute-objective.md has a "**Branch merge protocol**" section');
-    assert.ok(section.includes('.planning/state.json'), 'the protocol names .planning/state.json');
-    assert.ok(section.includes('.planning/STATE_ARCHIVE.md'), 'the protocol names .planning/STATE_ARCHIVE.md');
+    // The workflow prose names the planning directory; 72-06 moves it from the legacy name to the new one, so
+    // either name passes until then (tighten to NAMES.planningDir once 72-06 has rewritten the prose).
+    const named = (rel) => PLANNING_DIR_NAMES.some((dir) => section.includes(`${dir}/${rel}`));
+    assert.ok(named('state.json'), 'the protocol names <planning dir>/state.json');
+    assert.ok(named('STATE_ARCHIVE.md'), 'the protocol names <planning dir>/STATE_ARCHIVE.md');
     assert.ok(
       shellLines(section).includes(`${DF_TOOLS} merge-driver resolve <planning_path>`),
       `the protocol must hold the line \`${DF_TOOLS} merge-driver resolve <planning_path>\``
@@ -165,8 +169,9 @@ describe('TRD 59-06 — the Branch merge protocol resolves state.json and STATE_
     const commit = lines.find((l) => l.startsWith(`${DF_TOOLS} commit `) && l.includes('after wave'));
     assert.ok(commit, 'the regeneration ends with an aof-tools commit');
     const files = commit.slice(commit.indexOf('--files'));
-    for (const f of ['.planning/STATE.md', '.planning/ROADMAP.md', '.planning/state.json']) {
-      assert.ok(files.includes(f), `the regeneration commit's --files list includes ${f}`);
+    for (const f of ['STATE.md', 'ROADMAP.md', 'state.json']) {
+      // either planning-directory name until 72-06 rewrites the prose (see test 8)
+      assert.ok(PLANNING_DIR_NAMES.some((dir) => files.includes(`${dir}/${f}`)), `the regeneration commit's --files list includes <planning dir>/${f}`);
     }
     const advance = lines.findIndex((l) => l.includes('state advance-job'));
     assert.ok(advance < lines.indexOf(commit), 'advance-job runs before the commit');

@@ -101,7 +101,7 @@ function trdText(nn, mm, slug) {
 function positionProject({ state, stateJson, config, objectives = [] } = {}) {
   const raw = fs.mkdtempSync(path.join(os.tmpdir(), 'df-position-'));
   const root = fs.realpathSync(raw);
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
 
   if (state !== undefined) fs.writeFileSync(path.join(planning, 'STATE.md'), state, 'utf-8');

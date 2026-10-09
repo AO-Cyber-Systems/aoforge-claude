@@ -16,6 +16,7 @@
  */
 
 const dd = require('./dup-detect.cjs');
+const { planningRoot } = require('./compat.cjs');
 const { detectDuplicates } = dd;
 const { output } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
@@ -128,7 +129,7 @@ function cmdDupDetectResolve(cwd_outer, args, raw) {
   const cwd = parsed.cwd || cwd_outer;
 
   // Resolve objective_dir + padded_objective from objective_id
-  const objsDir = path.join(cwd, '.planning', 'objectives');
+  const objsDir = path.join(planningRoot(cwd), 'objectives');
   let objective_dir = path.join(objsDir, parsed.objective_id); // fallback
   let padded_objective = parsed.objective_id;
   if (fs.existsSync(objsDir)) {

@@ -8,6 +8,7 @@ const { loadConfig } = require('./config.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { getArchivedObjectiveDirs, findObjectiveInternal } = require('./objective.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRoot, planningDirName, planningRel, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 function cmdGenerateSlug(text, raw) {
   if (!text) {
@@ -44,7 +45,7 @@ function cmdCurrentTimestamp(format, raw) {
 }
 
 function cmdListTodos(cwd, area, raw) {
-  const pendingDir = path.join(cwd, '.planning', 'todos', 'pending');
+  const pendingDir = path.join(planningRoot(cwd), 'todos', 'pending');
 
   let count = 0;
   const todos = [];
@@ -70,7 +71,7 @@ function cmdListTodos(cwd, area, raw) {
           created: createdMatch ? createdMatch[1].trim() : 'unknown',
           title: titleMatch ? titleMatch[1].trim() : 'Untitled',
           area: todoArea,
-          path: path.join('.planning', 'todos', 'pending', file),
+          path: path.join(planningDirName(cwd), 'todos', 'pending', file),
         });
       } catch {}
     }
@@ -99,7 +100,7 @@ function cmdVerifyPathExists(cwd, targetPath, raw) {
 }
 
 function cmdHistoryDigest(cwd, raw) {
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const digest = { objectives: {}, decisions: [], tech_stack: new Set() };
 
   // Collect all objective directories: archived + current
@@ -233,7 +234,7 @@ function cmdObjectiveJobIndex(cwd, objective, raw) {
     error('objective required for objective-job-index');
   }
 
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const normalized = normalizeObjectiveName(objective);
 
   // Find objective directory
@@ -519,10 +520,10 @@ function stagedRemovalsOnDisk(cwd, files) {
   return { removals, skipAdd, specs: files.map((f) => repoPathOf(prefix, f)) };
 }
 
-/** True when a --files argument names `.planning` or something under it (quick-24). */
+/** True when a --files argument names a planning directory (`.aoforge`, or the legacy one) or something under it (quick-24). */
 function isPlanningPath(cwd, p) {
   const rel = path.relative(cwd, path.resolve(cwd, String(p))).split(path.sep).join('/');
-  return rel === '.planning' || rel.startsWith('.planning/');
+  return PLANNING_DIR_NAMES.some((dir) => rel === dir || rel.startsWith(`${dir}/`));
 }
 
 /** Run git with stdin; never throws. */
@@ -538,13 +539,13 @@ function coversPath(rel, entry) {
 
 /**
  * ignoredPaths(cwd, paths) -> Set of the `paths` arguments (verbatim) that `git add` would refuse as ignored
- * (TRD 48-10, D-20). Store mode ignores `.planning/*` except config.json and STACK.md (U-1), so the whole-dir
+ * (TRD 48-10, D-20). Store mode ignores `.aoforge/*` except config.json and STACK.md (U-1), so the whole-dir
  * probe no longer answers for a single path. TRD 43-03 (D7): it now answers for every requested path, and for the
- * whole-dir question too (`ignoredPaths(cwd, ['.planning'])`), so cmdCommit no longer calls helpers.isGitIgnored.
+ * whole-dir question too (`ignoredPaths(cwd, ['.aoforge'])`), so cmdCommit no longer calls helpers.isGitIgnored.
  *
  * One `git check-ignore --no-index --stdin -z -v -n` call: verbose + non-matching give one record per input, in
  * input order, so a path is matched back by position (no reliance on how git echoes it), and a path matched only
- * by a negation (`!.planning/config.json`) counts as NOT ignored.
+ * by a negation (`!.aoforge/config.json`) counts as NOT ignored.
  *
  * A path git already knows about (in the index, or in HEAD — e.g. a staged `rm --cached` removal) is never
  * reported: `git add` stages a tracked file regardless of ignore rules, and a staged removal must reach the commit
@@ -586,18 +587,19 @@ function cmdCommit(cwd, message, files, raw, amend) {
 
   const config = loadConfig(cwd);
 
-  const requested = files && files.length > 0 ? files : ['.planning/'];
+  const planningDir = planningRel(cwd);
+  const requested = files && files.length > 0 ? files : [`${planningDir}/`];
 
   // Gates cover planning docs only; code passed via --files still commits (quick-24).
   // Order matters: commit_docs first, and only then the gitignore probe. The filter runs
   // BEFORE the TRD 44-06 removal detection below, so it and the foreign-index check see only
   // the filtered list — a staged planning path then counts as foreign and is never swept in.
   //
-  // TRD 48-10 (D-20): the gitignore probe is two-stage. `.planning` wholly ignored → today's
+  // TRD 48-10 (D-20): the gitignore probe is two-stage. `.aoforge` wholly ignored → today's
   // whole-dir drop, unchanged. Otherwise each requested planning path is probed on its own
-  // (store mode ignores `.planning/*` except config.json and STACK.md): an ignored path git
+  // (store mode ignores `.aoforge/*` except config.json and STACK.md): an ignored path git
   // knows nothing about is dropped into skipped_planning; config.json, STACK.md, tracked files,
-  // staged removals and code still commit. With no ignore rule under `.planning/` (local mode)
+  // staged removals and code still commit. With no ignore rule under `.aoforge/` (local mode)
   // nothing is dropped and the result is exactly today's.
   //
   // TRD 43-03 (D7): the per-path probe covers EVERY requested path, not just planning ones. A code
@@ -606,10 +608,10 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // failed the whole commit as `commit_failed` and took the tracked files named beside it down too.
   // It now goes to `skipped_ignored` (planning paths keep `skipped_planning`), and the whole-dir
   // question is asked of `ignoredPaths` too, so it is index- AND HEAD-aware like every per-path
-  // answer: a tracked file, or a staged removal still in HEAD, keeps `.planning` from reading as
+  // answer: a tracked file, or a staged removal still in HEAD, keeps `.aoforge` from reading as
   // "wholly ignored". Both skipped lists appear in the result only when non-empty.
   const blocked = !config.commit_docs ? 'skipped_commit_docs_false'
-    : ignoredPaths(cwd, ['.planning']).has('.planning') ? 'skipped_gitignored' : null;
+    : ignoredPaths(cwd, [planningDir]).has(planningDir) ? 'skipped_gitignored' : null;
   let filesToStage = requested;
   let skippedPlanning = [];
   let skippedIgnored = [];
@@ -643,7 +645,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // loop below, so a refusal never touches the index. A merge or rebase in progress skips it: the `merge_in_progress`
   // refusal and the raw-commit completion path own that case, and a rebase leaves HEAD detached. Amend is gated like any
   // commit. AOFORGE_SKIP_GH_GATE=1 lets the refused commit land; the override is logged once it has (see below), in the
-  // MAIN checkout's `.planning/`. Local mode never loads gh-gate.cjs, so its result keys and message bytes are unchanged.
+  // MAIN checkout's `.aoforge/`. Local mode never loads gh-gate.cjs, so its result keys and message bytes are unchanged.
   const planningMode = require('./planning-mode.cjs');
   const storeMode = planningMode.isStoreMode(cwd);
   let gateObjective;
@@ -677,10 +679,10 @@ function cmdCommit(cwd, message, files, raw, amend) {
   // tool left dirty) are not swept in. The git add loop above already ensures
   // brand-new files are tracked first.
   //
-  // Issue #87 part 3: with no --files the fallback used to stage `.planning/`
+  // Issue #87 part 3: with no --files the fallback used to stage `.aoforge/`
   // and then run a bare `git commit -m`, which commits the WHOLE index. The
   // command is named for planning docs, so the default now commits exactly
-  // `.planning/` and nothing else. Passing --files stays the recommended form.
+  // `.aoforge/` and nothing else. Passing --files stays the recommended form.
   //
   // Do NOT add pathspecs to the amend branch — --amend --no-edit -- <paths> changes amend semantics.
   //
@@ -691,7 +693,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
   //
   // TRD 49-07 (GPR-02): in store mode a scoped commit names the issue it serves — `feat(49-02): x` gets a final
   // `Refs #<TRD issue>` paragraph, `docs(49): x` the objective's. The issue comes from the mapping in the MAIN checkout
-  // (a worktree executor's own `.planning/` holds none). It never blocks: no scope, an unknown id or no mapping leaves
+  // (a worktree executor's own `.aoforge/` holds none). It never blocks: no scope, an unknown id or no mapping leaves
   // the message untouched and the result carries `refs: null` with a reason. `--amend` keeps its message, so it is
   // never touched. Local mode takes neither branch — the message bytes and result keys are exactly as before, and the
   // trailer module (and so the mapping) is never even loaded.
@@ -789,7 +791,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
   const hashResult = execGit(cwd, ['rev-parse', '--short', 'HEAD']);
   const hash = hashResult.exitCode === 0 ? hashResult.stdout : null;
   // TRD 50-06: an escaped commit is logged only once it has landed — an override that overrode nothing (nothing to commit,
-  // a git failure) is not a signal worth keeping. The entry goes to the MAIN checkout's `.planning/` (a worktree's own is
+  // a git failure) is not a signal worth keeping. The entry goes to the MAIN checkout's `.aoforge/` (a worktree's own is
   // not where `aof-tools override --list` reads). A log failure never undoes the commit: it is reported, not thrown.
   let gateField = {};
   if (gateEscape) {
@@ -799,7 +801,7 @@ function cmdCommit(cwd, message, files, raw, amend) {
     const mainRoot = planningMode.resolveMainRoot(cwd) || cwd;
     let logged;
     try {
-      logged = require('./override.cjs').recordOverride({ planningDir: path.join(mainRoot, '.planning'), gate: 'gh', reason });
+      logged = require('./override.cjs').recordOverride({ planningDir: planningRoot(mainRoot), gate: 'gh', reason });
     } catch (e) {
       logged = { ok: false, message: e.message };
     }
@@ -814,8 +816,8 @@ function cmdTodoComplete(cwd, filename, raw) {
     error('filename required for todo complete');
   }
 
-  const pendingDir = path.join(cwd, '.planning', 'todos', 'pending');
-  const completedDir = path.join(cwd, '.planning', 'todos', 'completed');
+  const pendingDir = path.join(planningRoot(cwd), 'todos', 'pending');
+  const completedDir = path.join(planningRoot(cwd), 'todos', 'completed');
   const sourcePath = path.join(pendingDir, filename);
 
   if (!fs.existsSync(sourcePath)) {
@@ -873,11 +875,11 @@ function cmdScaffold(cwd, type, options, raw) {
       }
       const slug = generateSlugInternal(name);
       const dirName = `${padded}-${slug}`;
-      const phasesParent = path.join(cwd, '.planning', 'objectives');
+      const phasesParent = path.join(planningRoot(cwd), 'objectives');
       fs.mkdirSync(phasesParent, { recursive: true });
       const dirPath = path.join(phasesParent, dirName);
       fs.mkdirSync(dirPath, { recursive: true });
-      output({ created: true, directory: `.planning/objectives/${dirName}`, path: dirPath }, raw, dirPath);
+      output({ created: true, directory: planningRel(cwd, 'objectives', dirName), path: dirPath }, raw, dirPath);
       return;
     }
     default:
@@ -939,7 +941,7 @@ function cmdRequirementsMarkComplete(cwd, reqIdsRaw, raw) {
   const storeMode = require('./planning-mode.cjs').isStoreMode(cwd);
   if (storeMode) cwd = require('./planning-mode.cjs').resolveMainRoot(cwd);
 
-  const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
+  const reqPath = path.join(planningRoot(cwd), 'REQUIREMENTS.md');
   if (!fs.existsSync(reqPath)) {
     output({ updated: false, reason: 'REQUIREMENTS.md not found', ids: reqIds }, raw, 'no requirements file');
     return;

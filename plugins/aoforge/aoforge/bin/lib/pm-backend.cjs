@@ -12,7 +12,7 @@
 // In v1.1, call sites continue to require('./gh.cjs') directly (back-compat).
 // The seam is available for v1.2 to wire in.
 //
-// Future config field (v1.2+): .planning/config.json
+// Future config field (v1.2+): .aoforge/config.json
 //   { "pm": { "backend": "github" | "linear" | "jira" } }
 //
 // Unset → defaults to 'github'.
@@ -22,7 +22,7 @@ const VALID_BACKENDS = ['github']; // v1.2+ extends: 'linear', 'jira'
 /**
  * Return the PM backend module for the given project config.
  *
- * @param {object|null} projectConfig  Parsed .planning/config.json (or null / {})
+ * @param {object|null} projectConfig  Parsed .aoforge/config.json (or null / {})
  * @returns {object}  The backend module (currently always lib/gh.cjs)
  * @throws {Error}    When projectConfig.pm.backend names an unsupported backend
  */

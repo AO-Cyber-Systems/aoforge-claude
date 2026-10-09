@@ -5,7 +5,7 @@
  * `--from`, and the check that the draft is still based on the live file.
  *
  * A draft lives at `<os.tmpdir()>/aoforge-drafts/<repoKey(main)>/<rel>` and is seeded from the live
- * `<main>/.planning/<rel>`. Before this module a draft was seeded once and never looked at again, so one left over from
+ * `<main>/.aoforge/<rel>`. Before this module a draft was seeded once and never looked at again, so one left over from
  * an earlier session, or seeded before someone else changed the live file, was handed back as current and `doc put`
  * published it over that change (in store mode, to the wiki).
  *
@@ -37,6 +37,7 @@ const planningPaths = require('./planning-paths.cjs');
 const planningMode = require('./planning-mode.cjs');
 const outbox = require('./gh-outbox.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 const DRAFTS_DIR = 'aoforge-drafts';
 const BASE_SUFFIX = '.base.json';
@@ -63,10 +64,10 @@ function draftFileFor(root, rel) {
   return path.join(os.tmpdir(), DRAFTS_DIR, outbox.repoKey(mainOf(root)), ...rel.split('/'));
 }
 
-/** `<main>/.planning/<rel>`: the file a draft is seeded from and published to. */
+/** `<main>/<planning dir>/<rel>`: the file a draft is seeded from and published to. */
 function liveFileFor(root, rel) {
   planningPaths.classify(rel);
-  return path.join(mainOf(root), '.planning', ...rel.split('/'));
+  return path.join(planningRoot(mainOf(root)), ...rel.split('/'));
 }
 
 /** realpath of the deepest existing ancestor of `p` with the missing remainder re-appended (macOS /var vs /private/var). */
@@ -215,7 +216,7 @@ function checkDraftBase(root, rel, from) {
     reason: s.reason,
     draft: from,
     error:
-      `the draft ${from} is stale: .planning/${rel} changed after the draft was seeded, so publishing it would ` +
+      `the draft ${from} is stale: ${planningRel(mainOf(root), rel)} changed after the draft was seeded, so publishing it would ` +
       `overwrite that change. Run \`aof-tools planning draft ${rel}\` to reseed it (it keeps your edits at ` +
       `${from}${STALE_SUFFIX}), re-apply them, then run doc put again.`,
   };

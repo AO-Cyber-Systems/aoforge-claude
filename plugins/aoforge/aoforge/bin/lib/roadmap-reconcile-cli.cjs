@@ -23,6 +23,7 @@ const path = require('path');
 const fs = require('fs');
 const reconcile = require('./roadmap-reconcile.cjs');
 const { output } = require('./helpers.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Flag parser ──────────────────────────────────────────────────────────────
 
@@ -122,7 +123,7 @@ function _readlineSync() {
  * @param {Array} accepted - subset of changes from dry-run result that user accepted
  */
 function _applyAcceptedChanges(cwd, accepted) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   const lines = content.split('\n');
 

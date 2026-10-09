@@ -28,7 +28,7 @@ let home = null;
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-pin-'));
-  fs.mkdirSync(path.join(root, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'objectives'), { recursive: true });
   home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-pin-home-'));
 });
 

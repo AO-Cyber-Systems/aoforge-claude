@@ -17,6 +17,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+const { NAMES } = require('../legacy-names.cjs');
+
+// The planning-directory name buildStatuslineEnv writes (TRD 72-05). The status line hook reads only the legacy name
+// until 72-06 moves it onto the resolver, so its tests call setPlanningDir(LEGACY.planningDir) once at load; 72-06
+// drops those calls. node --test runs each file in its own process, so the switch never leaks.
+let PLANNING = NAMES.planningDir;
+function setPlanningDir(name) {
+  PLANNING = name;
+}
 
 const SHIM_DIR = __dirname; // .../bin/lib/__fixtures__/
 const OSASCRIPT_SHIM = path.join(SHIM_DIR, 'osascript-shim.cjs');
@@ -330,7 +339,7 @@ function buildStatuslineInput(opts = {}) {
  * - tmpHome with optional .aoforge/aoforge-watch.pid (alive vs stale vs absent)
  * - tmpHome/.claude/aoforge/bin/lib/watcher-state.cjs (copy from real source)
  *   so statusline.js can require it without depending on plugin sync state
- * - projectDir/.planning/config.json with the requested daemon block
+ * - projectDir/.aoforge/config.json with the requested daemon block
  * - projectDir's per-project .aoforge-handoff/pending/<id>.json fixtures
  *   matching the requested counts in pendingByProject
  *
@@ -402,9 +411,9 @@ function buildStatuslineEnv(opts = {}) {
     }
   }
 
-  // 3. Write project-local .planning/config.json.
+  // 3. Write project-local <planning dir>/config.json.
   if (configContent !== null) {
-    const planningDir = path.join(projectDir, '.planning');
+    const planningDir = path.join(projectDir, PLANNING);
     fs.mkdirSync(planningDir, { recursive: true });
     const configPath = path.join(planningDir, 'config.json');
     if (malformedConfig) {
@@ -528,6 +537,7 @@ function shellAvailable(name, probeArgs = ['-c', 'echo __DFW_PROBE__']) {
 }
 
 module.exports = {
+  setPlanningDir,
   // 20-01
   buildNotifierShimEnv,
   buildMockExecFile,

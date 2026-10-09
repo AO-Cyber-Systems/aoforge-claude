@@ -163,7 +163,7 @@ function trackingTip(root, branch) {
 
 /**
  * Tracked files with uncommitted changes (`status --porcelain --untracked-files=no`): untracked files never
- * count, because in store mode `.planning/` is a gitignored cache. `{ok:true, clean, files}`.
+ * count, because in store mode `.aoforge/` is a gitignored cache. `{ok:true, clean, files}`.
  */
 function isTrackedClean(root) {
   const r = git(root, ['status', '--porcelain', '-z', '--untracked-files=no']);

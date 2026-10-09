@@ -37,6 +37,7 @@ const ghCapability = require('./gh-capability.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
@@ -94,9 +95,9 @@ function resolveObjectiveDir(root, objectiveArg) {
   const resolved = ghMapping.resolveObjective(root, objectiveArg);
   const label = String(objectiveArg === undefined ? null : objectiveArg).trim();
   if (!resolved) {
-    throw new Error(`objective ${label} is not known (no ROADMAP entry or directory under .planning/objectives); register a new objective with aof-tools objective add "<description>", then run this again`);
+    throw new Error(`objective ${label} is not known (no ROADMAP entry or directory under .aoforge/objectives); register a new objective with aof-tools objective add "<description>", then run this again`);
   }
-  if (!resolved.dir) throw new Error(`objective ${resolved.id} has no directory under .planning/objectives yet`);
+  if (!resolved.dir) throw new Error(`objective ${resolved.id} has no directory under .aoforge/objectives yet`);
   return { id: resolved.id, dir: resolved.dir };
 }
 
@@ -123,7 +124,7 @@ function dependencyList(raw) {
  */
 function readObjectiveTrds(root, objectiveArg, { warnings = [] } = {}) {
   const { id: objectiveId, dir } = resolveObjectiveDir(root, objectiveArg);
-  const base = path.join(root, '.planning', 'objectives', dir);
+  const base = path.join(planningRoot(root), 'objectives', dir);
   const out = [];
   for (const file of listFiles(base)) {
     if (!file.endsWith('-TRD.md')) continue;
@@ -225,13 +226,13 @@ function waveEdges(trds, { warnings = [] } = {}) {
 // ─── Reference pages ─────────────────────────────────────────────────────────
 
 /**
- * REFERENCE_PAGES(root, dir) — the `.planning/`-relative cache files an objective push publishes as pages:
+ * REFERENCE_PAGES(root, dir) — the `.aoforge/`-relative cache files an objective push publishes as pages:
  * `PROJECT.md`, `REQUIREMENTS.md`, `codebase/*.md`, then the objective's `OBJECTIVE.md`, `*CONTEXT.md` and
  * `*RESEARCH.md`. Only files that exist AND map to a wiki page (gh-wiki's page table) are named. The
  * `Roadmap` page is rendered from issues after a flush (47-10 / 47-12), never from here.
  */
 function REFERENCE_PAGES(root, dir) {
-  const planning = path.join(root, '.planning');
+  const planning = planningRoot(root);
   const out = [];
   const add = (rel) => {
     if (ghWiki.pageForCachePath(rel) !== null && fs.existsSync(path.join(planning, ...rel.split('/')))) out.push(rel);
@@ -337,7 +338,7 @@ function planPush(root, objectiveArg) {
     throw e;
   }
 
-  const planning = path.join(root, '.planning');
+  const planning = planningRoot(root);
   const base = path.join(planning, 'objectives', target.dir);
   const objectiveFm = readFrontmatter(path.join(base, 'OBJECTIVE.md'));
   const projectFm = readFrontmatter(path.join(planning, 'PROJECT.md'));
@@ -460,7 +461,7 @@ function buildOps(plan, opts = {}) {
 
 // ─── pushHierarchy ───────────────────────────────────────────────────────────
 
-const DISABLED_REASON = 'github.enabled is not true in .planning/config.json';
+const DISABLED_REASON = 'github.enabled is not true in .aoforge/config.json';
 
 /**
  * pushHierarchy(root, objectiveArg, {objectiveSections, flush, flushOptions, now}) — queue (and optionally

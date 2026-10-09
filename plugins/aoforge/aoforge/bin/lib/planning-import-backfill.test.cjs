@@ -39,13 +39,13 @@ const TRD_ID_RE = /^\d+(?:\.\d+)?-\d+$/;
 
 /** Merge `patch` into the fixture's `github` config block. */
 function setGithub(root, patch) {
-  const file = path.join(root, '.planning', 'config.json');
+  const file = path.join(root, '.aoforge', 'config.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
   cfg.github = { ...cfg.github, ...patch };
   fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
 }
 
-/** `{rel: text}` of every file under `.planning/`, for "nothing changed" assertions. */
+/** `{rel: text}` of every file under `.aoforge/`, for "nothing changed" assertions. */
 function snapshot(root) {
   const out = {};
   const walk = (dir, rel) => {
@@ -55,7 +55,7 @@ function snapshot(root) {
       else out[r] = fs.readFileSync(path.join(dir, e.name), 'utf8');
     }
   };
-  walk(path.join(root, '.planning'), '');
+  walk(path.join(root, '.aoforge'), '');
   return out;
 }
 

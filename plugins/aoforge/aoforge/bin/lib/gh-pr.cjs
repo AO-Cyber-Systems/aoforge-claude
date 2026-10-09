@@ -33,6 +33,7 @@ const { extractFrontmatter } = require('./frontmatter.cjs');
 
 const fs = require('fs');
 const path = require('path');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Results ─────────────────────────────────────────────────────────────────
 
@@ -243,7 +244,7 @@ function startObjectivePr(root, objArg, opts = {}) {
 
   const info = findObjectiveInternal(root, id);
   const wanted = branchNameFor(root, id, { name: opts.name });
-  if (wanted === null) return fail(`objective ${id} has no directory under .planning/objectives to name its branch from; pass --name`);
+  if (wanted === null) return fail(`objective ${id} has no directory under .aoforge/objectives to name its branch from; pass --name`);
   const problem = branchProblem(wanted);
   if (problem) return fail(`the objective branch ${problem}`);
 
@@ -613,7 +614,7 @@ function projectIdFor(root, id) {
   };
   const info = findObjectiveInternal(root, id);
   const objective = info && info.directory ? read(path.join(root, info.directory, 'OBJECTIVE.md')) : {};
-  const project = read(path.join(root, '.planning', 'PROJECT.md'));
+  const project = read(path.join(planningRoot(root), 'PROJECT.md'));
   const value = objective.org_project || project.org_project;
   return typeof value === 'string' && value !== '' ? value : null;
 }

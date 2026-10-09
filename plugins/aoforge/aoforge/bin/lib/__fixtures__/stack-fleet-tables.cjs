@@ -3,7 +3,7 @@
 // stack-fleet-tables.cjs — the tables behind the real-fleet drift harness (TRD 43-08, final in 43-15).
 //
 // stack-drafter-fleet.test.cjs redrafts every fleet repo (`aof-tools --cwd <repo> stack init`, no
-// --write) and compares the draft with the repo's committed `.planning/STACK.md` in the 43-07 scope
+// --write) and compares the draft with the repo's committed `.aoforge/STACK.md` in the 43-07 scope
 // (stack-drift-compare.cjs). Two tables decide what that comparison may tolerate. There is no third:
 // the harness asserts that this module exports exactly FLEET, ACCEPTED and OPEN.
 //

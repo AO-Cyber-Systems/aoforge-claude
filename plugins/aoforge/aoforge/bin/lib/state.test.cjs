@@ -12,7 +12,7 @@
  *   ## Session Continuity
  *
  *   Last session: 2026-09-28 — Objective 39 TRD 39-05 executed (final TRD, 5/5)
- *   Resume file: `.planning/SESSION_PICKUP.md`
+ *   Resume file: `.aoforge/SESSION_PICKUP.md`
  *   Stopped at: Completed 39-05-TRD.md (2026-09-28)
  *
  * so record-session was always a truthful no-op (`recorded: false`).
@@ -20,10 +20,10 @@
  * Test list (spawned CLI `state record-session` is the outermost layer; one
  * unit case for the section-scoped helper):
  *   1. Narrative: `--stopped-at "halted at 40-04" --resume-file
- *      ".planning/SESSION_PICKUP.md"` gives `recorded: true`, `updated` =
+ *      ".aoforge/SESSION_PICKUP.md"` gives `recorded: true`, `updated` =
  *      [Last session, Stopped At, Resume File]; `Last session:` holds an ISO
  *      timestamp, `Stopped at: halted at 40-04`, and
- *      ``Resume file: `.planning/SESSION_PICKUP.md` `` (backticks kept).
+ *      ``Resume file: `.aoforge/SESSION_PICKUP.md` `` (backticks kept).
  *   2. Scoping: plain `Resume file:` / `Stopped at:` lines in a `## Notes`
  *      section BEFORE Session Continuity (and plain labels in a section AFTER
  *      it) are unchanged.
@@ -41,7 +41,7 @@
  *
  * All fixtures are inline and every STATE.md lives in an mkdtemp project; aof-tools
  * is spawned with that project as cwd under a fake HOME. The repo's own
- * .planning/STATE.md is never touched.
+ * .aoforge/STATE.md is never touched.
  */
 
 const { describe, test, afterEach } = require('node:test');
@@ -72,9 +72,9 @@ function track(dir) {
 
 function tmpProject(stateContent) {
   const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-state-')));
-  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
   if (stateContent !== undefined) {
-    fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), stateContent, 'utf-8');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'STATE.md'), stateContent, 'utf-8');
   }
   return dir;
 }
@@ -97,7 +97,7 @@ function run(args, cwd) {
 }
 
 function readState(dir) {
-  return fs.readFileSync(path.join(dir, '.planning', 'STATE.md'), 'utf-8');
+  return fs.readFileSync(path.join(dir, '.aoforge', 'STATE.md'), 'utf-8');
 }
 
 // Text of `## Session Continuity` up to the next `## ` heading (or EOF).
@@ -138,7 +138,7 @@ const NARRATIVE = [
   '## Session Continuity',
   '',
   'Last session: 2026-09-28 — Objective 39 TRD 39-05 executed (final TRD, 5/5): re-ran `aof-tools context --limit 150`',
-  'Resume file: `.planning/SESSION_PICKUP.md`',
+  'Resume file: `.aoforge/SESSION_PICKUP.md`',
   'Stopped at: Completed 39-05-TRD.md (2026-09-28)',
   '',
   '## Appendix',
@@ -164,7 +164,7 @@ describe('state record-session — narrative Session Continuity (TOOL-07)', () =
   test('1. narrative plain lines are recorded (ISO timestamp, stopped-at, backticked resume file)', () => {
     const dir = tmpProject(NARRATIVE);
     const r = run(['state', 'record-session', '--stopped-at', 'halted at 40-04',
-      '--resume-file', '.planning/SESSION_PICKUP.md'], dir);
+      '--resume-file', '.aoforge/SESSION_PICKUP.md'], dir);
 
     assert.equal(r.status, 0, r.stderr);
     assert.ok(r.json, `expected JSON output, got: ${r.stdout}`);
@@ -176,13 +176,13 @@ describe('state record-session — narrative Session Continuity (TOOL-07)', () =
     assert.ok(last, `no Last session line in:\n${section}`);
     assert.match(last[1], ISO_RE, 'Last session holds a bare ISO timestamp (old value fully replaced, not backticked)');
     assert.match(section, /^Stopped at: halted at 40-04$/m);
-    assert.match(section, /^Resume file: `\.planning\/SESSION_PICKUP\.md`$/m);
+    assert.match(section, /^Resume file: `\.aoforge\/SESSION_PICKUP\.md`$/m);
   });
 
   test('2. plain labels outside Session Continuity (before and after) are untouched', () => {
     const dir = tmpProject(NARRATIVE);
     const r = run(['state', 'record-session', '--stopped-at', 'halted at 40-04',
-      '--resume-file', '.planning/SESSION_PICKUP.md'], dir);
+      '--resume-file', '.aoforge/SESSION_PICKUP.md'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json && r.json.recorded, true, r.stdout);
 
@@ -204,7 +204,7 @@ describe('state record-session — narrative Session Continuity (TOOL-07)', () =
   test('3. every line other than the three target lines is byte-identical', () => {
     const dir = tmpProject(NARRATIVE);
     const r = run(['state', 'record-session', '--stopped-at', 'halted at 40-04',
-      '--resume-file', '.planning/SESSION_PICKUP.md'], dir);
+      '--resume-file', '.aoforge/SESSION_PICKUP.md'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json && r.json.recorded, true, r.stdout);
 
@@ -221,7 +221,7 @@ describe('state record-session — narrative Session Continuity (TOOL-07)', () =
   test('4. the file\'s own label text/case is kept (Stopped at: stays lowercase-at)', () => {
     const dir = tmpProject(NARRATIVE);
     const r = run(['state', 'record-session', '--stopped-at', 'halted at 40-04',
-      '--resume-file', '.planning/SESSION_PICKUP.md'], dir);
+      '--resume-file', '.aoforge/SESSION_PICKUP.md'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json && r.json.recorded, true, r.stdout);
 
@@ -289,7 +289,7 @@ describe('state record-session — legacy bold fields and no-op', () => {
       '',
     ].join('\n');
     const dir = tmpProject(content);
-    const statePath = path.join(dir, '.planning', 'STATE.md');
+    const statePath = path.join(dir, '.aoforge', 'STATE.md');
     const past = new Date('2020-01-01T00:00:00Z');
     fs.utimesSync(statePath, past, past);
 
@@ -335,7 +335,7 @@ describe('state record-session — legacy bold fields and no-op', () => {
       '## Session Continuity',
       '',
       'Last session: 2026-09-27',
-      'Resume file: .planning/SESSION_PICKUP.md',
+      'Resume file: .aoforge/SESSION_PICKUP.md',
       'Stopped at: somewhere',
       '',
     ].join('\n');
@@ -452,17 +452,17 @@ const ARCHIVE_METRICS = `## Performance Metrics
 const STORE_NOTE = 'STATE.md is a generated view in store mode';
 
 // Temp project: STATE.md + state.json fixtures, objective 07 with 2 TRDs / 1 SUMMARY
-// (so update-progress computes 50%), and an optional .planning/config.json.
+// (so update-progress computes 50%), and an optional .aoforge/config.json.
 function charProject(config) {
   const dir = tmpProject(CHAR_STATE);
-  fs.writeFileSync(path.join(dir, '.planning', 'state.json'), JSON.stringify(CHAR_SJ, null, 2), 'utf-8');
-  const obj = path.join(dir, '.planning', 'objectives', '07-x');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'state.json'), JSON.stringify(CHAR_SJ, null, 2), 'utf-8');
+  const obj = path.join(dir, '.aoforge', 'objectives', '07-x');
   fs.mkdirSync(obj, { recursive: true });
   for (const f of ['07-01-TRD.md', '07-02-TRD.md', '07-01-SUMMARY.md']) {
     fs.writeFileSync(path.join(obj, f), '# x\n', 'utf-8');
   }
   if (config) {
-    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
   }
   return dir;
 }
@@ -470,7 +470,7 @@ function charProject(config) {
 const STORE_CONFIG = { github: { enabled: true, store: true, repo: 'o/r' } };
 
 function readFile(dir, name) {
-  return fs.readFileSync(path.join(dir, '.planning', name), 'utf-8');
+  return fs.readFileSync(path.join(dir, '.aoforge', name), 'utf-8');
 }
 
 function readSj(dir) {
@@ -579,11 +579,11 @@ describe('48-13 characterization — local-mode STATE.md mutators write today\'s
 
   test('2g. state record-session → bold session fields rewritten; state.json untouched', () => {
     const dir = charProject();
-    const r = run(['state', 'record-session', '--stopped-at', 'halted', '--resume-file', '.planning/X.md'], dir);
+    const r = run(['state', 'record-session', '--stopped-at', 'halted', '--resume-file', '.aoforge/X.md'], dir);
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(r.json, { recorded: true, updated: ['Last session', 'Stopped At', 'Resume File'] });
     let want = edit(CHAR_STATE, '**Stopped At:** nowhere', '**Stopped At:** halted');
-    want = edit(want, '**Resume File:** None', '**Resume File:** .planning/X.md');
+    want = edit(want, '**Resume File:** None', '**Resume File:** .aoforge/X.md');
     assert.equal(mask(readFile(dir, 'STATE.md')), mask(want));
     assert.match(readFile(dir, 'STATE.md'), /\*\*Last session:\*\* (?!2026-01-01T00)\d{4}-/);
     assert.equal(readFile(dir, 'state.json'), sjBytes({}));
@@ -662,7 +662,7 @@ describe('48-13 store mode — STATE.md mutators record into state.json only', (
 
   test('6b\'. state advance-job on the last job → ready_for_verification in state.json only', () => {
     const dir = charProject(STORE_CONFIG);
-    fs.writeFileSync(path.join(dir, '.planning', 'state.json'), sjBytes({ current_job: 4 }), 'utf-8');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'state.json'), sjBytes({ current_job: 4 }), 'utf-8');
     const json = storeJson(run(['state', 'advance-job'], dir));
     assert.equal(json.advanced, false);
     assert.equal(json.reason, 'last_job');
@@ -709,7 +709,7 @@ describe('48-13 store mode — STATE.md mutators record into state.json only', (
 
   test('6g. state record-session → state.json session_log entry, STATE.md untouched', () => {
     const dir = charProject(STORE_CONFIG);
-    const json = storeJson(run(['state', 'record-session', '--stopped-at', 'halted', '--resume-file', '.planning/X.md'], dir));
+    const json = storeJson(run(['state', 'record-session', '--stopped-at', 'halted', '--resume-file', '.aoforge/X.md'], dir));
     assert.equal(json.recorded, true);
     assert.deepEqual(json.updated, ['Last session', 'Stopped At', 'Resume File']);
     assert.equal(readFile(dir, 'STATE.md'), CHAR_STATE);
@@ -717,18 +717,18 @@ describe('48-13 store mode — STATE.md mutators record into state.json only', (
     assert.equal(log.length, 1);
     assert.match(log[0].at, ISO_RE);
     assert.equal(log[0].stopped_at, 'halted');
-    assert.equal(log[0].resume_file, '.planning/X.md');
+    assert.equal(log[0].resume_file, '.aoforge/X.md');
   });
 
   test('6h. with no STATE.md at all (view not rendered yet) the mutators still record and never create it', () => {
     const dir = charProject(STORE_CONFIG);
-    fs.rmSync(path.join(dir, '.planning', 'STATE.md'));
+    fs.rmSync(path.join(dir, '.aoforge', 'STATE.md'));
     storeJson(run(['state', 'add-blocker', '--text', 'Disk full'], dir));
     storeJson(run(['state', 'advance-job'], dir));
     storeJson(run(['state', 'update-progress'], dir));
     storeJson(run(['state', 'record-session', '--stopped-at', 'x'], dir));
     storeJson(run(['state', 'update', 'Status', 'Executing'], dir));
-    assert.equal(fs.existsSync(path.join(dir, '.planning', 'STATE.md')), false);
+    assert.equal(fs.existsSync(path.join(dir, '.aoforge', 'STATE.md')), false);
     const sj = readSj(dir);
     assert.equal(sj.current_job, 3);
     assert.equal(sj.blockers.length, 3);

@@ -18,10 +18,10 @@ const { recordOverride, readOverrides, pruneLog, GATES } = require('./override.c
 let dir;
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-override-'));
-  fs.mkdirSync(path.join(dir, '.planning'));
+  fs.mkdirSync(path.join(dir, '.aoforge'));
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-const pd = () => path.join(dir, '.planning');
+const pd = () => path.join(dir, '.aoforge');
 
 describe('recordOverride()', () => {
   test('records gate, reason and timestamp', () => {

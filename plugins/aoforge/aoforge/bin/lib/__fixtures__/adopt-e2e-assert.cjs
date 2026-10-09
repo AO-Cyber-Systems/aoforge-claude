@@ -144,10 +144,10 @@ function runChecks({ root, home, df }) {
     stackValid && stackValid.ok ? 'ok' : `errors: ${JSON.stringify(stackValid && stackValid.errors)}`);
 
   // roadmap_zero_objectives
-  const objectivesDir = path.join(root, '.planning', 'objectives');
+  const objectivesDir = path.join(root, '.aoforge', 'objectives');
   let objCount = 0;
   try { objCount = fs.readdirSync(objectivesDir).length; } catch { objCount = 0; }
-  add('roadmap_zero_objectives', objCount === 0, `${objCount} entries under .planning/objectives`);
+  add('roadmap_zero_objectives', objCount === 0, `${objCount} entries under .aoforge/objectives`);
 
   // claude_block_versioned — exactly one AOFORGE block, and it carries a version
   const claudePath = path.join(root, 'CLAUDE.md');
@@ -177,15 +177,15 @@ function runChecks({ root, home, df }) {
   const stamp = upgrade.readStamp(root);
   const currentVersion = helpers.pluginVersion();
   add('stamp_current', !!stamp && stamp.version === currentVersion,
-    stamp ? `stamp version ${stamp.version}, expected ${currentVersion}` : 'no aoforge stamp in .planning/config.json');
+    stamp ? `stamp version ${stamp.version}, expected ${currentVersion}` : 'no aoforge stamp in .aoforge/config.json');
 
   // report_needs_review — heading present + every low/medium marker.inferences field appears
-  const reportPath = path.join(root, '.planning', 'ADOPT-REPORT.md');
+  const reportPath = path.join(root, '.aoforge', 'ADOPT-REPORT.md');
   const reportText = safeRead(reportPath);
   let needsReviewOk = false;
   let needsReviewDetail;
   if (reportText === null) {
-    needsReviewDetail = '.planning/ADOPT-REPORT.md not found';
+    needsReviewDetail = '.aoforge/ADOPT-REPORT.md not found';
   } else {
     const headingIdx = reportText.indexOf('## Needs review');
     if (headingIdx === -1) {
@@ -206,10 +206,10 @@ function runChecks({ root, home, df }) {
   add('report_needs_review', needsReviewOk, needsReviewDetail);
 
   // project_kind_valid
-  const pmPath = path.join(root, '.planning', 'PROJECT.md');
+  const pmPath = path.join(root, '.aoforge', 'PROJECT.md');
   const pmText = safeRead(pmPath);
   let kindOk = false;
-  let kindDetail = '.planning/PROJECT.md not found';
+  let kindDetail = '.aoforge/PROJECT.md not found';
   if (pmText !== null) {
     const fm = extractFrontmatter(pmText);
     const kindValid = VALID_KINDS.includes(fm.kind);
@@ -219,18 +219,18 @@ function runChecks({ root, home, df }) {
   }
   add('project_kind_valid', kindOk, kindDetail);
 
-  // commit_contents — the one commit touches only .planning/** + CLAUDE.md
+  // commit_contents — the one commit touches only .aoforge/** + CLAUDE.md
   let commitOk = false;
   let commitDetail = 'no marker/base_sha';
   if (marker && marker.base_sha) {
     const diff = git(root, env, ['diff', '--name-only', marker.base_sha, adopt.ADOPT_BRANCH]);
     if (diff.ok) {
       const files = diff.out.split('\n').map((l) => l.trim()).filter(Boolean);
-      const bad = files.filter((f) => !(f === 'CLAUDE.md' || f.startsWith('.planning/')));
+      const bad = files.filter((f) => !(f === 'CLAUDE.md' || f.startsWith('.aoforge/')));
       commitOk = files.length > 0 && bad.length === 0;
       commitDetail = commitOk
-        ? `${files.length} file(s), all under .planning/ or CLAUDE.md`
-        : `files outside .planning/**+CLAUDE.md: ${bad.join(', ')}`;
+        ? `${files.length} file(s), all under .aoforge/ or CLAUDE.md`
+        : `files outside .aoforge/**+CLAUDE.md: ${bad.join(', ')}`;
     } else {
       commitDetail = 'git diff failed';
     }
@@ -241,10 +241,10 @@ function runChecks({ root, home, df }) {
   // and the CLAUDE.md AOFORGE block content (never the whole file — text outside the block is
   // deliberately left untouched by adopt report, so it is not part of this contract).
   const secretHits = [];
-  scanForSecrets('.planning/ADOPT-REPORT.md', reportText, secretHits);
-  scanForSecrets('.planning/PROJECT.md', pmText, secretHits);
+  scanForSecrets('.aoforge/ADOPT-REPORT.md', reportText, secretHits);
+  scanForSecrets('.aoforge/PROJECT.md', pmText, secretHits);
   for (const name of CODEBASE_DOC_NAMES) {
-    const rel = `.planning/codebase/${name}.md`;
+    const rel = `.aoforge/codebase/${name}.md`;
     scanForSecrets(rel, safeRead(path.join(root, rel)), secretHits);
   }
   const blockContent = block && !blockError ? block.content : '';

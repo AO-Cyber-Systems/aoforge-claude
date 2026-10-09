@@ -26,7 +26,7 @@ describe('58-02 overhead spawn samples', () => {
   before(() => {
     root = fx.makeProjectsRoot();
     repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-overhead-repo-')));
-    fs.mkdirSync(path.join(repo, '.planning', 'objectives'), { recursive: true });
+    fs.mkdirSync(path.join(repo, '.aoforge', 'objectives'), { recursive: true });
     key = fx.projectKeyFor(repo);
   });
 
@@ -146,7 +146,7 @@ describe('58-02 overhead spawns of a repository', () => {
 
   const realTmp = (prefix) => {
     const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
-    fs.mkdirSync(path.join(dir, '.planning', 'objectives'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.aoforge', 'objectives'), { recursive: true });
     return dir;
   };
 

@@ -3,7 +3,7 @@
 // stack-report.cjs — CI/CD + local-testing recommendations: `stack report` (TRD 42-08, SDR-06).
 //
 // Compares what a repository's CI and task runners actually RUN against the stacks it contains,
-// and writes the result as `.planning/STACK-REPORT.md`: proposals only. Nothing here edits a
+// and writes the result as `.aoforge/STACK-REPORT.md`: proposals only. Nothing here edits a
 // workflow, a runner file or STACK.md.
 //
 // Every source is first normalised into the same INVOCATION RECORDS (buildRecords):
@@ -38,6 +38,7 @@ const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas } = require('./stack-detect.cjs');
 const { describeInvocation } = require('./stack-verify.cjs');
 const { mdCell } = require('./text-escape.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 const RUNNER_MAX_DEPTH = 2;
 const MAX_EXPAND_DEPTH = 2;
@@ -1098,7 +1099,8 @@ function computeFindings({ areas = [], records = [], notes = [], root = null, ch
 
 // ─── render ───────────────────────────────────────────────────────────────────
 
-const REPORT_REL = '.planning/STACK-REPORT.md';
+// The default-layout path (exported); the report is written under the project's resolved planning directory.
+const REPORT_REL = '.aoforge/STACK-REPORT.md';
 
 function cell(value) {
   return value === null || value === undefined || value === '' ? '—' : mdCell(value);
@@ -1178,7 +1180,7 @@ function renderReport(findings, meta) {
  *   { meta: { generated, id, profile, profile_source, components, unsupported_areas, counts },
  *     findings, text }
  *
- * The profile is `.planning/STACK.md` when it exists (and `draft` is false), else the in-memory
+ * The profile is `.aoforge/STACK.md` when it exists (and `draft` is false), else the in-memory
  * draft. Notes always come from a fresh draftProfile. Reads only; writes nothing.
  *
  * `components` is EXACTLY that profile's `components[].path` (TRD 42-12, gap G1) — never the
@@ -1203,7 +1205,7 @@ function buildReport({ projectRoot, userHome = null, draft = false, now = new Da
 
   let source = 'draft';
   let fm = drafted ? drafted.frontmatter : { id: path.basename(root), extends: 'general' };
-  const stackPath = path.join(root, '.planning', 'STACK.md');
+  const stackPath = path.join(planningRoot(root), 'STACK.md');
   if (!draft && fs.existsSync(stackPath)) {
     try {
       const parsed = sp.parseProfile(fs.readFileSync(stackPath, 'utf-8'), { source: stackPath });
@@ -1238,9 +1240,13 @@ function buildReport({ projectRoot, userHome = null, draft = false, now = new Da
   return { meta, findings, text: renderReport(findings, meta) };
 }
 
-/** writeReport(root, text) — writes ONLY `.planning/STACK-REPORT.md` (creating `.planning`). */
+/**
+ * writeReport(root, text) — writes ONLY `<planning dir>/STACK-REPORT.md` (the resolved `.aoforge/`, created for a new
+ * project, or a legacy one).
+ */
 function writeReport(root, text) {
-  const target = path.join(path.resolve(String(root)), REPORT_REL);
+  const abs = path.resolve(String(root));
+  const target = path.join(abs, planningRel(abs, 'STACK-REPORT.md'));
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, text, 'utf-8');
   return target;
@@ -1277,7 +1283,7 @@ function cli(cwd, args, raw, { userHome = null } = {}) {
     writeReport(cwd, built.text);
     action = 'written';
   }
-  const result = { action, path: REPORT_REL, ...built.meta, findings: built.findings };
+  const result = { action, path: planningRel(path.resolve(String(cwd)), 'STACK-REPORT.md'), ...built.meta, findings: built.findings };
   if (raw) output(result, false);
   else output(result, true, built.text);
 }

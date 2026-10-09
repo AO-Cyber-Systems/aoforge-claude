@@ -74,7 +74,7 @@ let shim;
 /** `<root>` is a fixture project; `enabled` is the github.enabled value written to config.json. */
 function makeProject(enabled) {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'eo-gh-sync-'));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(path.join(planning, 'objectives', '02-a'), { recursive: true });
   fs.writeFileSync(
     path.join(planning, 'config.json'),
@@ -177,17 +177,17 @@ describe('execute-objective.md "Auto-push to GitHub" step (run against the gh sh
     const r = runStep();
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(r.stdout + r.stderr, /WARNING/, `unexpected output:\n${r.stdout}\n${r.stderr}`);
-    const md = fs.readFileSync(path.join(root, '.planning', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8');
+    const md = fs.readFileSync(path.join(root, '.aoforge', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8');
     assert.match(md, /^github_issue: o\/r#1$/m);
   });
 
-  it('6b. works when OBJECTIVE_DIR is the path init reports (.planning/objectives/02-a)', () => {
+  it('6b. works when OBJECTIVE_DIR is the path init reports (.aoforge/objectives/02-a)', () => {
     makeProject(true);
     installShim(SUCCESS_TABLE);
-    const r = runStep({ OBJECTIVE_DIR: '.planning/objectives/02-a' });
+    const r = runStep({ OBJECTIVE_DIR: '.aoforge/objectives/02-a' });
     assert.equal(r.status, 0, r.stderr);
     assert.doesNotMatch(r.stdout + r.stderr, /WARNING/, `unexpected output:\n${r.stdout}\n${r.stderr}`);
-    const md = fs.readFileSync(path.join(root, '.planning', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8');
+    const md = fs.readFileSync(path.join(root, '.aoforge', 'objectives', '02-a', 'OBJECTIVE.md'), 'utf-8');
     assert.match(md, /^github_issue: o\/r#1$/m);
   });
 });

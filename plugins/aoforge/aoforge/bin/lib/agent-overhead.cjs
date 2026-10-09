@@ -131,7 +131,7 @@ function byCodeUnit(a, b) {
  * Reads exactly `<root>/<key>/<session>/subagents/agent-*.meta.json` (sorted at each level, no deeper walk). A meta file
  * whose agentType normalises to an overhead agent is one spawn; only then is the sibling jsonl's FIRST user record read.
  * A repository claims the spawn by the executor rule (token-usage.repoMatch): a REPO_ROOT line, else the first record's
- * cwd in the repo or its `.df-worktrees`, else a `<repo>/.planning/` path. The project-key directory name is never
+ * cwd in the repo or its `.df-worktrees`, else a `<repo>/.aoforge/` path. The project-key directory name is never
  * evidence: keys are lossy.
  *
  * counts: `spawns` = overhead-typed meta files; each is exactly one of `quick` (a planner whose description starts with

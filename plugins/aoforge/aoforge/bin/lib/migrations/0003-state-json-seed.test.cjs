@@ -14,7 +14,7 @@ const upgrade = require('../upgrade.cjs');
 const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0003-state-json-seed.cjs');
-const STATE_JSON_REL = '.planning/state.json';
+const STATE_JSON_REL = '.aoforge/state.json';
 
 const cleanup = [];
 afterEach(() => {
@@ -72,7 +72,7 @@ describe('migration 0003 state-json-seed', () => {
     assert.equal(seeded.last_activity, '2026-01-15');
 
     // The exported extractor is the same one apply used.
-    const fromMd = m.seedFromStateMd(fs.readFileSync(path.join(root, '.planning/STATE.md'), 'utf-8'));
+    const fromMd = m.seedFromStateMd(fs.readFileSync(path.join(root, '.aoforge/STATE.md'), 'utf-8'));
     assert.equal(fromMd.current_objective, '01');
     assert.deepEqual(fromMd.blockers, ['one']);
 
@@ -91,7 +91,7 @@ describe('migration 0003 state-json-seed', () => {
   test('20. no STATE.md -> detect false', () => {
     const m = m0003();
     const root = track(fx.makeV1Project());
-    fs.rmSync(path.join(root, '.planning', 'STATE.md'));
+    fs.rmSync(path.join(root, '.aoforge', 'STATE.md'));
     const det = m.detect(ctxFor(root));
     assert.equal(det.applies, false);
     assert.match(det.reason, /STATE\.md/);

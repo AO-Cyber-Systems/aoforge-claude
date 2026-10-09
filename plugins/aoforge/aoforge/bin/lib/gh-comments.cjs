@@ -126,7 +126,7 @@ function skippedResult() {
   return {
     ok: true,
     skipped: true,
-    reason: 'github.enabled is not true in .planning/config.json',
+    reason: 'github.enabled is not true in .aoforge/config.json',
     enqueued: [],
     coalesced: [],
   };
@@ -559,7 +559,7 @@ function readScopeForConfirm(root, trdArg, n) {
   const bad = requireTrdBody(st);
   if (bad) return bad;
   if (typeof st.accept !== 'function') {
-    return { ok: false, error: 'scope confirmation is a store-mode feature (github.store is not true in .planning/config.json)' };
+    return { ok: false, error: 'scope confirmation is a store-mode feature (github.store is not true in .aoforge/config.json)' };
   }
   const scope = st.scopes.find((s) => s.n === n);
   if (!scope) return { ok: false, notFound: true, error: `TRD ${st.id} has no scope n=${n}` };

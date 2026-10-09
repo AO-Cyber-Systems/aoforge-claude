@@ -22,7 +22,7 @@ const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0007-doc-refs-fix.cjs');
 const CLAUDE_REL = 'CLAUDE.md';
-const STATE_REL = '.planning/STATE.md';
+const STATE_REL = '.aoforge/STATE.md';
 const PLUGIN_VERSION = '2.11.0';
 
 const BEFORE = '# My notes\n\nkeep me\n\n';
@@ -65,7 +65,7 @@ function readState(root) {
 }
 
 function writeState(root, text) {
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   fs.writeFileSync(path.join(root, STATE_REL), text);
 }
 
@@ -279,17 +279,17 @@ describe('migration 0007 doc-refs-fix', () => {
     // own comment convention (the CI gate in 38-09 only scans bin/**/*.cjs SOURCE, not this test
     // file, but staying consistent keeps the fixture readable either way).
     const stale = 'See the /df:health command for status.\n';
-    const objDir = path.join(root, '.planning/objectives/01-alpha');
+    const objDir = path.join(root, '.aoforge/objectives/01-alpha');
     fs.appendFileSync(path.join(objDir, '01-01-SUMMARY.md'), stale);
     fs.appendFileSync(path.join(objDir, '01-01-TRD.md'), stale);
     fs.appendFileSync(path.join(objDir, 'OBJECTIVE.md'), stale);
-    fs.appendFileSync(path.join(root, '.planning/ROADMAP.md'), stale);
+    fs.appendFileSync(path.join(root, '.aoforge/ROADMAP.md'), stale);
     fs.writeFileSync(path.join(objDir, '01-01-VERIFICATION.md'), '# Verification\n\n' + stale);
     fs.writeFileSync(path.join(root, 'CHANGELOG.md'), '# Changelog\n\n' + stale);
-    fs.mkdirSync(path.join(root, '.planning/milestones'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning/milestones/2026-01-MILESTONE.md'), '# Milestone\n\n' + stale);
-    fs.mkdirSync(path.join(root, '.planning/todos'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning/todos/2026-01-01-todo.md'), '# Todo\n\n' + stale);
+    fs.mkdirSync(path.join(root, '.aoforge/milestones'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge/milestones/2026-01-MILESTONE.md'), '# Milestone\n\n' + stale);
+    fs.mkdirSync(path.join(root, '.aoforge/todos'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge/todos/2026-01-01-todo.md'), '# Todo\n\n' + stale);
 
     const home = track(fx.makeFakeHome());
     const before = fx.snapshot(root);
@@ -298,7 +298,7 @@ describe('migration 0007 doc-refs-fix', () => {
     assert.ok(r.applied.some((a) => a.id === '0007'), '0007 ran');
 
     const diff = fx.diffSnapshots(before, fx.snapshot(root));
-    assert.deepEqual(diff, [CLAUDE_REL, '.planning/config.json', STATE_REL].sort());
+    assert.deepEqual(diff, [CLAUDE_REL, '.aoforge/config.json', STATE_REL].sort());
   });
 
   test('13. coexists with 0005: a legacy block with stale rules and /df:plan-objective -> a full apply lands v=2, template rules, and the token rewritten; a later check is up_to_date', () => {

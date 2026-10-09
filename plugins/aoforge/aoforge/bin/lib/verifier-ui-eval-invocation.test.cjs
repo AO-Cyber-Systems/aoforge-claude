@@ -52,7 +52,7 @@ const TMP_DIRS = [];
 //   Always writes a `type: ui` + `stack: flutter` TRD (that is this whole test file's
 //   applicability precondition — a non-UI fixture belongs to 33-01's own suite, not here).
 //   When manifestJSON is provided, also writes it to
-//   <root>/.planning/objectives/<id>-<slug>/evidence/ui_eval/manifest.json (+ labels.json
+//   <root>/.aoforge/objectives/<id>-<slug>/evidence/ui_eval/manifest.json (+ labels.json
 //   alongside, when given) so the fixture can resolve all the way to 'resolved'.
 
 function frontmatterBlock(fm) {
@@ -87,7 +87,7 @@ function makeFixtureObjective({
   TMP_DIRS.push(root);
 
   const objectiveDirName = `${id}-${slug}`;
-  const objectiveDir = path.join(root, '.planning', 'objectives', objectiveDirName);
+  const objectiveDir = path.join(root, '.aoforge', 'objectives', objectiveDirName);
   fs.mkdirSync(objectiveDir, { recursive: true });
 
   fs.writeFileSync(

@@ -136,7 +136,7 @@ function buildOrgScanResult({
 // ─── buildGitFixtureRepo ──────────────────────────────────────────────────────
 
 /**
- * Create a tmp git repo with N branches each carrying a STATE.md at .planning/STATE.md.
+ * Create a tmp git repo with N branches each carrying a STATE.md at .aoforge/STATE.md.
  * Used by TRD 02-02 and 02-07 for integration tests gated on GIT_INTEGRATION=1.
  *
  * Spawns: tmp dir → `git init` → initial commit on main → per branch:
@@ -189,11 +189,11 @@ function buildGitFixtureRepo({
     for (const br of branches) {
       git('checkout', '-b', br.name);
 
-      const planningDir = path.join(root, '.planning');
+      const planningDir = path.join(root, '.aoforge');
       fs.mkdirSync(planningDir, { recursive: true });
       fs.writeFileSync(path.join(planningDir, 'STATE.md'), br.state_md || '', 'utf-8');
 
-      git('add', path.join('.planning', 'STATE.md'));
+      git('add', path.join('.aoforge', 'STATE.md'));
       git('commit', '-m', 'test: branch state');
 
       // Return to main so we can branch from main again
@@ -274,7 +274,7 @@ function buildGitLogOutput({ sha = 'abc123def4567890', timestamp = new Date(Date
 }
 
 /**
- * Canned response for `git show <branch>:.planning/STATE.md`.
+ * Canned response for `git show <branch>:.aoforge/STATE.md`.
  * Pass either `state_md` (full content) or { objective, trd, ... } and
  * fixture builder calls buildStateMd internally.
  */
@@ -319,7 +319,7 @@ function buildGitConfigUserName({ name = 'mark' } = {}) {
  * Directory structure created:
  *   ${tmpdir}/${name}/
  *     .git/               (empty marker — enough for existsSync('.git') check)
- *     .planning/
+ *     .aoforge/
  *       STATE.md          (stub state)
  *       objectives/
  *         ${obj.id}/
@@ -354,18 +354,18 @@ function buildSiblingRepoTree({
   // .git marker (empty dir — enough for existsSync check)
   fs.mkdirSync(path.join(root, '.git'), { recursive: true });
 
-  // .planning/
-  const planningDir = path.join(root, '.planning');
+  // .aoforge/
+  const planningDir = path.join(root, '.aoforge');
   fs.mkdirSync(planningDir, { recursive: true });
 
-  // .planning/STATE.md (stub)
+  // .aoforge/STATE.md (stub)
   fs.writeFileSync(
     path.join(planningDir, 'STATE.md'),
     `# AOForge State\n\n## Current Position\n\n**Branch:** \`feature/main\`\n`,
     'utf-8',
   );
 
-  // PROJECT.md (lives at .planning/PROJECT.md, not the repo root)
+  // PROJECT.md (lives at .aoforge/PROJECT.md, not the repo root)
   let project_md_path = null;
   if (!omit_project_md) {
     project_md_path = path.join(planningDir, 'PROJECT.md');
@@ -376,7 +376,7 @@ function buildSiblingRepoTree({
     );
   }
 
-  // .planning/objectives/ tree
+  // .aoforge/objectives/ tree
   const objectivePaths = [];
   const objsDir = path.join(planningDir, 'objectives');
   fs.mkdirSync(objsDir, { recursive: true });
@@ -1024,8 +1024,8 @@ function buildAdversarialInitiative({
 /**
  * Build a tmpdir fixture tree for roadmap-reconcile tests.
  * Creates:
- *   <tmpdir>/.planning/ROADMAP.md           ← with TRD checkbox lines per objectives spec
- *   <tmpdir>/.planning/objectives/<N>-<slug>/
+ *   <tmpdir>/.aoforge/ROADMAP.md           ← with TRD checkbox lines per objectives spec
+ *   <tmpdir>/.aoforge/objectives/<N>-<slug>/
  *     <trd.id>-<slug>-TRD.md               ← always created (unless trd.no_trd_file: true)
  *     <trd.id>-<slug>-SUMMARY.md            ← created if trd.summary = 'present' | 'failed' | 'failed-section'
  *
@@ -1039,12 +1039,12 @@ function buildAdversarialInitiative({
  */
 function buildReconcileFixtures({ objectives = [], milestone_status = 'in flight', progress_table = false } = {}) {
   const tmpdir = path.join(os.tmpdir(), `reconcile-fixture-${process.pid}-${Date.now()}`);
-  fs.mkdirSync(path.join(tmpdir, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(tmpdir, '.aoforge', 'objectives'), { recursive: true });
 
   for (const obj of objectives) {
     const objSlug = obj.slug || 'foo';
     const objNum = String(obj.num).padStart(2, '0');
-    const objDir = path.join(tmpdir, '.planning', 'objectives', `${objNum}-${objSlug}`);
+    const objDir = path.join(tmpdir, '.aoforge', 'objectives', `${objNum}-${objSlug}`);
     fs.mkdirSync(objDir, { recursive: true });
 
     for (const trd of obj.trds) {
@@ -1105,7 +1105,7 @@ function buildReconcileFixtures({ objectives = [], milestone_status = 'in flight
     roadmapLines.push('');
   }
 
-  fs.writeFileSync(path.join(tmpdir, '.planning', 'ROADMAP.md'), roadmapLines.join('\n'), 'utf-8');
+  fs.writeFileSync(path.join(tmpdir, '.aoforge', 'ROADMAP.md'), roadmapLines.join('\n'), 'utf-8');
 
   return {
     projectRoot: tmpdir,
@@ -1176,7 +1176,7 @@ function _buildCheckTodosMockGh(issues = []) {
  *
  * Returns:
  *   {
- *     projectRoot,        // tmp .planning/-rooted dir with todos/, dup-detect-log.jsonl, STATE.md
+ *     projectRoot,        // tmp .aoforge/-rooted dir with todos/, dup-detect-log.jsonl, STATE.md
  *     initiativesHome,    // tmp dir with N initiative .md files
  *     currentUser,        // string
  *     currentRepo,        // string
@@ -1206,7 +1206,7 @@ function buildCheckTodosFixtures({
 } = {}) {
   // 1. tmp project root
   const projectRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'check-todos-'));
-  const planningDir = path.join(projectRoot, '.planning');
+  const planningDir = path.join(projectRoot, '.aoforge');
   fs.mkdirSync(planningDir, { recursive: true });
 
   // 1a. local todos

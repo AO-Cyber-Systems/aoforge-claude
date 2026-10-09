@@ -5,6 +5,7 @@ const path = require('path');
 const { output, error, normalizeObjectiveName, generateSlugInternal } = require('./helpers.cjs');
 const { reconstructFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 function cmdTemplateSelect(cwd, jobPath, raw) {
   if (!jobPath) {
@@ -117,9 +118,9 @@ function cmdTemplateFill(cwd, templateType, options, raw) {
         '- **Output:** [Concrete deliverable]',
         '',
         '## Context',
-        '@.planning/PROJECT.md',
-        '@.planning/ROADMAP.md',
-        '@.planning/STATE.md',
+        `@${planningRel(cwd, 'PROJECT.md')}`,
+        `@${planningRel(cwd, 'ROADMAP.md')}`,
+        `@${planningRel(cwd, 'STATE.md')}`,
         '',
         '## Tasks',
         '',
@@ -207,8 +208,8 @@ function storeRecordDraft(cwd, outPath, text, relPath, templateType, raw) {
   const planningMode = require('./planning-mode.cjs');
   const planningPaths = require('./planning-paths.cjs');
   const main = planningMode.resolveMainRoot(cwd);
-  const rel = (main && planningPaths.relToPlanning(outPath, path.join(main, '.planning')))
-    || planningPaths.relToPlanning(outPath, path.join(cwd, '.planning'));
+  const rel = (main && planningPaths.relToPlanning(outPath, planningRoot(main)))
+    || planningPaths.relToPlanning(outPath, planningRoot(cwd));
   const result = { created: true, path: relPath, template: templateType };
   if (rel !== null) {
     const c = planningPaths.classify(rel);

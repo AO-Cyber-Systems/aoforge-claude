@@ -362,8 +362,8 @@ let remote;
 
 function emptyProject({ enabled = true } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-cache-'));
-  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2)}\n`);
+  fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2)}\n`);
   return dir;
 }
 
@@ -432,7 +432,7 @@ function startGithub({ wiki = 'remote' } = {}) {
   }
 }
 
-const abs = (rel) => path.join(root, '.planning', rel);
+const abs = (rel) => path.join(root, '.aoforge', rel);
 const rd = (rel) => fs.readFileSync(abs(rel), 'utf-8');
 const AGED = new Date('2020-01-01T00:00:00Z');
 const age = (rels) => { for (const rel of rels) fs.utimesSync(abs(rel), AGED, AGED); };
@@ -477,7 +477,7 @@ describe('readRemoteModel', () => {
     assert.strictEqual(model.ok, true, model.error);
     assert.strictEqual(model.pages_report.mode, 'docs');
     assert.deepStrictEqual(cache.materialize(model).files, TREE);
-    assert.ok(!fs.existsSync(path.join(root, '.planning', 'wiki')), 'docs mode never clones the wiki');
+    assert.ok(!fs.existsSync(path.join(root, '.aoforge', 'wiki')), 'docs mode never clones the wiki');
   });
 
   test('7: an objective without a dir marker is no_dir and a TRD without an objective is an orphan', { skip: SKIP_NO_GIT }, () => {
@@ -504,7 +504,7 @@ describe('readRemoteModel', () => {
   });
 
   test('5: a project with github.enabled false makes no gh call', () => {
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: false, repo: 'o/r' } })}\n`);
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: false, repo: 'o/r' } })}\n`);
     startGithub({ wiki: 'docs' });
     const r = cache.readRemoteModel(root);
     assert.strictEqual(r.ok, false);
@@ -612,11 +612,11 @@ describe('writeCache', () => {
   });
 
   test('12: a local store file GitHub lacks is an orphan and stays on disk; other files are not', () => {
-    const objectiveDir = path.join(root, '.planning', 'objectives', DIR);
+    const objectiveDir = path.join(root, '.aoforge', 'objectives', DIR);
     fs.mkdirSync(objectiveDir, { recursive: true });
-    fs.mkdirSync(path.join(root, '.planning', 'objectives', '99-gone'), { recursive: true });
-    fs.mkdirSync(path.join(root, '.planning', 'codebase'), { recursive: true });
-    fs.mkdirSync(path.join(root, '.planning', 'wiki'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge', 'objectives', '99-gone'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge', 'codebase'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge', 'wiki'), { recursive: true });
     for (const rel of [
       `objectives/${DIR}/07-04-extra-TRD.md`, `objectives/${DIR}/07-UAT.md`, 'objectives/99-gone/OBJECTIVE.md',
       'codebase/OLD.md', 'PROJECT.md', 'wiki/Home.md', 'notes.txt',
@@ -633,7 +633,7 @@ describe('writeCache', () => {
     for (const rel of r.orphans) assert.ok(fs.existsSync(abs(rel)), `${rel} was not deleted`);
   });
 
-  test('writeCache refuses a path that would leave .planning/', () => {
+  test('writeCache refuses a path that would leave .aoforge/', () => {
     assert.throws(() => cache.writeCache(root, { '../escape.md': 'x' }), /unsafe/);
     assert.throws(() => cache.writeCache(root, { '/etc/passwd': 'x' }), /unsafe/);
     assert.ok(!fs.existsSync(path.join(root, 'escape.md')));
@@ -745,15 +745,15 @@ describe('pullAll', () => {
   test('a wiki clone with an unpushed local page is read as is, never reset, and reported', { skip: SKIP_NO_GIT }, () => {
     startGithub();
     cache.pullAll(root);
-    fs.writeFileSync(path.join(root, '.planning', 'wiki', 'Project.md'), '# Not pushed yet\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'wiki', 'Project.md'), '# Not pushed yet\n');
     const r = cache.pullAll(root);
     assert.strictEqual(r.ok, true, r.error);
     assert.strictEqual(r.pages.dirty, true);
-    assert.strictEqual(fs.readFileSync(path.join(root, '.planning', 'wiki', 'Project.md'), 'utf-8'), '# Not pushed yet\n');
+    assert.strictEqual(fs.readFileSync(path.join(root, '.aoforge', 'wiki', 'Project.md'), 'utf-8'), '# Not pushed yet\n');
   });
 
   test('a disabled project is skipped with zero gh calls and nothing written', () => {
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: false, repo: 'o/r' } })}\n`);
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: false, repo: 'o/r' } })}\n`);
     startGithub({ wiki: 'docs' });
     const r = cache.pullAll(root);
     assert.strictEqual(r.ok, false);
@@ -1140,7 +1140,7 @@ describe('48-07 readRemoteModel: entities, decision comments, milestones', () =>
   });
 
   test('48-07 9: entity labels follow config github.labels overrides', () => {
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', labels: { todo: 'team:todo' } } })}\n`);
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', labels: { todo: 'team:todo' } } })}\n`);
     startGithub({ wiki: 'docs' });
     seedEntities(fake, { todoLabel: 'team:todo' });
     const model = cache.readRemoteModel(root);
@@ -1180,7 +1180,7 @@ describe('48-07 readRemoteModel: entities, decision comments, milestones', () =>
 });
 
 describe('48-07 pullAll: entities and MILESTONES.md', () => {
-  test('48-07 10: an empty .planning/ gets every entity, decision and MILESTONES.md; a second pull writes nothing', () => {
+  test('48-07 10: an empty .aoforge/ gets every entity, decision and MILESTONES.md; a second pull writes nothing', () => {
     startGithub({ wiki: 'docs' });
     seedEntities(fake);
     const r1 = cache.pullAll(root);
@@ -1252,7 +1252,7 @@ describe('48-07 listOwnedLocal', () => {
         'research/a.md', 'milestones/v1.3.md', 'todos/pending/a.md', 'quick/1-x/1-JOB.md', 'objectives/07-x/07-UAT.md',
       ];
       for (const rel of [...added, 'quick/1-x/DECISION-001.md', 'wiki/Home.md', 'state.json', 'objectives/07-x/notes.txt']) {
-        const file = path.join(S.root, '.planning', rel);
+        const file = path.join(S.root, '.aoforge', rel);
         fs.mkdirSync(path.dirname(file), { recursive: true });
         fs.writeFileSync(file, 'x\n');
       }

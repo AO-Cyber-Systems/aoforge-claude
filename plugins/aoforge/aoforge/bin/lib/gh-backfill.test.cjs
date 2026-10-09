@@ -64,7 +64,7 @@ function objectiveText(status) {
  */
 function writeHistoryProject(spec, progress = []) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-backfill-'));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(path.join(planning, 'objectives'), { recursive: true });
   const roadmap = ['# Roadmap', '', '## Objectives', ''];
   for (const o of spec) roadmap.push(`### Objective ${o.dir.split('-')[0]}: ${o.dir}`, '');
@@ -223,7 +223,7 @@ describe('historyOf (test 2)', () => {
   });
 
   test('a legacy file name is skipped with a warning, never classified', () => {
-    const dir = path.join(project.root, '.planning', 'objectives', '06-partial');
+    const dir = path.join(project.root, '.aoforge', 'objectives', '06-partial');
     fs.writeFileSync(path.join(dir, '06-03a-legacy-TRD.md'), trdText('06-partial', '03a'));
     try {
       const h = backfill.historyOf(project.root);
@@ -234,7 +234,7 @@ describe('historyOf (test 2)', () => {
     }
   });
 
-  test('a project with no .planning/ is an empty history, not a throw', () => {
+  test('a project with no .aoforge/ is an empty history, not a throw', () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-backfill-empty-'));
     try {
       assert.deepEqual(backfill.historyOf(empty).objectives, []);
@@ -247,12 +247,12 @@ describe('historyOf (test 2)', () => {
 // ─── test 3: historyOps ──────────────────────────────────────────────────────
 
 describe('historyOps (test 3)', () => {
-  const objectiveFile = (p) => path.join(p.root, '.planning', 'objectives', p.objectiveDir, 'OBJECTIVE.md');
+  const objectiveFile = (p) => path.join(p.root, '.aoforge', 'objectives', p.objectiveDir, 'OBJECTIVE.md');
   const setStatus = (p, status) => {
     const file = objectiveFile(p);
     fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^status: .*$/m, `status: ${status}`));
   };
-  const objectiveDir = (p) => path.join(p.root, '.planning', 'objectives', p.objectiveDir);
+  const objectiveDir = (p) => path.join(p.root, '.aoforge', 'objectives', p.objectiveDir);
 
   test('shipped objective, 3 TRDs (one deferred): 2 completed + 1 not_planned TRD ops, then the objective', () => {
     const p = makeStoreProject();
@@ -520,8 +520,8 @@ describe('journal helpers (tests 6, 7)', () => {
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-backfill-journal-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: true, repo: 'o/r' } }));
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: true, repo: 'o/r' } }));
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 

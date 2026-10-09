@@ -4,7 +4,7 @@
  * Fixtures for the `roadmap_updated` flag of `objective remove` / `objective complete` (TRD 59-05, PLMB-05).
  *
  * Hand-built temp projects only. `objective remove` cascade-renumbers every objective above the removed one, so none of
- * these helpers ever touches this repository's own `.planning/`.
+ * these helpers ever touches this repository's own `.aoforge/`.
  *
  * The ROADMAP text deliberately carries no dates and no `NN-NN` tokens: the renumber pass in `objective remove`
  * rewrites every `NN-NN` it finds for objectives above the removed one, so a date such as `2026-01-01` would change the
@@ -65,12 +65,12 @@ const DEFAULT_STATE = '# STATE.md\n\n**Status:** fixture\n';
  *        objective directories; `trds` / `summaries` are TRD ids (`'01'`) written as `<NN>-<id>-TRD.md` / `-SUMMARY.md`
  * @param {string} [opts.state]          STATE.md text
  * @returns {{root: string, read: (rel: string) => string, mtime: (rel: string) => number, cleanup: () => void}}
- *          `rel` is relative to `<root>/.planning`.
+ *          `rel` is relative to `<root>/.aoforge`.
  */
 function flagsProject(opts = {}) {
   const { roadmap = null, objectives = [], state = DEFAULT_STATE } = opts;
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-objective-flags-')));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(path.join(planning, 'objectives'), { recursive: true });
 
   if (roadmap !== null) fs.writeFileSync(path.join(planning, 'ROADMAP.md'), roadmap, 'utf-8');

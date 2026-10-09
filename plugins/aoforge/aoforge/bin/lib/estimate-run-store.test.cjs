@@ -362,20 +362,20 @@ describe('12. formatStatusSegment', () => {
 });
 
 describe('13. findProjectRoot and stateRoot', () => {
-  test('13a. findProjectRoot walks up to the directory that holds .planning', () => {
-    fs.mkdirSync(path.join(root, '.planning'));
+  test('13a. findProjectRoot walks up to the directory that holds .aoforge', () => {
+    fs.mkdirSync(path.join(root, '.aoforge'));
     const deep = path.join(root, 'a', 'b');
     fs.mkdirSync(deep, { recursive: true });
     assert.equal(store.findProjectRoot(deep), root);
     assert.equal(store.findProjectRoot(root), root);
   });
 
-  test('13b. no .planning anywhere above gives null', () => {
+  test('13b. no .aoforge anywhere above gives null', () => {
     assert.equal(store.findProjectRoot(root), null);
   });
 
   test('13c. the walk is capped at 8 levels above the start', () => {
-    fs.mkdirSync(path.join(root, '.planning'));
+    fs.mkdirSync(path.join(root, '.aoforge'));
     const eight = path.join(root, 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h');
     const nine = path.join(eight, 'i');
     fs.mkdirSync(nine, { recursive: true });
@@ -384,8 +384,8 @@ describe('13. findProjectRoot and stateRoot', () => {
     assert.equal(store.findProjectRoot(nine, 9), root);
   });
 
-  test('13d. a .planning FILE does not make a project root', () => {
-    fs.writeFileSync(path.join(root, '.planning'), 'not a directory');
+  test('13d. a .aoforge FILE does not make a project root', () => {
+    fs.writeFileSync(path.join(root, '.aoforge'), 'not a directory');
     assert.equal(store.findProjectRoot(root), null);
   });
 
@@ -623,10 +623,11 @@ describe('17. latestRun', () => {
 });
 
 describe('module hygiene', () => {
-  test('requires only node builtins and ./upgrade.cjs', () => {
+  test('requires only node builtins, ./upgrade.cjs and ./compat.cjs', () => {
     const src = fs.readFileSync(path.join(__dirname, 'estimate-run-store.cjs'), 'utf8');
     const required = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]);
-    const allowed = new Set(['fs', 'os', 'path', './upgrade.cjs']);
+    // compat.cjs requires only fs, path and legacy-names.cjs (the planning-directory resolver, TRD 72-05)
+    const allowed = new Set(['fs', 'os', 'path', './upgrade.cjs', './compat.cjs']);
     for (const r of required) assert.ok(allowed.has(r), `unexpected require: ${r}`);
   });
 

@@ -26,6 +26,10 @@ const LIB = path.join(PLUGIN_ROOT, 'aoforge', 'bin', 'lib');
 const T = require(path.join(LIB, '__fixtures__', 'todo-transcript-fixtures.cjs'));
 const A = require(path.join(LIB, '__fixtures__', 'todo-archive-fixtures.cjs'));
 const { makeStoreProject } = require(path.join(LIB, '__fixtures__', 'gh-store-fixtures.cjs'));
+// This hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
+for (const fx of ['todo-archive-fixtures.cjs', 'gh-store-fixtures.cjs']) {
+  require(path.join(LIB, '__fixtures__', fx)).setPlanningDir(require(path.join(LIB, 'legacy-names.cjs')).LEGACY.planningDir);
+}
 const { installGhShim } = require(path.join(LIB, '__fixtures__', 'gh-shim.cjs'));
 const outbox = require(path.join(LIB, 'gh-outbox.cjs'));
 

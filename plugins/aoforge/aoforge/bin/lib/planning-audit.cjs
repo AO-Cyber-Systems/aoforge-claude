@@ -17,7 +17,7 @@
  * A line is a write DIRECTIVE when it carries a write verb that no negation governs, and an
  * artifact token on the same line:
  *   - word forms (WRITE_VERB_RE, case-insensitive) need the artifact within MAX_GAP chars;
- *   - operator forms (WRITE_OP_RE: Write(, Edit(, cat >, cat <<, a redirect into .planning/,
+ *   - operator forms (WRITE_OP_RE: Write(, Edit(, cat >, cat <<, a redirect into .aoforge/,
  *     tee, sed -i, frontmatter set|merge, template fill) take any artifact on the line.
  * `@~/.claude/...` references are masked first: a template path is a read, not the file. So is
  * the quoted message of an `aof-tools commit "<msg>"` call ("docs: create roadmap" narrates).
@@ -36,6 +36,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const { PLANNING_DIR_NAMES } = require('./compat.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const WINDOW = 3;
 const MAX_GAP = 80;
@@ -49,10 +51,16 @@ const WRITE_VERB_RE =
 
 /**
  * Operator-form writes. Any artifact on the same line counts. The redirect form refuses a
- * `>` that closes a tag or an arrow (`<files>.planning/...`, `-->`, `=>`) and an fd number.
+ * `>` that closes a tag or an arrow (`<files>.aoforge/...`, `-->`, `=>`) and an fd number. A redirect into either
+ * planning directory (`.aoforge/`, or the legacy one) counts.
  */
-const WRITE_OP_RE =
-  /Write\(|Edit\(|\bcat\s*>|\bcat\s*<<|(?<![\w"'=\-\/<])>>?\s*\S*\.planning\/|\btee\b|\bsed -i\b|\bfrontmatter (?:set|merge)\b|\btemplate fill\b/g;
+const PLANNING_DIR_ALT = PLANNING_DIR_NAMES.map(escapeRegExp).join('|');
+const WRITE_OP_RE = new RegExp(
+  String.raw`Write\(|Edit\(|\bcat\s*>|\bcat\s*<<|(?<![\w"'=\-\/<])>>?\s*\S*(?:` +
+    PLANNING_DIR_ALT +
+    String.raw`)\/|\btee\b|\bsed -i\b|\bfrontmatter (?:set|merge)\b|\btemplate fill\b`,
+  'g',
+);
 
 /** Planning artifact tokens. Case-sensitive. Group 1|2|3 is the reported artifact name. */
 const ARTIFACT_RE =

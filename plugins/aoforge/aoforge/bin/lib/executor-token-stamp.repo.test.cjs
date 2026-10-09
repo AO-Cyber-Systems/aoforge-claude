@@ -232,7 +232,7 @@ describe('executor token stamp coverage (TRD 66-03)', { skip: !IS_AOFORGE_CHECKO
     const repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-66-03-repo-')));
     const projectsRoot = F.makeProjectsRoot();
     try {
-      fs.mkdirSync(path.join(repo, '.planning', 'objectives', '77-x'), { recursive: true });
+      fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', '77-x'), { recursive: true });
       const values = valuesFor(repo);
       const key = F.projectKeyFor(repo);
       F.writeSubagentTranscript(projectsRoot, {

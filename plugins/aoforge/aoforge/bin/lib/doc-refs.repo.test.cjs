@@ -72,7 +72,7 @@ const SCAN_INCLUDE = [
 ];
 
 // Not scanned by design (outside SCAN_INCLUDE — documented here, not enforced by a test):
-// CHANGELOG.md, .planning/**, docs/ other than USER-GUIDE (dated PROPOSAL/IMPLEMENTATION-PLAN/
+// CHANGELOG.md, .aoforge/**, docs/ other than USER-GUIDE (dated PROPOSAL/IMPLEMENTATION-PLAN/
 // CODEX-PORT records), site/public (gitignored build output), and the sibling plugins under
 // plugins/ (their /<name>: commands are namespaced by their own plugin, not aoforge/df).
 

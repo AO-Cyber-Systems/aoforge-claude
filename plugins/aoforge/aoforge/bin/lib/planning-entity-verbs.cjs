@@ -5,7 +5,7 @@
  * GWP-01, U-1, D-03, D-05, D-09): todos, debug sessions, quick tasks, decisions and milestones.
  *
  * INVARIANT (D-01): with `github.store` off (`local` mode) every verb writes exactly the file today's code path writes,
- * under the MAIN checkout's `.planning/`, and makes zero gh calls (no journal, no ledger):
+ * under the MAIN checkout's `.aoforge/`, and makes zero gh calls (no journal, no ledger):
  *   todo add             todos/pending/<YYYY-MM-DD>-<slug>.md            (workflows/add-todo.md naming)
  *   todo complete        todos/completed/<stem>.md, `completed: <date>` prepended, pending file removed (cmdTodoComplete)
  *   debug put / resolve  debug/<slug>.md -> debug/resolved/<slug>.md      (agents/debugger.md layout)
@@ -52,6 +52,7 @@ const decisionQueue = require('./decision-queue.cjs');
 const storeCli = require('./gh-store-cli.cjs');
 const { generateSlugInternal } = require('./helpers.cjs');
 const { milestoneHeadingPattern } = require('./text-escape.cjs');
+const { planningRoot, planningDirLabel, planningRel } = require('./compat.cjs');
 
 const { EXIT } = storeCli;
 const { LOCAL, STORE } = planningMode;
@@ -63,7 +64,7 @@ const DECISION_TITLE_MAX = 80;
 
 // ─── Small helpers ───────────────────────────────────────────────────────────
 
-const planningFile = (main, rel) => path.join(main, '.planning', ...rel.split('/'));
+const planningFile = (main, rel) => path.join(planningRoot(main), ...rel.split('/'));
 
 function readOrNull(file) {
   try {
@@ -92,7 +93,7 @@ const flushFlags = (o) => ({ noFlush: o.noFlush === true, noWait: o.noWait === t
 /** `{main, mode}` for the MAIN checkout (D-14), or `{error}`. */
 function contextOf(root) {
   const main = planningMode.resolveMainRoot(root);
-  if (!main) return { error: `no .planning/ directory at or above ${root}` };
+  if (!main) return { error: `no ${planningDirLabel()} directory at or above ${root}` };
   return { main, mode: planningMode.planningMode(main).mode };
 }
 
@@ -109,7 +110,7 @@ function cleanStem(value) {
 }
 
 /**
- * entityIdFor(rel) — the entity id of a `.planning/`-relative path (`todo-<stem>`, `debug-<slug>`, `quick-<N>`), or
+ * entityIdFor(rel) — the entity id of a `.aoforge/`-relative path (`todo-<stem>`, `debug-<slug>`, `quick-<N>`), or
  * null. Delegates to planning-paths.classify, so a verb and the flusher/materialiser agree on one id per file.
  * Throws TypeError for an unsafe rel (planning-paths' rule).
  */
@@ -375,8 +376,8 @@ function quickSummary(root, opts = {}) {
   const n = quickNumber(o.n);
   if (!n) return fail(`quick summary needs a task number, got ${JSON.stringify(o.n === undefined ? null : o.n)}`);
   if (typeof o.text !== 'string') return fail('quick summary needs the SUMMARY text');
-  const dir = listDir(path.join(ctx.main, '.planning', 'quick')).find((d) => d.startsWith(`${n}-`));
-  if (!dir) return fail(`no quick task ${n} (no .planning/quick/${n}-<slug>/ directory); run quick put first`, { mode: ctx.mode });
+  const dir = listDir(path.join(planningRoot(ctx.main), 'quick')).find((d) => d.startsWith(`${n}-`));
+  if (!dir) return fail(`no quick task ${n} (no ${planningRel(ctx.main, 'quick')}/${n}-<slug>/ directory); run quick put first`, { mode: ctx.mode });
   const name = `${n}-SUMMARY.md`;
   const rel = `quick/${dir}/${name}`;
   if (ctx.mode === LOCAL) return verbs.writeThrough(ctx.main, { rel, text: o.text, verb: 'quick summary' });
@@ -616,7 +617,7 @@ function docsPut(main, rels, o = {}) {
 
 /** The `milestones/<version>-*.md` archives in the cache: what `milestone complete` publishes (and previews). */
 function milestoneArchives(main, version) {
-  return listDir(path.join(main, '.planning', 'milestones'))
+  return listDir(path.join(planningRoot(main), 'milestones'))
     .filter((f) => f.startsWith(`${version}-`) && f.endsWith('.md'))
     .map((f) => `milestones/${f}`);
 }

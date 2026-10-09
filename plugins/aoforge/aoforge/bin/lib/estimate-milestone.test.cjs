@@ -2,7 +2,7 @@
 
 // Tests for estimate-milestone.cjs (TRD 58-07, EST-03 milestone layer). The calibration is the literal CAL_V2, the
 // project is the literal MILESTONE_SPEC written into an mkdtemp directory: nothing here reads or writes the real
-// ~/.claude/aoforge/calibration.json or this repository's .planning.
+// ~/.claude/aoforge/calibration.json or this repository's .aoforge.
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -70,7 +70,7 @@ test('1 (scope). selectMilestoneObjectives: the current milestone takes its obje
   assert.deepEqual(numbers(sel), ['80', '81', '82', '83', '84']);
   assert.deepEqual(sel.objectives.map((o) => o.name), ['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon']);
   assert.deepEqual(sel.objectives.map((o) => o.status_hint), ['dir', 'dir', 'dir', 'dir', 'cancelled']);
-  assert.equal(sel.objectives[0].dir, '.planning/objectives/80-alpha');
+  assert.equal(sel.objectives[0].dir, '.aoforge/objectives/80-alpha');
   assert.deepEqual(sel.absent, []);
 });
 
@@ -130,17 +130,17 @@ test('5b. singles join the ranges; a single with neither a directory nor a secti
 test('5c. an archived objective directory counts as the objective\'s directory, a current one wins', () => {
   const archived = makeEstimateProject(MILESTONE_SPEC);
   try {
-    const archive = path.join(archived, '.planning', 'milestones', 'v0.9-objectives');
+    const archive = path.join(archived, '.aoforge', 'milestones', 'v0.9-objectives');
     fs.mkdirSync(path.join(archive, '70-legacy'), { recursive: true });
     fs.mkdirSync(path.join(archive, '80-stale'), { recursive: true });
     const sel = milestone.selectMilestoneObjectives(archived, { version: 'v0.9' });
     assert.deepEqual(numbers(sel), ['70']);
     assert.equal(sel.objectives[0].name, 'legacy');
-    assert.equal(sel.objectives[0].dir, '.planning/milestones/v0.9-objectives/70-legacy');
+    assert.equal(sel.objectives[0].dir, '.aoforge/milestones/v0.9-objectives/70-legacy');
     assert.deepEqual(sel.absent, ['71', '72', '73', '74', '75', '76', '77', '78', '79']);
     // 80 exists in the current objectives too; the current directory is the one listed.
     const now = milestone.selectMilestoneObjectives(archived);
-    assert.equal(now.objectives[0].dir, '.planning/objectives/80-alpha');
+    assert.equal(now.objectives[0].dir, '.aoforge/objectives/80-alpha');
   } finally {
     removeEstimateProject(archived);
   }
@@ -234,7 +234,7 @@ test('2. each objective entry carries its status, TRD counts, total and confiden
 
   const alpha = entry(r, '80');
   assert.equal(alpha.name, 'Alpha');
-  assert.equal(alpha.dir, '.planning/objectives/80-alpha');
+  assert.equal(alpha.dir, '.aoforge/objectives/80-alpha');
   assert.deepEqual(alpha.trds, { total: 4, done: 1, remaining: 3 });
   nearPair(alpha.total.wall_minutes, 25.6464, 69.1577, '80 wall');
   assert.ok(['low', 'medium', 'high'].includes(alpha.confidence), `80 confidence: ${alpha.confidence}`);

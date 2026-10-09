@@ -18,7 +18,7 @@
 //   primitives, then update sync state.
 //
 // Objective identity (TRD 46-06): every resolver's `objectiveId` is the objective DIRECTORY name
-// (e.g. "02-a"). It builds `.planning/objectives/<dir>/OBJECTIVE.md` and is handed to
+// (e.g. "02-a"). It builds `.aoforge/objectives/<dir>/OBJECTIVE.md` and is handed to
 // `gh.cmdGhSyncObjective` unchanged. sync-state normalises that same value to the objective id
 // ("2"), so getLastSync/recordSync here read and write the record push and pull share.
 
@@ -27,6 +27,7 @@ const path = require('path');
 
 const { recordSync, hashFrontmatter, getLastSync } = require('./sync-state.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // Tracked fields (must match lib/gh-pull.cjs TRACKED_FIELDS)
 const TRACKED_FIELDS = ['status', 'labels', 'assignees', 'milestone'];
@@ -238,7 +239,7 @@ function resolveGh({ cwd, objectiveId, issueRef, ghIssue, currentDiskFm }) {
   if (!r.ok) return { ok: false, error: r.error };
 
   // applyDrift wrote disk; now record the new sync state and clear pending_resolution.
-  const objPath = path.join(cwd, '.planning', 'objectives', objectiveId, 'OBJECTIVE.md');
+  const objPath = path.join(planningRoot(cwd), 'objectives', objectiveId, 'OBJECTIVE.md');
   const updatedDiskFm = extractFrontmatter(fs.readFileSync(objPath, 'utf-8')) || {};
   const last = getLastSync(cwd, objectiveId) || {};
   const cleared = { ...last };

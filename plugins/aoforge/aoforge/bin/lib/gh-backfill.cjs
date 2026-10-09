@@ -23,6 +23,7 @@ const ghMapping = require('./gh-mapping.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
 const outbox = require('./gh-outbox.cjs');
 const planningMode = require('./planning-mode.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── small helpers ───────────────────────────────────────────────────────────
 
@@ -251,7 +252,7 @@ function objectiveTrds(root, entry, warnings) {
     warnings.push(`objective ${entry.id}: ${e.message}`);
     return [];
   }
-  const base = path.join(root, '.planning', 'objectives', entry.dir);
+  const base = path.join(planningRoot(root), 'objectives', entry.dir);
   const summaries = new Map(ghHierarchy.findSummaries(base, trds, warnings).map((s) => [s.trdId, s.file]));
   return trds.map((t) => ({ id: t.id, file: t.file, summary: summaries.has(t.id) ? summaries.get(t.id) : null }));
 }
@@ -271,7 +272,7 @@ function objectiveTrds(root, entry, warnings) {
  */
 function historyOf(root) {
   const warnings = [];
-  const rows = parseProgress(readText(path.join(root, '.planning', 'ROADMAP.md')));
+  const rows = parseProgress(readText(path.join(planningRoot(root), 'ROADMAP.md')));
   let index;
   try {
     index = ghMapping.listObjectiveIndex(root);
@@ -282,7 +283,7 @@ function historyOf(root) {
   const objectives = [];
   for (const entry of index) {
     const trds = objectiveTrds(root, entry, warnings);
-    const fm = entry.dir ? readFrontmatter(path.join(root, '.planning', 'objectives', entry.dir, 'OBJECTIVE.md')) : {};
+    const fm = entry.dir ? readFrontmatter(path.join(planningRoot(root), 'objectives', entry.dir, 'OBJECTIVE.md')) : {};
     const { state, source } = classifyObjective(fm.status, progressStateOf(rows, entry.id), trds);
     objectives.push({
       id: entry.id,

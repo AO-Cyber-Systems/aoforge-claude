@@ -12,14 +12,14 @@
 //   7. custom threshold parameter respected
 // cmdDetectBrownfieldMap (CLI):
 //   8. tmpdir scaffold: empty repo → planning_exists:false, should_offer:false
-//   9. tmpdir: .planning/ only, 0 source files → should_offer:false (count below threshold)
-//   10. tmpdir: .planning/ only, 60 source files → should_offer:true
-//   11. tmpdir: .planning/ + .planning/codebase/ + 100 source files → should_offer:false
-//   12. tmpdir: 100 source files but no .planning → should_offer:false
+//   9. tmpdir: .aoforge/ only, 0 source files → should_offer:false (count below threshold)
+//   10. tmpdir: .aoforge/ only, 60 source files → should_offer:true
+//   11. tmpdir: .aoforge/ + .aoforge/codebase/ + 100 source files → should_offer:false
+//   12. tmpdir: 100 source files but no .aoforge → should_offer:false
 // File counting edge cases:
 //   13. node_modules subdir with 200 files → not counted
 //   14. .git subdir with 50 files → not counted
-//   15. .planning/ subdir contents not counted in source count
+//   15. .aoforge/ subdir contents not counted in source count
 //   16. nested src/components/ counted recursively
 //   17. mixed extensions (.ts, .py, .go) all counted
 //   18. unknown extension (.txt, .md) NOT counted
@@ -211,7 +211,7 @@ describe('cmdDetectBrownfieldMap — CLI scaffold tests', () => {
     assert.strictEqual(result.should_offer_map, false);
   });
 
-  test('9. .planning/ only, 0 source files → should_offer:false (count below threshold)', () => {
+  test('9. .aoforge/ only, 0 source files → should_offer:false (count below threshold)', () => {
     makeScaffold(tmpDir, { hasPlanning: true });
     const { stdout, exitCode } = runCmd(tmpDir, null, false);
     assert.strictEqual(exitCode, 0);
@@ -222,7 +222,7 @@ describe('cmdDetectBrownfieldMap — CLI scaffold tests', () => {
     assert.strictEqual(result.should_offer_map, false);
   });
 
-  test('10. .planning/ only, 60 source files → should_offer:true', () => {
+  test('10. .aoforge/ only, 60 source files → should_offer:true', () => {
     makeScaffold(tmpDir, {
       hasPlanning: true,
       sourceFiles: { count: 60, exts: ['.ts'] },
@@ -236,7 +236,7 @@ describe('cmdDetectBrownfieldMap — CLI scaffold tests', () => {
     assert.strictEqual(result.should_offer_map, true);
   });
 
-  test('11. .planning/ + .planning/codebase/ + 100 source files → should_offer:false', () => {
+  test('11. .aoforge/ + .aoforge/codebase/ + 100 source files → should_offer:false', () => {
     makeScaffold(tmpDir, {
       hasPlanning: true,
       hasCodebaseMap: true,
@@ -250,7 +250,7 @@ describe('cmdDetectBrownfieldMap — CLI scaffold tests', () => {
     assert.strictEqual(result.should_offer_map, false);
   });
 
-  test('12. 100 source files but no .planning → should_offer:false', () => {
+  test('12. 100 source files but no .aoforge → should_offer:false', () => {
     makeScaffold(tmpDir, {
       sourceFiles: { count: 100, exts: ['.ts'] },
     });
@@ -289,7 +289,7 @@ describe('file counting edge cases', () => {
   });
 
   test('14. .git subdir with 50 files → not counted', () => {
-    // Create a fresh scaffold including .planning (already done in beforeEach)
+    // Create a fresh scaffold including .aoforge (already done in beforeEach)
     // Add .git directory with 50 .js files
     const gitDir = path.join(tmpDir, '.git');
     fs.mkdirSync(gitDir, { recursive: true });
@@ -307,17 +307,17 @@ describe('file counting edge cases', () => {
     assert.strictEqual(result.source_file_count, 5);
   });
 
-  test('15. .planning/ subdir contents not counted in source count', () => {
-    // Ensure .planning exists
-    const planningDir = path.join(tmpDir, '.planning');
+  test('15. .aoforge/ subdir contents not counted in source count', () => {
+    // Ensure .aoforge exists
+    const planningDir = path.join(tmpDir, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
-    // Place source files inside .planning (should not count)
+    // Place source files inside .aoforge (should not count)
     const planSrcDir = path.join(planningDir, 'scripts');
     fs.mkdirSync(planSrcDir, { recursive: true });
     for (let i = 0; i < 30; i++) {
       fs.writeFileSync(path.join(planSrcDir, `script${i}.js`), `// script${i}\n`, 'utf-8');
     }
-    // Only 3 real source files outside .planning
+    // Only 3 real source files outside .aoforge
     const srcDir = path.join(tmpDir, 'lib');
     fs.mkdirSync(srcDir, { recursive: true });
     for (let i = 0; i < 3; i++) {

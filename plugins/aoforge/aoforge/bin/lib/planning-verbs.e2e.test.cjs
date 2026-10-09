@@ -4,11 +4,11 @@
 //
 // With GitHub as the store (SC3): plan -> execute -> verify driven only through the verbs leaves git seeing nothing
 // but the code, and GitHub holding everything. With the store off (D-01): the same script is today's AOForge — the
-// same .planning/ files with the same bytes, zero gh calls, no outbox, .planning/ tracked.
+// same .aoforge/ files with the same bytes, zero gh calls, no outbox, .aoforge/ tracked.
 //
 // Test list -> criterion:
 //   store mode (fake GitHub, local file:// wiki remote, migration 0010 applied)
-//     1. setup: only config.json + STACK.md tracked under .planning/; .gitignore has the 0010 block     (SC3 setup)
+//     1. setup: only config.json + STACK.md tracked under .aoforge/; .gitignore has the 0010 block     (SC3 setup)
 //     2. the scenario: git status is empty after every verb, apart from the in-flight src/t<N>.cjs      (SC3)
 //     3. GitHub holds the objective, 3 TRD sub-issues + blocked-by, summaries, verification, pages,
 //        the todo and the closed quick issue                                                          (SC3, GWP-04)
@@ -19,7 +19,7 @@
 //   store off (parity, D-01)
 //     8. every verb writes exactly its draft's bytes; objective complete effects equal the pre-48 command on a twin;
 //        zero gh calls; no outbox or ledger files
-//     9. .planning/ is dirty after the verbs and clean after `aof-tools commit --files .planning/` (still tracked)
+//     9. .aoforge/ is dirty after the verbs and clean after `aof-tools commit --files .aoforge/` (still tracked)
 //
 // Driver: the 48-15 planning-verbs-cli `cmd*` functions in-process (so the fake GitHub is injectable through the
 // gh-client seam); `aof-tools commit`, `upgrade --apply --only 0010 --confirm`, `validate health` and the twin's
@@ -47,6 +47,7 @@ const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixture
 const { makeE2eRepo, OBJECTIVE_DIR, REPO, TODO_STEM, ROADMAP_MD, STATE_MD } = require('./__fixtures__/planning-e2e-fixtures.cjs');
 
 const cli = require('./planning-verbs-cli.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 const D = `objectives/${OBJECTIVE_DIR}`;
@@ -178,7 +179,7 @@ function runScenario(R, onStep = () => {}) {
   return results;
 }
 
-/** `{rel: Buffer}` of every file under `.planning/` (sorted walk) whose rel passes `keep`. */
+/** `{rel: Buffer}` of every file under `.aoforge/` (sorted walk) whose rel passes `keep`. */
 function snapshotPlanning(R, keep = () => true) {
   const out = {};
   const walk = (dir, rel) => {
@@ -189,12 +190,12 @@ function snapshotPlanning(R, keep = () => true) {
       else if (keep(r)) out[r] = fs.readFileSync(path.join(dir, e.name));
     }
   };
-  walk(path.join(R.root, '.planning'), '');
+  walk(path.join(R.root, '.aoforge'), '');
   return out;
 }
 
 /**
- * True for a `.planning/` rel the store owns in the cache (a verb writes it; gh pull rebuilds it). `wiki/**` is the
+ * True for a `.aoforge/` rel the store owns in the cache (a verb writes it; gh pull rebuilds it). `wiki/**` is the
  * local clone of the wiki repository that gh pull reads the pages from, not a cache file (gh-cache.listOwnedLocal
  * drops it the same way), so it is kept like the runtime files.
  */
@@ -212,20 +213,35 @@ function w055(R) {
 const GATE_HOOK = path.join(__dirname, '..', '..', '..', 'hooks', 'gate-edits.js');
 
 /**
- * The edit gate's answer to an aoforge executor's Edit of `.planning/<rel>` (the real hook, spawned in the repo):
+ * The edit gate's answer to an aoforge executor's Edit of `.aoforge/<rel>` (the real hook, spawned in the repo):
  * `{denied, out}`. An aoforge agent passes the ambient gate, so only the store-mode cache deny can refuse it.
  */
+/**
+ * The hooks resolve only the legacy planning directory until 72-06 moves them onto the resolver (TRD 72-05), so the
+ * gate runs on a copy of this repository's planning tree under the legacy name, in its own git repository. 72-06 points
+ * it back at R.root.
+ */
+function legacyLayoutCopy(R) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'e2e-legacy-layout-')));
+  fs.cpSync(path.join(R.root, NAMES.planningDir), path.join(root, LEGACY.planningDir), { recursive: true });
+  const g = spawnSync('git', ['init', '-q'], { cwd: root, env: R.childEnv(), encoding: 'utf8' });
+  assert.equal(g.status, 0, g.stderr);
+  return root;
+}
+
 function gateEdit(R, rel) {
   const env = R.childEnv();
   delete env.AOFORGE_SKIP_EDIT_GATE;
+  const root = legacyLayoutCopy(R);
   const payload = {
     hook_event_name: 'PreToolUse',
     tool_name: 'Edit',
-    tool_input: { file_path: R.planning(rel), old_string: 'Alpha', new_string: 'Alpha!' },
-    cwd: R.root,
+    tool_input: { file_path: path.join(root, LEGACY.planningDir, ...rel.split('/')), old_string: 'Alpha', new_string: 'Alpha!' },
+    cwd: root,
     agent_type: 'aoforge:executor',
   };
-  const r = spawnSync(process.execPath, [GATE_HOOK], { cwd: R.root, input: JSON.stringify(payload), encoding: 'utf8', env });
+  const r = spawnSync(process.execPath, [GATE_HOOK], { cwd: root, input: JSON.stringify(payload), encoding: 'utf8', env });
+  fs.rmSync(root, { recursive: true, force: true });
   const out = `${r.stdout}\n${r.stderr}`;
   return { denied: /"permissionDecision"\s*:\s*"deny"/.test(r.stdout) || r.status === 2, out, status: r.status };
 }
@@ -260,8 +276,8 @@ describe('store mode: plan -> execute -> verify through the verbs', { skip: gitA
     if (W) W.restore();
   });
 
-  test('1. after setup only config.json and STACK.md are tracked under .planning/; .gitignore holds the 0010 block', () => {
-    assert.deepEqual(R.lsFiles('.planning'), ['.planning/STACK.md', '.planning/config.json']);
+  test('1. after setup only config.json and STACK.md are tracked under .aoforge/; .gitignore holds the 0010 block', () => {
+    assert.deepEqual(R.lsFiles('.aoforge'), ['.aoforge/STACK.md', '.aoforge/config.json']);
     const ignore = fs.readFileSync(path.join(R.root, '.gitignore'), 'utf8').split('\n');
     const start = ignore.indexOf(STORE_BLOCK_START);
     const end = ignore.indexOf(STORE_BLOCK_END);
@@ -286,7 +302,7 @@ describe('store mode: plan -> execute -> verify through the verbs', { skip: gitA
     });
     assert.equal(seen.length, 18, seen.join('\n'));
     assert.deepEqual(R.gitStatus(), [], 'clean at the end');
-    assert.deepEqual(R.lsFiles('.planning'), ['.planning/STACK.md', '.planning/config.json'], 'nothing new tracked under .planning/');
+    assert.deepEqual(R.lsFiles('.aoforge'), ['.aoforge/STACK.md', '.aoforge/config.json'], 'nothing new tracked under .aoforge/');
     assert.deepEqual(R.lsFiles('src'), ['src/t1.cjs', 'src/t2.cjs', 'src/t3.cjs']);
     // The cache holds every file the verbs wrote, with the draft bytes.
     for (const f of ['07-01-alpha-TRD.md', '07-02-beta-TRD.md', '07-03-gamma-TRD.md', '07-CONTEXT.md', '07-RESEARCH.md']) {
@@ -410,7 +426,7 @@ describe('store mode: plan -> execute -> verify through the verbs', { skip: gitA
 
 // ─── Store off: parity (D-01) ────────────────────────────────────────────────
 
-/** Where today's AOForge keeps each file the scenario writes: `.planning/` rel -> draft name. */
+/** Where today's AOForge keeps each file the scenario writes: `.aoforge/` rel -> draft name. */
 const LOCAL_WRITES = {
   [`${D}/OBJECTIVE.md`]: 'OBJECTIVE.md',
   [`${D}/07-01-alpha-TRD.md`]: '07-01-alpha-TRD.md',
@@ -477,8 +493,8 @@ describe('store off: the same script is today\'s AOForge (D-01 parity)', { skip:
       'OBJECTIVE.md is the draft with status: complete',
     );
 
-    // Every other .planning/ file — ROADMAP.md and STATE.md included — is byte-identical to the twin's, and no
-    // file exists on one side only (no journal, ledger, mapping or draft in .planning/).
+    // Every other .aoforge/ file — ROADMAP.md and STATE.md included — is byte-identical to the twin's, and no
+    // file exists on one side only (no journal, ledger, mapping or draft in .aoforge/).
     const notObjective = (rel) => rel !== objectiveRel;
     const a = snapshotPlanning(A, notObjective);
     const b = snapshotPlanning(B, notObjective);
@@ -499,18 +515,18 @@ describe('store off: the same script is today\'s AOForge (D-01 parity)', { skip:
     assert.equal(fs.existsSync(ledgerLib.ledgerPath(A.root)), false);
   });
 
-  test('9. .planning/ is dirty after the verbs and clean after aof-tools commit; it stays tracked; no cache deny', () => {
+  test('9. .aoforge/ is dirty after the verbs and clean after aof-tools commit; it stays tracked; no cache deny', () => {
     const expected = [
-      ...Object.keys(LOCAL_WRITES).map((rel) => `?? .planning/${rel}`),
-      ' M .planning/ROADMAP.md',
-      ' M .planning/STATE.md',
+      ...Object.keys(LOCAL_WRITES).map((rel) => `?? .aoforge/${rel}`),
+      ' M .aoforge/ROADMAP.md',
+      ' M .aoforge/STATE.md',
     ].sort();
     assert.deepEqual([...A.gitStatus()].sort(), expected);
 
-    df(A, ['commit', 'docs(07): objective 7 planning files', '--files', '.planning/']);
+    df(A, ['commit', 'docs(07): objective 7 planning files', '--files', '.aoforge/']);
     assert.deepEqual(A.gitStatus(), [], 'clean after the commit');
-    const tracked = A.lsFiles('.planning');
-    for (const rel of Object.keys(LOCAL_WRITES)) assert.ok(tracked.includes(`.planning/${rel}`), `${rel} is tracked`);
+    const tracked = A.lsFiles('.aoforge');
+    for (const rel of Object.keys(LOCAL_WRITES)) assert.ok(tracked.includes(`.aoforge/${rel}`), `${rel} is tracked`);
     assert.ok(!fs.existsSync(path.join(A.root, '.gitignore')), 'no store .gitignore block');
 
     const gate = gateEdit(A, `${D}/07-01-alpha-TRD.md`);

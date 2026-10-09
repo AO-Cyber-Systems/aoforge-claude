@@ -13,8 +13,10 @@
 // (37-01 had it backwards to avoid ordering the two TRDs). project-state.cjs re-exports both.
 
 const fs = require('fs');
+const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { planningRoot } = require('./compat.cjs');
 
 const STATES = Object.freeze(['aoforge', 'greenfield', 'brownfield', 'scratch']);
 
@@ -25,7 +27,7 @@ const DEFAULT_SCRATCH_PREFIXES = Object.freeze(['/tmp/', '/var/folders/']);
 const EXCLUDE = new Set([
   'node_modules',
   '.git',
-  '.planning',
+  ...PLANNING_DIR_NAMES, // both planning-directory names (a legacy project keeps the old one)
   'dist',
   'build',
   '.next',
@@ -200,8 +202,8 @@ function countSourceFiles(root, { extraExts = [] } = {}) {
  * `/var/folders/` on macOS) must pass `scratchPrefixes: []` explicitly.
  */
 function collectSignals(root, { userHome = null, scratchPrefixes = DEFAULT_SCRATCH_PREFIXES, downloadsHome = userHome } = {}) {
-  const has_planning = fs.existsSync(path.join(root, '.planning'));
-  const has_codebase_map = fs.existsSync(path.join(root, '.planning', 'codebase'));
+  const has_planning = fs.existsSync(planningRoot(root));
+  const has_codebase_map = fs.existsSync(path.join(planningRoot(root), 'codebase'));
   const has_git = fs.existsSync(path.join(root, '.git'));
 
   const { has_manifest, primary_lang } = detectManifest(root, { userHome });

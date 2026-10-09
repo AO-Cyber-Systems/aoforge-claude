@@ -32,6 +32,7 @@ const outbox = require('./gh-outbox.cjs');
 const ghTrd = require('./gh-trd.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
 const planningPaths = require('./planning-paths.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const LEDGER_VERSION = 1;
 const LEDGER_SUFFIX = '.verb-writes.json';
@@ -129,7 +130,7 @@ function readLedger(root, opts = {}) {
 }
 
 /**
- * Record a verb write of `text` to `.planning/<rel>`. Replaces any earlier entry for `rel`.
+ * Record a verb write of `text` to `.aoforge/<rel>`. Replaces any earlier entry for `rel`.
  * Throws TypeError, before writing anything, for an unsafe rel, non-string text, a non-string verb or a bad `now`.
  * @param {{verb?: string|null, now?: Date|number|string, env?: object, home?: string}} [opts]
  * @returns {{path: string, entry: {hash: string, at: string, verb: string|null}, recovered: null|{corrupt_path: string}}}
@@ -177,10 +178,10 @@ function matches(root, rel, text, opts = {}) {
   return Object.hasOwn(entries, rel) && entries[rel].hash === ghTrd.contentHash(text);
 }
 
-/** The current text of `.planning/<rel>`, or null when the file does not exist. Other errors propagate. */
+/** The current text of `.aoforge/<rel>`, or null when the file does not exist. Other errors propagate. */
 function readPlanningFile(root, rel) {
   try {
-    return fs.readFileSync(path.join(root, '.planning', ...rel.split('/')), 'utf8');
+    return fs.readFileSync(path.join(planningRoot(root), ...rel.split('/')), 'utf8');
   } catch (e) {
     if (e && e.code === 'ENOENT') return null;
     throw e;
@@ -190,7 +191,7 @@ function readPlanningFile(root, rel) {
 /**
  * Split the ledger's rels by the file's current bytes: `matching` still hashes to the recorded value (safe to baseline
  * after a flush, then `forget`), `drifted` was edited, deleted or could not be read since the verb wrote it.
- * `readFile(rel) -> string | Buffer | null` defaults to reading `<root>/.planning/<rel>`; a reader that throws counts as drifted.
+ * `readFile(rel) -> string | Buffer | null` defaults to reading `<root>/.aoforge/<rel>`; a reader that throws counts as drifted.
  * @returns {{matching: string[], drifted: string[]}} both sorted
  */
 function settleCandidates(root, readFile, opts = {}) {

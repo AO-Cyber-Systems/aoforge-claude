@@ -11,20 +11,20 @@ const { bootstrapProjectMd, bootstrapObjectiveMd, backfillAllObjectives } = requ
 
 // Helper: scaffold a tmp git repo with optional remote + optional PROJECT.md content.
 // objectives: Record<objectiveId, string|null> — null = create dir only; string = create dir + OBJECTIVE.md with that content
-// roadmap: string content for .planning/ROADMAP.md
+// roadmap: string content for .aoforge/ROADMAP.md
 function makeRepo({ remote, projectMd, roadmap, objectives }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-'));
   execSync('git init -q', { cwd: root });
   if (remote) execSync(`git remote add origin ${remote}`, { cwd: root });
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (projectMd !== undefined) {
-    fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), projectMd, 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'PROJECT.md'), projectMd, 'utf-8');
   }
   if (roadmap !== undefined) {
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), roadmap, 'utf-8');
   }
   if (objectives) {
-    const objDir = path.join(root, '.planning', 'objectives');
+    const objDir = path.join(root, '.aoforge', 'objectives');
     fs.mkdirSync(objDir, { recursive: true });
     for (const [id, content] of Object.entries(objectives)) {
       const dir = path.join(objDir, id);
@@ -82,7 +82,7 @@ test('B4 — PROJECT.md without frontmatter → prepends org+github_repo', () =>
     const r = bootstrapProjectMd(repo);
     assert.strictEqual(r.applied, true);
     assert.deepStrictEqual(r.added_fields.sort(), ['github_repo', 'org']);
-    const content = fs.readFileSync(path.join(repo, '.planning', 'PROJECT.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(repo, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.match(content, /^---\norg: AO-Cyber-Systems\ngithub_repo: AO-Cyber-Systems\/aodex-dev\n---/);
     assert.match(content, /# AODex Dev/);
   } finally {
@@ -99,7 +99,7 @@ test('B5 — PROJECT.md with frontmatter missing org+github_repo → both added'
     const r = bootstrapProjectMd(repo);
     assert.strictEqual(r.applied, true);
     assert.deepStrictEqual(r.added_fields.sort(), ['github_repo', 'org']);
-    const content = fs.readFileSync(path.join(repo, '.planning', 'PROJECT.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(repo, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.match(content, /kind: api/);
     assert.match(content, /default_work: feature/);
     assert.match(content, /org: AO-Cyber-Systems/);
@@ -145,7 +145,7 @@ test('B8 — SSH remote URL parsed correctly', () => {
   try {
     const r = bootstrapProjectMd(repo);
     assert.strictEqual(r.applied, true);
-    const content = fs.readFileSync(path.join(repo, '.planning', 'PROJECT.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(repo, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.match(content, /github_repo: AO-Cyber-Systems\/foo/);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
@@ -160,12 +160,12 @@ test('B9 — idempotent: running twice produces same result', () => {
   try {
     const r1 = bootstrapProjectMd(repo);
     assert.strictEqual(r1.applied, true);
-    const content1 = fs.readFileSync(path.join(repo, '.planning', 'PROJECT.md'), 'utf-8');
+    const content1 = fs.readFileSync(path.join(repo, '.aoforge', 'PROJECT.md'), 'utf-8');
 
     const r2 = bootstrapProjectMd(repo);
     assert.strictEqual(r2.applied, false);
     assert.strictEqual(r2.reason, 'already bootstrapped');
-    const content2 = fs.readFileSync(path.join(repo, '.planning', 'PROJECT.md'), 'utf-8');
+    const content2 = fs.readFileSync(path.join(repo, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.strictEqual(content1, content2, 'second run must not mutate file');
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
@@ -229,7 +229,7 @@ test('O3 — bootstrapObjectiveMd: missing PROJECT.md → uses "feature" fallbac
   const repo = makeRepo({
     objectives: { '03-baz': null },
   });
-  // No projectMd written (no .planning/PROJECT.md)
+  // No projectMd written (no .aoforge/PROJECT.md)
   try {
     const r = bootstrapObjectiveMd(repo, '03-baz');
     assert.strictEqual(r.applied, true);
@@ -420,13 +420,13 @@ test('O10 — bootstrapObjectiveMd: pure file I/O (no execSync dependency — fu
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pb-nogit-'));
   try {
     // Set up structure without git init
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
     fs.writeFileSync(
-      path.join(root, '.planning', 'PROJECT.md'),
+      path.join(root, '.aoforge', 'PROJECT.md'),
       '---\nkind: plugin\ndefault_work: feature\n---\n\n# Test\n',
       'utf-8'
     );
-    fs.mkdirSync(path.join(root, '.planning', 'objectives', '10-no-git'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge', 'objectives', '10-no-git'), { recursive: true });
 
     const r = bootstrapObjectiveMd(root, '10-no-git');
     assert.strictEqual(r.applied, true, 'bootstrapObjectiveMd must not require git');
@@ -458,15 +458,15 @@ test('O11 — backfillAllObjectives {match}: creates only NN dirs missing OBJECT
   });
   try {
     const r = backfillAllObjectives(repo, { match: NN_OBJECTIVE_RE });
-    assert.deepStrictEqual(r.paths, ['.planning/objectives/01-a/OBJECTIVE.md']);
+    assert.deepStrictEqual(r.paths, ['.aoforge/objectives/01-a/OBJECTIVE.md']);
     assert.strictEqual(r.scanned, 2, 'NOTES does not match, so it is not scanned');
     assert.strictEqual(r.applied, 1);
     assert.strictEqual(r.skipped, 1);
     assert.deepStrictEqual(r.errors, []);
-    assert.ok(fs.existsSync(path.join(repo, '.planning', 'objectives', '01-a', 'OBJECTIVE.md')));
-    assert.deepStrictEqual(fs.readdirSync(path.join(repo, '.planning', 'objectives', 'NOTES')), []);
+    assert.ok(fs.existsSync(path.join(repo, '.aoforge', 'objectives', '01-a', 'OBJECTIVE.md')));
+    assert.deepStrictEqual(fs.readdirSync(path.join(repo, '.aoforge', 'objectives', 'NOTES')), []);
     assert.strictEqual(
-      fs.readFileSync(path.join(repo, '.planning', 'objectives', '02-b', 'OBJECTIVE.md'), 'utf-8'),
+      fs.readFileSync(path.join(repo, '.aoforge', 'objectives', '02-b', 'OBJECTIVE.md'), 'utf-8'),
       '---\nwork: port\n---\n\n# Existing\n'
     );
   } finally {
@@ -482,12 +482,12 @@ test('O12 — backfillAllObjectives {match, dryRun}: paths names the would-be fi
   try {
     const r = backfillAllObjectives(repo, { match: NN_OBJECTIVE_RE, dryRun: true });
     assert.deepStrictEqual(r.paths, [
-      '.planning/objectives/01-a/OBJECTIVE.md',
-      '.planning/objectives/02.1-hotfix/OBJECTIVE.md',
+      '.aoforge/objectives/01-a/OBJECTIVE.md',
+      '.aoforge/objectives/02.1-hotfix/OBJECTIVE.md',
     ]);
-    assert.ok(!fs.existsSync(path.join(repo, '.planning', 'objectives', '01-a', 'OBJECTIVE.md')));
-    assert.ok(!fs.existsSync(path.join(repo, '.planning', 'objectives', '02.1-hotfix', 'OBJECTIVE.md')));
-    assert.deepStrictEqual(fs.readdirSync(path.join(repo, '.planning', 'objectives', 'NOTES')), []);
+    assert.ok(!fs.existsSync(path.join(repo, '.aoforge', 'objectives', '01-a', 'OBJECTIVE.md')));
+    assert.ok(!fs.existsSync(path.join(repo, '.aoforge', 'objectives', '02.1-hotfix', 'OBJECTIVE.md')));
+    assert.deepStrictEqual(fs.readdirSync(path.join(repo, '.aoforge', 'objectives', 'NOTES')), []);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });
   }
@@ -505,8 +505,8 @@ test('O13 — backfillAllObjectives no opts: old keys unchanged plus paths (ever
     assert.strictEqual(r.skipped, 0);
     assert.deepStrictEqual(r.errors, []);
     assert.deepStrictEqual(r.paths, [
-      '.planning/objectives/01-a/OBJECTIVE.md',
-      '.planning/objectives/NOTES/OBJECTIVE.md',
+      '.aoforge/objectives/01-a/OBJECTIVE.md',
+      '.aoforge/objectives/NOTES/OBJECTIVE.md',
     ]);
   } finally {
     fs.rmSync(repo, { recursive: true, force: true });

@@ -7,7 +7,7 @@
 //
 // Project mode drives upgrade.cjs: `--check` (the default) lists what is pending and never writes;
 // `--apply` runs the applicable `auto` migrations, backs up outside the repo first, and stamps
-// .planning/config.json. `confirm` migrations run only when named with `--only <id>` or allowed by
+// .aoforge/config.json. `confirm` migrations run only when named with `--only <id>` or allowed by
 // `--apply --confirm`; their inputs arrive as `--kind` / `--default-work` (migration 0006).
 //
 // `--global` drives global-upgrade.cjs against ~/.claude instead: alone it only plans (dry run);
@@ -22,6 +22,7 @@ const os = require('os');
 const path = require('path');
 
 const helpers = require('./helpers.cjs');
+const { planningRoot, planningDirLabel } = require('./compat.cjs');
 
 const BOOL_FLAGS = {
   '--check': 'check',
@@ -192,7 +193,7 @@ function globalSummary(result) {
 
 function isAoforgeProject(root) {
   try {
-    return fs.statSync(path.join(root, '.planning')).isDirectory();
+    return fs.statSync(planningRoot(root)).isDirectory();
   } catch {
     return false;
   }
@@ -232,7 +233,7 @@ function runProject(cwd, opts, raw) {
   const upgrade = require('./upgrade.cjs');
   const projectRoot = path.resolve(cwd, opts.path || '.');
   if (!isAoforgeProject(projectRoot)) {
-    helpers.error(`not an AOForge project: ${projectRoot} has no .planning/ directory`);
+    helpers.error(`not an AOForge project: ${projectRoot} has no ${planningDirLabel()} directory`);
     return;
   }
 

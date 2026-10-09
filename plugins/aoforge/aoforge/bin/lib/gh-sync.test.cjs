@@ -17,8 +17,8 @@ const client = require('./gh-client.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { getLastSync } = require('./sync-state.cjs');
 
-const MAPPING = (root) => path.join(root, '.planning', '.gh-mapping.json');
-const OBJ_MD = (root, dir) => path.join(root, '.planning', 'objectives', dir, 'OBJECTIVE.md');
+const MAPPING = (root) => path.join(root, '.aoforge', '.gh-mapping.json');
+const OBJ_MD = (root, dir) => path.join(root, '.aoforge', 'objectives', dir, 'OBJECTIVE.md');
 
 const ROADMAP = [
   '# Roadmap',
@@ -51,7 +51,7 @@ const OBJ_B = ['---', 'objective: 02.1-b', '---', '', '# Objective 2.1: b', ''].
 
 function buildProject({ enabled = true, orgProject = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-sync-'));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(path.join(planning, 'objectives', '02-a'), { recursive: true });
   fs.mkdirSync(path.join(planning, 'objectives', '02.1-b'), { recursive: true });
   fs.writeFileSync(path.join(planning, 'config.json'), JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2));
@@ -147,7 +147,7 @@ describe('syncObjective (46-07)', () => {
     assert.equal(writesOf(fake, 'edit').length, 0, 'a created issue needs no edit');
     // 55-04 test 6: with the store off the footer is still today's text (D-01: mirror bytes are untouched).
     assert.ok(
-      body.includes('Source of truth: `.planning/objectives/02-a/` in this repo._'),
+      body.includes('Source of truth: `.aoforge/objectives/02-a/` in this repo._'),
       `mirror-mode footer changed: ${body}`
     );
     assert.ok(!body.includes('store mode'), 'the store footer must not leak into mirror mode');
@@ -243,7 +243,7 @@ describe('syncObjective (46-07)', () => {
       .replace('<!-- aoforge:end criteria -->', '<!-- aoforge:end criteria -->\n\nHUMAN BETWEEN')
       .concat('\n\nHUMAN BELOW\n');
     fake.humanEditBody(1, human);
-    fs.writeFileSync(path.join(root, '.planning', 'objectives', '02-a', '02-02-SUMMARY.md'), '# second summary\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '02-a', '02-02-SUMMARY.md'), '# second summary\n');
 
     const r1 = gh.syncObjective('2', root);
     assert.equal(r1.ok, true, JSON.stringify(r1));
@@ -340,7 +340,7 @@ describe('syncObjective (46-07)', () => {
 
 describe('readObjectiveState TRD/SUMMARY pairing (test 13)', () => {
   test('13: slugged TRD names pair with plain and slugged SUMMARY names by id prefix', () => {
-    const dir = path.join(root, '.planning', 'objectives', '02-a');
+    const dir = path.join(root, '.aoforge', 'objectives', '02-a');
     fs.writeFileSync(path.join(dir, '02-03-third-TRD.md'), '# third\n');
     fs.writeFileSync(path.join(dir, '02-03-third-SUMMARY.md'), '# third summary\n');
     const s = gh.readObjectiveState('02-a', root);
@@ -366,7 +366,7 @@ describe('readObjectiveState TRD/SUMMARY pairing (test 13)', () => {
   test('13c: a **Goal**: line (colon outside the bold) is read as the issue goal', () => {
     const roadmap = ROADMAP.replace('**Goal:** Build a', '**Goal**: Build a');
     assert.notEqual(roadmap, ROADMAP, 'fixture sanity: the Goal line was rewritten');
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), roadmap);
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), roadmap);
     assert.equal(gh.readObjectiveState('02-a', root).goal, 'Build a');
     assert.equal(gh.readObjectiveState('02.1-b', root).goal, 'Build b', 'the colon-inside form still reads');
   });
@@ -471,7 +471,7 @@ describe('write pacing (test 11)', () => {
       return f.runGh(argv);
     });
     gh.syncObjective('2', root);
-    fs.writeFileSync(path.join(root, '.planning', 'objectives', '02-a', '02-02-SUMMARY.md'), '# second\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '02-a', '02-02-SUMMARY.md'), '# second\n');
     gh.syncObjective('2', root);
     gh.syncObjective('2.1', root);
     assert.ok(stamps.length >= 8, `expected label/milestone/create/comment + edit/PATCH + create writes, got ${stamps.length}`);

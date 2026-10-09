@@ -30,9 +30,9 @@ const HAS_GIT = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 
 
 const BLOCK = [
   '# >>> aoforge store (0010) >>>',
-  '.planning/*',
-  '!.planning/config.json',
-  '!.planning/STACK.md',
+  '.aoforge/*',
+  '!.aoforge/config.json',
+  '!.aoforge/STACK.md',
   '# <<< aoforge store (0010) <<<',
 ].join('\n');
 
@@ -87,8 +87,8 @@ function project({ store = true, extra = {}, gitignore = null } = {}) {
   const home = henv.env.HOME;
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0010-')));
   cleanup.push(root);
-  write(root, '.planning/config.json', `${JSON.stringify(config({ store }), null, 2)}\n`);
-  for (const [rel, content] of Object.entries({ ...FILES, ...extra })) write(root, `.planning/${rel}`, content);
+  write(root, '.aoforge/config.json', `${JSON.stringify(config({ store }), null, 2)}\n`);
+  for (const [rel, content] of Object.entries({ ...FILES, ...extra })) write(root, `.aoforge/${rel}`, content);
   write(root, 'src/a.cjs', 'module.exports = 1;\n');
   if (gitignore !== null) write(root, '.gitignore', gitignore);
   fx.initGitFixture(root, home);
@@ -106,7 +106,7 @@ function git(p, ...args) {
 }
 
 function lsPlanning(p) {
-  return git(p, 'ls-files', '--', '.planning').split('\n').filter(Boolean).sort();
+  return git(p, 'ls-files', '--', '.aoforge').split('\n').filter(Boolean).sort();
 }
 
 function gitignoreText(p) {
@@ -138,7 +138,7 @@ describe('migration 0010 store-gitignore: contract', () => {
 });
 
 describe('migration 0010: local mode is never touched (test 8)', () => {
-  test('8. local mode with a tracked .planning/ → detect not applicable; apply/migrate change nothing', (t) => {
+  test('8. local mode with a tracked .aoforge/ → detect not applicable; apply/migrate change nothing', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project({ store: false });
     const before = lsPlanning(p);
@@ -158,7 +158,7 @@ describe('migration 0010: local mode is never touched (test 8)', () => {
   test('8b. github.enabled true but store off → not applicable', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project({ store: false });
-    write(p.root, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
+    write(p.root, '.aoforge/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
     assert.equal(m0010().detect(ctxFor(p)).applies, false);
   });
 
@@ -167,7 +167,7 @@ describe('migration 0010: local mode is never touched (test 8)', () => {
     const p = project();
     const det = m0010().detect(ctxFor(p));
     assert.equal(det.applies, true);
-    assert.match(det.reason, /7 \.planning\/ path\(s\) still tracked/);
+    assert.match(det.reason, /7 \.aoforge\/ path\(s\) still tracked/);
     assert.equal(det.tracked, 7);
   });
 });
@@ -213,7 +213,7 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     assert.ok(!report.applied.some((a) => a.id === '0010'));
     assert.deepEqual(lsPlanning(p), before);
     assert.equal(gitignoreText(p), null);
-    const stamp = JSON.parse(fs.readFileSync(path.join(p.root, '.planning/config.json'), 'utf-8')).aoforge;
+    const stamp = JSON.parse(fs.readFileSync(path.join(p.root, '.aoforge/config.json'), 'utf-8')).aoforge;
     assert.ok(!stamp.migrations_applied.includes('0010'), 'a deferral is never stamped as applied');
   });
 
@@ -221,7 +221,7 @@ describe('migration 0010: preconditions (tests 9-10)', () => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project();
     ghCache.recordCacheBaseline(p.root, ['PROJECT.md', 'objectives/07-x/OBJECTIVE.md']);
-    write(p.root, '.planning/PROJECT.md', '# Project (edited)\n');
+    write(p.root, '.aoforge/PROJECT.md', '# Project (edited)\n');
 
     const res = m0010().migrate(ctxFor(p));
     assert.equal(res.applied, false);
@@ -328,7 +328,7 @@ describe('migration 0010: defers to an in-progress backfill (TRD 51-04 tests 1-4
     const p = project();
     const det = m0010().detect(ctxFor(p));
     assert.equal(det.applies, true, det.reason);
-    assert.match(det.reason, /7 \.planning\/ path\(s\) still tracked/);
+    assert.match(det.reason, /7 \.aoforge\/ path\(s\) still tracked/);
     assert.equal(det.tracked, 7);
   });
 
@@ -354,7 +354,7 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
     const res = m0010().migrate(ctxFor(p));
     assert.equal(res.applied, true, JSON.stringify(res));
     assert.equal(gitignoreText(p), `node_modules/\n\n${BLOCK}\n`);
-    assert.deepEqual(lsPlanning(p), ['.planning/STACK.md', '.planning/config.json']);
+    assert.deepEqual(lsPlanning(p), ['.aoforge/STACK.md', '.aoforge/config.json']);
     const after = fx.snapshot(p.root);
     assert.deepEqual(fx.diffSnapshots(before, after), ['.gitignore'], 'only .gitignore changed on disk');
 
@@ -363,13 +363,13 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
     assert.match(res.local_only_note, /kept on this machine only after untrack \(no GitHub home\)/);
     assert.equal(res.gitignore, '.gitignore');
     assert.ok(res.changed.includes('.gitignore'));
-    assert.ok(res.changed.includes('.planning/objectives/07-x/07-01-a-TRD.md'));
-    assert.ok(!res.changed.includes('.planning/config.json'));
+    assert.ok(res.changed.includes('.aoforge/objectives/07-x/07-01-a-TRD.md'));
+    assert.ok(!res.changed.includes('.aoforge/config.json'));
 
     const ci = (rel) => spawnSync('git', ['-C', p.root, 'check-ignore', '-q', '--no-index', '--', rel], { env: fx.gitEnv(p.home) }).status;
-    assert.equal(ci('.planning/config.json'), 1, 'config.json is not ignored');
-    assert.equal(ci('.planning/STACK.md'), 1, 'STACK.md is not ignored');
-    assert.equal(ci('.planning/objectives/07-x/07-01-a-TRD.md'), 0, 'a TRD is ignored');
+    assert.equal(ci('.aoforge/config.json'), 1, 'config.json is not ignored');
+    assert.equal(ci('.aoforge/STACK.md'), 1, 'STACK.md is not ignored');
+    assert.equal(ci('.aoforge/objectives/07-x/07-01-a-TRD.md'), 0, 'a TRD is ignored');
   });
 
   test('11b. the follow-up commit the notes print records every removal; working files survive', (t) => {
@@ -378,19 +378,19 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
     baselineAll(p);
     const res = m0010().migrate(ctxFor(p));
     assert.equal(res.applied, true);
-    assert.match(res.notes, /--files \.gitignore \.planning\//);
+    assert.match(res.notes, /--files \.gitignore \.aoforge\//);
 
     // TRD 50-06: store mode is on and this commit lands on the default branch, which the store-mode gate refuses; the
     // staged-removal handling is what this test is about, so it takes the logged escape.
-    const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', p.root, 'commit', 'chore: gitignore the planning cache', '--files', '.gitignore', '.planning/'], {
+    const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', p.root, 'commit', 'chore: gitignore the planning cache', '--files', '.gitignore', '.aoforge/'], {
       cwd: p.root, env: { ...fx.gitEnv(p.home), AOFORGE_SKIP_GH_GATE: '1' }, encoding: 'utf-8',
     });
     assert.equal(r.status, 0, `${r.stdout} ${r.stderr}`);
     assert.equal(JSON.parse(r.stdout).committed, true, r.stdout);
-    const tree = git(p, 'ls-tree', '-r', '--name-only', 'HEAD', '--', '.planning').split('\n').filter(Boolean).sort();
-    assert.deepEqual(tree, ['.planning/STACK.md', '.planning/config.json']);
+    const tree = git(p, 'ls-tree', '-r', '--name-only', 'HEAD', '--', '.aoforge').split('\n').filter(Boolean).sort();
+    assert.deepEqual(tree, ['.aoforge/STACK.md', '.aoforge/config.json']);
     assert.equal(git(p, 'status', '--porcelain'), '');
-    for (const rel of Object.keys(FILES)) assert.ok(fs.existsSync(path.join(p.root, '.planning', rel)), rel);
+    for (const rel of Object.keys(FILES)) assert.ok(fs.existsSync(path.join(p.root, '.aoforge', rel)), rel);
   });
 
   test('12. re-run → not applicable; .gitignore unchanged; migrate is a no-op', (t) => {
@@ -418,26 +418,26 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
 
     const res = m0010().apply(ctxFor(p, { dryRun: true }));
     assert.ok(res.changed.includes('.gitignore'));
-    assert.ok(res.changed.includes('.planning/PROJECT.md'));
+    assert.ok(res.changed.includes('.aoforge/PROJECT.md'));
     assert.deepEqual(fx.diffSnapshots(before, fx.snapshot(p.root)), []);
     assert.equal(git(p, 'ls-files', '-s'), idx);
     assert.equal(fs.existsSync(backupsDir(p.home)), false);
   });
 
-  test('12c. an existing `.planning/` rule would hide config.json → refused, .gitignore restored byte-for-byte', (t) => {
+  test('12c. an existing `.aoforge/` rule would hide config.json → refused, .gitignore restored byte-for-byte', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = project({ gitignore: '.planning/\n' });
+    const p = project({ gitignore: '.aoforge/\n' });
     baselineAll(p);
     const before = lsPlanning(p);
 
     const res = m0010().migrate(ctxFor(p));
     assert.equal(res.applied, false);
     assert.match(res.refused, /config\.json/);
-    assert.equal(gitignoreText(p), '.planning/\n');
+    assert.equal(gitignoreText(p), '.aoforge/\n');
     assert.deepEqual(lsPlanning(p), before);
   });
 
-  test('14. backup under <userHome>/.claude/aoforge/backups/<repoKey>/ before changes: .planning, .gitignore, path list', (t) => {
+  test('14. backup under <userHome>/.claude/aoforge/backups/<repoKey>/ before changes: .aoforge, .gitignore, path list', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project({ gitignore: 'node_modules/\n' });
     baselineAll(p);
@@ -446,11 +446,11 @@ describe('migration 0010: apply (tests 11-12, 14)', () => {
     assert.equal(res.applied, true);
     const keyDir = path.join(backupsDir(p.home), upgrade.repoKey(p.root));
     assert.ok(res.backup.startsWith(keyDir + path.sep), `${res.backup} under ${keyDir}`);
-    assert.equal(fs.readFileSync(path.join(res.backup, '.planning', 'objectives/07-x/07-01-a-TRD.md'), 'utf-8'), FILES['objectives/07-x/07-01-a-TRD.md']);
+    assert.equal(fs.readFileSync(path.join(res.backup, '.aoforge', 'objectives/07-x/07-01-a-TRD.md'), 'utf-8'), FILES['objectives/07-x/07-01-a-TRD.md']);
     assert.equal(fs.readFileSync(path.join(res.backup, '0010-gitignore.before'), 'utf-8'), 'node_modules/\n');
     const list = fs.readFileSync(path.join(res.backup, '0010-untracked.txt'), 'utf-8').split('\n').filter(Boolean);
     assert.equal(list.length, 7);
-    assert.ok(list.includes('.planning/workstreams/a.md'));
+    assert.ok(list.includes('.aoforge/workstreams/a.md'));
   });
 });
 
@@ -494,7 +494,7 @@ describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', (
     const esc = s.indexOf('AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="store migration"');
     const push = s.indexOf('git push -u origin aoforge-store-cache');
     assert.ok(sw >= 0 && esc > sw && push > esc, `branch, then escaped commit, then push: ${s}`);
-    assert.match(s, /--files \.gitignore \.planning\//);
+    assert.match(s, /--files \.gitignore \.aoforge\//);
     assert.match(s, /pull request/);
     assert.match(s, /gate gh/, 'says the escape is logged');
     assert.doesNotMatch(s, /commit with: node /, 'the bare command store mode refuses is gone');
@@ -512,13 +512,13 @@ describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', (
     const expected = steps.branchCommitSteps({
       branch: 'aoforge-store-cache',
       reason: 'store migration',
-      command: steps.commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.planning/']),
+      command: steps.commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.aoforge/']),
     });
     assert.equal(m.STORE_COMMIT_STEPS, expected);
     assert.match(m.STORE_COMMIT_STEPS, /aof-tools gh pr start <objective>/);
     assert.ok(m.STORE_COMMIT_STEPS.endsWith(
       'commit there with: node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" ' +
-      '--files .gitignore .planning/'), m.STORE_COMMIT_STEPS);
+      '--files .gitignore .aoforge/'), m.STORE_COMMIT_STEPS);
     assert.equal(m.STORE_COMMIT_STEPS.match(/^\s*AOFORGE_SKIP_GH_GATE=1 /gm).length, 1, 'ESCAPED_COMMIT_RE matches once');
   });
 
@@ -534,7 +534,7 @@ describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', (
     assert.ok(parsed, `an escaped aof-tools commit line is printed: ${m.STORE_COMMIT_STEPS}`);
     const [, reason, message, filesText] = parsed;
     const files = filesText.trim().split(/\s+/);
-    assert.deepEqual(files, ['.gitignore', '.planning/']);
+    assert.deepEqual(files, ['.gitignore', '.aoforge/']);
 
     git(p, 'switch', '-q', '-c', 'aoforge-store-cache');
     const bare = dfCommit(p, shim, message, files);
@@ -545,11 +545,11 @@ describe('migration 0010: store-mode commit follow-up (TRD 51-04 test 5, G6)', (
     assert.equal(r.status, 0, r.out);
     assert.equal(r.json.committed, true, r.out);
     assert.equal(r.json.gate_escaped, true, r.out);
-    const tree = git(p, 'ls-tree', '-r', '--name-only', 'HEAD', '--', '.planning').split('\n').filter(Boolean).sort();
-    assert.deepEqual(tree, ['.planning/STACK.md', '.planning/config.json']);
+    const tree = git(p, 'ls-tree', '-r', '--name-only', 'HEAD', '--', '.aoforge').split('\n').filter(Boolean).sort();
+    assert.deepEqual(tree, ['.aoforge/STACK.md', '.aoforge/config.json']);
     assert.equal(git(p, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'aoforge-store-cache');
 
-    const logFile = path.join(p.root, '.planning', '.override-log.jsonl');
+    const logFile = path.join(p.root, '.aoforge', '.override-log.jsonl');
     const log = fs.readFileSync(logFile, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
     assert.equal(log.length, 1);
     assert.equal(log[0].gate, 'gh');
@@ -580,8 +580,8 @@ describe('migration 0010: confirm safety through the runner (test 13)', () => {
     const report = upgrade.apply({ projectRoot: p.root, userHome: p.home, pluginVersion: PLUGIN_VERSION, only: '0010', confirm: true });
     assert.deepEqual(report.failed, []);
     assert.ok(report.applied.some((a) => a.id === '0010'));
-    assert.deepEqual(lsPlanning(p), ['.planning/STACK.md', '.planning/config.json']);
-    const stamp = JSON.parse(fs.readFileSync(path.join(p.root, '.planning/config.json'), 'utf-8')).aoforge;
+    assert.deepEqual(lsPlanning(p), ['.aoforge/STACK.md', '.aoforge/config.json']);
+    const stamp = JSON.parse(fs.readFileSync(path.join(p.root, '.aoforge/config.json'), 'utf-8')).aoforge;
     assert.ok(stamp.migrations_applied.includes('0010'));
   });
 });

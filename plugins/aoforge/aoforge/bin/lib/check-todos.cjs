@@ -4,11 +4,11 @@
  * Unified check-todos aggregator.
  *
  * Read-only consumer of:
- *   - .planning/todos/pending/ (local todos)
+ *   - .aoforge/todos/pending/ (local todos)
  *   - gh issue list (assigned/mentioned/review-requested)
  *   - awareness.scanPeer (active peer sessions)
  *   - initiatives.loadInitiatives (initiative open questions)
- *   - .planning/.dup-detect-log.jsonl (dup-detect resolutions)
+ *   - .aoforge/.dup-detect-log.jsonl (dup-detect resolutions)
  *
  * Module growth across waves:
  *   TRD 06-01: aggregate, 5 _fetch* helpers, _assignLane, injection hooks  (THIS TRD)
@@ -27,10 +27,15 @@ const initiatives = require('./initiatives.cjs');
 const gh = require('./gh.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { DUP_DETECT_LOG_REL } = require('./dup-detect.cjs');
+// the log's file name; it is read under the project's resolved planning directory
+const DUP_DETECT_LOG_FILE = path.posix.basename(DUP_DETECT_LOG_REL);
+const { planningRoot, planningDirName } = require('./compat.cjs');
 
 // ─── TRD 06-01: Constants ─────────────────────────────────────────────────────
 
-const CHECK_TODOS_CACHE_REL = '.planning/.check-todos-cache.json';
+const CHECK_TODOS_CACHE_FILE = '.check-todos-cache.json';
+// the default-layout path, for callers that name it; reads and writes resolve the planning directory
+const CHECK_TODOS_CACHE_REL = `.aoforge/${CHECK_TODOS_CACHE_FILE}`;
 const CHECK_TODOS_TTL_MINUTES = 10;
 const MAX_CHECK_TODOS_OUTPUT_CHARS = 8000;
 const DEFAULT_LANE_TRUNCATE = 5;
@@ -84,14 +89,14 @@ function _detectCurrentUser({ cwd } = {}) {
 }
 
 /**
- * Detect current repo from .planning/PROJECT.md frontmatter.
+ * Detect current repo from .aoforge/PROJECT.md frontmatter.
  * Returns null on any failure.
  * @param {{ cwd?: string }} opts
  * @returns {string|null}
  */
 function _detectCurrentRepo({ cwd } = {}) {
   try {
-    const projectPath = path.join(cwd || process.cwd(), '.planning', 'PROJECT.md');
+    const projectPath = path.join(planningRoot(cwd || process.cwd()), 'PROJECT.md');
     if (!_runFs.existsSync(projectPath)) return null;
     const content = _runFs.readFileSync(projectPath, 'utf-8');
     const fm = extractFrontmatter(content);
@@ -171,7 +176,7 @@ function _appendGhIssue(out, seen, issue, flags, org) {
 // ─── TRD 06-01: _fetchLocalTodos ──────────────────────────────────────────────
 
 /**
- * Walk .planning/todos/pending/*.md and return entries in unified shape.
+ * Walk .aoforge/todos/pending/*.md and return entries in unified shape.
  *
  * Mirrors existing cmdListTodos data extraction (lib/misc.cjs:44) but exposes
  * the array shape directly instead of the {count, todos} wrapper.
@@ -181,7 +186,7 @@ function _appendGhIssue(out, seen, issue, flags, org) {
  * @returns {Array<{ file, created, title, area, path, source: 'local' }>}
  */
 function _fetchLocalTodos(cwd, opts = {}) {
-  const pendingDir = path.join(cwd, '.planning', 'todos', 'pending');
+  const pendingDir = path.join(planningRoot(cwd), 'todos', 'pending');
   if (!_runFs.existsSync(pendingDir)) return [];
   const out = [];
   let files;
@@ -203,7 +208,7 @@ function _fetchLocalTodos(cwd, opts = {}) {
         created: createdMatch ? createdMatch[1].trim() : 'unknown',
         title: titleMatch ? titleMatch[1].trim() : 'Untitled',
         area: todoArea,
-        path: path.join('.planning', 'todos', 'pending', file),
+        path: path.join(planningDirName(cwd), 'todos', 'pending', file),
         source: 'local',
       });
     } catch { /* silently skip unreadable */ }
@@ -336,7 +341,7 @@ function _fetchInitiativeQuestions(opts = {}) {
 // ─── TRD 06-01: _fetchDupDetectLog ────────────────────────────────────────────
 
 /**
- * Read .planning/.dup-detect-log.jsonl and return entries.
+ * Read .aoforge/.dup-detect-log.jsonl and return entries.
  * Malformed lines are silently skipped.
  *
  * @param {string} cwd - project root
@@ -344,7 +349,7 @@ function _fetchInitiativeQuestions(opts = {}) {
  * @returns {Array<{ timestamp, objective_id, mode, blocking, top_match, resolution, source: 'dup-detect' }>}
  */
 function _fetchDupDetectLog(cwd, opts = {}) {
-  const logPath = path.join(cwd, DUP_DETECT_LOG_REL);
+  const logPath = path.join(planningRoot(cwd), DUP_DETECT_LOG_FILE);
   if (!_runFs.existsSync(logPath)) return [];
   // Let readFileSync throw — aggregate wraps this in try/catch and routes to warnings[]
   const content = _runFs.readFileSync(logPath, 'utf-8');
@@ -439,7 +444,7 @@ function _assignLane(entry, currentUser, currentRepo) {
  * @returns {object|null}
  */
 function readCheckTodosCache(cwd) {
-  const p = path.join(cwd, CHECK_TODOS_CACHE_REL);
+  const p = path.join(planningRoot(cwd), CHECK_TODOS_CACHE_FILE);
   if (!_runFs.existsSync(p)) return null;
   try {
     const content = _runFs.readFileSync(p, 'utf-8');
@@ -457,12 +462,12 @@ function readCheckTodosCache(cwd) {
  * @param {object} sections - sections to write/merge
  */
 function writeCheckTodosCache(cwd, sections) {
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   if (!_runFs.existsSync(planningDir)) _runFs.mkdirSync(planningDir, { recursive: true });
   const existing = readCheckTodosCache(cwd) || {};
   const merged = Object.assign({}, existing, sections || {});
   _runFs.writeFileSync(
-    path.join(cwd, CHECK_TODOS_CACHE_REL),
+    path.join(planningRoot(cwd), CHECK_TODOS_CACHE_FILE),
     JSON.stringify(merged, null, 2) + '\n',
     'utf-8',
   );

@@ -241,7 +241,7 @@ describe('stack mcp (CLI)', () => {
     const repo = track(profileFx.makeProject({ files: profileFx.goShapedRepo() }));
     const env = { PATH: track(verifyFx.fakeBin(['gopls'])), HOME: emptyHome() };
     const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'init', '--write'], { encoding: 'utf-8', env, timeout: 60000 });
-    assert.ok(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), `stack init --write must write STACK.md: ${r.stderr}`);
+    assert.ok(fs.existsSync(path.join(repo, '.aoforge', 'STACK.md')), `stack init --write must write STACK.md: ${r.stderr}`);
     assert.equal(fs.existsSync(mcpPath(repo)), false);
   });
 });

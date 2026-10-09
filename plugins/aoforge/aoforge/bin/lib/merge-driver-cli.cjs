@@ -3,7 +3,7 @@
 /**
  * merge-driver-cli.cjs: `aof-tools merge-driver` (TRD 59-01, PLMB-02).
  *
- * Parallel wave merges conflict on `.planning/state.json` and `.planning/STATE_ARCHIVE.md`. This command
+ * Parallel wave merges conflict on `.aoforge/state.json` and `.aoforge/STATE_ARCHIVE.md`. This command
  * registers a merge for each so a wave merge completes without a conflict:
  *
  *   state-json <base> <ours> <theirs>   the git merge driver entry point: a JSON-aware 3-way merge
@@ -34,13 +34,17 @@ const { spawnSync } = require('child_process');
 const { output, error } = require('./helpers.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 const { mergeStateJson } = require('./state-merge.cjs');
+const { PLANNING_DIR_NAMES, isPlanningDirName, planningDirLabel } = require('./compat.cjs');
 
 const BEGIN_MARKER = '# >>> aoforge merge drivers (aof-tools merge-driver install)';
 const END_MARKER = '# <<< aoforge merge drivers';
+// One pair of lines per planning-directory name, so a project still on the legacy directory merges the same way.
 const BLOCK_LINES = [
   BEGIN_MARKER,
-  '**/.planning/state.json merge=aoforge-state-json',
-  '**/.planning/STATE_ARCHIVE.md merge=union',
+  ...PLANNING_DIR_NAMES.flatMap((dir) => [
+    `**/${dir}/state.json merge=aoforge-state-json`,
+    `**/${dir}/STATE_ARCHIVE.md merge=union`,
+  ]),
   END_MARKER,
 ];
 
@@ -293,10 +297,10 @@ function cmdStateJson(rest) {
 
 // ── resolve ──────────────────────────────────────────────────────────────────
 
-/** 'json' for .planning/state.json, 'union' for .planning/STATE_ARCHIVE.md, null for anything else. */
+/** 'json' for <planning dir>/state.json, 'union' for <planning dir>/STATE_ARCHIVE.md (either name), null otherwise. */
 function strategyFor(rel) {
   const parts = rel.split('/');
-  if (parts[parts.length - 2] !== '.planning') return null;
+  if (!isPlanningDirName(parts[parts.length - 2])) return null;
   const name = parts[parts.length - 1];
   if (name === 'state.json') return 'json';
   if (name === 'STATE_ARCHIVE.md') return 'union';
@@ -335,7 +339,7 @@ function cmdResolve(cwd, rest, raw) {
   const rel = path.relative(top, path.resolve(top, arg)).split(path.sep).join('/');
   const strategy = rel.startsWith('..') ? null : strategyFor(rel);
   if (!strategy) {
-    error(`merge-driver resolve supports only .planning/state.json and .planning/STATE_ARCHIVE.md; got ${arg}`);
+    error(`merge-driver resolve supports only state.json and STATE_ARCHIVE.md under ${planningDirLabel()}; got ${arg}`);
   }
 
   const stage = (n) => {

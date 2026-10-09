@@ -1,7 +1,7 @@
 'use strict';
 
 // todo-sync.test.cjs (TRD 63-02) — merge a session's replayed todos into the durable archive through the existing
-// `todo add` / `todo complete` verb functions, in local mode (`.planning/todos/`) and store mode (`aoforge:todo` issues).
+// `todo add` / `todo complete` verb functions, in local mode (`.aoforge/todos/`) and store mode (`aoforge:todo` issues).
 //
 // Numbering follows the TRD's test list:
 //   library, local   1 archive a metadata todo   2 a second sync is a no-op   3 completion parity with `todo complete`
@@ -30,6 +30,7 @@ const fx = require('./__fixtures__/todo-transcript-fixtures.cjs');
 const af = require('./__fixtures__/todo-archive-fixtures.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 const NOW = Date.UTC(2026, 9, 6, 12, 30, 0); // completed: 2026-10-06
@@ -65,7 +66,7 @@ function transcriptFile(dir, name, ...groups) {
   return af.writeTranscript(dir, name, fx.transcriptOf(...groups));
 }
 
-const planningPath = (root, ...rel) => path.join(root, '.planning', ...rel);
+const planningPath = (root, ...rel) => path.join(root, '.aoforge', ...rel);
 const read = (root, ...rel) => fs.readFileSync(planningPath(root, ...rel), 'utf8');
 const present = (root, ...rel) => fs.existsSync(planningPath(root, ...rel));
 
@@ -109,7 +110,7 @@ describe('63-02 syncTodos in local mode', () => {
     assert.equal(r.mode, 'local');
     assert.deepEqual(r.added, [STEM]);
     assert.deepEqual(r.completed, []);
-    assert.deepEqual(r.changed_paths, [`.planning/todos/pending/${STEM}.md`]);
+    assert.deepEqual(r.changed_paths, [`.aoforge/todos/pending/${STEM}.md`]);
     const replayed = session.replayTranscript(text).items[0];
     assert.equal(read(p.root, 'todos', 'pending', `${STEM}.md`), sync.buildTodoText(replayed, { sessionId: SESSION }));
   });
@@ -148,7 +149,7 @@ describe('63-02 syncTodos in local mode', () => {
     assert.deepEqual(r.completed, [STEM]);
     assert.equal(present(viaSync.root, 'todos', 'pending', `${STEM}.md`), false);
     assert.equal(read(viaSync.root, 'todos', 'completed', `${STEM}.md`), `completed: 2026-10-06\n${original}`, 'the fixed-clock golden');
-    assert.deepEqual([...r.changed_paths].sort(), [`.planning/todos/completed/${STEM}.md`, `.planning/todos/pending/${STEM}.md`]);
+    assert.deepEqual([...r.changed_paths].sort(), [`.aoforge/todos/completed/${STEM}.md`, `.aoforge/todos/pending/${STEM}.md`]);
 
     // Byte parity (D-01) with the unchanged local command, run on an identical copy; both read the real date.
     const viaSyncToday = project({ todos });
@@ -172,9 +173,9 @@ describe('63-02 syncTodos in local mode', () => {
     const r = sync.syncTodos(tracked.root, { transcripts: [t], now: NOW });
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual([...r.pending_commit].sort(), [
-      '.planning/todos/completed/2026-10-05-old-one.md',
-      `.planning/todos/pending/${STEM}.md`,
-      '.planning/todos/pending/2026-10-05-old-one.md',
+      '.aoforge/todos/completed/2026-10-05-old-one.md',
+      `.aoforge/todos/pending/${STEM}.md`,
+      '.aoforge/todos/pending/2026-10-05-old-one.md',
     ].sort());
     assert.match(r.prose, /uncommitted: /);
 
@@ -253,11 +254,11 @@ describe('63-02 syncTodos in local mode', () => {
     assert.equal(present(p.root, 'todos'), false);
   });
 
-  test('18: a directory with no .planning/ above it is a failure naming the problem', () => {
+  test('18: a directory with no .aoforge/ above it is a failure naming the problem', () => {
     const r = sync.syncTodos(scratch(), { transcripts: [], now: NOW });
     assert.equal(r.ok, false);
     assert.equal(r.exit, 1);
-    assert.match(r.error, /no \.planning\/ directory/);
+    assert.ok(r.error.includes(`no ${planningDirLabel()} directory`), r.error);
   });
 
   test('19: todo-sync.cjs writes nothing itself: no direct file write, rename, unlink or rm', () => {
@@ -521,7 +522,7 @@ describe('63-02 syncTodos in store mode', () => {
     assert.equal(added.mode, 'store');
     assert.deepEqual(added.added, [STEM]);
     assert.equal(added.queued.enqueued, 1);
-    assert.deepEqual(added.pending_commit, [], 'store mode commits nothing: .planning/ is a cache');
+    assert.deepEqual(added.pending_commit, [], 'store mode commits nothing: .aoforge/ is a cache');
     const upserts = journalOps(id).filter((op) => op.kind === 'upsert-issue');
     assert.equal(upserts.length, 1);
     assert.equal(upserts[0].target.role, 'todo');
@@ -717,9 +718,9 @@ describe('63-02 aof-tools todo sync', () => {
     const listed = syncRaw(on.root, ['--transcript', t]);
     assert.equal(listed.r.status, 0, listed.r.stderr);
     assert.deepEqual([...listed.json.pending_commit].sort(), [
-      '.planning/todos/completed/2026-10-05-old-one.md',
-      '.planning/todos/pending/2026-10-05-old-one.md',
-      `.planning/todos/pending/${STEM}.md`,
+      '.aoforge/todos/completed/2026-10-05-old-one.md',
+      '.aoforge/todos/pending/2026-10-05-old-one.md',
+      `.aoforge/todos/pending/${STEM}.md`,
     ].sort());
 
     const off = project({ git: true, commitDocs: false, todos: archive });
@@ -735,7 +736,7 @@ describe('63-02 aof-tools todo sync', () => {
     const lines = out.stdout.trimEnd().split('\n');
     assert.match(lines[0], /^todo sync: /);
     assert.equal(lines[1], 'added 1, completed 0');
-    assert.equal(lines[2], `uncommitted: .planning/todos/pending/${STEM}.md`);
+    assert.equal(lines[2], `uncommitted: .aoforge/todos/pending/${STEM}.md`);
     assert.equal(lines.length, 3, out.stdout);
 
     const plain = project();
@@ -794,7 +795,7 @@ describe('63-02 aof-tools todo sync', () => {
 
     const add = cli(p.root, ['todo', 'add', '--from', draft, '--stem', 'fix-thing']);
     assert.equal(add.status, 0, add.stderr);
-    assert.equal(add.stdout.trimEnd(), 'todo add: wrote .planning/todos/pending/fix-thing.md (local mode).');
+    assert.equal(add.stdout.trimEnd(), 'todo add: wrote .aoforge/todos/pending/fix-thing.md (local mode).');
     assert.equal(read(p.root, 'todos', 'pending', 'fix-thing.md'), fs.readFileSync(draft, 'utf8'));
 
     const complete = cli(p.root, ['todo', 'complete', 'fix-thing']);

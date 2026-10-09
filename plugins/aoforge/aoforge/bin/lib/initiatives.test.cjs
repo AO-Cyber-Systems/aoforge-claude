@@ -1955,9 +1955,9 @@ function mockWalk(seen) {
 
 function projectRoot({ projectMd = '# P\n', config = null } = {}) {
   const root = mkTmp('df-init-46-');
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-  fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), projectMd);
-  if (config) fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.aoforge', 'PROJECT.md'), projectMd);
+  if (config) fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify(config));
   return root;
 }
 

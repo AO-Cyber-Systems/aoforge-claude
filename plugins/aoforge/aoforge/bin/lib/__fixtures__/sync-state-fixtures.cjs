@@ -53,9 +53,9 @@ function buildSyncStateFile({ objectives = {} } = {}) {
  */
 function buildTempProjectWithSyncState({ syncState = null } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-syncstate-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (syncState !== null) {
-    const filePath = path.join(root, '.planning', '.gh-sync-state.json');
+    const filePath = path.join(root, '.aoforge', '.gh-sync-state.json');
     if (typeof syncState === 'string') {
       fs.writeFileSync(filePath, syncState, 'utf-8');
     } else {
@@ -71,7 +71,7 @@ function buildTempProjectWithSyncState({ syncState = null } = {}) {
 }
 
 /**
- * Build a temp project with .planning/objectives/<id>/OBJECTIVE.md present.
+ * Build a temp project with .aoforge/objectives/<id>/OBJECTIVE.md present.
  * Mirrors gh-pull-fixtures.buildTempProject but adds optional sync state.
  */
 function buildTempProjectWithObjective({
@@ -82,7 +82,7 @@ function buildTempProjectWithObjective({
   projectFm = null,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-syncstate-obj-'));
-  const objDir = path.join(root, '.planning', 'objectives', objectiveId);
+  const objDir = path.join(root, '.aoforge', 'objectives', objectiveId);
   fs.mkdirSync(objDir, { recursive: true });
 
   const fmLines = ['---'];
@@ -100,15 +100,15 @@ function buildTempProjectWithObjective({
       projLines.push(`${k}: ${v}`);
     }
     projLines.push('---', '', '# Test Project', '');
-    fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), projLines.join('\n'), 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'PROJECT.md'), projLines.join('\n'), 'utf-8');
   }
 
   if (mapping !== null) {
-    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), JSON.stringify(mapping), 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), JSON.stringify(mapping), 'utf-8');
   }
 
   if (syncState !== null) {
-    fs.writeFileSync(path.join(root, '.planning', '.gh-sync-state.json'), JSON.stringify(syncState, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-sync-state.json'), JSON.stringify(syncState, null, 2), 'utf-8');
   }
 
   return {

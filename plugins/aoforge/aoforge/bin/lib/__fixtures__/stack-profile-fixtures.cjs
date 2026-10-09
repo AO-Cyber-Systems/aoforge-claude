@@ -12,25 +12,25 @@ const os = require('os');
 /**
  * makeProject({ stackMd, stacks, files }) -> absolute project root
  *
- * Always creates `<root>/.planning/`. When `stackMd` is given, writes it to
- * `<root>/.planning/STACK.md` (the project tier). `stacks` writes project-local component
- * override files to `<root>/.planning/stacks/<name>.md` (keys are bare names — the `.md`
+ * Always creates `<root>/.aoforge/`. When `stackMd` is given, writes it to
+ * `<root>/.aoforge/STACK.md` (the project tier). `stacks` writes project-local component
+ * override files to `<root>/.aoforge/stacks/<name>.md` (keys are bare names — the `.md`
  * extension is added here). `files` writes arbitrary repo files at `<root>/<relPath>`,
  * creating parent directories as needed.
  */
 function makeProject({ stackMd = null, stacks = {}, files = {} } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-stack-project-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
 
   if (stackMd !== null) {
-    fs.writeFileSync(path.join(root, '.planning', 'STACK.md'), stackMd, 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'STACK.md'), stackMd, 'utf-8');
   }
 
   const stackNames = Object.keys(stacks);
   if (stackNames.length) {
-    fs.mkdirSync(path.join(root, '.planning', 'stacks'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge', 'stacks'), { recursive: true });
     for (const name of stackNames) {
-      fs.writeFileSync(path.join(root, '.planning', 'stacks', `${name}.md`), stacks[name], 'utf-8');
+      fs.writeFileSync(path.join(root, '.aoforge', 'stacks', `${name}.md`), stacks[name], 'utf-8');
     }
   }
 

@@ -8,6 +8,7 @@ const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.c
 const planningMode = require('./planning-mode.cjs');
 const { escapeRegExp, objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
 const { roadmapRequirementIds } = require('./requirement-ids.cjs');
+const { planningRoot, planningDirName } = require('./compat.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ function searchObjectiveInDir(baseDir, relBase, normalized) {
 }
 
 function getArchivedObjectiveDirs(cwd) {
-  const milestonesDir = path.join(cwd, '.planning', 'milestones');
+  const milestonesDir = path.join(planningRoot(cwd), 'milestones');
   const results = [];
 
   if (!fs.existsSync(milestonesDir)) return results;
@@ -78,7 +79,7 @@ function getArchivedObjectiveDirs(cwd) {
         results.push({
           name: dir,
           milestone: version,
-          basePath: path.join('.planning', 'milestones', archiveName),
+          basePath: path.join(planningDirName(cwd), 'milestones', archiveName),
           fullPath: path.join(archivePath, dir),
         });
       }
@@ -91,15 +92,15 @@ function getArchivedObjectiveDirs(cwd) {
 function findObjectiveInternal(cwd, objective) {
   if (!objective) return null;
 
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const normalized = normalizeObjectiveName(objective);
 
   // Search current objectives first
-  const current = searchObjectiveInDir(objectivesDir, path.join('.planning', 'objectives'), normalized);
+  const current = searchObjectiveInDir(objectivesDir, path.join(planningDirName(cwd), 'objectives'), normalized);
   if (current) return current;
 
   // Search archived milestone objectives (newest first)
-  const milestonesDir = path.join(cwd, '.planning', 'milestones');
+  const milestonesDir = path.join(planningRoot(cwd), 'milestones');
   if (!fs.existsSync(milestonesDir)) return null;
 
   try {
@@ -113,7 +114,7 @@ function findObjectiveInternal(cwd, objective) {
     for (const archiveName of archiveDirs) {
       const version = archiveName.match(/^(v[\d.]+)-objectives$/)[1];
       const archivePath = path.join(milestonesDir, archiveName);
-      const relBase = path.join('.planning', 'milestones', archiveName);
+      const relBase = path.join(planningDirName(cwd), 'milestones', archiveName);
       const result = searchObjectiveInDir(archivePath, relBase, normalized);
       if (result) {
         result.archived = version;
@@ -132,7 +133,7 @@ function cmdFindObjective(cwd, objective, raw) {
     error('objective identifier required');
   }
 
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const normalized = normalizeObjectiveName(objective);
 
   const notFound = { found: false, directory: null, objective_number: null, objective_name: null, jobs: [], summaries: [] };
@@ -158,7 +159,7 @@ function cmdFindObjective(cwd, objective, raw) {
 
     const result = {
       found: true,
-      directory: path.join('.planning', 'objectives', match),
+      directory: path.join(planningDirName(cwd), 'objectives', match),
       objective_number: objectiveNumber,
       objective_name: objectiveName,
       jobs: plans,
@@ -184,7 +185,7 @@ function cmdObjectiveNextDecimal(cwd, baseObjective, raw) {
 }
 
 function cmdObjectivesList(cwd, options, raw) {
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const { type, objective, includeArchived } = options;
 
   // If no objectives directory, return empty
@@ -319,7 +320,7 @@ function newObjectiveText(dirName, num, description, dependsOn) {
  * ROADMAP.md is not edited: `gh pull --all` regenerates it from the objective issues.
  */
 function storeObjectiveAdd(root, description, raw) {
-  const roadmapPath = path.join(root, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(root), 'ROADMAP.md');
   const content = fs.existsSync(roadmapPath) ? fs.readFileSync(roadmapPath, 'utf-8') : '';
 
   let slug = generateSlugInternal(description);
@@ -329,7 +330,7 @@ function storeObjectiveAdd(root, description, raw) {
   const objectivePattern = /#{2,4}\s*Objective\s+(\d+)(?:\.\d+)?:/gi;
   let m;
   while ((m = objectivePattern.exec(content)) !== null) maxObjective = Math.max(maxObjective, parseInt(m[1], 10));
-  const objectivesDir = path.join(root, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(root), 'objectives');
   try {
     for (const entry of fs.readdirSync(objectivesDir, { withFileTypes: true })) {
       const dm = entry.isDirectory() ? entry.name.match(/^(\d+)(?:\.\d+)?-/) : null;
@@ -351,8 +352,8 @@ function storeObjectiveAdd(root, description, raw) {
     padded: paddedNum,
     name: description,
     slug,
-    directory: `.planning/objectives/${dirName}`,
-    objective_file: `.planning/objectives/${dirName}/OBJECTIVE.md`,
+    directory: `${planningDirName(root)}/objectives/${dirName}`,
+    objective_file: `${planningDirName(root)}/objectives/${dirName}/OBJECTIVE.md`,
     roadmap: ROADMAP_GENERATED,
     published: r.ok === true,
     verb: verbSummary(r),
@@ -389,7 +390,7 @@ function dirIsCancelled(objectivesDir, name) {
 function nextObjective(root, objectiveNum) {
   // milestone-scope.cjs requires this module at load, so the require is lazy (roadmap.cjs does the same).
   const { roadmapSections } = require('./milestone-scope.cjs');
-  const objectivesDir = path.join(root, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(root), 'objectives');
   const current = parseFloat(objectiveNum);
   // canonical number -> {num, name, n}, or null for a cancelled number
   const candidates = new Map();
@@ -414,7 +415,7 @@ function nextObjective(root, objectiveNum) {
 
   let roadmapText = '';
   try {
-    roadmapText = fs.readFileSync(path.join(root, '.planning', 'ROADMAP.md'), 'utf-8');
+    roadmapText = fs.readFileSync(path.join(planningRoot(root), 'ROADMAP.md'), 'utf-8');
   } catch (err) {
     if (err.code !== 'ENOENT') throw err;
   }
@@ -472,7 +473,7 @@ function cmdObjectiveAdd(cwd, description, raw) {
 
   if (planningMode.isStoreMode(cwd)) return storeObjectiveAdd(planningMode.resolveMainRoot(cwd), description, raw);
 
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) {
     error('ROADMAP.md not found');
   }
@@ -494,9 +495,9 @@ function cmdObjectiveAdd(cwd, description, raw) {
     if (num > maxObjective) maxObjective = num;
   }
 
-  // Also scan .planning/objectives/ directory prefixes so a dir without a ROADMAP heading
+  // Also scan .aoforge/objectives/ directory prefixes so a dir without a ROADMAP heading
   // is still counted (prevents number collisions)
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   if (fs.existsSync(objectivesDir)) {
     try {
       const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
@@ -517,7 +518,7 @@ function cmdObjectiveAdd(cwd, description, raw) {
   const newObjectiveNum = maxObjective + 1;
   const paddedNum = String(newObjectiveNum).padStart(2, '0');
   const dirName = `${paddedNum}-${slug}`;
-  const dirPath = path.join(cwd, '.planning', 'objectives', dirName);
+  const dirPath = path.join(planningRoot(cwd), 'objectives', dirName);
 
   // Create directory with .gitkeep so git tracks empty folders
   fs.mkdirSync(dirPath, { recursive: true });
@@ -542,7 +543,7 @@ function cmdObjectiveAdd(cwd, description, raw) {
     padded: paddedNum,
     name: description,
     slug,
-    directory: `.planning/objectives/${dirName}`,
+    directory: `${planningDirName(cwd)}/objectives/${dirName}`,
   };
 
   output(result, raw, paddedNum);
@@ -744,8 +745,8 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
     error(`objective remove is refused in store mode: deletes are never automatic. Close the objective issue with aof-tools objective set-status ${targetObjective} cancelled`);
   }
 
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const force = options.force || false;
   const confirm = options.confirm || false;
 
@@ -886,7 +887,7 @@ function cmdObjectiveRemove(cwd, targetObjective, options, raw) {
 
   // Update STATE.md objective count. state_updated reports an actual write,
   // not whether the file exists (TOOL-02).
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   let stateUpdated = false;
   if (fs.existsSync(statePath)) {
     const originalState = fs.readFileSync(statePath, 'utf-8');
@@ -935,8 +936,8 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
 
   if (planningMode.isStoreMode(cwd)) return storeObjectiveComplete(planningMode.resolveMainRoot(cwd), objectiveNum, raw);
 
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   const normalized = normalizeObjectiveName(objectiveNum);
   const today = new Date().toISOString().split('T')[0];
 
@@ -985,7 +986,7 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
     }
 
     // Update REQUIREMENTS.md traceability for this objective's requirements
-    const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
+    const reqPath = path.join(planningRoot(cwd), 'REQUIREMENTS.md');
     if (fs.existsSync(reqPath)) {
       // Extract the Requirements line from this objective's own section. Anchoring to the `#{2,4}` header
       // keeps a checklist mention of `Objective N` from starting the scan in an earlier section.

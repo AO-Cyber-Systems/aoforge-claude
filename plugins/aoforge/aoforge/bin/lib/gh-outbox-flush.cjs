@@ -58,6 +58,7 @@ const bodyLib = require('./gh-body.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const issueLib = require('./gh-issue.cjs');
 const wikiLib = require('./gh-wiki.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const str = (v) => (typeof v === 'string' ? v : '');
@@ -1079,7 +1080,7 @@ function wikiFailure(r, what) {
   if (r.auth) return failWith('permission', `${what}: ${r.error}`);
   if (r.conflict) {
     const files = Array.isArray(r.files) && r.files.length ? ` (${r.files.join(', ')})` : '';
-    return failWith('conflict', `${what}: the wiki has a rebase conflict${files}; resolve it in .planning/wiki, then flush again`);
+    return failWith('conflict', `${what}: the wiki has a rebase conflict${files}; resolve it in .aoforge/wiki, then flush again`);
   }
   return failWith('error', `${what}: ${r.error}`);
 }
@@ -1111,7 +1112,7 @@ function handleWikiPush(ctx, op) {
     }
     let text;
     try {
-      text = fs.readFileSync(path.join(ctx.root, '.planning', rel), 'utf8');
+      text = fs.readFileSync(path.join(planningRoot(ctx.root), rel), 'utf8');
     } catch {
       w.push(`${rel}: the source file is missing; skipped`);
       continue;
@@ -1513,7 +1514,7 @@ function executeOp(ctx, op) {
   if (JSON.stringify(ctx.mapping) !== before) {
     const written = mappingLib.writeMappingV3(ctx.root, ctx.mapping);
     if (!written.ok) {
-      res.warnings = [...(res.warnings || []), `could not save .planning/.gh-mapping.json: ${written.error}`];
+      res.warnings = [...(res.warnings || []), `could not save .aoforge/.gh-mapping.json: ${written.error}`];
     }
   }
   if (!Array.isArray(res.warnings)) res.warnings = [];
@@ -1584,7 +1585,7 @@ function flush(root, opts = {}) {
   const result = { status: 'flushed', done: [], pending: 0, halted: null, warnings: [] };
 
   if (!outbox.isEnabled(root)) {
-    return { ...result, status: 'skipped', reason: 'github.enabled is not true in .planning/config.json' };
+    return { ...result, status: 'skipped', reason: 'github.enabled is not true in .aoforge/config.json' };
   }
   const lock = outbox.acquireLock(root, { now: clock() });
   if (!lock.ok) return { ...result, status: 'running', owner: lock.owner };

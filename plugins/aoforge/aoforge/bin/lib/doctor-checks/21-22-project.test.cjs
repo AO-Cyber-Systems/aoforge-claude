@@ -72,7 +72,7 @@ function commitAll(root, home, message) {
 function behindWithAutoMigration() {
   const home = makeDoctorHome();
   const { root } = makeDoctorProject({ home, version: '2.0.0' });
-  git(root, home, 'rm', '-q', '--', '.planning/state.json');
+  git(root, home, 'rm', '-q', '--', '.aoforge/state.json');
   git(root, home, 'commit', '-q', '-m', 'drop state.json');
   return { root, home };
 }
@@ -80,12 +80,12 @@ function behindWithAutoMigration() {
 function aodexBehind(home) {
   const { root } = makeTrackedRuntimeStateProject({
     home,
-    tracked: ['.planning/.progress-guard.json', 'flutter/.planning/.progress-guard.json'],
-    untrackedPresent: ['.planning/.awareness-cache.json'],
+    tracked: ['.aoforge/.progress-guard.json', 'flutter/.aoforge/.progress-guard.json'],
+    untrackedPresent: ['.aoforge/.awareness-cache.json'],
     version: '2.0.0',
   });
   // A hook rewrote the tracked copy: modified in the working tree, which is routine and not user work.
-  fs.appendFileSync(path.join(root, '.planning', '.progress-guard.json'), '\n', 'utf-8');
+  fs.appendFileSync(path.join(root, '.aoforge', '.progress-guard.json'), '\n', 'utf-8');
   return root;
 }
 
@@ -122,8 +122,8 @@ describe('pending-migrations: auto migrations (test 10)', () => {
 
     const res = pending.fix(ctx, r);
     assert.equal(res.applied, true, JSON.stringify(res));
-    assert.ok(res.changed.includes('.planning/state.json'), JSON.stringify(res.changed));
-    assert.ok(res.changed.includes('.planning/config.json'), JSON.stringify(res.changed));
+    assert.ok(res.changed.includes('.aoforge/state.json'), JSON.stringify(res.changed));
+    assert.ok(res.changed.includes('.aoforge/config.json'), JSON.stringify(res.changed));
     assert.ok(res.backup.startsWith(backupsDir(home) + path.sep), res.backup);
 
     const again = pending.run(ctxFor(root, home));
@@ -134,7 +134,7 @@ describe('pending-migrations: auto migrations (test 10)', () => {
   test('a failed migration check (unparseable config.json) → error, not fixable', () => {
     const home = makeDoctorHome();
     const { root } = makeDoctorProject({ home, git: false, version: '2.0.0' });
-    write(root, '.planning/config.json', '{ not json\n');
+    write(root, '.aoforge/config.json', '{ not json\n');
     const r = pending.run(ctxFor(root, home));
     assert.equal(r.severity, 'error');
     assert.equal(r.fixable, false);
@@ -145,7 +145,7 @@ describe('pending-migrations: confirm migrations (test 11)', () => {
   test('11. pending_confirm 0006 (no kind) → warn, not fixable, with the exact --kind command', () => {
     const home = makeDoctorHome();
     const { root } = makeDoctorProject({ home, version: pluginVersionFor(home) });
-    const projectMd = path.join(root, '.planning', 'PROJECT.md');
+    const projectMd = path.join(root, '.aoforge', 'PROJECT.md');
     fs.writeFileSync(projectMd, fs.readFileSync(projectMd, 'utf-8').replace('kind: app\n', ''), 'utf-8');
     commitAll(root, home, 'drop kind');
 
@@ -158,9 +158,9 @@ describe('pending-migrations: confirm migrations (test 11)', () => {
 });
 
 describe('pending-migrations: worktree guard (test 12)', () => {
-  test('12. .planning/ROADMAP.md modified → not fixable, reason in the finding, nothing written', () => {
+  test('12. .aoforge/ROADMAP.md modified → not fixable, reason in the finding, nothing written', () => {
     const { root, home } = behindWithAutoMigration();
-    fs.appendFileSync(path.join(root, '.planning', 'ROADMAP.md'), '\nUser edit in progress.\n', 'utf-8');
+    fs.appendFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '\nUser edit in progress.\n', 'utf-8');
     const before = snapshot(root);
     const ctx = ctxFor(root, home);
 
@@ -168,7 +168,7 @@ describe('pending-migrations: worktree guard (test 12)', () => {
     assert.equal(r.severity, 'warn');
     assert.equal(r.fixable, false);
     assert.match(r.finding, /uncommitted changes/);
-    assert.match(r.finding, /\.planning\/ROADMAP\.md/);
+    assert.match(r.finding, /\.aoforge\/ROADMAP\.md/);
     assert.match(r.fix_command, /upgrade --apply/);
 
     const res = pending.fix(ctx, r);
@@ -214,8 +214,8 @@ describe('pending-migrations: worktree guard (test 12)', () => {
     assert.deepEqual(report.fixes, []);
     assert.deepEqual(staged(root, home), ['src/app.txt']);
     const tracked = lines(git(root, home, 'ls-files'));
-    assert.ok(tracked.includes('.planning/.progress-guard.json'));
-    assert.ok(tracked.includes('flutter/.planning/.progress-guard.json'));
+    assert.ok(tracked.includes('.aoforge/.progress-guard.json'));
+    assert.ok(tracked.includes('flutter/.aoforge/.progress-guard.json'));
   });
 
   test('one --fix run converges: the legacy fix\'s own changes do not block pending-migrations', () => {
@@ -232,8 +232,8 @@ describe('pending-migrations: worktree guard (test 12)', () => {
       [['legacy-runtime-state', true, undefined], ['pending-migrations', true, undefined]]);
     assert.deepEqual(fixed.checks.map((c) => [c.id, c.severity]),
       [['legacy-runtime-state', 'ok'], ['pending-migrations', 'ok']]);
-    assert.deepEqual(staged(root, home), ['.planning/.progress-guard.json', 'flutter/.planning/.progress-guard.json']);
-    const config = JSON.parse(fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf-8'));
+    assert.deepEqual(staged(root, home), ['.aoforge/.progress-guard.json', 'flutter/.aoforge/.progress-guard.json']);
+    const config = JSON.parse(fs.readFileSync(path.join(root, '.aoforge', 'config.json'), 'utf-8'));
     assert.equal(config.aoforge.version, pluginVersionFor(home));
   });
 });
@@ -248,7 +248,7 @@ describe('pending-migrations: the commit follow-up by planning mode (TRD 52-01 t
 
   /** GitHub store mode on in config.json (no repo, so nothing reaches GitHub), committed so the worktree guard passes. */
   function storeOn(root, home) {
-    const file = path.join(root, '.planning', 'config.json');
+    const file = path.join(root, '.aoforge', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
     cfg.github = { ...(cfg.github || {}), enabled: true, store: true };
     fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, 'utf-8');
@@ -284,9 +284,9 @@ describe('pending-migrations: the commit follow-up by planning mode (TRD 52-01 t
     const local = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor21-local-'));
     const store = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor21-store-'));
     try {
-      write(local, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
-      write(store, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, store: true } })}\n`);
-      const files = ['.planning/config.json', 'CLAUDE.md'];
+      write(local, '.aoforge/config.json', `${JSON.stringify({ github: { enabled: true, store: false } })}\n`);
+      write(store, '.aoforge/config.json', `${JSON.stringify({ github: { enabled: true, store: true } })}\n`);
+      const files = ['.aoforge/config.json', 'CLAUDE.md'];
       assert.equal(pending.commitNote(local, '9.9.9', files), localNote('9.9.9', files));
       assert.equal(pending.commitNote(store, '9.9.9', files), storeNote('9.9.9', files));
     } finally {
@@ -341,7 +341,7 @@ describe('validate-health: real spawn (test 13)', () => {
   test('13. only W040 (project behind) → ok, deferred:[W040]', () => {
     const home = makeDoctorHome();
     const { root } = makeDoctorProject({ home, git: false, version: '2.0.0' });
-    fs.appendFileSync(path.join(root, '.planning', 'PROJECT.md'), '\n## Requirements\n\n- one\n', 'utf-8');
+    fs.appendFileSync(path.join(root, '.aoforge', 'PROJECT.md'), '\n## Requirements\n\n- one\n', 'utf-8');
     const r = health.run(ctxFor(root, home));
     assert.equal(r.severity, 'ok', r.finding);
     assert.deepEqual(r.details.deferred, ['W040']);
@@ -351,7 +351,7 @@ describe('validate-health: real spawn (test 13)', () => {
   test('a repairable error (E004: STATE.md missing) → error, fixable; the fix repairs it', () => {
     const home = makeDoctorHome();
     const { root } = makeDoctorProject({ home, git: false, version: pluginVersionFor(home) });
-    fs.unlinkSync(path.join(root, '.planning', 'STATE.md'));
+    fs.unlinkSync(path.join(root, '.aoforge', 'STATE.md'));
     const ctx = ctxFor(root, home);
 
     const r = health.run(ctx);
@@ -361,15 +361,15 @@ describe('validate-health: real spawn (test 13)', () => {
 
     const res = health.fix(ctx, r);
     assert.equal(res.applied, true, JSON.stringify(res));
-    assert.ok(res.changed.includes('.planning/STATE.md'), JSON.stringify(res.changed));
-    assert.equal(fs.existsSync(path.join(root, '.planning', 'STATE.md')), true);
+    assert.ok(res.changed.includes('.aoforge/STATE.md'), JSON.stringify(res.changed));
+    assert.equal(fs.existsSync(path.join(root, '.aoforge', 'STATE.md')), true);
     assert.ok(!health.run(ctxFor(root, home)).details.codes.includes('E004'));
   });
 
-  test('repairable but .planning/ has uncommitted changes → not fixable, with the --repair command', () => {
+  test('repairable but .aoforge/ has uncommitted changes → not fixable, with the --repair command', () => {
     const home = makeDoctorHome();
     const { root } = makeDoctorProject({ home, version: pluginVersionFor(home) });
-    fs.unlinkSync(path.join(root, '.planning', 'STATE.md'));
+    fs.unlinkSync(path.join(root, '.aoforge', 'STATE.md'));
     const r = health.run(ctxFor(root, home));
     assert.equal(r.severity, 'error');
     assert.equal(r.fixable, false);
@@ -487,7 +487,7 @@ describe('validate-health: spawn contract (test 14)', () => {
         status: 'broken',
         errors: [{
           code: 'E006',
-          message: 'skill-marker-tracked: .planning/.skill-active is tracked in git',
+          message: 'skill-marker-tracked: .aoforge/.skill-active is tracked in git',
           fix: 'Run `aof-tools doctor --fix`',
           repairable: true,
         }],
@@ -513,7 +513,7 @@ describe('validate-health: spawn contract (test 14)', () => {
         status: 'degraded',
         warnings: [
           { code: 'W003', message: 'config.json missing', fix: 'x', repairable: true },
-          { code: 'W064', message: 'skill-marker-stale: .planning/.skill-active', fix: 'x', repairable: true },
+          { code: 'W064', message: 'skill-marker-stale: .aoforge/.skill-active', fix: 'x', repairable: true },
         ],
         repairable_count: 2,
       }),

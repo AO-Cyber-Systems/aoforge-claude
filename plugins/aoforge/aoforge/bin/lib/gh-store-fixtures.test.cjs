@@ -22,7 +22,7 @@ const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 
 const read = (root, ...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
 const exists = (root, ...p) => fs.existsSync(path.join(root, ...p));
-const OBJ = (root, ...p) => path.join(root, '.planning', 'objectives', '07-store-demo', ...p);
+const OBJ = (root, ...p) => path.join(root, '.aoforge', 'objectives', '07-store-demo', ...p);
 
 /** Every file under `dir` as `relative path -> contents`, so two projects can be compared. */
 function snapshot(dir, base = dir, out = {}) {
@@ -60,7 +60,7 @@ describe('makeStoreProject', () => {
       assert.ok(exists(OBJ(project.root, f)), f);
     }
     for (const f of ['ROADMAP.md', 'PROJECT.md', 'REQUIREMENTS.md', 'config.json']) {
-      assert.ok(exists(project.root, '.planning', f), f);
+      assert.ok(exists(project.root, '.aoforge', f), f);
     }
 
     // Waves: 07-01 and 07-02 are wave 1; 07-03 is wave 2 and depends on 07-01.
@@ -89,17 +89,17 @@ describe('makeStoreProject', () => {
     assert.doesNotMatch(objective, /^kind:/m, 'kind is not set on the objective');
     assert.match(objective, /## Goal/);
     assert.equal((objective.match(/^\d+\. /gm) || []).length, 2, 'two success criteria');
-    const projectMd = read(project.root, '.planning', 'PROJECT.md');
+    const projectMd = read(project.root, '.aoforge', 'PROJECT.md');
     assert.match(projectMd, /^kind: plugin$/m);
     assert.match(projectMd, /^default_work: feature$/m);
 
     // ROADMAP: the demo milestone and objective 7 with two success criteria.
-    const roadmap = read(project.root, '.planning', 'ROADMAP.md');
+    const roadmap = read(project.root, '.aoforge', 'ROADMAP.md');
     assert.match(roadmap, /v9\.9 Store Demo/);
     assert.match(roadmap, /^### Objective 7: Store demo$/m);
     assert.equal((roadmap.match(/^\s+\d+\. /gm) || []).length, 2);
 
-    const config = JSON.parse(read(project.root, '.planning', 'config.json'));
+    const config = JSON.parse(read(project.root, '.aoforge', 'config.json'));
     assert.equal(config.github.enabled, true);
     assert.equal(config.github.repo, 'o/r');
     assert.equal('store' in config.github, false, 'store is opt-in');
@@ -119,10 +119,10 @@ describe('makeStoreProject', () => {
 
   it('16c. the option flags: enabled false, store true (strict boolean) and independent temp roots', () => {
     const off = make({ enabled: false });
-    assert.equal(JSON.parse(read(off.root, '.planning', 'config.json')).github.enabled, false);
+    assert.equal(JSON.parse(read(off.root, '.aoforge', 'config.json')).github.enabled, false);
 
     const store = make({ store: true });
-    const cfg = JSON.parse(read(store.root, '.planning', 'config.json'));
+    const cfg = JSON.parse(read(store.root, '.aoforge', 'config.json'));
     assert.strictEqual(cfg.github.store, true);
     assert.equal(cfg.github.enabled, true);
 
@@ -138,7 +138,7 @@ describe('makeStoreProject', () => {
 
     const again = make();
     assert.equal(read(OBJ(again.root), '07-01-alpha-TRD.md'), STORE_FIXTURE.trds['07-01-alpha-TRD.md']);
-    assert.equal(read(again.root, '.planning', 'ROADMAP.md'), STORE_FIXTURE.roadmap);
+    assert.equal(read(again.root, '.aoforge', 'ROADMAP.md'), STORE_FIXTURE.roadmap);
     // Callers may mutate what they were handed without poisoning the next project.
     again.trdFiles.push('x');
     assert.equal(make().trdFiles.length, 3);

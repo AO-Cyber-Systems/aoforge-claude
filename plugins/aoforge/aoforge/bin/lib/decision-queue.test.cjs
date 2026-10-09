@@ -39,8 +39,8 @@ describe('decision-queue', () => {
 
     test('2. pending has 001, resolved has 002 → DECISION-003 (scans both dirs)', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
-      const resolvedDir = path.join(tmp, '.planning', 'decisions', 'resolved');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
+      const resolvedDir = path.join(tmp, '.aoforge', 'decisions', 'resolved');
       buildDecisionFile(pendingDir, { id: 'DECISION-001', status: 'pending' });
       buildDecisionFile(resolvedDir, { id: 'DECISION-002', status: 'resolved' });
       const id = nextDecisionId(tmp);
@@ -49,7 +49,7 @@ describe('decision-queue', () => {
 
     test('3. non-decision files in dir ignored', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
       fs.mkdirSync(pendingDir, { recursive: true });
       fs.writeFileSync(path.join(pendingDir, 'README.md'), 'not a decision', 'utf-8');
       fs.writeFileSync(path.join(pendingDir, 'notes.txt'), 'also not', 'utf-8');
@@ -110,8 +110,8 @@ describe('decision-queue', () => {
         independent: [],
       });
 
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
-      const resolvedDir = path.join(tmp, '.planning', 'decisions', 'resolved');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
+      const resolvedDir = path.join(tmp, '.aoforge', 'decisions', 'resolved');
       assert.ok(fs.existsSync(pendingDir), 'pending dir created');
       assert.ok(fs.existsSync(resolvedDir), 'resolved dir created');
     });
@@ -198,7 +198,7 @@ describe('decision-queue', () => {
   describe('listDecisions', () => {
     test('9. returns pending decisions with parsed frontmatter, sorted by id', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
       buildDecisionFile(pendingDir, { id: 'DECISION-002', status: 'pending', title: 'B' });
       buildDecisionFile(pendingDir, { id: 'DECISION-001', status: 'pending', title: 'A' });
 
@@ -210,8 +210,8 @@ describe('decision-queue', () => {
 
     test('10. {status:"resolved"} filter returns resolved set', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
-      const resolvedDir = path.join(tmp, '.planning', 'decisions', 'resolved');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
+      const resolvedDir = path.join(tmp, '.aoforge', 'decisions', 'resolved');
       buildDecisionFile(pendingDir, { id: 'DECISION-001', status: 'pending' });
       buildDecisionFile(resolvedDir, { id: 'DECISION-002', status: 'resolved' });
 
@@ -231,7 +231,7 @@ describe('decision-queue', () => {
 
     test('12. malformed frontmatter file → stderr warning + skipped, siblings returned', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
       fs.mkdirSync(pendingDir, { recursive: true });
       // Write a malformed file (no frontmatter)
       fs.writeFileSync(path.join(pendingDir, 'DECISION-001.md'), 'no frontmatter here', 'utf-8');
@@ -260,8 +260,8 @@ describe('decision-queue', () => {
   describe('resolveDecision', () => {
     test('13. moves file pending/ → resolved/, sets status/resolution/resolved_at', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
-      const resolvedDir = path.join(tmp, '.planning', 'decisions', 'resolved');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
+      const resolvedDir = path.join(tmp, '.aoforge', 'decisions', 'resolved');
       buildDecisionFile(pendingDir, { id: 'DECISION-001', status: 'pending' });
       fs.mkdirSync(resolvedDir, { recursive: true });
 
@@ -280,9 +280,9 @@ describe('decision-queue', () => {
 
     test('14. unknown id → throws with message listing pending ids', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
       buildDecisionFile(pendingDir, { id: 'DECISION-001', status: 'pending' });
-      fs.mkdirSync(path.join(tmp, '.planning', 'decisions', 'resolved'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'decisions', 'resolved'), { recursive: true });
 
       assert.throws(
         () => resolveDecision(tmp, 'DECISION-999', 'option-a'),
@@ -296,8 +296,8 @@ describe('decision-queue', () => {
 
     test('15. choice not in options → resolves anyway with warning', () => {
       const tmp = mktmp();
-      const pendingDir = path.join(tmp, '.planning', 'decisions', 'pending');
-      const resolvedDir = path.join(tmp, '.planning', 'decisions', 'resolved');
+      const pendingDir = path.join(tmp, '.aoforge', 'decisions', 'pending');
+      const resolvedDir = path.join(tmp, '.aoforge', 'decisions', 'resolved');
       buildDecisionFile(pendingDir, { id: 'DECISION-001', status: 'pending', options: ['option-a', 'option-b'] });
       fs.mkdirSync(resolvedDir, { recursive: true });
 
@@ -429,7 +429,7 @@ describe('decision-queue', () => {
       const stdout = runCli(tmp, ['resolve', 'DECISION-001', 'option-a']);
       const result = JSON.parse(stdout);
       assert.ok(result.ok || result.resolved, 'ok response');
-      const resolvedPath = path.join(tmp, '.planning', 'decisions', 'resolved', 'DECISION-001.md');
+      const resolvedPath = path.join(tmp, '.aoforge', 'decisions', 'resolved', 'DECISION-001.md');
       assert.ok(fs.existsSync(resolvedPath), 'file moved to resolved/');
     });
 

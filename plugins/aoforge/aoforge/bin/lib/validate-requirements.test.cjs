@@ -20,6 +20,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { cmdValidateHealth } = require('./validate.cjs');
+const { planningDirLabel, planningRoot } = require('./compat.cjs');
 const {
   makeRequirementsProject,
   fiftyEightShape,
@@ -191,19 +192,19 @@ describe('validate requirements: the read-only form for one objective or all', (
     assert.deepEqual(all.checked, { objectives: 2, requirements: 5 });
   });
 
-  test('5. no .planning/ -> a note, exit 0, in JSON and in --raw', () => {
+  test('5. no .aoforge/ -> a note, exit 0, in JSON and in --raw', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-reqs-empty-')));
     homes.push(root);
     const json = runCli(root);
     assert.equal(json.status, 0, json.stderr);
-    assert.deepEqual(JSON.parse(json.stdout), { findings: [], checked: {}, note: 'no .planning/' });
+    assert.deepEqual(JSON.parse(json.stdout), { findings: [], checked: {}, note: `no ${planningDirLabel()}` });
     const raw = runCli(root, ['--raw']);
     assert.equal(raw.status, 0, raw.stderr);
-    assert.equal(raw.stdout.trimEnd(), 'no .planning/');
+    assert.equal(raw.stdout.trimEnd(), `no ${planningDirLabel()}`);
   });
 
   test('9. this repository (read-only): validate requirements finds nothing', {
-    skip: !fs.existsSync(path.join(REPO_ROOT, '.planning', 'objectives')) && 'not an AOForge checkout',
+    skip: !fs.existsSync(path.join(planningRoot(REPO_ROOT), 'objectives')) && 'not an AOForge checkout',
   }, () => {
     const r = runCli(REPO_ROOT);
     assert.equal(r.status, 0, r.stderr);

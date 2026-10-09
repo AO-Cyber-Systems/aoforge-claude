@@ -9,6 +9,7 @@ const { planningMode } = require('./planning-mode.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getMilestoneInfo, getRoadmapObjectiveInternal } = require('./roadmap.cjs');
 const { bootstrapProjectMd, bootstrapObjectiveMd } = require('./project-bootstrap.cjs');
+const { planningRoot, planningRel, planningDirName, planningDirLabel, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 // ─── Git plumbing (TRD 22-01) ─────────────────────────────────────────────────
 //
@@ -43,8 +44,8 @@ function _resetGitMock() { _runGit = runGit; }
  * Resolve --branch flag from argv slice into a branch spec.
  *
  * Modes:
- *   working_tree (default): read .planning/* via fs from cwd
- *   git_show:               read .planning/* via `git show <branch>:<path>`
+ *   working_tree (default): read .aoforge/* via fs from cwd
+ *   git_show:               read .aoforge/* via `git show <branch>:<path>`
  *
  * Aliases: 'current', 'HEAD' → working_tree mode (per G3 in 22-RESEARCH.md;
  * detached HEAD returns literal 'HEAD' from git rev-parse, so treat it as alias).
@@ -96,10 +97,10 @@ function _resolveBranch(args, cwd) {
 }
 
 /**
- * Read .planning/STATE.md respecting branch spec.
+ * Read .aoforge/STATE.md respecting branch spec.
  *
  * working_tree mode: fs.readFileSync — returns null if STATE.md missing (caller decides).
- * git_show    mode: git show <branch>:.planning/STATE.md — errors if missing
+ * git_show    mode: git show <branch>:.aoforge/STATE.md — errors if missing
  *                   (explicit cross-branch reads must fail loudly).
  *
  * Callers receive null when default working-tree read finds no STATE.md and may
@@ -112,18 +113,20 @@ function _resolveBranch(args, cwd) {
  */
 function _readStateBranch(cwd, branchSpec) {
   if (branchSpec.mode === 'working_tree') {
-    const full = path.join(cwd, '.planning', 'STATE.md');
+    const full = path.join(planningRoot(cwd), 'STATE.md');
     if (!fs.existsSync(full)) {
       return null;
     }
     return fs.readFileSync(full, 'utf-8');
   }
   // git_show mode — keep this branch hard-erroring; cross-branch reads are explicit
-  const showR = _runGit(['show', `${branchSpec.branch}:.planning/STATE.md`], { cwd });
-  if (!showR.ok) {
-    error(`.planning/STATE.md not found on branch ${branchSpec.branch}.`);
+  // the branch may be on either planning-directory layout: the new name first, then the legacy one
+  for (const dir of PLANNING_DIR_NAMES) {
+    const showR = _runGit(['show', `${branchSpec.branch}:${dir}/STATE.md`], { cwd });
+    if (showR.ok) return showR.stdout;
   }
-  return showR.stdout;
+  error(`STATE.md not found on branch ${branchSpec.branch} (under ${planningDirLabel()}).`);
+  return null;
 }
 
 /**
@@ -186,7 +189,7 @@ function _awarenessLoadable() {
 }
 
 /**
- * Read .planning/.check-todos-cache.json (cache-only; never spawn fresh fetch).
+ * Read .aoforge/.check-todos-cache.json (cache-only; never spawn fresh fetch).
  *
  * Returns:
  *   { line: '📋 N todos in Now lane (run /aoforge:todo list)', warning: null }
@@ -202,7 +205,7 @@ function _awarenessLoadable() {
  * @returns {{ line: string|null, warning: string|null }}
  */
 function _buildCheckTodosPreview(cwd) {
-  const cachePath = path.join(cwd, '.planning', '.check-todos-cache.json');
+  const cachePath = path.join(planningRoot(cwd), '.check-todos-cache.json');
   if (!fs.existsSync(cachePath)) return { line: null, warning: null };
   let parsed;
   try {
@@ -221,7 +224,7 @@ function _buildCheckTodosPreview(cwd) {
 /**
  * Read the awareness cache (cache-only) from the out-of-tree awareness store
  * (~/.claude/aoforge/state/awareness/<repo-key>.json, TRD 45-01) via awareness.cjs readCache.
- * Filters out the current branch. A legacy in-tree .planning/.awareness-cache.json is ignored.
+ * Filters out the current branch. A legacy in-tree .aoforge/.awareness-cache.json is ignored.
  *
  * Returns:
  *   { line: '⚠ N other branches active (run aof-tools awareness show)', warning: null }
@@ -457,9 +460,9 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
     milestone_slug: generateSlugInternal(milestone.name),
 
     // File existence
-    state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    config_exists: pathExistsInternal(cwd, '.planning/config.json'),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    config_exists: pathExistsInternal(cwd, planningRel(cwd, 'config.json')),
   };
 
   // Include file contents if requested via --include
@@ -470,10 +473,10 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
     result.state_content = _readStateBranch(cwd, branchSpec);
   }
   if (includes.has('config')) {
-    result.config_content = safeReadFile(path.join(cwd, '.planning', 'config.json'));
+    result.config_content = safeReadFile(path.join(planningRoot(cwd), 'config.json'));
   }
   if (includes.has('roadmap')) {
-    result.roadmap_content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+    result.roadmap_content = safeReadFile(path.join(planningRoot(cwd), 'ROADMAP.md'));
   }
 
   // Guidance flag for execute-objective skill: trigger aof-tools awareness show --refresh
@@ -500,7 +503,7 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
   // the change into their next commit).
   result.bootstrap = bootstrapProjectMd(cwd);
   // Scoped bootstrap: only touch the target objective's dir, not every
-  // objective under .planning/objectives/. Synthesize the legacy shape so
+  // objective under .aoforge/objectives/. Synthesize the legacy shape so
   // downstream consumers (skills/agents reading bootstrap_objectives) work
   // unchanged.
   const _bootstrapObjId = objectiveInfo?.directory
@@ -555,8 +558,8 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
     job_count: objectiveInfo?.jobs?.length || 0,
 
     // Environment
-    planning_exists: pathExistsInternal(cwd, '.planning'),
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
   };
 
   // Include file contents if requested via --include
@@ -565,10 +568,10 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
     result.state_content = _readStateBranch(cwd, branchSpec);
   }
   if (includes.has('roadmap')) {
-    result.roadmap_content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+    result.roadmap_content = safeReadFile(path.join(planningRoot(cwd), 'ROADMAP.md'));
   }
   if (includes.has('requirements')) {
-    result.requirements_content = safeReadFile(path.join(cwd, '.planning', 'REQUIREMENTS.md'));
+    result.requirements_content = safeReadFile(path.join(planningRoot(cwd), 'REQUIREMENTS.md'));
   }
   if (includes.has('context') && objectiveInfo?.directory) {
     // Find *-CONTEXT.md in objective directory
@@ -637,7 +640,7 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
   // See cmdInitExecuteObjective for the same pattern.
   result.bootstrap = bootstrapProjectMd(cwd);
   // Scoped bootstrap: only touch the target objective's dir, not every
-  // objective under .planning/objectives/. Synthesize the legacy shape so
+  // objective under .aoforge/objectives/. Synthesize the legacy shape so
   // downstream consumers (skills/agents reading bootstrap_objectives) work
   // unchanged.
   const _bootstrapObjId = objectiveInfo?.directory
@@ -688,9 +691,9 @@ function cmdInitNewProject(cwd, raw, args = []) {
     commit_docs: config.commit_docs,
 
     // Existing state
-    project_exists: pathExistsInternal(cwd, '.planning/PROJECT.md'),
-    has_codebase_map: pathExistsInternal(cwd, '.planning/codebase'),
-    planning_exists: pathExistsInternal(cwd, '.planning'),
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    has_codebase_map: pathExistsInternal(cwd, planningRel(cwd, 'codebase')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
 
     // Brownfield detection
     has_existing_code: hasCode,
@@ -732,9 +735,9 @@ function cmdInitNewMilestone(cwd, raw, args = []) {
     current_milestone_name: milestone.name,
 
     // File existence
-    project_exists: pathExistsInternal(cwd, '.planning/PROJECT.md'),
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
   };
 
   output(result, raw);
@@ -748,7 +751,7 @@ function cmdInitQuick(cwd, description, raw, args = []) {
   const slug = description ? generateSlugInternal(description)?.substring(0, 40) : null;
 
   // Find next quick task number
-  const quickDir = path.join(cwd, '.planning', 'quick');
+  const quickDir = path.join(planningRoot(cwd), 'quick');
   let nextNum = 1;
   try {
     const existing = fs.readdirSync(quickDir)
@@ -780,12 +783,12 @@ function cmdInitQuick(cwd, description, raw, args = []) {
     timestamp: now.toISOString(),
 
     // Paths
-    quick_dir: '.planning/quick',
-    task_dir: slug ? `.planning/quick/${nextNum}-${slug}` : null,
+    quick_dir: planningRel(cwd, 'quick'),
+    task_dir: slug ? planningRel(cwd, 'quick', `${nextNum}-${slug}`) : null,
 
     // File existence
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    planning_exists: pathExistsInternal(cwd, '.planning'),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
   };
 
   output(result, raw);
@@ -799,15 +802,15 @@ function cmdInitResume(cwd, raw, args = []) {
   // Check for interrupted agent
   let interruptedAgentId = null;
   try {
-    interruptedAgentId = fs.readFileSync(path.join(cwd, '.planning', 'current-agent-id.txt'), 'utf-8').trim();
+    interruptedAgentId = fs.readFileSync(path.join(planningRoot(cwd), 'current-agent-id.txt'), 'utf-8').trim();
   } catch {}
 
   const result = {
     // File existence
-    state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    project_exists: pathExistsInternal(cwd, '.planning/PROJECT.md'),
-    planning_exists: pathExistsInternal(cwd, '.planning'),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
 
     // Agent state
     has_interrupted_agent: !!interruptedAgentId,
@@ -899,8 +902,8 @@ function cmdInitObjectiveOp(cwd, objective, raw, args = []) {
     job_count: objectiveInfo?.jobs?.length || 0,
 
     // File existence
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    planning_exists: pathExistsInternal(cwd, '.planning'),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
   };
 
   output(result, raw);
@@ -913,7 +916,7 @@ function cmdInitTodos(cwd, area, raw, args = []) {
   const now = new Date();
 
   // List todos (reuse existing logic)
-  const pendingDir = path.join(cwd, '.planning', 'todos', 'pending');
+  const pendingDir = path.join(planningRoot(cwd), 'todos', 'pending');
   let count = 0;
   const todos = [];
 
@@ -935,7 +938,7 @@ function cmdInitTodos(cwd, area, raw, args = []) {
           created: createdMatch ? createdMatch[1].trim() : 'unknown',
           title: titleMatch ? titleMatch[1].trim() : 'Untitled',
           area: todoArea,
-          path: path.join('.planning', 'todos', 'pending', file),
+          path: path.join(planningDirName(cwd), 'todos', 'pending', file),
         });
       } catch {}
     }
@@ -955,13 +958,13 @@ function cmdInitTodos(cwd, area, raw, args = []) {
     area_filter: area || null,
 
     // Paths
-    pending_dir: '.planning/todos/pending',
-    completed_dir: '.planning/todos/completed',
+    pending_dir: planningRel(cwd, 'todos/pending'),
+    completed_dir: planningRel(cwd, 'todos/completed'),
 
     // File existence
-    planning_exists: pathExistsInternal(cwd, '.planning'),
-    todos_dir_exists: pathExistsInternal(cwd, '.planning/todos'),
-    pending_dir_exists: pathExistsInternal(cwd, '.planning/todos/pending'),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+    todos_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'todos')),
+    pending_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'todos/pending')),
   };
 
   output(result, raw);
@@ -976,7 +979,7 @@ function cmdInitMilestoneOp(cwd, raw, args = []) {
   // Count objectives
   let objectiveCount = 0;
   let completedPhases = 0;
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   try {
     const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
     const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
@@ -993,7 +996,7 @@ function cmdInitMilestoneOp(cwd, raw, args = []) {
   } catch {}
 
   // Check archive
-  const archiveDir = path.join(cwd, '.planning', 'archive');
+  const archiveDir = path.join(planningRoot(cwd), 'archive');
   let archivedMilestones = [];
   try {
     archivedMilestones = fs.readdirSync(archiveDir, { withFileTypes: true })
@@ -1024,11 +1027,11 @@ function cmdInitMilestoneOp(cwd, raw, args = []) {
     archive_count: archivedMilestones.length,
 
     // File existence
-    project_exists: pathExistsInternal(cwd, '.planning/PROJECT.md'),
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
-    archive_exists: pathExistsInternal(cwd, '.planning/archive'),
-    objectives_dir_exists: pathExistsInternal(cwd, '.planning/objectives'),
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+    archive_exists: pathExistsInternal(cwd, planningRel(cwd, 'archive')),
+    objectives_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'objectives')),
   };
 
   output(result, raw);
@@ -1040,7 +1043,7 @@ function cmdInitMapCodebase(cwd, raw, args = []) {
   const config = loadConfig(cwd);
 
   // Check for existing codebase maps
-  const codebaseDir = path.join(cwd, '.planning', 'codebase');
+  const codebaseDir = path.join(planningRoot(cwd), 'codebase');
   let existingMaps = [];
   try {
     existingMaps = fs.readdirSync(codebaseDir).filter(f => f.endsWith('.md'));
@@ -1056,15 +1059,15 @@ function cmdInitMapCodebase(cwd, raw, args = []) {
     parallelization: config.parallelization,
 
     // Paths
-    codebase_dir: '.planning/codebase',
+    codebase_dir: planningRel(cwd, 'codebase'),
 
     // Existing maps
     existing_maps: existingMaps,
     has_maps: existingMaps.length > 0,
 
     // File existence
-    planning_exists: pathExistsInternal(cwd, '.planning'),
-    codebase_dir_exists: pathExistsInternal(cwd, '.planning/codebase'),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+    codebase_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'codebase')),
   };
 
   output(result, raw);
@@ -1079,8 +1082,8 @@ function cmdInitSecurityAudit(cwd, raw, args = []) {
   const auditorModel = resolveModelInternal(cwd, 'df-security-auditor');
 
   // Check for existing audit report
-  const planningExists = pathExistsInternal(cwd, '.planning');
-  const outputDir = planningExists ? '.planning' : '.';
+  const planningExists = pathExistsInternal(cwd, planningRel(cwd));
+  const outputDir = planningExists ? planningDirName(cwd) : '.';
   const reportPath = path.join(outputDir, 'SECURITY-AUDIT.md');
   const existingReport = pathExistsInternal(cwd, reportPath);
 
@@ -1133,7 +1136,7 @@ function cmdInitProgress(cwd, includes, raw, args = []) {
   const { findPlanFiles } = require('./helpers.cjs');
 
   // Analyze objectives
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const objectives = [];
   let currentObjective = null;
   let nextObjective = null;
@@ -1161,7 +1164,7 @@ function cmdInitProgress(cwd, includes, raw, args = []) {
       const objectiveInfo = {
         number: objectiveNumber,
         name: objectiveName,
-        directory: path.join('.planning', 'objectives', dir),
+        directory: path.join(planningDirName(cwd), 'objectives', dir),
         status,
         job_count: plans.length,
         summary_count: summaries.length,
@@ -1183,7 +1186,7 @@ function cmdInitProgress(cwd, includes, raw, args = []) {
   // Check for paused work
   let pausedAt = null;
   try {
-    const state = fs.readFileSync(path.join(cwd, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(planningRoot(cwd), 'STATE.md'), 'utf-8');
     const pauseMatch = state.match(/\*\*Paused At:\*\*\s*(.+)/);
     if (pauseMatch) pausedAt = pauseMatch[1].trim();
   } catch {}
@@ -1213,9 +1216,9 @@ function cmdInitProgress(cwd, includes, raw, args = []) {
     has_work_in_progress: !!currentObjective,
 
     // File existence
-    project_exists: pathExistsInternal(cwd, '.planning/PROJECT.md'),
-    roadmap_exists: pathExistsInternal(cwd, '.planning/ROADMAP.md'),
-    state_exists: pathExistsInternal(cwd, '.planning/STATE.md'),
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
   };
 
   // Include file contents if requested via --include
@@ -1224,13 +1227,13 @@ function cmdInitProgress(cwd, includes, raw, args = []) {
     result.state_content = _readStateBranch(cwd, branchSpec);
   }
   if (includes.has('roadmap')) {
-    result.roadmap_content = safeReadFile(path.join(cwd, '.planning', 'ROADMAP.md'));
+    result.roadmap_content = safeReadFile(path.join(planningRoot(cwd), 'ROADMAP.md'));
   }
   if (includes.has('project')) {
-    result.project_content = safeReadFile(path.join(cwd, '.planning', 'PROJECT.md'));
+    result.project_content = safeReadFile(path.join(planningRoot(cwd), 'PROJECT.md'));
   }
   if (includes.has('config')) {
-    result.config_content = safeReadFile(path.join(cwd, '.planning', 'config.json'));
+    result.config_content = safeReadFile(path.join(planningRoot(cwd), 'config.json'));
   }
 
   output(result, raw);

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * state-merge.cjs: the pure 3-way merge of `.planning/state.json` (TRD 59-01, PLMB-02).
+ * state-merge.cjs: the pure 3-way merge of `.aoforge/state.json` (TRD 59-01, PLMB-02).
  *
  * Parallel wave branches each append to state.json (`state add-decision` adds a `decisions` entry,
  * `state record-metric` bumps counters). Two branches appending at the same place is a textual

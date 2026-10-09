@@ -21,6 +21,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { planningDirLabel } = require('./compat.cjs');
 
 const LOG_FILE = '.override-log.jsonl';
 /** Gates that can be overridden, mapped to the marker the hook consumes. */
@@ -51,7 +52,7 @@ function logPath(planningDir) {
  */
 function recordOverride({ planningDir, gate, reason, now }) {
   if (!planningDir) {
-    return { ok: false, reason_code: 'no-planning-dir', message: 'No .planning/ directory found' };
+    return { ok: false, reason_code: 'no-planning-dir', message: `No ${planningDirLabel()} directory found` };
   }
   if (!gate || !Object.prototype.hasOwnProperty.call(GATES, gate)) {
     return {

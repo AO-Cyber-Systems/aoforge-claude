@@ -8,5 +8,5 @@ subsystem: tooling
 
 ## Progress
 - [x] Task 1: Fixture builder: minimal planning trees in every layout — 812d378f
-- [ ] Task 2: Contract suite RED, planning pass over bin/**, residuals GREEN — RED committed (this commit); next step: `node scripts/aoforge-rename.cjs --rules planning --only plugins/aoforge/aoforge/bin --write --report <scratchpad>/planning-libs.json`, then convert the 329 residuals by category until planning-layout.legacy.test.cjs cases 1-4 and 7 pass
-- [ ] Task 3: W066 in validate health and the init advisories
+- [x] Task 2: Contract suite RED, planning pass over bin/**, residuals GREEN — 26c92021 (RED), (this commit) (GREEN)
+- [ ] Task 3: W066 in validate health and the init advisories — next step: add cases 5, 6, 7 (W066 part) and 8 to plugins/aoforge/aoforge/bin/lib/planning-layout.legacy.test.cjs, run them (fail), commit RED; then validate.cjs Check 21 after Check 20, the W066 push in init.cjs's two advisories_warnings builders, and the help.cjs validate entry

@@ -5,9 +5,9 @@
  *
  * Per-session persistence for the no-progress guard (hooks/guard-no-progress.js).
  *
- * Why this exists: the guard used to rewrite <project>/.planning/.progress-guard.json
+ * Why this exists: the guard used to rewrite <project>/.aoforge/.progress-guard.json
  * on every tool call. Claude Code's file watcher attached that whole file (~2.5KB,
- * ~800 tokens) to the next tool result as "Updated .planning/.progress-guard.json",
+ * ~800 tokens) to the next tool result as "Updated .aoforge/.progress-guard.json",
  * on every call, and because one file was shared by every session, concurrent
  * sessions raced on read-modify-write. State now lives outside the repo, one file
  * per session, so nothing the watcher sees changes and no two sessions share a file.

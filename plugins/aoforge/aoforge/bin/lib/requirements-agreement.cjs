@@ -7,10 +7,10 @@
 // audits completion from SUMMARY frontmatter (audit-milestone's three-source cross-reference, a requirements tally) is
 // misled when a satisfied requirement is listed nowhere. A SUMMARY of another objective never satisfies this one.
 //
-// SCOPE RULE. Only IDs defined in a REQUIREMENTS document are checked: `.planning/REQUIREMENTS.md` and
-// `.planning/milestones/*-REQUIREMENTS.md`, where a definition is a `- [x] **ID**:` / `- [ ] **ID**:` line (a
+// SCOPE RULE. Only IDs defined in a REQUIREMENTS document are checked: `.aoforge/REQUIREMENTS.md` and
+// `.aoforge/milestones/*-REQUIREMENTS.md`, where a definition is a `- [x] **ID**:` / `- [ ] **ID**:` line (a
 // traceability-table row or a prose mention is not one). Any other satisfied ID is returned as `skipped`, never as a
-// finding. The reason is measured: a planning-session scan of this repository over `.planning/objectives/`, scoped to
+// finding. The reason is measured: a planning-session scan of this repository over `.aoforge/objectives/`, scoped to
 // REQUIREMENTS-document IDs, flagged exactly objective 58 (EST-02, EST-04). Unscoped it also flagged objectives 03, 04,
 // 08 (SC-N), 11 (AC-N), 23 (SCOPE-N), 35 (STK), 41 (VER) and 44 (AUT): labels and requirement families that predate
 // REQUIREMENTS.md, whose SUMMARYs were never meant to list them.
@@ -75,7 +75,7 @@ function listDir(dir, opts) {
   }
 }
 
-/** Every requirement ID defined in `.planning/REQUIREMENTS.md` or `.planning/milestones/*-REQUIREMENTS.md`. */
+/** Every requirement ID defined in `.aoforge/REQUIREMENTS.md` or `.aoforge/milestones/*-REQUIREMENTS.md`. */
 function knownRequirementIds(planningDir) {
   const files = [path.join(planningDir, 'REQUIREMENTS.md')];
   const milestonesDir = path.join(planningDir, 'milestones');

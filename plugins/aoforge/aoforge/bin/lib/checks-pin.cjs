@@ -50,7 +50,7 @@ const DEFAULT_CHECKS_WORKFLOW = 'AO-Cyber-Systems/aoforge-claude/.github/workflo
 const W062 = 'W062';
 const FIX =
   'Run `aof-tools gh setup --apply` to re-pin it, then merge the workflow pull request it prints. If github.checks_workflow in '
-  + '.planning/config.json names an @ref, update that first: setup re-renders the configured ref.';
+  + '.aoforge/config.json names an @ref, update that first: setup re-renders the configured ref.';
 
 const USES_LINE = /^\s*uses:\s*(\S+)/;
 const AOFORGE_REF_LINE = /^\s*aoforge-ref:\s*(\S+)/;

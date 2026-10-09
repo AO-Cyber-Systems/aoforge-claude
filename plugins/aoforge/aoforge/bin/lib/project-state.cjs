@@ -10,10 +10,10 @@
  *
  * Output schema (locked per #28, `state` added by 37-04):
  * {
- *   "has_planning":       boolean,   — .planning/ exists
+ *   "has_planning":       boolean,   — .aoforge/ exists
  *   "has_git":            boolean,   — .git/ exists
  *   "git_age_days":       number|null, — days since first commit; null = no git history
- *   "code_files":         number,    — source files (excluding node_modules/.git/.planning etc.)
+ *   "code_files":         number,    — source files (excluding node_modules/.git/.aoforge etc.)
  *   "primary_lang":       string|null, — detected from manifest file
  *   "is_substantive":     boolean,   — ((git_age_days > 7) OR (code_files > 10)) AND has_manifest AND NOT is_scratch_dir
  *   "previously_declined": boolean,  — user declined AOForge init for this cwd

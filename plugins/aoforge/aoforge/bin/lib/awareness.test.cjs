@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { planningDirName } = require('./compat.cjs');
 
 const {
   parseStateMd,
@@ -22,7 +23,7 @@ const {
 } = require('./__fixtures__/awareness-fixtures.cjs');
 
 // ─── Real STATE.md excerpt for P6 ────────────────────────────────────────────
-// Copied from .planning/STATE.md — 20 representative lines.
+// Copied from .aoforge/STATE.md — 20 representative lines.
 const REAL_STATE_MD_EXCERPT = `# AOForge State
 
 ## Current Position
@@ -362,7 +363,7 @@ test('buildOrgScanResult O2: returns shape compatible with aggregateOrgByProduct
 //   W2: existing entry {org:Y} + writeCache({peer:X}) → entry contains BOTH peer:X AND org:Y (merge)
 //   W3: existing entry {peer:OLD, org:Y} + writeCache({peer:NEW}) → peer overwritten, org preserved
 //   W4: existing entry {peer:OLD, org:Y} + writeCache({peer:NEW, org:Y2}) → both replaced
-//   W5: writeCache creates the store file and NOTHING under <cwd>/.planning/
+//   W5: writeCache creates the store file and NOTHING under <cwd>/.aoforge/
 //   W6: writeCache produces pretty JSON with trailing newline
 //   W7: a legacy in-tree file is neither merged in nor modified
 //   W8: two repos get two separate store files
@@ -378,7 +379,7 @@ test('buildOrgScanResult O2: returns shape compatible with aggregateOrgByProduct
 //   I8: fetched_at = (now + 5 minutes) (future, clock skew) → returns false (treated as fresh)
 //
 // Group G — .gitignore line:
-//   G1: file .gitignore contains line matching ^\.planning/\.awareness-cache\.json$
+//   G1: file .gitignore contains line matching ^\.aoforge/\.awareness-cache\.json$
 //   G2: gitignore line does NOT inadvertently ignore other awareness files (count === 1)
 //
 // Group T — templates/config.json documentation:
@@ -438,7 +439,7 @@ function tempCwd() {
 //
 // Every test below seeds and reads through awareness-store under the temp
 // AOFORGE_AWARENESS_DIR the file-level beforeEach installs. Nothing writes
-// <cwd>/.planning/.awareness-cache.json to seed a cache.
+// <cwd>/.aoforge/.awareness-cache.json to seed a cache.
 
 test('env isolation: AOFORGE_AWARENESS_DIR points at a temp dir for every test in this file', () => {
   assert.ok(process.env.AOFORGE_AWARENESS_DIR, 'override is set');
@@ -530,9 +531,9 @@ test('readCache C6b: a peer-only entry returns only {peer}', () => {
 test('readCache C7: a legacy in-tree file with no store file reads as null (no fallback)', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
     fs.writeFileSync(
-      path.join(t.cwd, '.planning', '.awareness-cache.json'),
+      path.join(t.cwd, '.aoforge', '.awareness-cache.json'),
       JSON.stringify({ peer: { branches: ['legacy'] } }, null, 2) + '\n'
     );
     assert.ok(!fs.existsSync(store.cacheFile(t.cwd)), 'precondition: no store file');
@@ -542,7 +543,7 @@ test('readCache C7: a legacy in-tree file with no store file reads as null (no f
 
 test('AWARENESS_CACHE_REL is gone; the legacy in-tree path survives only as awareness-store LEGACY_CACHE_REL (TRD 53-05)', () => {
   assert.strictEqual(require('./awareness.cjs').AWARENESS_CACHE_REL, undefined);
-  assert.strictEqual(require('./awareness-store.cjs').LEGACY_CACHE_REL, '.planning/.awareness-cache.json');
+  assert.strictEqual(require('./awareness-store.cjs').LEGACY_CACHE_REL, '.aoforge/.awareness-cache.json');
 });
 
 // ─── Group W: writeCache merge semantics (through the store) ─────────────────
@@ -597,27 +598,27 @@ test('writeCache W4: existing {peer:OLD, org:Y} + writeCache({peer:NEW, org:Y2})
   } finally { t.cleanup(); }
 });
 
-test('writeCache W5: creates the store file and NEVER anything under <cwd>/.planning/', () => {
+test('writeCache W5: creates the store file and NEVER anything under <cwd>/.aoforge/', () => {
   const t = tempCwd();
   try {
-    assert.ok(!fs.existsSync(path.join(t.cwd, '.planning')), '.planning should not exist yet');
+    assert.ok(!fs.existsSync(path.join(t.cwd, '.aoforge')), '.aoforge should not exist yet');
     writeCache(t.cwd, { peer: { branches: ['x'] } });
     assert.ok(fs.existsSync(store.cacheFile(t.cwd)), 'store file created');
     assert.ok(
-      !fs.existsSync(path.join(t.cwd, '.planning', '.awareness-cache.json')),
+      !fs.existsSync(path.join(t.cwd, '.aoforge', '.awareness-cache.json')),
       'legacy in-tree cache file NOT created'
     );
-    assert.ok(!fs.existsSync(path.join(t.cwd, '.planning')), '.planning/ NOT created');
+    assert.ok(!fs.existsSync(path.join(t.cwd, '.aoforge')), '.aoforge/ NOT created');
     assert.deepStrictEqual(fs.readdirSync(t.cwd), [], 'nothing at all was written under cwd');
   } finally { t.cleanup(); }
 });
 
-test('writeCache W5b: with .planning/ present, no file is added under it', () => {
+test('writeCache W5b: with .aoforge/ present, no file is added under it', () => {
   const t = tempCwd();
   try {
-    fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
     writeCache(t.cwd, { peer: { branches: ['x'] } });
-    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.planning')), []);
+    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.aoforge')), []);
   } finally { t.cleanup(); }
 });
 
@@ -639,7 +640,7 @@ test('writeCache W6: produces pretty JSON with trailing newline', () => {
 test('writeCache W7: a legacy in-tree file is neither merged in nor modified', () => {
   const t = tempCwd();
   try {
-    const legacy = path.join(t.cwd, '.planning', '.awareness-cache.json');
+    const legacy = path.join(t.cwd, '.aoforge', '.awareness-cache.json');
     fs.mkdirSync(path.dirname(legacy), { recursive: true });
     const legacyBody = JSON.stringify({ org: { items: ['legacy-org'] } }, null, 2) + '\n';
     fs.writeFileSync(legacy, legacyBody);
@@ -713,7 +714,9 @@ test('gitignore G1: .gitignore contains .awareness-cache.json line', () => {
     return;
   }
   const content = fs.readFileSync(gitignorePath, 'utf-8');
-  assert.match(content, /^\.planning\/\.awareness-cache\.json$/m);
+  // the line names this repository's planning directory, wherever it is (`.planning/` until 72-21, `.aoforge/` after)
+  const dir = planningDirName(path.dirname(gitignorePath));
+  assert.ok(content.split(/\r?\n/).includes(`${dir}/.awareness-cache.json`), `no ${dir}/.awareness-cache.json line`);
 });
 
 test('gitignore G2: gitignore line appears exactly once (does not inadvertently ignore other files)', () => {
@@ -858,12 +861,12 @@ function buildScanResponses({
   );
   for (const [branch, fields] of Object.entries(state_md_per_branch)) {
     if (fields === null) {
-      responses.set(`show origin/${branch}:.planning/STATE.md`, buildGitShowMissingFile());
+      responses.set(`show origin/${branch}:.aoforge/STATE.md`, buildGitShowMissingFile());
     } else if (fields === 'malformed') {
-      responses.set(`show origin/${branch}:.planning/STATE.md`,
+      responses.set(`show origin/${branch}:.aoforge/STATE.md`,
         { ok: true, status: 0, stdout: 'this is not a state.md', stderr: '' });
     } else {
-      responses.set(`show origin/${branch}:.planning/STATE.md`, buildGitShowStateMd(fields));
+      responses.set(`show origin/${branch}:.aoforge/STATE.md`, buildGitShowStateMd(fields));
     }
   }
   for (const [branch, log_opts] of Object.entries(per_branch_log)) {
@@ -1544,7 +1547,7 @@ test('O1 (02-03): scanOrg calls requireGhAuth FIRST (mock counter asserts orderi
   } finally { gh._setRunGh(null); }
 });
 
-test('O2 (46-07, test 16): scanOrg defaults project_id from <cwd>/.planning/PROJECT.md org_project, never the cassette', () => {
+test('O2 (46-07, test 16): scanOrg defaults project_id from <cwd>/.aoforge/PROJECT.md org_project, never the cassette', () => {
   const authResp = { ok: true, status: 0, stdout: GH_AUTH_STATUS_OK, stderr: '' };
   const itemsResp = buildGhResponse_projectItemsList({ items: [], hasNextPage: false });
 
@@ -1564,8 +1567,8 @@ test('O2 (46-07, test 16): scanOrg defaults project_id from <cwd>/.planning/PROJ
   });
 
   const withProject = fs.mkdtempSync(path.join(os.tmpdir(), 'scanorg-o2-'));
-  fs.mkdirSync(path.join(withProject, '.planning'), { recursive: true });
-  fs.writeFileSync(path.join(withProject, '.planning', 'PROJECT.md'), '---\norg_project: PVT_from_project\n---\n\n# P\n');
+  fs.mkdirSync(path.join(withProject, '.aoforge'), { recursive: true });
+  fs.writeFileSync(path.join(withProject, '.aoforge', 'PROJECT.md'), '---\norg_project: PVT_from_project\n---\n\n# P\n');
   const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'scanorg-o2-bare-'));
 
   try {

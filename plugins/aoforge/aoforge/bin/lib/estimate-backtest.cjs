@@ -447,7 +447,7 @@ function summarize(rows, classes) {
 
 /**
  * The objective directory's own name (`90-alpha`). estimateObjective carries `dir` as the relative path it found the
- * objective at (`.planning/objectives/90-alpha`), while collectProject keys a TRD by the bare name; a bare name stays as is.
+ * objective at (`.aoforge/objectives/90-alpha`), while collectProject keys a TRD by the bare name; a bare name stays as is.
  */
 function directoryName(dir) {
   const parts = String(dir === undefined || dir === null ? '' : dir).split('/').filter((part) => part !== '');

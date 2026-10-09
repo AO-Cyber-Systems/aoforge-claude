@@ -3,7 +3,7 @@
 /**
  * flutter-package-dir.cjs — shared Flutter package-directory resolver.
  *
- * AOForge's `.planning/` and the executor's cwd are always the repo root, but a
+ * AOForge's `.aoforge/` and the executor's cwd are always the repo root, but a
  * monorepo consumer (eden-biz, aodex) puts the actual Flutter package under
  * `<repo>/flutter/pubspec.yaml` rather than `<repo>/pubspec.yaml`. Two bootstrap
  * modules (flutter-ui-eval-bootstrap.cjs, flutter-ui-bootstrap.cjs) previously

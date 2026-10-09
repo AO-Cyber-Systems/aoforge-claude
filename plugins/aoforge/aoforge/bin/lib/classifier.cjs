@@ -29,9 +29,9 @@
  * continue to work without modification (same behavior as before 17-03).
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir         - path to .planning/ dir, or null if not found
+ * @param {string|null} opts.planningDir         - path to .aoforge/ dir, or null if not found
  * @param {boolean}     opts.hasGitDir           - true if .git/ found in ancestor
- * @param {boolean}     opts.hasDeclineMarker    - true if .planning/.aoforge-init-declined exists (legacy 15-01)
+ * @param {boolean}     opts.hasDeclineMarker    - true if .aoforge/.aoforge-init-declined exists (legacy 15-01)
  * @param {boolean}     [opts.isSubstantive=true]       - true if project meets substantive heuristic (17-03)
  * @param {boolean}     [opts.previouslyDeclined=false] - true if user declined via aof-tools project-decline (17-03)
  * @returns {'ambient'|'init-offer'|'skip'}
@@ -58,14 +58,14 @@ function classifySession({
 // ─── Preamble constants ───────────────────────────────────────────────────────
 
 /**
- * Routing decision table preamble for ambient mode (AOForge project with .planning/).
+ * Routing decision table preamble for ambient mode (AOForge project with .aoforge/).
  *
  * LOCKED TEXT — from 15-RESEARCH.md (preamble structure) and 16-PHASE-B (micro shipped).
  * Update only in a dedicated TRD.
  */
 const AMBIENT_PREAMBLE = `AOFORGE PROJECT DETECTED — ROUTING DIRECTIVE
 
-This project has .planning/ — AOForge ambient mode is active.
+This project has .aoforge/ — AOForge ambient mode is active.
 
 ROUTING DECISION TABLE:
   • Q&A / explanation / exploration       → respond directly, no skill
@@ -94,21 +94,21 @@ Ask the user to type these, or use aof-tools directly for the equivalent
 operation. Attempting the Skill tool on them fails.
 
 GATE: gate-edits.js will DENY direct Edit/Write/MultiEdit in ambient mode
-unless an active skill marker (.planning/.skill-active) is present, or the
+unless an active skill marker (.aoforge/.skill-active) is present, or the
 user prompt contains an explicit override phrase ("skip aoforge", "just edit",
 "bypass aoforge", "force edit").
 
 You MUST route through the appropriate skill BEFORE editing code.`;
 
 /**
- * Init-offer preamble for substantive git repos without .planning/ (no decline, no auto-init).
+ * Init-offer preamble for substantive git repos without .aoforge/ (no decline, no auto-init).
  *
  * LOCKED TEXT — updated 17-03 per #28 spec (replaces 15-RESEARCH.md version).
  * Mentions /aoforge:new-project --auto and aof-tools project-decline.
  */
 const INIT_OFFER_PREAMBLE = `AOFORGE INIT OFFER — substantive non-AOForge project detected
 
-This is a git repository without .planning/ that meets the substantive-project
+This is a git repository without .aoforge/ that meets the substantive-project
 heuristic (git history >7 days OR >10 source files, with a manifest, not a
 scratch dir). If the user requests a non-trivial change (multi-file feature,
 plan, milestone work), offer:
@@ -129,7 +129,7 @@ For trivial changes (single-file, <2 line), proceed directly without offering.`;
  */
 const ADOPT_OFFER_PREAMBLE = `AOFORGE INIT OFFER — substantive non-AOForge project detected
 
-This is a git repository without .planning/ that meets the substantive-project
+This is a git repository without .aoforge/ that meets the substantive-project
 heuristic (git history >7 days OR >10 source files, with a manifest, not a
 scratch dir) — an existing codebase. If the user requests a non-trivial change
 (multi-file feature, plan, milestone work), offer:
@@ -153,7 +153,7 @@ For trivial changes (single-file, <2 line), proceed directly without offering.`;
  */
 const AUTO_INIT_PREAMBLE = `AOFORGE AUTO-INIT ACTIVE — substantive non-AOForge project detected
 
-This is a substantive git repository without .planning/, and the user has
+This is a substantive git repository without .aoforge/, and the user has
 opted into auto-init mode (auto_init_substantive_projects=true in
 ~/.claude/aoforge/global-config.json).
 

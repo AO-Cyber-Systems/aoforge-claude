@@ -5,7 +5,7 @@
  * and the two lib/helpers.cjs lookups it depends on (fix round 2).
  *
  * Covers the installed-vs-mirror-vs-main lag reporting added on top of the
- * existing .planning/ integrity checks: E020 (mirror-stale) and W021
+ * existing .aoforge/ integrity checks: E020 (mirror-stale) and W021
  * (plugin-behind-main).
  *
  * Fix round 2 background: the round-1 implementation compared the mirror's
@@ -29,6 +29,7 @@ const { cmdValidateHealth, compareSemver } = require('./validate.cjs');
 const { installedPlugin, marketplaceCheckout } = require('./helpers.cjs');
 const { _resetCache } = require('./stack-profile.cjs');
 const stackFx = require('./__fixtures__/stack-profile-fixtures.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 let tmpProject;
 let tmpHome;
@@ -45,11 +46,11 @@ afterEach(() => {
 
 // ─── Fixture builders ──────────────────────────────────────────────────────
 
-// Minimal .planning/ so cmdValidateHealth doesn't short-circuit on Check 1
-// (missing .planning/ dir) before it ever reaches the engine-lag check.
+// Minimal .aoforge/ so cmdValidateHealth doesn't short-circuit on Check 1
+// (missing .aoforge/ dir) before it ever reaches the engine-lag check.
 function makePlanningProject() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-test-'));
-  fs.mkdirSync(path.join(tmp, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives'), { recursive: true });
   return tmp;
 }
 
@@ -517,7 +518,7 @@ describe('cmdValidateHealth — engine lag (E020 mirror-stale, W021 plugin-behin
     assert.strictEqual(json.schema_version, 1);
   });
 
-  test('health output carries engine_version + schema_version on the E001 early return (no .planning/)', () => {
+  test('health output carries engine_version + schema_version on the E001 early return (no .aoforge/)', () => {
     tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'validate-health-noplanning-'));
 
     const { json } = runHealth(tmpProject, { mainVersionFn: () => null }, true);
@@ -561,7 +562,7 @@ describe('cmdValidateHealth — engine lag (E020 mirror-stale, W021 plugin-behin
   });
 });
 
-// ─── Check 12: Stack profile (.planning/STACK.md) ─────────────────────────
+// ─── Check 12: Stack profile (.aoforge/STACK.md) ─────────────────────────
 // Never repairable — drafting a profile needs human confirmation (`stack init`).
 // All codes: E030 (invalid), W030 (extends unresolved), W031 (undefined command),
 // W032 (validator warning), I030 (absent but detectable).
@@ -682,7 +683,7 @@ describe('Check 12: stack profile', () => {
     tmpHome = stackFx.makeHome({});
     const stackMd = stackFx.profileMd({ yaml: 'schema: 2' });
     tmpProject = stackFx.makeProject({ stackMd });
-    const stackPath = path.join(tmpProject, '.planning', 'STACK.md');
+    const stackPath = path.join(tmpProject, '.aoforge', 'STACK.md');
 
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
 
@@ -857,7 +858,7 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     tmpHome = makeHome();
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
 
-    const written = JSON.parse(fs.readFileSync(path.join(tmpProject, '.planning', 'config.json'), 'utf-8'));
+    const written = JSON.parse(fs.readFileSync(path.join(tmpProject, '.aoforge', 'config.json'), 'utf-8'));
     assert.deepStrictEqual(written, buildConfig(null));
     assert.strictEqual(written.planning.commit_docs, true);
     assert.strictEqual(Object.prototype.hasOwnProperty.call(written, 'job_checker'), false);
@@ -870,13 +871,13 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     tmpHome = makeHome();
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
 
-    const objectives = path.join(tmpProject, '.planning', 'objectives');
+    const objectives = path.join(tmpProject, '.aoforge', 'objectives');
     assert.strictEqual(fs.existsSync(path.join(objectives, '01-alpha', '01-01-JOB.md')), false);
     assert.strictEqual(fs.existsSync(path.join(objectives, '01-alpha', '01-01-TRD.md')), true);
     assert.strictEqual(fs.existsSync(path.join(objectives, '02-beta', '02-01-JOB.md')), false);
     assert.strictEqual(fs.existsSync(path.join(objectives, '02-beta', '02-01-TRD.md')), true);
 
-    const seeded = JSON.parse(fs.readFileSync(path.join(tmpProject, '.planning', 'state.json'), 'utf-8'));
+    const seeded = JSON.parse(fs.readFileSync(path.join(tmpProject, '.aoforge', 'state.json'), 'utf-8'));
     assert.strictEqual(seeded.current_objective, '01');
     assert.strictEqual(seeded.status, 'In progress');
 
@@ -884,8 +885,8 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     assert.ok(migrate, 'migrateJobFiles recorded');
     assert.strictEqual(migrate.success, true);
     assert.deepStrictEqual(migrate.migrated, [
-      { from: '.planning/objectives/01-alpha/01-01-JOB.md', to: '.planning/objectives/01-alpha/01-01-TRD.md' },
-      { from: '.planning/objectives/02-beta/02-01-JOB.md', to: '.planning/objectives/02-beta/02-01-TRD.md' },
+      { from: '.aoforge/objectives/01-alpha/01-01-JOB.md', to: '.aoforge/objectives/01-alpha/01-01-TRD.md' },
+      { from: '.aoforge/objectives/02-beta/02-01-JOB.md', to: '.aoforge/objectives/02-beta/02-01-TRD.md' },
     ]);
     const seed = json.repairs_performed.find((r) => r.action === 'createStateJson');
     assert.ok(seed, 'createStateJson recorded');
@@ -906,7 +907,7 @@ describe('health repairs delegate to migrations 0001-0003', () => {
     assert.strictEqual(w008.repairable, true);
     // Without --repair nothing moves.
     assert.strictEqual(
-      fs.existsSync(path.join(tmpProject, '.planning', 'objectives', '01-alpha', '01-01-JOB.md')),
+      fs.existsSync(path.join(tmpProject, '.aoforge', 'objectives', '01-alpha', '01-01-JOB.md')),
       true
     );
   });
@@ -1007,7 +1008,7 @@ describe('Check 13: upgrade state (W040)', () => {
 
     function makeMirrorProject(github) {
       const root = upgradeFx.makeStampedProject(pluginVersion());
-      const configPath = path.join(root, '.planning', 'config.json');
+      const configPath = path.join(root, '.aoforge', 'config.json');
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
       config.github = github;
       fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
@@ -1037,7 +1038,7 @@ describe('Check 13: upgrade state (W040)', () => {
     const dfTools = path.join(__dirname, '..', 'aof-tools.cjs');
     tmpProject = makePlanningProject();
     tmpHome = makeHome();
-    writeJson(path.join(tmpProject, '.planning', 'config.json'), { github: { enabled: true, repo: 'acme/demo' } });
+    writeJson(path.join(tmpProject, '.aoforge', 'config.json'), { github: { enabled: true, repo: 'acme/demo' } });
     const run = (args) => spawnSync(process.execPath, [dfTools, '--cwd', tmpProject, 'config-get', ...args], {
       encoding: 'utf-8',
       timeout: 30000,
@@ -1065,17 +1066,17 @@ describe('objective 38 — W002 + live fix text', () => {
   function makeObjectivesFixture(objectiveDirNames, opts = {}) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w002-test-'));
     for (const dir of objectiveDirNames) {
-      fs.mkdirSync(path.join(tmp, '.planning', 'objectives', dir), { recursive: true });
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', dir), { recursive: true });
     }
     for (const dir of (opts.milestoneDirs || [])) {
-      // dir is relative to .planning/milestones/, e.g. 'v1.0-objectives/07-x'
-      fs.mkdirSync(path.join(tmp, '.planning', 'milestones', dir), { recursive: true });
+      // dir is relative to .aoforge/milestones/, e.g. 'v1.0-objectives/07-x'
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'milestones', dir), { recursive: true });
     }
     return tmp;
   }
 
   function writeState(tmp, content) {
-    fs.writeFileSync(path.join(tmp, '.planning', 'STATE.md'), content, 'utf-8');
+    fs.writeFileSync(path.join(tmp, '.aoforge', 'STATE.md'), content, 'utf-8');
   }
 
   const w002s = (json) => json.warnings.filter((w) => w.code === 'W002');
@@ -1145,7 +1146,7 @@ describe('objective 38 — W002 + live fix text', () => {
 
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null, repair: true }, false);
     assert.strictEqual(w002s(json).length, 1, 'W002 still raised');
-    const after = fs.readFileSync(path.join(tmpProject, '.planning', 'STATE.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(tmpProject, '.aoforge', 'STATE.md'), 'utf-8');
     assert.strictEqual(after, stateContent, 'STATE.md bytes unchanged after --repair');
     assert.strictEqual(
       (json.repairs_performed || []).some((r) => r.action === 'regenerateState'),
@@ -1167,7 +1168,7 @@ describe('objective 38 — W002 + live fix text', () => {
     assert.strictEqual(e001.fix, 'Run /aoforge:new-project to initialize');
     fs.rmSync(tmpProject, { recursive: true, force: true });
 
-    // Minimal .planning/ with only objectives/ present — PROJECT.md, ROADMAP.md, STATE.md,
+    // Minimal .aoforge/ with only objectives/ present — PROJECT.md, ROADMAP.md, STATE.md,
     // config.json all missing, so E002/E003/E004/W003 all fire off the one fixture.
     tmpProject = makePlanningProject();
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
@@ -1197,7 +1198,7 @@ describe('objective 38 — W002 + live fix text', () => {
     const action = json.repairs_performed.find((r) => r.action === 'regenerateState');
     assert.ok(action && action.success === true, 'regenerateState repair recorded as successful');
 
-    const written = fs.readFileSync(path.join(tmpProject, '.planning', 'STATE.md'), 'utf-8');
+    const written = fs.readFileSync(path.join(tmpProject, '.aoforge', 'STATE.md'), 'utf-8');
     assert.match(written, /## Session Log[\s\S]*\/aoforge:status check --repair/);
     assert.ok(!written.includes('/df:'), 'no stale /df: command in regenerated STATE.md');
   });
@@ -1206,22 +1207,22 @@ describe('objective 38 — W002 + live fix text', () => {
 // ─── Check 8: W007 reads archived milestone roadmaps (quick 26) ────────────
 //
 // An objective is "known" to W007 when any roadmap lists it — the current ROADMAP.md
-// or an archived .planning/milestones/*-ROADMAP.md — as a heading OR as a
+// or an archived .aoforge/milestones/*-ROADMAP.md — as a heading OR as a
 // checklist/bullet line. Prose mentions never count. W006 keeps reading ROADMAP.md
 // headings only.
 describe('Check 8: W007 reads archived milestone roadmaps', () => {
-  // dirs: objective dir names under .planning/objectives/; roadmap: ROADMAP.md text;
-  // archives: { fileName: text } written under .planning/milestones/.
+  // dirs: objective dir names under .aoforge/objectives/; roadmap: ROADMAP.md text;
+  // archives: { fileName: text } written under .aoforge/milestones/.
   function makeRoadmapFixture({ dirs = [], roadmap = '# Roadmap\n', archives = {} }) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-w007-test-'));
     for (const dir of dirs) {
-      fs.mkdirSync(path.join(tmp, '.planning', 'objectives', dir), { recursive: true });
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', dir), { recursive: true });
     }
-    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.aoforge', 'ROADMAP.md'), roadmap, 'utf-8');
     for (const [name, text] of Object.entries(archives)) {
-      fs.mkdirSync(path.join(tmp, '.planning', 'milestones'), { recursive: true });
-      fs.writeFileSync(path.join(tmp, '.planning', 'milestones', name), text, 'utf-8');
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'milestones'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, '.aoforge', 'milestones', name), text, 'utf-8');
     }
     return tmp;
   }
@@ -1409,7 +1410,7 @@ describe('Check 14: documentation staleness', () => {
 
   test('3. committed maps + config.json docs.codebase_map_stale_commits:2 (3 commits) -> W053', () => {
     tmpProject = makeW053Fixture();
-    writeJson(path.join(tmpProject, '.planning', 'config.json'), { docs: { codebase_map_stale_commits: 2 } });
+    writeJson(path.join(tmpProject, '.aoforge', 'config.json'), { docs: { codebase_map_stale_commits: 2 } });
     tmpHome = makeHome();
 
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
@@ -1421,7 +1422,7 @@ describe('Check 14: documentation staleness', () => {
 
   test('4. STATE.md naming /aoforge:update -> W050', () => {
     const state = '# Project State\n\n## Current Position\n\nrun /aoforge:update to refresh.\n\n## Session Log\n';
-    tmpProject = stackFx.makeProject({ files: { '.planning/STATE.md': state } });
+    tmpProject = stackFx.makeProject({ files: { '.aoforge/STATE.md': state } });
     tmpHome = makeHome();
 
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, false);
@@ -1470,11 +1471,11 @@ describe('Check 14: documentation staleness', () => {
   test('7. --repair on a W051+W053 fixture leaves STACK.md and codebase maps byte-identical, no repair mentions W05x', () => {
     tmpProject = makeW053Fixture();
     const stackMd = stackFx.profileMd({ yaml: 'schema: 1\nprovenance:\n  reviewed: "2025-01-01"\n' });
-    fs.writeFileSync(path.join(tmpProject, '.planning', 'STACK.md'), stackMd, 'utf-8');
-    writeJson(path.join(tmpProject, '.planning', 'config.json'), { docs: { codebase_map_stale_commits: 2 } });
+    fs.writeFileSync(path.join(tmpProject, '.aoforge', 'STACK.md'), stackMd, 'utf-8');
+    writeJson(path.join(tmpProject, '.aoforge', 'config.json'), { docs: { codebase_map_stale_commits: 2 } });
     tmpHome = makeHome();
 
-    const codebaseDir = path.join(tmpProject, '.planning', 'codebase');
+    const codebaseDir = path.join(tmpProject, '.aoforge', 'codebase');
     const before = fs.readdirSync(codebaseDir).sort()
       .map((f) => [f, fs.readFileSync(path.join(codebaseDir, f), 'utf-8')]);
 
@@ -1487,7 +1488,7 @@ describe('Check 14: documentation staleness', () => {
       .map((f) => [f, fs.readFileSync(path.join(codebaseDir, f), 'utf-8')]);
     assert.deepStrictEqual(after, before, 'codebase maps byte-identical after --repair');
     assert.strictEqual(
-      fs.readFileSync(path.join(tmpProject, '.planning', 'STACK.md'), 'utf-8'),
+      fs.readFileSync(path.join(tmpProject, '.aoforge', 'STACK.md'), 'utf-8'),
       stackMd,
       'STACK.md byte-identical after --repair'
     );
@@ -1543,14 +1544,14 @@ describe('aof-tools validate docs (CLI)', () => {
     assert.strictEqual(r.stdout, 'no documentation advisories');
   });
 
-  test('10. validate docs in a dir with no .planning/ -> exit 0, note: "no .planning/"', () => {
+  test('10. validate docs in a dir with no .aoforge/ -> exit 0, note: "no .aoforge/"', () => {
     tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'df-validate-docs-noplanning-'));
     tmpHome = makeHome();
 
     const r = runDocs(['docs'], tmpProject, tmpHome);
     assert.strictEqual(r.status, 0, `expected exit 0; stderr: ${r.stderr}`);
     const json = JSON.parse(r.stdout);
-    assert.deepStrictEqual(json, { issues: [], checked: {}, note: 'no .planning/' });
+    assert.deepStrictEqual(json, { issues: [], checked: {}, note: `no ${planningDirLabel()}` });
   });
 
   test('11. validate bogus -> non-zero exit, stderr names consistency, health, docs', () => {
@@ -1588,7 +1589,7 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
   /** A current, stamped project (no W040) whose config.json gets `github` merged in. */
   function makeProjectWithGithub(github) {
     const root = upgradeFx.makeStampedProject(pluginVersion());
-    const configPath = path.join(root, '.planning', 'config.json');
+    const configPath = path.join(root, '.aoforge', 'config.json');
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     if (github !== undefined) config.github = github;
     fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n', 'utf-8');
@@ -1648,7 +1649,7 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
    */
   function makeSyncedStoreProject() {
     const root = makeProjectWithGithub({ enabled: true, store: true, repo: 'acme/demo' });
-    const planning = path.join(root, '.planning');
+    const planning = path.join(root, '.aoforge');
     for (const rel of ['ROADMAP.md', 'STATE.md']) {
       const abs = path.join(planning, rel);
       fs.writeFileSync(abs, `${ghCache.GENERATED_HEADER}\n${fs.readFileSync(abs, 'utf-8')}`);
@@ -1672,7 +1673,7 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
   test('10. store mode, one TRD edited outside the verbs -> exactly one non-repairable W055 naming it and `plan put-trd`', () => {
     tmpProject = makeSyncedStoreProject();
     tmpHome = makeHome();
-    fs.appendFileSync(path.join(tmpProject, '.planning', DRIFTED_REL), '\nedited with Bash\n');
+    fs.appendFileSync(path.join(tmpProject, '.aoforge', DRIFTED_REL), '\nedited with Bash\n');
 
     const { json } = runHealth(tmpProject, { homeDir: tmpHome, mainVersionFn: () => null }, true);
     const found = w055s(json);
@@ -1689,7 +1690,7 @@ describe('Check 15: planning cache drift (W055/W056)', () => {
   test('11. --repair leaves the drifted file byte-identical and still reports W055 as not repairable', () => {
     tmpProject = makeSyncedStoreProject();
     tmpHome = makeHome();
-    const abs = path.join(tmpProject, '.planning', DRIFTED_REL);
+    const abs = path.join(tmpProject, '.aoforge', DRIFTED_REL);
     fs.appendFileSync(abs, '\nedited with Bash\n');
     const before = fs.readFileSync(abs);
 
@@ -1750,10 +1751,10 @@ describe('TRD 53-02: I001 and the orphan-summary warning pair on the NN-MM key',
 
   function makeObjective(files) {
     const root = makePlanningProject();
-    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    const dir = path.join(root, '.aoforge', 'objectives', '07-demo');
     fs.mkdirSync(dir, { recursive: true });
     for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n\n### Objective 07: demo\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n\n### Objective 07: demo\n');
     return root;
   }
 

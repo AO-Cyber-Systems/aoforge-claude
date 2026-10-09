@@ -424,9 +424,9 @@ function makeFixture(kind, { parent, home, name = kind } = {}) {
     case 'aoforge':
       writeGoService(root);
       writeProjectMd(root, { name: 'Orders service', kind: 'api', defaultWork: 'feature' });
-      writeRel(root, '.planning/ROADMAP.md', ROADMAP_MD);
-      writeRel(root, '.planning/STATE.md', STATE_MD);
-      writeJson(root, '.planning/config.json', { aoforge: { version: '2.10.0', migrations_applied: [] } });
+      writeRel(root, '.aoforge/ROADMAP.md', ROADMAP_MD);
+      writeRel(root, '.aoforge/STATE.md', STATE_MD);
+      writeJson(root, '.aoforge/config.json', { aoforge: { version: '2.10.0', migrations_applied: [] } });
       initGitRepo(root, home);
       break;
     case 'dirty':
@@ -450,7 +450,7 @@ const CODEBASE_DOC_NAMES = [
 /**
  * writeMappedDocs(root, { lines = 24 } = {}) -> absolute paths written
  *
- * Writes 8 literal, hand-built stand-in codebase docs under `.planning/codebase/`, each at least
+ * Writes 8 literal, hand-built stand-in codebase docs under `.aoforge/codebase/`, each at least
  * `lines` lines long (default 24, comfortably over the 21-line must-have floor).
  */
 function writeMappedDocs(root, { lines = 24 } = {}) {
@@ -462,7 +462,7 @@ function writeMappedDocs(root, { lines = 24 } = {}) {
       body.push(`Fixture ${name.toLowerCase()} line ${i}.`);
       i += 1;
     }
-    written.push(writeRel(root, `.planning/codebase/${name}.md`, body.join('\n') + '\n'));
+    written.push(writeRel(root, `.aoforge/codebase/${name}.md`, body.join('\n') + '\n'));
   }
   return written;
 }
@@ -470,7 +470,7 @@ function writeMappedDocs(root, { lines = 24 } = {}) {
 /**
  * writeProjectMd(root, { name, kind, defaultWork = 'feature', validated = [] }) -> absolute path
  *
- * Writes `.planning/PROJECT.md` with frontmatter `kind`/`default_work` and the sections
+ * Writes `.aoforge/PROJECT.md` with frontmatter `kind`/`default_work` and the sections
  * `## What This Is`, `## Core Value`, `## Requirements` (`### Validated`, `### Active`,
  * `### Out of Scope`), `## Constraints`.
  */
@@ -496,17 +496,17 @@ function writeProjectMd(root, { name, kind, defaultWork = 'feature', validated =
     '### Out of Scope\n\n' +
     '## Constraints\n';
 
-  return writeRel(root, '.planning/PROJECT.md', body);
+  return writeRel(root, '.aoforge/PROJECT.md', body);
 }
 
 /**
  * writeInferences(root, items) -> absolute path
  *
- * Writes `.planning/.adopt-inferences.json` as a JSON array of
+ * Writes `.aoforge/.adopt-inferences.json` as a JSON array of
  * `{ field, value, confidence: 'high'|'medium'|'low', evidence }` items.
  */
 function writeInferences(root, items = []) {
-  return writeJson(root, '.planning/.adopt-inferences.json', items);
+  return writeJson(root, '.aoforge/.adopt-inferences.json', items);
 }
 
 // ─── CLI ────────────────────────────────────────────────────────────────────

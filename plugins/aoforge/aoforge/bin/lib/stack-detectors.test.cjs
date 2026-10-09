@@ -225,7 +225,7 @@ test('D10: brownfield CLI counts *.zz files when HOME=fake supplies the org mark
   const root = mkdtemp('df-zz-repo-');
   const home = zlangHome();
   try {
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
     writeFiles(root, {
       'trigger.zz': '',
       'nested/other.zz': '',

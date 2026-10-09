@@ -20,8 +20,8 @@ function makeProject({ pubspecHasIntegrationTest, hasIntegrationTestDir, hasMaes
   if (hasIntegrationTestDir) fs.mkdirSync(path.join(tmp, 'integration_test'), { recursive: true });
   if (hasMaestroDir) fs.mkdirSync(path.join(tmp, '.maestro'), { recursive: true });
   if (hasMarker) {
-    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(tmp, '.planning', '.flutter-ui-bootstrap-done'), '');
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.aoforge', '.flutter-ui-bootstrap-done'), '');
   }
   return tmp;
 }
@@ -117,8 +117,8 @@ test.describe('checkBootstrapState — monorepo flutter/ package', () => {
     if (hasIntegrationTestDir) fs.mkdirSync(path.join(flutterDir, 'integration_test'), { recursive: true });
     if (hasMaestroDir) fs.mkdirSync(path.join(flutterDir, '.maestro'), { recursive: true });
     if (hasMarker) {
-      fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
-      fs.writeFileSync(path.join(tmp, '.planning', '.flutter-ui-bootstrap-done'), '');
+      fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
+      fs.writeFileSync(path.join(tmp, '.aoforge', '.flutter-ui-bootstrap-done'), '');
     }
     return tmp;
   }
@@ -132,7 +132,7 @@ test.describe('checkBootstrapState — monorepo flutter/ package', () => {
     assert.strictEqual(result.prefix, 'flutter');
   });
 
-  test('M2 — all infra present under flutter/ + marker at repo-root .planning/ → ready, action:skip', () => {
+  test('M2 — all infra present under flutter/ + marker at repo-root .aoforge/ → ready, action:skip', () => {
     const tmp = makeMonorepoProject({ pubspecHasIntegrationTest: true, hasIntegrationTestDir: true, hasMaestroDir: true, hasMarker: true });
     const result = checkBootstrapState({ projectDir: tmp });
     assert.strictEqual(result.ready, true);
@@ -175,8 +175,8 @@ test.describe('checkBootstrapState — monorepo flutter/ package', () => {
     assert.match(result.setup_task, /flutter\/\.maestro/);
     assert.match(result.setup_task, /flutter\/test_driver\/integration_test\.dart/);
     assert.doesNotMatch(result.setup_task, /mkdir -p integration_test\b/, 'no bare mkdir -p integration_test');
-    assert.doesNotMatch(result.setup_task, /flutter\/\.planning/, 'marker path is not prefixed');
-    assert.match(result.setup_task, /test -f \.planning\/\.flutter-ui-bootstrap-done/);
+    assert.doesNotMatch(result.setup_task, /flutter\/\.aoforge/, 'marker path is not prefixed');
+    assert.match(result.setup_task, /test -f \.aoforge\/\.flutter-ui-bootstrap-done/);
     assert.match(result.setup_task, /grep -q 'integration_test:' flutter\/pubspec\.yaml/);
   });
 

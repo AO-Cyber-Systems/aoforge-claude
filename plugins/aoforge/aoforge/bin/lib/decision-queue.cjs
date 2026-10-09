@@ -15,6 +15,7 @@ const path = require('path');
 const { output } = require('./helpers.cjs');
 const { extractFrontmatter, spliceFrontmatter } = require('./frontmatter.cjs');
 const { notify } = require('./notifier.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── FS injection (locked pattern from TRD 03-01) ─────────────────────────────
 
@@ -34,16 +35,17 @@ function _resetMocks() { _runFs = realFs; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const DECISIONS_DIR = '.planning/decisions';
+// inside the planning directory (resolved per call: .aoforge/, or a legacy one)
+const DECISIONS_DIR = 'decisions';
 const PENDING_DIR = 'pending';
 const RESOLVED_DIR = 'resolved';
 
 function pendingDir(cwd) {
-  return path.join(cwd, DECISIONS_DIR, PENDING_DIR);
+  return path.join(planningRoot(cwd), DECISIONS_DIR, PENDING_DIR);
 }
 
 function resolvedDir(cwd) {
-  return path.join(cwd, DECISIONS_DIR, RESOLVED_DIR);
+  return path.join(planningRoot(cwd), DECISIONS_DIR, RESOLVED_DIR);
 }
 
 /**

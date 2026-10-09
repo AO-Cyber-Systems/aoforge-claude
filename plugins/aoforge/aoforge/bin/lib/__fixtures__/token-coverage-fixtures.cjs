@@ -176,8 +176,8 @@ function hashTree(dir) {
  *
  * @param {{roadmap?: {milestones?: string[]}, objectives?: Object<string, Array<{id: string, kind: string|null, slug?: string}>>,
  *          archived?: Object<string, Object<string, Array<{id: string, kind: string|null, slug?: string}>>>}} spec
- *   roadmap.milestones: literal `## Milestones` bullet strings. objectives: `{dirName: items}` under `.planning/objectives`.
- *   archived: `{ 'v1.5': {dirName: items} }` under `.planning/milestones/<version>-objectives`. A ROADMAP.md is written
+ *   roadmap.milestones: literal `## Milestones` bullet strings. objectives: `{dirName: items}` under `.aoforge/objectives`.
+ *   archived: `{ 'v1.5': {dirName: items} }` under `.aoforge/milestones/<version>-objectives`. A ROADMAP.md is written
  *   only when `roadmap` is given; it holds one `### Objective N: Name` section per objective number found in the spec.
  * @returns {{tmp: string, repo: string, home: string, projectsRoot: string, run: Function, transcript: Function,
  *   hashTree: Function, cleanup: Function}}
@@ -185,7 +185,7 @@ function hashTree(dir) {
 function makeCoverageProject({ roadmap, objectives = {}, archived = {} } = {}) {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-coverage-')));
   const repo = path.join(tmp, 'repo');
-  const planning = path.join(repo, '.planning');
+  const planning = path.join(repo, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
 
   const sectionDirs = [];

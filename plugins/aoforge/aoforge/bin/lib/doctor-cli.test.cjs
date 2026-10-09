@@ -45,7 +45,7 @@ function plainDir() {
 
 function projectDir() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-doctor-cliproj-'));
-  fs.mkdirSync(path.join(root, '.planning'));
+  fs.mkdirSync(path.join(root, '.aoforge'));
   return root;
 }
 
@@ -102,11 +102,11 @@ describe('parseDoctorArgs', () => {
 // ─── 10. Project resolution ───────────────────────────────────────────────────
 
 describe('resolveProject', () => {
-  test('10: --path at a dir without .planning/ → projectRoot null plus an info note', () => {
+  test('10: --path at a dir without .aoforge/ → projectRoot null plus an info note', () => {
     const dir = plainDir();
     const r = cli.resolveProject('/unused', dir);
     assert.strictEqual(r.projectRoot, null);
-    assert.match(r.note, /no \.planning\//);
+    assert.match(r.note, /no \.aoforge\//);
     assert.ok(r.note.includes(dir), r.note);
   });
 
@@ -117,7 +117,7 @@ describe('resolveProject', () => {
     assert.strictEqual(r.note, undefined);
   });
 
-  test('10: without --path, walks up from cwd to the nearest .planning/', () => {
+  test('10: without --path, walks up from cwd to the nearest .aoforge/', () => {
     const root = projectDir();
     const deep = path.join(root, 'a', 'b', 'c');
     fs.mkdirSync(deep, { recursive: true });
@@ -125,14 +125,14 @@ describe('resolveProject', () => {
     assert.strictEqual(r.projectRoot, fs.realpathSync(root));
   });
 
-  test('10: a .planning FILE is not a project marker', () => {
+  test('10: a .aoforge FILE is not a project marker', () => {
     const dir = plainDir();
-    fs.writeFileSync(path.join(dir, '.planning'), 'not a dir');
+    fs.writeFileSync(path.join(dir, '.aoforge'), 'not a dir');
     const r = cli.resolveProject(dir, dir);
     assert.strictEqual(r.projectRoot, null);
   });
 
-  test('10: without --path and no .planning/ above cwd → null plus a note', () => {
+  test('10: without --path and no .aoforge/ above cwd → null plus a note', () => {
     const dir = plainDir();
     const r = cli.resolveProject(dir, null);
     assert.strictEqual(r.projectRoot, null);
@@ -204,14 +204,14 @@ describe('renderText', () => {
       ...report,
       mode: 'fix',
       fixes: [
-        { id: 'state', applied: true, changed: ['.gitignore', '.planning/x.json'], backup: '/b/1' },
+        { id: 'state', applied: true, changed: ['.gitignore', '.aoforge/x.json'], backup: '/b/1' },
         { id: 'legacy', applied: false, refused: 'unrelated changes are staged' },
       ],
     });
     const fixesAt = text.indexOf('fixes:');
     const statusAt = text.indexOf('status:');
     assert.ok(fixesAt !== -1 && fixesAt < statusAt, text);
-    assert.match(text, /applied\]\s+state — changed: \.gitignore, \.planning\/x\.json; backup: \/b\/1/);
+    assert.match(text, /applied\]\s+state — changed: \.gitignore, \.aoforge\/x\.json; backup: \/b\/1/);
     assert.match(text, /refused\]\s+legacy — unrelated changes are staged/);
   });
 

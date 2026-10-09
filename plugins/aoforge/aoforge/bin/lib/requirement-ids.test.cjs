@@ -60,7 +60,7 @@ describe('56-03 extractRequirementIds', () => {
   test('14 free text with a parenthetical gives no IDs', () => {
     assert.deepEqual(
       extractRequirementIds(
-        'none (tech debt; see `.planning/objectives/53-worktree-and-health-hygiene/OBJECTIVE.md`)',
+        'none (tech debt; see `.aoforge/objectives/53-worktree-and-health-hygiene/OBJECTIVE.md`)',
         { objective: '53' }
       ),
       []
@@ -77,7 +77,7 @@ describe('56-03 extractRequirementIds', () => {
 
   test('16 a mixed line takes only the leading ID of each item', () => {
     const line =
-      'SDR-08 (confirm each proposed command runs), SDR-03 hardening (`stack verify --run` side-effect safe); defects in `.planning/x`';
+      'SDR-08 (confirm each proposed command runs), SDR-03 hardening (`stack verify --run` side-effect safe); defects in `.aoforge/x`';
     assert.deepEqual(extractRequirementIds(line), ['SDR-08', 'SDR-03']);
   });
 
@@ -178,7 +178,7 @@ describe('56-03 roadmapRequirementIds', () => {
   });
 
   test('20d a label with only free text is found with no IDs', () => {
-    const value = 'none (tech debt; see `.planning/objectives/99-test/OBJECTIVE.md`)';
+    const value = 'none (tech debt; see `.aoforge/objectives/99-test/OBJECTIVE.md`)';
     assert.deepEqual(roadmapRequirementIds(section({ value }), { objective: '99' }), { found: true, ids: [] });
   });
 

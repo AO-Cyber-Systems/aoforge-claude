@@ -288,7 +288,7 @@ const TRACKED = deepFreeze([
   'src/a.go',
   'README.md',
   'docs/guide.md',
-  '.planning/STATE.md',
+  '.aoforge/STATE.md',
 ]);
 
 /** Directories that exist, so a cp or mv destination can be told from a file. */
@@ -304,17 +304,17 @@ const PATH_CASES = deepFreeze([
   },
   {
     name: 'p-planning',
-    cmd: 'echo x > .planning/STATE.md',
+    cmd: 'echo x > .aoforge/STATE.md',
     cwd: CWD,
     gated: [],
-    passed: [{ path: '/repo/.planning/STATE.md', reason: 'planning' }],
+    passed: [{ path: '/repo/.aoforge/STATE.md', reason: 'planning' }],
   },
   {
     name: 'p-nested-planning',
-    cmd: "sed -i 's/a/b/' flutter/.planning/x.json",
+    cmd: "sed -i 's/a/b/' flutter/.aoforge/x.json",
     cwd: CWD,
     gated: [],
-    passed: [{ path: '/repo/flutter/.planning/x.json', reason: 'planning' }],
+    passed: [{ path: '/repo/flutter/.aoforge/x.json', reason: 'planning' }],
   },
   {
     name: 'p-markdown',

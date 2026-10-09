@@ -296,7 +296,7 @@ function estimateUnplanned(cal, { objective, name, dir = null, parallel = null }
  * @param {string} cwd  project root
  * @param {string|number} objective  objective number, as `find-objective` takes it
  * @param {{all?:boolean, parallel?:boolean}} [opts]  `all` also estimates the done TRDs (a backtest); `parallel`
- *   overrides `parallelization` from `.planning/config.json` (true when the file says nothing)
+ *   overrides `parallelization` from `.aoforge/config.json` (true when the file says nothing)
  */
 function estimateObjective(cal, cwd, objective, { all = false, parallel } = {}) {
   const found = remainingTrds(cwd, objective, { all });

@@ -8,7 +8,7 @@
 //
 // Hermetic: the fake GitHub is installed only through `gh._setRunGh`, the clock is fake, HOME / outbox /
 // cache dirs are temp dirs from `hermeticEnv()`, and the wiki is a local bare repo reached over file://.
-// Nothing here reaches GitHub, the real ~/.claude or this repository's .planning/, and nothing binds a port.
+// Nothing here reaches GitHub, the real ~/.claude or this repository's .aoforge/, and nothing binds a port.
 
 const { describe, test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -75,7 +75,7 @@ function useStore({ store = true, wiki = true, fake: fakeOverrides = {}, project
 }
 
 const needsGit = (t) => (gitAvailable() ? false : (t.skip('git is not available'), true));
-const objectiveDir = () => path.join(S.root, '.planning', 'objectives', STORE_FIXTURE.objectiveDir);
+const objectiveDir = () => path.join(S.root, '.aoforge', 'objectives', STORE_FIXTURE.objectiveDir);
 const outboxDir = () => S.envh.env.AOFORGE_OUTBOX_DIR;
 const journalOps = () => outbox.readJournal(S.root).journal.ops;
 const mappingNow = () => mappingLib.readMappingV3(S.root);
@@ -108,14 +108,14 @@ function capture(fn) {
 
 /** A second, one-TRD objective so `sync --all` has something to order. */
 function addSecondObjective() {
-  const dir = path.join(S.root, '.planning', 'objectives', '08-second');
+  const dir = path.join(S.root, '.aoforge', 'objectives', '08-second');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'OBJECTIVE.md'), '---\nobjective: 08-second\n---\n\n# Objective 8: Second\n');
   fs.writeFileSync(
     path.join(dir, '08-01-one-TRD.md'),
     '---\nobjective: 08-second\ntrd: "01"\ntype: standard\nwave: 1\ndepends_on: []\n---\n\n# TRD 8-01: one\n',
   );
-  const roadmap = path.join(S.root, '.planning', 'ROADMAP.md');
+  const roadmap = path.join(S.root, '.aoforge', 'ROADMAP.md');
   fs.writeFileSync(
     roadmap,
     `${fs.readFileSync(roadmap, 'utf8')}\n### Objective 8: Second\n**Goal:** A second objective\n\n**Success Criteria** (what must be TRUE):\n  1. It syncs\n`,
@@ -143,7 +143,7 @@ describe('github.store off', () => {
   });
 
   test('1b. github.store must be the boolean true: the string "true" is not store mode', () => {
-    const file = path.join(S.root, '.planning', 'config.json');
+    const file = path.join(S.root, '.aoforge', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
     cfg.github.store = 'true';
     fs.writeFileSync(file, JSON.stringify(cfg));
@@ -202,7 +202,7 @@ describe('github.store on, organisation repo with a wiki', () => {
     assert.ok(S.fake.writes().some(isObjectiveBodyEdit(res.issue_number)), 'the flusher patched the objective body');
 
     // a second sync with a changed local criterion still edits only through the flusher
-    const roadmap = path.join(S.root, '.planning', 'ROADMAP.md');
+    const roadmap = path.join(S.root, '.aoforge', 'ROADMAP.md');
     fs.writeFileSync(roadmap, fs.readFileSync(roadmap, 'utf8').replace('1. The demo objective pushes to GitHub', '1. The demo objective is pushed to GitHub'));
     const again = sync();
     assert.equal(again.ok, true, JSON.stringify(again));
@@ -241,7 +241,7 @@ describe('github.store on, organisation repo with a wiki', () => {
       'REQUIREMENTS.md',
     ];
     for (const rel of expected) {
-      const text = fs.readFileSync(path.join(S.root, '.planning', rel), 'utf8');
+      const text = fs.readFileSync(path.join(S.root, '.aoforge', rel), 'utf8');
       assert.equal(index[rel], ghTrd.contentHash(text), `${rel} baseline recorded`);
     }
   });
@@ -451,7 +451,7 @@ describe('github.store on, user-owned repo without a wiki', () => {
     assert.equal(fs.readFileSync(path.join(docs, 'Objective-7-store-demo.md'), 'utf8'), withGithubIssue(res.issue_number));
     const roadmap = fs.readFileSync(path.join(docs, 'Roadmap.md'), 'utf8');
     assert.ok(roadmap.includes(ghCache.GENERATED_HEADER));
-    assert.equal(fs.existsSync(path.join(S.root, '.planning', 'wiki')), false, 'no wiki clone is created');
+    assert.equal(fs.existsSync(path.join(S.root, '.aoforge', 'wiki')), false, 'no wiki clone is created');
   });
 });
 
@@ -481,7 +481,7 @@ describe('templates/config.json store defaults', () => {
         assert.strictEqual(r.stdout, expected, key);
       }
       // a project that opted in keeps its own value
-      const file = path.join(project.root, '.planning', 'config.json');
+      const file = path.join(project.root, '.aoforge', 'config.json');
       const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
       cfg.github.store = true;
       fs.writeFileSync(file, JSON.stringify(cfg));

@@ -37,11 +37,11 @@ function ctxFor(root, home) {
 }
 
 function skillMarker(root) {
-  return path.join(root, '.planning', '.skill-active');
+  return path.join(root, '.aoforge', '.skill-active');
 }
 
 function overrideMarker(root) {
-  return path.join(root, '.planning', '.edit-override');
+  return path.join(root, '.aoforge', '.edit-override');
 }
 
 function writeSkill(root, value) {
@@ -88,12 +88,12 @@ describe('skill-markers: .skill-active (tests 15-17)', () => {
     assert.equal(r.severity, 'warn');
     assert.equal(r.fixable, true);
     assert.equal(r.details.stale.length, 1);
-    assert.equal(r.details.stale[0].file, '.planning/.skill-active');
+    assert.equal(r.details.stale[0].file, '.aoforge/.skill-active');
     assert.match(r.details.stale[0].reason, /expired/);
 
     const res = markers.fix(ctx, r);
     assert.equal(res.applied, true);
-    assert.deepEqual(res.changed, ['.planning/.skill-active']);
+    assert.deepEqual(res.changed, ['.aoforge/.skill-active']);
     assert.equal(fs.existsSync(skillMarker(root)), false);
     assert.equal(markers.run(ctxFor(root, home)).severity, 'ok');
   });
@@ -108,7 +108,7 @@ describe('skill-markers: .skill-active (tests 15-17)', () => {
     assert.equal(r.fixable, false);
 
     // Even handed a stale-looking result, fix() re-checks and leaves a live marker alone.
-    const res = markers.fix(ctx, { severity: 'warn', fixable: true, details: { stale: [{ file: '.planning/.skill-active', reason: 'expired' }] } });
+    const res = markers.fix(ctx, { severity: 'warn', fixable: true, details: { stale: [{ file: '.aoforge/.skill-active', reason: 'expired' }] } });
     assert.notEqual(res.applied, true);
     assert.equal(fs.existsSync(skillMarker(root)), true);
   });
@@ -167,11 +167,11 @@ describe('skill-markers: .edit-override (test 18)', () => {
     const r = markers.run(ctx);
     assert.equal(r.severity, 'warn');
     assert.equal(r.fixable, true);
-    assert.equal(r.details.stale[0].file, '.planning/.edit-override');
+    assert.equal(r.details.stale[0].file, '.aoforge/.edit-override');
 
     const res = markers.fix(ctx, r);
     assert.equal(res.applied, true);
-    assert.deepEqual(res.changed, ['.planning/.edit-override']);
+    assert.deepEqual(res.changed, ['.aoforge/.edit-override']);
     assert.equal(fs.existsSync(overrideMarker(root)), false);
     assert.equal(markers.run(ctxFor(root, home)).severity, 'ok');
   });
@@ -191,9 +191,9 @@ describe('skill-markers: .edit-override (test 18)', () => {
     const ctx = ctxFor(root, home);
     const r = markers.run(ctx);
     assert.equal(r.severity, 'warn');
-    assert.deepEqual(r.details.stale.map((s) => s.file), ['.planning/.skill-active', '.planning/.edit-override']);
+    assert.deepEqual(r.details.stale.map((s) => s.file), ['.aoforge/.skill-active', '.aoforge/.edit-override']);
     const res = markers.fix(ctx, r);
-    assert.deepEqual(res.changed.sort(), ['.planning/.edit-override', '.planning/.skill-active']);
+    assert.deepEqual(res.changed.sort(), ['.aoforge/.edit-override', '.aoforge/.skill-active']);
   });
 });
 
@@ -233,7 +233,7 @@ describe('skill-markers: tracked and git markers (69-04 tests 1-6, 8)', () => {
       const fixEntry = findById(after.fixes, 'skill-markers');
       assert.equal(fixEntry.applied, true, JSON.stringify(fixEntry));
       assert.deepEqual(fixEntry.changed, [MARKER_REL]);
-      assert.match(fixEntry.notes, /--files \.planning\/\.skill-active/);
+      assert.match(fixEntry.notes, /--files \.aoforge\/\.skill-active/);
     } finally {
       p.cleanup();
     }
@@ -328,7 +328,7 @@ describe('skill-markers: tracked and git markers (69-04 tests 1-6, 8)', () => {
       assert.equal(r.fixable, true);
       assert.deepEqual(r.details.codes, ['W064']);
       assert.deepEqual(r.details.tracked, []);
-      assert.match(r.finding, /^stale edit-gate marker\(s\) holding the gate open: \.planning\/\.skill-active \(expired at /);
+      assert.match(r.finding, /^stale edit-gate marker\(s\) holding the gate open: \.aoforge\/\.skill-active \(expired at /);
 
       const res = markers.fix(ctx, r);
       assert.equal(res.applied, true, JSON.stringify(res));

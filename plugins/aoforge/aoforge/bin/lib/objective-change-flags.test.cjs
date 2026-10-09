@@ -9,7 +9,7 @@
  * report that.
  *
  * Spawns the real binary against temp projects under a fake HOME. `objective remove` cascade-renumbers everything above
- * the removed objective, so nothing here ever points at this repository's own `.planning/`.
+ * the removed objective, so nothing here ever points at this repository's own `.aoforge/`.
  */
 
 const { describe, test, afterEach } = require('node:test');
@@ -58,7 +58,7 @@ function run(args, cwd) {
 /** Pin the file's mtime to a fixed past instant so a later rewrite is visible even within one clock tick. */
 function pinMtime(p, rel) {
   const when = new Date('2020-01-01T00:00:00Z');
-  fs.utimesSync(path.join(p.root, '.planning', rel), when, when);
+  fs.utimesSync(path.join(p.root, '.aoforge', rel), when, when);
   return p.mtime(rel);
 }
 
@@ -100,7 +100,7 @@ describe('objective remove --confirm: roadmap_updated follows a real change (PLM
 
     assert.equal(p.read('ROADMAP.md'), roadmap, 'ROADMAP.md bytes unchanged');
     assert.equal(p.mtime('ROADMAP.md'), mtimeBefore, 'ROADMAP.md was not rewritten');
-    assert.equal(fs.existsSync(path.join(p.root, '.planning', 'objectives', '03-c')), false);
+    assert.equal(fs.existsSync(path.join(p.root, '.aoforge', 'objectives', '03-c')), false);
   });
 
   test('3: a dry run (no --confirm) reports roadmap_updated false and writes nothing', () => {
@@ -115,7 +115,7 @@ describe('objective remove --confirm: roadmap_updated follows a real change (PLM
 
     assert.equal(p.read('ROADMAP.md'), roadmap);
     assert.equal(p.mtime('ROADMAP.md'), mtimeBefore);
-    assert.equal(fs.existsSync(path.join(p.root, '.planning', 'objectives', '02-b')), true);
+    assert.equal(fs.existsSync(path.join(p.root, '.aoforge', 'objectives', '02-b')), true);
   });
 });
 
@@ -151,12 +151,12 @@ describe('objective complete: roadmap_updated follows a real change (PLMB-05)', 
 
   test('6: no ROADMAP.md at all reports roadmap_updated false', () => {
     const p = project({ roadmap: null, objectives: ONE });
-    assert.equal(fs.existsSync(path.join(p.root, '.planning', 'ROADMAP.md')), false);
+    assert.equal(fs.existsSync(path.join(p.root, '.aoforge', 'ROADMAP.md')), false);
 
     const r = run(['objective', 'complete', '1'], p.root);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json.roadmap_updated, false);
-    assert.equal(fs.existsSync(path.join(p.root, '.planning', 'ROADMAP.md')), false, 'no ROADMAP.md was created');
+    assert.equal(fs.existsSync(path.join(p.root, '.aoforge', 'ROADMAP.md')), false, 'no ROADMAP.md was created');
   });
 });
 

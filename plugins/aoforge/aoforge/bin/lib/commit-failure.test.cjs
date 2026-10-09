@@ -53,27 +53,27 @@ function run(argv, cwd) {
 function makeProject() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-commit-'));
   tmpRoots.push(dir);
-  fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
   git(dir, 'init -q .');
   git(dir, 'symbolic-ref HEAD refs/heads/main');
   git(dir, 'config user.email "test@test.com"');
   git(dir, 'config user.name "Test User"');
   git(dir, 'config commit.gpgsign false');
   git(dir, 'config core.hooksPath /dev/null');
-  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{"commit_docs":true}\n');
-  fs.writeFileSync(path.join(dir, '.planning', 'NOTES.md'), 'base\n');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), '{"commit_docs":true}\n');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'NOTES.md'), 'base\n');
   git(dir, 'add -A');
   git(dir, 'commit -q -m "chore: init"');
   return dir;
 }
 
-/** Drive both branches into a conflict on .planning/NOTES.md and leave it unresolved. */
+/** Drive both branches into a conflict on .aoforge/NOTES.md and leave it unresolved. */
 function conflictedMerge(dir) {
   git(dir, 'branch side');
-  fs.writeFileSync(path.join(dir, '.planning', 'NOTES.md'), 'main\n');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'NOTES.md'), 'main\n');
   git(dir, 'commit -q -am "docs: main side"');
   git(dir, 'checkout -q side');
-  fs.writeFileSync(path.join(dir, '.planning', 'NOTES.md'), 'side\n');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'NOTES.md'), 'side\n');
   git(dir, 'commit -q -am "docs: other side"');
   git(dir, 'checkout -q main');
   try { git(dir, 'merge --no-ff side'); } catch { /* the conflict is the point */ }
@@ -85,7 +85,7 @@ describe('aof-tools commit during a merge (issue #100 finding 5)', () => {
   test('a resolved merge conflict is not reported as "nothing to commit"', () => {
     const dir = makeProject();
     conflictedMerge(dir);
-    fs.writeFileSync(path.join(dir, '.planning', 'NOTES.md'), 'resolved\n');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'NOTES.md'), 'resolved\n');
 
     const r = run(['commit', 'docs: resolve'], dir);
 
@@ -100,9 +100,9 @@ describe('aof-tools commit during a merge (issue #100 finding 5)', () => {
   test('the in-merge case has its own reason, distinct from any other failure', () => {
     const dir = makeProject();
     conflictedMerge(dir);
-    fs.writeFileSync(path.join(dir, '.planning', 'NOTES.md'), 'resolved\n');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'NOTES.md'), 'resolved\n');
 
-    const r = run(['commit', 'docs: resolve', '--files', '.planning/NOTES.md'], dir);
+    const r = run(['commit', 'docs: resolve', '--files', '.aoforge/NOTES.md'], dir);
     assert.strictEqual(r.json && r.json.reason, 'merge_in_progress', r.out);
     assert.strictEqual(r.json.committed, false);
   });
@@ -116,8 +116,8 @@ describe('aof-tools commit during a merge (issue #100 finding 5)', () => {
 
   test('a normal commit still succeeds and reports its hash', () => {
     const dir = makeProject();
-    fs.writeFileSync(path.join(dir, '.planning', 'NOTES.md'), 'changed\n');
-    const r = run(['commit', 'docs: a real change', '--files', '.planning/NOTES.md'], dir);
+    fs.writeFileSync(path.join(dir, '.aoforge', 'NOTES.md'), 'changed\n');
+    const r = run(['commit', 'docs: a real change', '--files', '.aoforge/NOTES.md'], dir);
     assert.strictEqual(r.status, 0, r.out + r.err);
     assert.strictEqual(r.json.committed, true, r.out);
     assert.ok(r.json.hash, 'a successful commit must report its hash');

@@ -317,10 +317,10 @@ const AODEX_INSTALLED_VERSION = '2.11.0';
 const AODEX_MIRROR_VERSION = '2.10.1';
 const AODEX_STALE_CACHE_VERSIONS = ['2.7.1', '2.10.1'];
 const AODEX_TRACKED_RUNTIME = [
-  '.planning/.progress-guard.json',
-  'flutter/.planning/.progress-guard.json',
+  '.aoforge/.progress-guard.json',
+  'flutter/.aoforge/.progress-guard.json',
 ];
-const AODEX_UNTRACKED_RUNTIME = ['.planning/.awareness-cache.json'];
+const AODEX_UNTRACKED_RUNTIME = ['.aoforge/.awareness-cache.json'];
 const AODEX_PROJECT_STAMP = '2.0.0';
 
 // A pre-27-01-era marker that expired long ago: it holds the edit gate open until removed.
@@ -379,11 +379,11 @@ function fixtureGit(root, home, ...args) {
  *                hooks.json names only sync-runtime.js, so hooks-registry stays ok.
  *   mirror       ~/.claude/aoforge at 2.10.1 (behind the install)
  *   cache        stale 2.7.1 and 2.10.1 plugin cache dirs beside the installed 2.11.0
- *   project      a git repo stamped 2.0.0 (always behind), TRACKING `.planning/.progress-guard.json`
- *                and `flutter/.planning/.progress-guard.json`, with an untracked, unignored
- *                `.planning/.awareness-cache.json`; PROJECT.md carries `## Requirements`
- *   marker       an expired `.planning/.skill-active`, listed in `.git/info/exclude` so it never
- *                dirties `.planning/` for the worktree guards
+ *   project      a git repo stamped 2.0.0 (always behind), TRACKING `.aoforge/.progress-guard.json`
+ *                and `flutter/.aoforge/.progress-guard.json`, with an untracked, unignored
+ *                `.aoforge/.awareness-cache.json`; PROJECT.md carries `## Requirements`
+ *   marker       an expired `.aoforge/.skill-active`, listed in `.git/info/exclude` so it never
+ *                dirties `.aoforge/` for the worktree guards
  *   guard dir    two session files aged 2 days (AOFORGE_PROGRESS_GUARD_DIR)
  *   awareness    one orphan entry (`/nonexistent/aodex`) and one 2 MiB entry for the fixture root
  *                (AOFORGE_AWARENESS_DIR)
@@ -408,12 +408,12 @@ function makeAodexLikeState() {
   });
   const root = fs.realpathSync(made.root);
 
-  fs.appendFileSync(path.join(root, '.planning', 'PROJECT.md'), REQUIREMENTS_SECTION, 'utf-8');
-  fixtureGit(root, home, 'add', '--', '.planning/PROJECT.md');
+  fs.appendFileSync(path.join(root, '.aoforge', 'PROJECT.md'), REQUIREMENTS_SECTION, 'utf-8');
+  fixtureGit(root, home, 'add', '--', '.aoforge/PROJECT.md');
   fixtureGit(root, home, 'commit', '-q', '-m', 'project requirements');
 
-  writeJson(root, '.planning/.skill-active', EXPIRED_SKILL_ACTIVE);
-  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.planning/.skill-active\n', 'utf-8');
+  writeJson(root, '.aoforge/.skill-active', EXPIRED_SKILL_ACTIVE);
+  fs.appendFileSync(path.join(root, '.git', 'info', 'exclude'), '.aoforge/.skill-active\n', 'utf-8');
 
   const guardDir = path.join(home, 'df-state', 'progress-guard');
   const agedSec = (Date.now() - GUARD_SESSION_AGE_MS) / 1000;
@@ -436,7 +436,7 @@ function makeAodexLikeState() {
 
   const backupsRepoDir = path.join(claudeDir(home), 'aoforge', 'backups', repoKey(root));
   for (const stamp of AODEX_BACKUP_STAMPS) {
-    writeJson(path.join(backupsRepoDir, stamp), '.planning/config.json', { aoforge: { version: '2.0.0' } });
+    writeJson(path.join(backupsRepoDir, stamp), '.aoforge/config.json', { aoforge: { version: '2.0.0' } });
   }
 
   const env = {

@@ -22,8 +22,8 @@
 // W053 (codebase-map commits-behind, real git fixture history):
 //   10. writeMappedDocs committed, then 3 commits touching src/ -> no W053 (3 <= 50 default).
 //   11. config.docs.codebase_map_stale_commits: 2 with the case-10 history -> W053 naming 3 and 2.
-//   12. After the map commit, 5 commits touching only .planning/STATE.md, threshold 2 -> no W053
-//       (.planning is excluded).
+//   12. After the map commit, 5 commits touching only .aoforge/STATE.md, threshold 2 -> no W053
+//       (.aoforge is excluded).
 //   13. Maps written but never committed -> skipped:maps-not-committed, no issue. A non-git dir
 //       with maps -> skipped:not-a-git-repo.
 //   14. _setRunGit(() => { throw new Error('boom') }) -> skipped:git-failed, no throw.
@@ -228,14 +228,14 @@ describe('doc-staleness — W053 codebase-map commits-behind', () => {
     assert.strictEqual(r.checked.codebase_map, 'stale');
   });
 
-  test('12. after the map commit, 5 commits touching only .planning/STATE.md, threshold 2 -> no W053 (.planning excluded)', () => {
+  test('12. after the map commit, 5 commits touching only .aoforge/STATE.md, threshold 2 -> no W053 (.aoforge excluded)', () => {
     const root = makeFixture('empty', { parent, home });
     writeMappedDocs(root);
     commitAll(root, 'add codebase maps');
-    fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), 'line 0\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), 'line 0\n');
     commitAll(root, 'seed STATE.md');
     for (let i = 1; i <= 5; i++) {
-      fs.appendFileSync(path.join(root, '.planning', 'STATE.md'), `line ${i}\n`);
+      fs.appendFileSync(path.join(root, '.aoforge', 'STATE.md'), `line ${i}\n`);
       commitAll(root, `touch STATE.md ${i}`);
     }
     const r = collect({ projectRoot: root, now: NOW, config: { docs: { codebase_map_stale_commits: 2 } } });
@@ -279,7 +279,7 @@ describe('doc-staleness — W050 removed-command references', () => {
 
   test('15a. STATE.md: a removed-command reference under Current Position -> one W050', () => {
     const state = '# Project State\n\n## Current Position\n\nrun /aoforge:update to refresh.\n\n## Session Log\n';
-    root = makeProject({ files: { '.planning/STATE.md': state } });
+    root = makeProject({ files: { '.aoforge/STATE.md': state } });
     const r = collect({ projectRoot: root, now: NOW, config: {} });
     const issues = issuesFor(r, 'W050');
     assert.strictEqual(issues.length, 1);
@@ -291,7 +291,7 @@ describe('doc-staleness — W050 removed-command references', () => {
 
   test('15b. STATE.md: the same reference only under Session Log -> none', () => {
     const state = '# Project State\n\n## Current Position\n\nnothing stale here.\n\n## Session Log\n\nrun /aoforge:update to refresh.\n';
-    root = makeProject({ files: { '.planning/STATE.md': state } });
+    root = makeProject({ files: { '.aoforge/STATE.md': state } });
     const r = collect({ projectRoot: root, now: NOW, config: {} });
     assert.deepStrictEqual(issuesFor(r, 'W050'), []);
     assert.strictEqual(r.checked.removed_refs, 'ok');
@@ -318,7 +318,7 @@ describe('doc-staleness — W050 removed-command references', () => {
 
   test('17. STATE.md: a renamed (not removed) reference -> no W050', () => {
     const state = '# Project State\n\n## Current Position\n\nrun /df:health to check.\n\n## Session Log\n';
-    root = makeProject({ files: { '.planning/STATE.md': state } });
+    root = makeProject({ files: { '.aoforge/STATE.md': state } });
     const r = collect({ projectRoot: root, now: NOW, config: {} });
     assert.deepStrictEqual(issuesFor(r, 'W050'), []);
     assert.strictEqual(r.checked.removed_refs, 'ok');
@@ -349,7 +349,7 @@ describe('doc-staleness — general', () => {
     const state = '# Project State\n\n## Current Position\n\nrun /aoforge:update to refresh.\n\n## Session Log\n';
     const root = makeProject({
       stackMd: profileMd({ yaml: 'schema: 1\nlanguages: [python]\nprovenance:\n  reviewed: "2026-06-01"\n' }),
-      files: { '.planning/STATE.md': state, ...goShapedRepo() },
+      files: { '.aoforge/STATE.md': state, ...goShapedRepo() },
     });
     try {
       const before = snapshot(root);

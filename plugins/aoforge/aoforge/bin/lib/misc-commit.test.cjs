@@ -1,13 +1,13 @@
 'use strict';
 
 /**
- * misc-commit.test.cjs — TRD 48-10 tests 1-7 (D-20): `aof-tools commit` in a partially ignored `.planning/`.
+ * misc-commit.test.cjs — TRD 48-10 tests 1-7 (D-20): `aof-tools commit` in a partially ignored `.aoforge/`.
  *
- * Store mode gitignores `.planning/*` except config.json and STACK.md (U-1, migration 0010). The old gate probed
- * only the WHOLE `.planning` directory, so a requested TRD path under the new layout fell through to `git add`
+ * Store mode gitignores `.aoforge/*` except config.json and STACK.md (U-1, migration 0010). The old gate probed
+ * only the WHOLE `.aoforge` directory, so a requested TRD path under the new layout fell through to `git add`
  * (refused: ignored) and to a pathspec commit that git rejects ("did not match any file(s) known to git").
  *
- *   1-4  characterization of today's results: planning only, planning + code, `.planning` wholly ignored,
+ *   1-4  characterization of today's results: planning only, planning + code, `.aoforge` wholly ignored,
  *        `commit_docs: false`. These pin the result keys and the committed file set.
  *   5-6  the U-1 block: an ignored planning path git knows nothing about is reported in `skipped_planning` and
  *        not staged; config.json and code still commit; only ignored paths → `skipped_gitignored`.
@@ -34,13 +34,13 @@ const HAS_GIT = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 
 
 const U1_BLOCK = [
   '# >>> aoforge store (0010) >>>',
-  '.planning/*',
-  '!.planning/config.json',
-  '!.planning/STACK.md',
+  '.aoforge/*',
+  '!.aoforge/config.json',
+  '!.aoforge/STACK.md',
   '# <<< aoforge store (0010) <<<',
   '',
 ].join('\n');
-const TRD = '.planning/objectives/07-x/07-01-a-TRD.md';
+const TRD = '.aoforge/objectives/07-x/07-01-a-TRD.md';
 
 const cleanup = [];
 afterEach(() => {
@@ -75,7 +75,7 @@ function repo({ files = {}, gitignore = null, commitDocs = true } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-misc-commit-')));
   cleanup.push(root, home);
   const all = { 'src/keep.cjs': 'module.exports = 0;\n', ...files };
-  if (commitDocs !== null) all['.planning/config.json'] = `${JSON.stringify({ commit_docs: commitDocs })}\n`;
+  if (commitDocs !== null) all['.aoforge/config.json'] = `${JSON.stringify({ commit_docs: commitDocs })}\n`;
   if (gitignore !== null) all['.gitignore'] = gitignore;
   for (const [rel, content] of Object.entries(all)) write(root, rel, content);
   fx.initGitFixture(root, home);
@@ -107,62 +107,62 @@ describe('aof-tools commit: characterization (tests 1-4)', () => {
   test('1. (a) planning-only commit → committed, exactly the planning path, keys {committed, hash, reason}', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo();
-    write(p.root, '.planning/STATE.md', '# State\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
 
-    const r = dfCommit(p, 'docs: state', ['.planning/STATE.md']);
+    const r = dfCommit(p, 'docs: state', ['.aoforge/STATE.md']);
     assert.equal(r.status, 0, r.err);
     assert.deepEqual(Object.keys(r.json).sort(), ['committed', 'hash', 'reason']);
     assert.equal(r.json.committed, true);
     assert.equal(r.json.reason, 'committed');
-    assert.deepEqual(lastCommitFiles(p), ['.planning/STATE.md']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/STATE.md']);
   });
 
   test('2. (b) planning + code → both committed, no skipped_planning key', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo();
-    write(p.root, '.planning/STATE.md', '# State\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
     write(p.root, 'src/a.cjs', 'module.exports = 1;\n');
 
-    const r = dfCommit(p, 'docs: both', ['.planning/STATE.md', 'src/a.cjs']);
+    const r = dfCommit(p, 'docs: both', ['.aoforge/STATE.md', 'src/a.cjs']);
     assert.equal(r.status, 0, r.err);
     assert.deepEqual(Object.keys(r.json).sort(), ['committed', 'hash', 'reason']);
     assert.equal(r.json.committed, true);
-    assert.deepEqual(lastCommitFiles(p), ['.planning/STATE.md', 'src/a.cjs']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/STATE.md', 'src/a.cjs']);
   });
 
-  test('3. (c) .planning wholly ignored → planning dropped into skipped_planning; planning only → skipped_gitignored', (t) => {
+  test('3. (c) .aoforge wholly ignored → planning dropped into skipped_planning; planning only → skipped_gitignored', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = repo({ commitDocs: null, gitignore: '.planning/\n' });
-    write(p.root, '.planning/config.json', '{"commit_docs":true}\n');
-    write(p.root, '.planning/STATE.md', '# State\n');
+    const p = repo({ commitDocs: null, gitignore: '.aoforge/\n' });
+    write(p.root, '.aoforge/config.json', '{"commit_docs":true}\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
     write(p.root, 'src/a.cjs', 'module.exports = 1;\n');
 
-    const r = dfCommit(p, 'docs: both', ['.planning/STATE.md', 'src/a.cjs']);
+    const r = dfCommit(p, 'docs: both', ['.aoforge/STATE.md', 'src/a.cjs']);
     assert.equal(r.status, 0, r.err);
-    assert.deepEqual(r.json, { committed: true, hash: r.json.hash, reason: 'committed', skipped_planning: ['.planning/STATE.md'] });
+    assert.deepEqual(r.json, { committed: true, hash: r.json.hash, reason: 'committed', skipped_planning: ['.aoforge/STATE.md'] });
     assert.deepEqual(lastCommitFiles(p), ['src/a.cjs']);
 
     const before = head(p);
-    const only = dfCommit(p, 'docs: planning only', ['.planning/STATE.md']);
+    const only = dfCommit(p, 'docs: planning only', ['.aoforge/STATE.md']);
     assert.equal(only.status, 0, only.err);
     assert.deepEqual(only.json, { committed: false, hash: null, reason: 'skipped_gitignored' });
     assert.equal(head(p), before);
-    assert.equal(dfCommit(p, 'docs: planning only', ['.planning/STATE.md'], { raw: true }).out, 'skipped');
+    assert.equal(dfCommit(p, 'docs: planning only', ['.aoforge/STATE.md'], { raw: true }).out, 'skipped');
   });
 
   test('4. (d) commit_docs:false → planning dropped; planning only → skipped_commit_docs_false', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo({ commitDocs: false });
-    write(p.root, '.planning/STATE.md', '# State\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
     write(p.root, 'src/a.cjs', 'module.exports = 1;\n');
 
-    const r = dfCommit(p, 'docs: both', ['.planning/STATE.md', 'src/a.cjs']);
+    const r = dfCommit(p, 'docs: both', ['.aoforge/STATE.md', 'src/a.cjs']);
     assert.equal(r.status, 0, r.err);
-    assert.deepEqual(r.json, { committed: true, hash: r.json.hash, reason: 'committed', skipped_planning: ['.planning/STATE.md'] });
+    assert.deepEqual(r.json, { committed: true, hash: r.json.hash, reason: 'committed', skipped_planning: ['.aoforge/STATE.md'] });
     assert.deepEqual(lastCommitFiles(p), ['src/a.cjs']);
 
     const before = head(p);
-    const only = dfCommit(p, 'docs: planning only', ['.planning/STATE.md']);
+    const only = dfCommit(p, 'docs: planning only', ['.aoforge/STATE.md']);
     assert.equal(only.status, 0, only.err);
     assert.deepEqual(only.json, { committed: false, hash: null, reason: 'skipped_commit_docs_false' });
     assert.equal(head(p), before);
@@ -174,17 +174,17 @@ describe('aof-tools commit: per-path ignore filter under the U-1 block (tests 5-
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo({ gitignore: U1_BLOCK });
     write(p.root, TRD, '# TRD\n');
-    write(p.root, '.planning/config.json', '{"commit_docs":true,"github":{"enabled":true,"store":true}}\n');
+    write(p.root, '.aoforge/config.json', '{"commit_docs":true,"github":{"enabled":true,"store":true}}\n');
     write(p.root, 'src/a.cjs', 'module.exports = 1;\n');
 
     // TRD 50-06: the config.json written above turns store mode on, and this commit lands on the default branch, which the
     // store-mode gate refuses. The per-path ignore filter is what this test is about, so it takes the logged escape.
-    const r = dfCommit(p, 'docs: x', [TRD, '.planning/config.json', 'src/a.cjs'], { env: { AOFORGE_SKIP_GH_GATE: '1' } });
+    const r = dfCommit(p, 'docs: x', [TRD, '.aoforge/config.json', 'src/a.cjs'], { env: { AOFORGE_SKIP_GH_GATE: '1' } });
     assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
     assert.equal(r.json.committed, true, r.out);
     assert.equal(r.json.reason, 'committed');
     assert.deepEqual(r.json.skipped_planning, [TRD]);
-    assert.deepEqual(lastCommitFiles(p), ['.planning/config.json', 'src/a.cjs']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/config.json', 'src/a.cjs']);
     assert.equal(git(p, 'ls-files', '--', TRD), '', 'the ignored TRD was never staged');
     assert.ok(fs.existsSync(path.join(p.root, TRD)), 'working file untouched');
   });
@@ -193,10 +193,10 @@ describe('aof-tools commit: per-path ignore filter under the U-1 block (tests 5-
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo({ gitignore: U1_BLOCK });
     write(p.root, TRD, '# TRD\n');
-    write(p.root, '.planning/STATE.md', '# State\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
     const before = head(p);
 
-    const r = dfCommit(p, 'docs: x', [TRD, '.planning/STATE.md']);
+    const r = dfCommit(p, 'docs: x', [TRD, '.aoforge/STATE.md']);
     assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
     assert.deepEqual(r.json, { committed: false, hash: null, reason: 'skipped_gitignored' });
     assert.equal(head(p), before);
@@ -207,14 +207,14 @@ describe('aof-tools commit: per-path ignore filter under the U-1 block (tests 5-
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo({ gitignore: U1_BLOCK });
     write(p.root, TRD, '# TRD\n');
-    write(p.root, '.planning/STACK.md', '# Stack\n');
+    write(p.root, '.aoforge/STACK.md', '# Stack\n');
 
     const r = spawnSync(process.execPath, [TOOLS_PATH, '--cwd', p.root, 'commit', 'docs: default'], {
       cwd: p.root, env: fx.gitEnv(p.home), encoding: 'utf-8',
     });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(JSON.parse(r.stdout).committed, true, r.stdout);
-    assert.deepEqual(lastCommitFiles(p), ['.planning/STACK.md']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/STACK.md']);
   });
 });
 
@@ -234,29 +234,29 @@ describe('aof-tools commit: store-off parity (test 7)', () => {
 
   test('7b. an ignored file that is still TRACKED commits as today (ignore rules never apply to tracked files)', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = repo({ files: { '.planning/.progress-guard.json': '{}\n' } });
-    write(p.root, '.gitignore', '.planning/.progress-guard.json\n');
-    write(p.root, '.planning/.progress-guard.json', '{"count":2}\n');
+    const p = repo({ files: { '.aoforge/.progress-guard.json': '{}\n' } });
+    write(p.root, '.gitignore', '.aoforge/.progress-guard.json\n');
+    write(p.root, '.aoforge/.progress-guard.json', '{"count":2}\n');
 
-    const r = dfCommit(p, 'chore: x', ['.planning/.progress-guard.json']);
+    const r = dfCommit(p, 'chore: x', ['.aoforge/.progress-guard.json']);
     assert.equal(r.status, 0, r.err);
     assert.deepEqual(Object.keys(r.json).sort(), ['committed', 'hash', 'reason']);
     assert.equal(r.json.committed, true);
-    assert.deepEqual(lastCommitFiles(p), ['.planning/.progress-guard.json']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/.progress-guard.json']);
   });
 
   test('7c. 0008 shape: staged removal of a now-ignored runtime file is still recorded (TRD 44-06)', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = repo({ files: { '.planning/.progress-guard.json': '{}\n' } });
-    write(p.root, '.gitignore', '.planning/.progress-guard.json\n');
-    git(p, 'rm', '--cached', '--quiet', '--', '.planning/.progress-guard.json');
+    const p = repo({ files: { '.aoforge/.progress-guard.json': '{}\n' } });
+    write(p.root, '.gitignore', '.aoforge/.progress-guard.json\n');
+    git(p, 'rm', '--cached', '--quiet', '--', '.aoforge/.progress-guard.json');
 
-    const r = dfCommit(p, 'chore: untrack', ['.gitignore', '.planning/.progress-guard.json']);
+    const r = dfCommit(p, 'chore: untrack', ['.gitignore', '.aoforge/.progress-guard.json']);
     assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
     assert.deepEqual(Object.keys(r.json).sort(), ['committed', 'hash', 'reason']);
-    assert.deepEqual(lastCommitFiles(p), ['.gitignore', '.planning/.progress-guard.json']);
-    assert.ok(!headFiles(p).includes('.planning/.progress-guard.json'));
-    assert.ok(fs.existsSync(path.join(p.root, '.planning/.progress-guard.json')), 'working copy kept');
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/.progress-guard.json', '.gitignore']); // git's order: `.a` before `.g`
+    assert.ok(!headFiles(p).includes('.aoforge/.progress-guard.json'));
+    assert.ok(fs.existsSync(path.join(p.root, '.aoforge/.progress-guard.json')), 'working copy kept');
   });
 
   test('7d. 0010 follow-up: the block + staged removal of a tracked TRD → the removal is committed, the file kept', (t) => {
@@ -285,8 +285,8 @@ describe('aof-tools commit: store-off parity (test 7)', () => {
 //
 //   12   ignored untracked code path + tracked edit  -> commits the edit, skipped_ignored names the rest
 //   13   tracked child of an ignored dir             -> commits; an untracked sibling is skipped
-//   13b  staged removal of a now-ignored code path   -> still recorded (the 44-06 shape, outside .planning)
-//   14   `.planning/` rule, tracked config.json + untracked STACK.md -> 48-10 behaviour unchanged
+//   13b  staged removal of a now-ignored code path   -> still recorded (the 44-06 shape, outside .aoforge)
+//   14   `.aoforge/` rule, tracked config.json + untracked STACK.md -> 48-10 behaviour unchanged
 //   15   only ignored code paths                     -> {committed:false, reason:skipped_gitignored}, HEAD unchanged
 //   15b  U-1 block + ignored TRD + ignored code      -> skipped_planning and skipped_ignored stay separate
 
@@ -344,33 +344,33 @@ describe('aof-tools commit: gitignored non-planning paths (43-03 tests 12-15)', 
     assert.equal(fs.readFileSync(path.join(p.root, 'dist/out.js'), 'utf-8'), 'built\n');
   });
 
-  test('14. `.planning/` rule + tracked config.json + untracked STACK.md → config commits; STACK.md is skipped_planning, then skipped_gitignored alone', (t) => {
+  test('14. `.aoforge/` rule + tracked config.json + untracked STACK.md → config commits; STACK.md is skipped_planning, then skipped_gitignored alone', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo();
-    write(p.root, '.gitignore', '.planning/\n');
-    write(p.root, '.planning/config.json', '{"commit_docs":true,"note":"edited"}\n');
-    write(p.root, '.planning/STACK.md', '# Stack\n');
+    write(p.root, '.gitignore', '.aoforge/\n');
+    write(p.root, '.aoforge/config.json', '{"commit_docs":true,"note":"edited"}\n');
+    write(p.root, '.aoforge/STACK.md', '# Stack\n');
 
-    const r = dfCommit(p, 'docs: config', ['.planning/config.json', '.planning/STACK.md']);
+    const r = dfCommit(p, 'docs: config', ['.aoforge/config.json', '.aoforge/STACK.md']);
     assert.equal(r.status, 0, `exit 0 (out: ${r.out} err: ${r.err})`);
     assert.equal(r.json.committed, true, r.out);
-    assert.deepEqual(r.json.skipped_planning, ['.planning/STACK.md']);
+    assert.deepEqual(r.json.skipped_planning, ['.aoforge/STACK.md']);
     assert.ok(!('skipped_ignored' in r.json), 'planning paths stay in skipped_planning');
-    assert.deepEqual(lastCommitFiles(p), ['.planning/config.json']);
+    assert.deepEqual(lastCommitFiles(p), ['.aoforge/config.json']);
 
     const before = head(p);
-    const alone = dfCommit(p, 'docs: stack', ['.planning/STACK.md']);
+    const alone = dfCommit(p, 'docs: stack', ['.aoforge/STACK.md']);
     assert.equal(alone.status, 0, `exit 0 (out: ${alone.out} err: ${alone.err})`);
     assert.deepEqual(alone.json, { committed: false, hash: null, reason: 'skipped_gitignored' });
     assert.equal(head(p), before);
   });
 
-  test('14b. `.planning/` rule + a staged removal of the only tracked planning file → the removal is committed, not dropped as "ignored dir"', (t) => {
+  test('14b. `.aoforge/` rule + a staged removal of the only tracked planning file → the removal is committed, not dropped as "ignored dir"', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    // The index holds nothing under .planning once the removal is staged, so a probe that only reads the index calls the
+    // The index holds nothing under .aoforge once the removal is staged, so a probe that only reads the index calls the
     // whole directory ignored and drops the removal. HEAD still knows the file: it must reach the commit (TRD 44-06 shape).
     const p = repo({ commitDocs: null, files: { [TRD]: '# TRD\n' } });
-    write(p.root, '.gitignore', '.planning/\n');
+    write(p.root, '.gitignore', '.aoforge/\n');
     git(p, 'rm', '--cached', '--quiet', '--', TRD);
 
     const r = dfCommit(p, 'chore: untrack planning', ['.gitignore', TRD]);
@@ -418,7 +418,7 @@ describe('aof-tools commit: gitignored non-planning paths (43-03 tests 12-15)', 
 // ─── TRD 49-07 (GPR-02): the `Refs #N` trailer, store mode only ──────────────────────────────────────────────────────
 //
 //   4  store mode: `feat(49-02): x` is recorded with a final `Refs #<TRD issue>` paragraph; `docs(49): x` gets the objective's
-//   5  from a linked worktree whose own `.planning/` holds no mapping, the trailer still comes from the MAIN checkout's
+//   5  from a linked worktree whose own `.aoforge/` holds no mapping, the trailer still comes from the MAIN checkout's
 //   6  `--amend` is never touched
 //   7  local mode (`github.store:false`): message bytes and result keys are exactly today's
 //   8  no resolvable scope: the commit succeeds, no trailer, `refs: null` with a reason
@@ -449,13 +449,13 @@ describe('49-07 Refs trailer', () => {
 
   /**
    * A repo whose config.json turns on `github.enabled` and `github.store` (`store`), with the v3 mapping in its main
-   * `.planning/`. The mapping is written AFTER the init commit, so it is untracked and a linked worktree never sees it
+   * `.aoforge/`. The mapping is written AFTER the init commit, so it is untracked and a linked worktree never sees it
    * (store mode gitignores the cache for the same effect).
    */
   function storeRepo({ store = true } = {}) {
     const config = `${JSON.stringify({ commit_docs: true, github: { enabled: true, store } })}\n`;
-    const p = repo({ commitDocs: null, files: { '.planning/config.json': config } });
-    write(p.root, '.planning/.gh-mapping.json', mappingText());
+    const p = repo({ commitDocs: null, files: { '.aoforge/config.json': config } });
+    write(p.root, '.aoforge/.gh-mapping.json', mappingText());
     return p;
   }
 
@@ -519,8 +519,8 @@ describe('49-07 Refs trailer', () => {
     cleanup.push(parent);
     const wt = path.join(parent, 'exec-49-02');
     git(p, 'worktree', 'add', '-q', '-b', 'df/exec-49-02', wt);
-    assert.ok(fs.existsSync(path.join(wt, '.planning', 'config.json')), 'config.json is tracked, so the worktree has it');
-    assert.ok(!fs.existsSync(path.join(wt, '.planning', '.gh-mapping.json')), 'the worktree holds no mapping');
+    assert.ok(fs.existsSync(path.join(wt, '.aoforge', 'config.json')), 'config.json is tracked, so the worktree has it');
+    assert.ok(!fs.existsSync(path.join(wt, '.aoforge', '.gh-mapping.json')), 'the worktree holds no mapping');
     write(wt, SRC, 'module.exports = 7;\n');
 
     const r = dfCommit({ root: wt, home: p.home }, 'feat(49-02): from the worktree', [SRC]);
@@ -561,7 +561,7 @@ describe('49-07 Refs trailer', () => {
   test('7b. local mode with no github block at all: unchanged', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = repo();
-    write(p.root, '.planning/.gh-mapping.json', mappingText());
+    write(p.root, '.aoforge/.gh-mapping.json', mappingText());
     write(p.root, SRC, 'module.exports = 10;\n');
 
     const r = dfCommit(p, 'feat(49-02): x', [SRC]);
@@ -599,7 +599,7 @@ describe('49-07 Refs trailer', () => {
   test('8c. store mode, a malformed mapping: the commit still succeeds, with no trailer', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = storeRepo();
-    write(p.root, '.planning/.gh-mapping.json', '{ not json');
+    write(p.root, '.aoforge/.gh-mapping.json', '{ not json');
     write(p.root, SRC, 'module.exports = 13;\n');
 
     const r = dfCommit(p, 'feat(49-02): x', [SRC]);

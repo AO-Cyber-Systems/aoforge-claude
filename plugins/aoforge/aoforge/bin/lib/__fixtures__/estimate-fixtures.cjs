@@ -1,7 +1,7 @@
 'use strict';
 
 // Fixtures for the estimator tests (TRD 58-05; 58-06 and 58-07 extend them). Everything is a hand-built literal: a
-// calibration object, TRD text and `.planning` trees written into mkdtemp directories. No generated data, no real
+// calibration object, TRD text and `.aoforge` trees written into mkdtemp directories. No generated data, no real
 // repository, and never the real ~/.claude/aoforge/calibration.json.
 //
 // makeEstimateProject(spec), spec = {
@@ -12,8 +12,8 @@
 //     tasks: [{ name, type, tdd, files }],  // type defaults to 'auto'; tdd true|false|undefined; files array|string
 //     summary: 'complete' | 'checkpoint' | null,   // 'complete' carries `## Self-Check: PASSED`; 'checkpoint' only `## Progress`
 //   }] }],
-//   config,                                 // object written to .planning/config.json; omit for none
-//   roadmap,                                // text written to .planning/ROADMAP.md; omit for none
+//   config,                                 // object written to .aoforge/config.json; omit for none
+//   roadmap,                                // text written to .aoforge/ROADMAP.md; omit for none
 // }
 
 const fs = require('fs');
@@ -246,7 +246,7 @@ function summaryText(dir, trd, kind) {
 function makeEstimateProject(spec) {
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-estimate-')));
   const root = path.join(parent, spec.name || 'project');
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   const objectivesDir = path.join(planning, 'objectives');
   fs.mkdirSync(objectivesDir, { recursive: true });
   for (const objective of spec.objectives || []) {

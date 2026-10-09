@@ -13,12 +13,12 @@
 // Retention deletes transcripts, so `unrecovered: no_transcript` is the normal outcome for old history: it is counted and
 // reported, never an error.
 //
-// Scope (v1): `<checkout>/.planning/objectives/*` only. Archived objectives under `.planning/milestones/*-objectives/` are
+// Scope (v1): `<checkout>/.aoforge/objectives/*` only. Archived objectives under `.aoforge/milestones/*-objectives/` are
 // not resolved by summaryPost and are skipped.
 //
 // Two roots, always passed explicitly (never guessed from process.cwd()):
 //   repoRoot       the MAIN checkout. Executor transcripts name it (REPO_ROOT line, cwd), even for a worktree run.
-//   checkoutRoot   the checkout whose `.planning/` is read and written. Inside a linked worktree it is the worktree, so the
+//   checkoutRoot   the checkout whose `.aoforge/` is read and written. Inside a linked worktree it is the worktree, so the
 //                  stamped SUMMARYs are committed on that branch; in the main checkout the two are equal.
 
 const fs = require('fs');
@@ -30,6 +30,7 @@ const ghMapping = require('./gh-mapping.cjs');
 const planningMode = require('./planning-mode.cjs');
 const verbs = require('./planning-verbs.cjs');
 const tu = require('./token-usage.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 /** Written into `tokens_source` so a backfilled figure is never mistaken for a live one. */
 const BACKFILL_SOURCE = 'backfill';
@@ -68,7 +69,7 @@ function objectivePartOf(id) {
 // ─── planBackfill ─────────────────────────────────────────────────────────────
 
 /**
- * Classify every SUMMARY under `<checkoutRoot>/.planning/objectives`. Writes nothing.
+ * Classify every SUMMARY under `<checkoutRoot>/.aoforge/objectives`. Writes nothing.
  *
  * Per SUMMARY, in this order: no `NN-MM` key gives `unrecovered/unkeyed`; both `tokens_input` and `tokens_output` already
  * present (and not `force`) gives `already_stamped`; otherwise the transcripts decide (`tokensForTrd`, scoped to the
@@ -85,7 +86,7 @@ function objectivePartOf(id) {
  */
 function planBackfill({ checkoutRoot, repoRoot, root, force = false } = {}) {
   if (typeof checkoutRoot !== 'string' || !checkoutRoot) {
-    throw new Error('planBackfill: checkoutRoot (the checkout whose .planning/ is read) is required');
+    throw new Error('planBackfill: checkoutRoot (the checkout whose .aoforge/ is read) is required');
   }
   if (typeof repoRoot !== 'string' || !repoRoot) {
     throw new Error('planBackfill: repoRoot (the main checkout, which transcripts name) is required');
@@ -93,7 +94,7 @@ function planBackfill({ checkoutRoot, repoRoot, root, force = false } = {}) {
   const transcriptsRoot = typeof root === 'string' && root !== '' ? root : tu.defaultTranscriptRoot();
   const index = tu.indexExecutorTranscripts({ root: transcriptsRoot, repoRoot });
 
-  const objectivesDir = path.join(checkoutRoot, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(checkoutRoot), 'objectives');
   const sharedByObjective = new Map();
   const isShared = (id) => {
     const part = objectivePartOf(id);
@@ -157,7 +158,7 @@ function planBackfill({ checkoutRoot, repoRoot, root, force = false } = {}) {
 // ─── applyBackfill ────────────────────────────────────────────────────────────
 
 /**
- * Stamp the token fields onto a temp copy of `text` and return the result, so the only write to a `.planning/` file is the
+ * Stamp the token fields onto a temp copy of `text` and return the result, so the only write to a `.aoforge/` file is the
  * verb's. `{ok: false, error}` when the stamp refuses (no frontmatter block, a key that cannot be written).
  */
 function stampOnCopy(file, text, fields, force) {
@@ -175,7 +176,7 @@ function stampOnCopy(file, text, fields, force) {
 /**
  * Write the planned token fields into every `recovered` SUMMARY of `plan`, in plan order, through `summary post`
  * (planning-verbs.summaryPost): local mode writes the file byte for byte into the checkout holding `checkoutRoot`; store
- * mode writes the main cache and queues one outbox write per SUMMARY. Nothing here writes under `.planning/` itself.
+ * mode writes the main cache and queues one outbox write per SUMMARY. Nothing here writes under `.aoforge/` itself.
  *
  * Per recovered SUMMARY:
  *   1. the six fields are stamped onto a temp copy; a refusal is `write_failed`
@@ -203,7 +204,7 @@ function applyBackfill(plan, { checkoutRoot, force = false } = {}) {
   for (const entry of plan.entries) {
     if (entry.status !== 'recovered') continue;
     const where = { id: entry.id, file: entry.file, objective_dir: entry.objective_dir };
-    const abs = path.join(checkout, '.planning', 'objectives', entry.objective_dir, entry.file);
+    const abs = path.join(planningRoot(checkout), 'objectives', entry.objective_dir, entry.file);
 
     let text;
     try {

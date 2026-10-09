@@ -12,9 +12,9 @@
  * half-written file must look like "no run", so reading never throws.
  *
  * Location: $AOFORGE_ESTIMATE_STATE_DIR, else <home>/.claude/aoforge/state/estimates/, then one
- * file per project named `<upgrade.repoKey(<dir that contains .planning>)>.json`
+ * file per project named `<upgrade.repoKey(<dir that contains .aoforge>)>.json`
  * (`<slug>-<hash8>` of the realpath, the same key backups and the hook markers use). Never
- * inside the project: runtime state in `.planning/` shows up as a dirty repo (see
+ * inside the project: runtime state in `.aoforge/` shows up as a dirty repo (see
  * hook-marker-store.cjs, same lineage). The file is written atomically (`<file>.tmp` then
  * rename), so a render never sees half a file.
  *
@@ -71,11 +71,12 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const compat = require('./compat.cjs');
 
 const STATE_VERSION = 1;
 /** A run not updated for this long is treated as abandoned and shows nothing. */
 const STALE_MS = 12 * 60 * 60 * 1000;
-/** How far up from the workspace directory findProjectRoot looks for `.planning`. */
+/** How far up from the workspace directory findProjectRoot looks for a planning directory. */
 const MAX_UP = 8;
 const MS_PER_MINUTE = 60 * 1000;
 const MAX_NAME_LENGTH = 200;
@@ -108,7 +109,7 @@ function repoKeyOf(projectRoot) {
 
 /**
  * <stateRoot>/<repo-key>.json, never inside the project.
- * @param {string} projectRoot the directory that CONTAINS `.planning/`
+ * @param {string} projectRoot the directory that CONTAINS `.aoforge/`
  * @param {{env?: NodeJS.ProcessEnv, home?: string}} [opts]
  */
 function statePath(projectRoot, opts) {
@@ -118,7 +119,7 @@ function statePath(projectRoot, opts) {
 
 /**
  * <stateRoot>/history/<repo-key>, where finished runs are archived. Same repo key as statePath.
- * @param {string} projectRoot the directory that CONTAINS `.planning/`
+ * @param {string} projectRoot the directory that CONTAINS `.aoforge/`
  * @param {{env?: NodeJS.ProcessEnv, home?: string}} [opts]
  */
 function historyDir(projectRoot, opts) {
@@ -138,32 +139,21 @@ function historyPath(projectRoot, state, opts) {
   return path.join(historyDir(projectRoot, opts), name);
 }
 
-/** True when `p` is an existing directory. A path that cannot be examined is simply not one. */
-function isDirectory(p) {
-  try {
-    return fs.statSync(p).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /**
- * The directory that contains a `.planning/` directory, found by walking up from `start`
- * (inclusive), at most `maxUp` levels. Null when there is none. Never throws.
+ * The directory that contains a planning directory (`.aoforge/`, or a legacy one), found by walking up
+ * from `start` (inclusive), at most `maxUp` levels (compat.findProjectRoot). Null when there is none.
+ * Never throws: an ancestor that cannot be examined ends the search with no project.
  * @param {string} start e.g. the status line's workspace.current_dir
  * @param {number} [maxUp]
  * @returns {string|null}
  */
 function findProjectRoot(start, maxUp = MAX_UP) {
   if (typeof start !== 'string' || start === '') return null;
-  let dir = path.resolve(start);
-  for (let level = 0; level <= maxUp; level++) {
-    if (isDirectory(path.join(dir, '.planning'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+  try {
+    return compat.findProjectRoot(start, { maxUp });
+  } catch {
+    return null;
   }
-  return null;
 }
 
 function isRunState(value) {

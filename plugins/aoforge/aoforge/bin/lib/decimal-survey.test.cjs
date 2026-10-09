@@ -40,9 +40,9 @@ function buildFakeFs(projects, rootExists = true) {
   return {
     existsSync(p) {
       if (p === rootName) return rootExists;
-      // Check for .planning/objectives/ inside a project dir
+      // Check for .aoforge/objectives/ inside a project dir
       for (const proj of projects) {
-        const planDir = path.join(rootName, proj.name, '.planning', 'objectives');
+        const planDir = path.join(rootName, proj.name, '.aoforge', 'objectives');
         if (p === planDir) {
           return proj.hasPlanning !== false; // default true
         }
@@ -59,7 +59,7 @@ function buildFakeFs(projects, rootExists = true) {
       }
       // Reading objectives dir for a project
       for (const proj of projects) {
-        const planDir = path.join(rootName, proj.name, '.planning', 'objectives');
+        const planDir = path.join(rootName, proj.name, '.aoforge', 'objectives');
         if (p === planDir) {
           return proj.objectives || [];
         }
@@ -74,7 +74,7 @@ function buildFakeFs(projects, rootExists = true) {
 test('SU1: mixed usage — 2 projects scanned, 8 total, 1 decimal → recommendation keep', () => {
   // Project A: 5 integer + 1 decimal objectives
   // Project B: 3 integers + 0 decimals
-  // Project C: no .planning/ (skipped)
+  // Project C: no .aoforge/ (skipped)
   const fake = buildFakeFs([
     {
       name: 'project-a',
@@ -106,7 +106,7 @@ test('SU1: mixed usage — 2 projects scanned, 8 total, 1 decimal → recommenda
   const result = surveyDecimalObjectives('/fake-root');
   _resetMocks();
 
-  assert.strictEqual(result.projects_scanned, 2, 'only 2 projects have .planning/');
+  assert.strictEqual(result.projects_scanned, 2, 'only 2 projects have .aoforge/');
   assert.strictEqual(result.total_objectives, 9, '6 + 3 = 9 total');
   assert.strictEqual(result.decimal_objectives, 1, '1 decimal');
   // 1/9 = 11.1% → keep
@@ -138,7 +138,7 @@ test('SU2: all integer objectives → recommendation drop', () => {
   assert.strictEqual(result.recommendation, 'drop', '0% < 5% → drop');
 });
 
-test('SU3: no projects with .planning/ → no_data recommendation', () => {
+test('SU3: no projects with .aoforge/ → no_data recommendation', () => {
   const fake = buildFakeFs([
     { name: 'proj-no-planning', hasPlanning: false, objectives: [] },
     { name: 'another-noplanning', hasPlanning: false, objectives: [] },
@@ -211,7 +211,7 @@ test('CLI1: aof-tools survey decimal-objectives --root <fixture-root> exits 0, r
   // Build a real temp dir tree we can survey
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'df-survey-'));
   const projDir = path.join(tmpRoot, 'test-project');
-  const objDir = path.join(projDir, '.planning', 'objectives');
+  const objDir = path.join(projDir, '.aoforge', 'objectives');
   fs.mkdirSync(objDir, { recursive: true });
   fs.mkdirSync(path.join(objDir, '01-setup'));
   fs.mkdirSync(path.join(objDir, '02-core'));
@@ -266,7 +266,7 @@ test('CLI2: aof-tools survey decimal-objectives --root /nonexistent exits 1', ()
 
 test('CLI3: --raw flag returns JSON-only output (no banner noise)', () => {
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'df-survey-raw-'));
-  const objDir = path.join(tmpRoot, 'proj', '.planning', 'objectives');
+  const objDir = path.join(tmpRoot, 'proj', '.aoforge', 'objectives');
   fs.mkdirSync(objDir, { recursive: true });
   fs.mkdirSync(path.join(objDir, '01-init'));
 

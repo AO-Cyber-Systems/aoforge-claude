@@ -1,6 +1,6 @@
 'use strict';
 
-// sync-state.cjs (TRD 21-02) — typed `.planning/.gh-sync-state.json` persistence.
+// sync-state.cjs (TRD 21-02) — typed `.aoforge/.gh-sync-state.json` persistence.
 //
 // Single source of truth for "what was on GH the last time we successfully synced
 // each objective." Used by:
@@ -37,6 +37,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { planningRoot } = require('./compat.cjs');
 
 // gh-mapping requires this module at its top (for atomicWrite), so it is loaded lazily here: a top-level
 // require would be a cycle. Both modules are fully initialised by the time any function below runs.
@@ -51,7 +52,7 @@ function keyFor(objectiveId) {
 // ─── readSyncState ────────────────────────────────────────────────────────────
 
 /**
- * Read .planning/.gh-sync-state.json from `cwd`.
+ * Read .aoforge/.gh-sync-state.json from `cwd`.
  * Always returns shape { version: 1, objectives: {...} }.
  *
  * - Missing file        → empty default
@@ -59,7 +60,7 @@ function keyFor(objectiveId) {
  * - Unknown schema ver  → empty default (defensive; no spurious migrations)
  */
 function readSyncState(cwd) {
-  const p = path.join(cwd, '.planning', '.gh-sync-state.json');
+  const p = path.join(planningRoot(cwd), '.gh-sync-state.json');
   if (!fs.existsSync(p)) return { version: 1, objectives: {} };
 
   let parsed;
@@ -82,12 +83,12 @@ function readSyncState(cwd) {
 // ─── writeSyncState ───────────────────────────────────────────────────────────
 
 /**
- * Write `state` (any shape with `.objectives`) to .planning/.gh-sync-state.json.
+ * Write `state` (any shape with `.objectives`) to .aoforge/.gh-sync-state.json.
  * ALWAYS emits version: 1 in the on-disk file regardless of caller-passed value.
  * Atomic via tmp + rename to avoid half-written files on process kill.
  */
 function writeSyncState(cwd, state) {
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   if (!fs.existsSync(planningDir)) fs.mkdirSync(planningDir, { recursive: true });
 
   const filePath = path.join(planningDir, '.gh-sync-state.json');

@@ -259,7 +259,7 @@ function flutterAppShape({ maestro = false, integration = false, buildRunner = f
 // ─── git-backed shapes (TRD 42-12) ────────────────────────────────────────
 //
 // The 42-11 dry run drafted a go component inside a gitignored `dist/<scaffold>/` tree and the
-// dir-level `.planning` ignore check missed a rule because the dir held a tracked file. These
+// dir-level `.aoforge` ignore check missed a rule because the dir held a tracked file. These
 // builders reproduce both SHAPES with invented names: `git init -q` in the mkdtemp root, a
 // `.gitignore`, and optionally `git add -f` of a file under the ignored dir ("tracked under
 // ignored"). Tests that use them skip when `hasGit()` is false.

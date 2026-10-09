@@ -12,7 +12,7 @@
  *       method it was built with in a `method` block: the minutes method, the window and the cutoff.
  *
  *   paths   --paths (comma separated), else AOFORGE_CALIBRATE_PATHS (path.delimiter separated), else the checkout
- *           holding cwd. A path is a project (has .planning/objectives) or a directory of projects. Relative paths
+ *           holding cwd. A path is a project (has .aoforge/objectives) or a directory of projects. Relative paths
  *           resolve against cwd.
  *   out     --out (relative to cwd), else AOFORGE_CALIBRATION_PATH, else ~/.claude/aoforge/calibration.json.
  *   rates   --rates, else the shipped references/model-rates.json.
@@ -47,6 +47,7 @@ const fs = require('fs');
 const path = require('path');
 const calibrator = require('./calibrator.cjs');
 const planningMode = require('./planning-mode.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 const USAGE = 'aof-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--minutes <task_sum|trd_level>] [--through <N>] [--dry-run] [--raw]';
 
@@ -222,7 +223,7 @@ function runCalibrate({ argv = [], cwd = process.cwd(), env = process.env } = {}
   if (calibration.sources.length === 0) {
     return {
       ok: false,
-      message: `no AOForge project (a directory with .planning/objectives) found under ${where.paths.join(', ')}; nothing written`,
+      message: `no AOForge project (a directory with ${planningDirLabel()} objectives) found under ${where.paths.join(', ')}; nothing written`,
     };
   }
 

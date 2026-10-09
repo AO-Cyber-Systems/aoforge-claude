@@ -3,7 +3,7 @@
 // gh-mapping.cjs (TRD 46-02, GSF-01) — one objective identity, one mapping shape.
 //
 // Before this module the GitHub sync had two defects rooted in identity:
-//   1. `.planning/.gh-mapping.json` existed in two shapes (v1: bare issue numbers, v2: objects), and a
+//   1. `.aoforge/.gh-mapping.json` existed in two shapes (v1: bare issue numbers, v2: objects), and a
 //      reader of one fed the other's value into `gh issue edit` as "[object Object]".
 //   2. Three key spaces named the same objective three ways — the ROADMAP number ("2.1"), the directory
 //      prefix run through parseInt ("02.1-foo" -> 2, colliding with objective 2) and the directory name —
@@ -52,9 +52,12 @@ const { atomicWrite } = require('./sync-state.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 // gh-trd requires nothing but `crypto`, so this is no cycle; one entity-id grammar for codec and mapping.
 const { ENTITY_ID_RE } = require('./gh-trd.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const MAPPING_VERSION = 3;
-const MAPPING_REL = path.join('.planning', '.gh-mapping.json');
+// The file inside the project's resolved planning directory; MAPPING_REL is its default-layout path.
+const MAPPING_FILE = '.gh-mapping.json';
+const MAPPING_REL = path.join('.aoforge', MAPPING_FILE);
 
 // ─── Objective identity ───────────────────────────────────────────────────────
 
@@ -92,7 +95,7 @@ function compareIds(a, b) {
 }
 
 /**
- * Every objective the project knows about: the union of `.planning/objectives/<dir>` and the ROADMAP
+ * Every objective the project knows about: the union of `.aoforge/objectives/<dir>` and the ROADMAP
  * `### Objective N:` headers, deduped by id (the directory wins), sorted numerically.
  *
  *   [{ id, dir, roadmapNumber, github_issue }]
@@ -105,7 +108,7 @@ function compareIds(a, b) {
 function listObjectiveIndex(cwd) {
   const byId = new Map();
 
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   if (fs.existsSync(objectivesDir)) {
     const names = fs.readdirSync(objectivesDir, { withFileTypes: true })
       .filter((e) => e.isDirectory())
@@ -118,7 +121,7 @@ function listObjectiveIndex(cwd) {
     }
   }
 
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   if (fs.existsSync(roadmapPath)) {
     const content = fs.readFileSync(roadmapPath, 'utf-8');
     const headerRe = /^#{2,4}[ \t]*Objective[ \t]+([\d.]+):/gim;
@@ -426,7 +429,7 @@ function serializeMapping(mapping) {
 }
 
 /**
- * Read `.planning/.gh-mapping.json` as v3, converting lazily IN MEMORY. Never writes.
+ * Read `.aoforge/.gh-mapping.json` as v3, converting lazily IN MEMORY. Never writes.
  *
  *   -> { mapping, conflicts, notes, warnings, changed, exists, error? }
  *
@@ -435,7 +438,7 @@ function serializeMapping(mapping) {
  */
 function readMappingV3WithReport(cwd) {
   const report = { mapping: emptyMapping(), conflicts: {}, notes: [], warnings: [], changed: false, exists: false };
-  const file = path.join(cwd, MAPPING_REL);
+  const file = path.join(planningRoot(cwd), MAPPING_FILE);
   if (!fs.existsSync(file)) return report;
   report.exists = true;
 
@@ -470,7 +473,7 @@ function writeMappingV3(cwd, mapping) {
   if (isPlainObject(mapping) && Number(mapping.version) > MAPPING_VERSION) {
     return { ok: false, error: `refusing to write mapping version ${mapping.version}: this AOForge writes version ${MAPPING_VERSION}` };
   }
-  const file = path.join(cwd, MAPPING_REL);
+  const file = path.join(planningRoot(cwd), MAPPING_FILE);
   if (fs.existsSync(file)) {
     const text = fs.readFileSync(file, 'utf-8');
     if (text.trim() !== '') {
@@ -756,6 +759,7 @@ function listPrs(mapping) {
 module.exports = {
   MAPPING_VERSION,
   MAPPING_REL,
+  MAPPING_FILE,
   toObjectiveId,
   toTrdId,
   getTrd,

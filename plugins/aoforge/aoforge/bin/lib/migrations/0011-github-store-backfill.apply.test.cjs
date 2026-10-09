@@ -71,9 +71,9 @@ function readMaybe(file) {
 
 const gitignoreOf = (env) => readMaybe(path.join(env.root, '.gitignore'));
 
-/** The `.planning/` paths git tracks (the index, so a `git rm --cached` shows at once). */
+/** The `.aoforge/` paths git tracks (the index, so a `git rm --cached` shows at once). */
 function trackedPlanning(env) {
-  const r = spawnSync('git', ['ls-files', '--', '.planning'], { cwd: env.root, env: { ...process.env, ...env.env }, encoding: 'utf-8' });
+  const r = spawnSync('git', ['ls-files', '--', '.aoforge'], { cwd: env.root, env: { ...process.env, ...env.env }, encoding: 'utf-8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.split('\n').filter(Boolean).sort();
 }
@@ -161,7 +161,7 @@ describe('0011 drain, verify, hand-off (test 1)', () => {
     assert.deepEqual(r.applied.map((a) => a.id), ['0011']);
     const [a] = r.applied;
     assert.ok(a.changed.includes('.gitignore'), `changed: ${JSON.stringify(a.changed)}`);
-    assert.ok(a.changed.includes('.planning/config.json'), 'the store switch');
+    assert.ok(a.changed.includes('.aoforge/config.json'), 'the store switch');
     assert.match(a.notes, /AOFORGE_SKIP_GH_GATE=1/, 'the store-mode commit steps (51-04 STORE_COMMIT_STEPS)');
     assert.match(a.notes, /git switch -c /);
     assert.match(a.notes, /gh setup/, 'the gh setup ordering note (P7)');
@@ -174,7 +174,7 @@ describe('0011 drain, verify, hand-off (test 1)', () => {
     // Every phase ran: the journal is drained, the cache is gitignored and untracked.
     assert.equal(backfill.hasPendingOps(env.root).any, false, 'the journal is drained');
     assert.ok(gitignoreOf(env).includes(m0010().BLOCK_START), 'the store-mode .gitignore block');
-    assert.deepEqual(trackedPlanning(env), ['.planning/config.json'], 'only config.json stays tracked');
+    assert.deepEqual(trackedPlanning(env), ['.aoforge/config.json'], 'only config.json stays tracked');
     assert.equal(m0011().detect(ctxFor(env)).applies, false, 'done');
   });
 });
@@ -224,7 +224,7 @@ describe('0011 SC1 on the 20-objective fixture (tests 2-3)', () => {
   test('SC1: the backfill completes under the limits across a resume', { timeout: 300000 }, async (t) => {
     const env = useBackfillEnv(t, { fake: { now: () => client.now() } });
     if (!env) return;
-    const roadmapBefore = fs.readFileSync(path.join(env.root, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmapBefore = fs.readFileSync(path.join(env.root, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const pagesBefore = wikiPages(env);
     // The intent, read from the fixture before anything runs: the wave edges and the TRDs that carry a SUMMARY.
     const expectedEdges = [];
@@ -321,11 +321,11 @@ describe('0011 SC1 on the 20-objective fixture (tests 2-3)', () => {
       assert.ok(pages.length > pagesBefore.length, `wiki pages pushed: ${pages.join(', ')}`);
       assert.equal(backfill.hasPendingOps(env.root).any, false, 'the journal is empty');
       const index = outbox.readCacheIndex(env.root);
-      const cache = planningPaths.listByClass(path.join(env.root, '.planning')).cache.filter((rel) => !rel.startsWith('wiki/'));
+      const cache = planningPaths.listByClass(path.join(env.root, '.aoforge')).cache.filter((rel) => !rel.startsWith('wiki/'));
       assert.deepEqual(cache.filter((rel) => !Object.hasOwn(index, rel)), [], 'every cache file is baselined');
       assert.ok(gitignoreOf(env).includes(m0010().BLOCK_START));
-      assert.deepEqual(trackedPlanning(env), ['.planning/config.json']);
-      assert.equal(fs.readFileSync(path.join(env.root, '.planning', 'ROADMAP.md'), 'utf-8'), roadmapBefore,
+      assert.deepEqual(trackedPlanning(env), ['.aoforge/config.json']);
+      assert.equal(fs.readFileSync(path.join(env.root, '.aoforge', 'ROADMAP.md'), 'utf-8'), roadmapBefore,
         'gh pull --all kept the hand-maintained ROADMAP.md');
     });
 
@@ -342,7 +342,7 @@ describe('0011 SC1 on the 20-objective fixture (tests 2-3)', () => {
     });
 
     await t.test('5: SC2: after completion, re-running the backfill is a no-op', () => {
-      const configFile = path.join(env.root, '.planning', 'config.json');
+      const configFile = path.join(env.root, '.aoforge', 'config.json');
       const journalFile = outbox.journalPath(env.root);
       const before = fx.snapshot(env.root);
       const configBefore = fs.readFileSync(configFile);
@@ -375,7 +375,7 @@ describe('0011 store-off parity (test 6)', () => {
   test('6: a never-enabled project: check and apply --confirm make zero gh calls and leave the tree byte-identical', (t) => {
     const env = useBackfillEnv(t, { objectives: 2 });
     if (!env) return;
-    const file = path.join(env.root, '.planning', 'config.json');
+    const file = path.join(env.root, '.aoforge', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
     cfg.github.enabled = false;
     fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);

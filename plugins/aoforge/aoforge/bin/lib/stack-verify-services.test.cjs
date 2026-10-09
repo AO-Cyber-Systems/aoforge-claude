@@ -68,7 +68,7 @@ describe('CLI: stack verify --run skips a service-backed gate (cases 1-5)', { sk
   /** A git repo whose CI job `suite` declares a postgres service and runs the same command STACK.md names. */
   function verify(extra) {
     const root = track(fx.gitRepo({ files: {
-      '.planning/STACK.md': STACK,
+      '.aoforge/STACK.md': STACK,
       '.github/workflows/ci.yml': fx.serviceWorkflow({ job: 'suite', services: ['postgres'], runs: ['svc-suite --all'] }),
     } }));
     const bin = track(fx.mutatingToolBin('svc-suite', ':'));

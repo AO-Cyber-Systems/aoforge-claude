@@ -15,7 +15,7 @@
  * sibling `agent-<id>.meta.json` (`agentType`, `description`). The index reads meta.json first and, only for executors,
  * the FIRST user record of the jsonl. Transcript bodies are read only by tokensForTrd, for the transcripts it kept.
  * Ids repeat across repositories and within one (three `10-*` objectives here), so every match is scoped to a repo
- * (REPO_ROOT line, else first-record cwd in the repo or one of its `.df-worktrees`, else a `<repo>/.planning/` path)
+ * (REPO_ROOT line, else first-record cwd in the repo or one of its `.df-worktrees`, else a `<repo>/.aoforge/` path)
  * and, for a shared objective number, to the
  * objective directory the prompt names.
  */
@@ -27,6 +27,7 @@ const { forEachRecord } = require('./context-audit.cjs');
 const trdIdentify = require('./trd-identify.cjs');
 const { normalizeObjectiveName, objectiveDirMatches } = require('./helpers.cjs');
 const { setFrontmatterField } = require('./frontmatter.cjs');
+const { planningRoot, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 const SYNTHETIC_MODEL = '<synthetic>';
 
@@ -249,14 +250,14 @@ function repoMatcher(repoRoot) {
       const c = canon(p);
       return worktreeBases.some((b) => c.startsWith(b + path.sep));
     },
-    planningPrefixes: [...new Set([given, real])].map((r) => `${r}/.planning/`),
+    planningPrefixes: [...new Set([given, real])].flatMap((r) => PLANNING_DIR_NAMES.map((dir) => `${r}/${dir}/`)),
   };
 }
 
 /**
  * How an executor transcript belongs to the repo, or null (foreign). A REPO_ROOT line decides on its own; without
  * one, the first record's cwd (equal to or inside the repo: 'cwd'; inside one of its AOForge worktrees: 'worktree'),
- * else a `<repo>/.planning/` path in the prompt ('path').
+ * else a `<repo>/.aoforge/` path in the prompt ('path').
  */
 function repoMatch(prompt, cwd, repo) {
   const declared = trdIdentify.repoRootOf(prompt);
@@ -386,7 +387,7 @@ function tokensForTrd(index, { id, dir = null, sharedNumber = false } = {}) {
 }
 
 /**
- * The objective directories in `<checkoutRoot>/.planning/objectives` for the objective number of `id`, sorted.
+ * The objective directories in `<checkoutRoot>/.aoforge/objectives` for the objective number of `id`, sorted.
  * More than one means the number is shared (`10-alpha`, `10-beta`). [] when the directory is absent.
  *
  * @param {string} checkoutRoot
@@ -397,7 +398,7 @@ function objectiveDirsFor(checkoutRoot, id) {
   const m = /^(\d+(?:\.\d+)?)-/.exec(typeof id === 'string' ? id : '');
   if (!m) return [];
   const normalized = normalizeObjectiveName(m[1]);
-  return sortedNames(path.join(checkoutRoot, '.planning', 'objectives'), true)
+  return sortedNames(path.join(planningRoot(checkoutRoot), 'objectives'), true)
     .filter((d) => objectiveDirMatches(d, normalized));
 }
 

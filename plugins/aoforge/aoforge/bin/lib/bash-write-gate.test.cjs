@@ -298,7 +298,7 @@ describe('8. bashGateReason(gatedAbs, projectRoot, mode)', () => {
       assert.ok(text.includes('"skip aoforge"'), text);
       assert.ok(text.includes('"just edit"'), text);
       assert.ok(text.includes('gates.bashEditGate'), text);
-      assert.ok(text.includes('.planning/'), text);
+      assert.ok(text.includes('.aoforge/'), text);
       assert.ok(text.includes('*.md'), text);
       assert.ok(text.includes('untracked'), text);
     });
@@ -328,7 +328,7 @@ describe('9. gitTrackedSet', { skip: !hasGit && 'git is not available' }, () => 
       ignored: { 'build/out.js': 'o' },
     });
     nested = makeTrackedRepo({
-      planningDir: 'pkg/.planning',
+      planningDir: 'pkg/.aoforge',
       files: { 'pkg/src/a.js': 'a' },
       untracked: { 'pkg/src/new.js': 'n' },
     });
@@ -493,8 +493,8 @@ describe('10. evaluateBashWrites with live predicates', { skip: !hasGit && 'git 
     assert.deepStrictEqual(reasons(result), ['markdown']);
   });
 
-  test('a write under .planning/ passes', () => {
-    const result = evaluateBashWrites('echo x > .planning/config.json', live());
+  test('a write under .aoforge/ passes', () => {
+    const result = evaluateBashWrites('echo x > .aoforge/config.json', live());
     assert.deepStrictEqual(result.gated, []);
     assert.deepStrictEqual(reasons(result), ['planning']);
   });

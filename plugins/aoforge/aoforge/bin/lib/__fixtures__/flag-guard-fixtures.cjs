@@ -4,7 +4,7 @@
  * Fixtures for the unknown-flag guard (TRD 68-03, TOOL-01).
  *
  * `flagProbeProject()` builds a hand-made temp project and runs the real `aof-tools` against it with a fake HOME and
- * the `gh` PATH shim, so a probe can neither reach GitHub nor touch `~/.claude` nor this repository's `.planning/`.
+ * the `gh` PATH shim, so a probe can neither reach GitHub nor touch `~/.claude` nor this repository's `.aoforge/`.
  * The shim lives OUTSIDE the project root (its call log and the fake HOME are not part of `tree()`).
  *
  * `PROBES` maps each FLAG_SPEC entry to the shortest realistic argv for it, without the unknown flag. The label is
@@ -117,7 +117,7 @@ function listDirs(root) {
  */
 function flagProbeProject() {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-flag-probe-')));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   const objectiveDir = path.join(planning, 'objectives', '01-a');
   fs.mkdirSync(objectiveDir, { recursive: true });
 
@@ -182,12 +182,12 @@ const PROBES = {
   'state resolve-blocker': ['state', 'resolve-blocker', '--text', 'A blocker'],
   'state record-session': ['state', 'record-session', '--stopped-at', 'Probe'],
   'commit': ['commit', 'msg'],
-  'template select': ['template', 'select', '.planning/objectives/01-a/01-01-TRD.md'],
+  'template select': ['template', 'select', '.aoforge/objectives/01-a/01-01-TRD.md'],
   'template fill': ['template', 'fill', 'summary', '--objective', '1', '--job', '01', '--name', 'Probe'],
-  'frontmatter get': ['frontmatter', 'get', '.planning/objectives/01-a/01-01-TRD.md', '--field', 'type'],
-  'frontmatter set': ['frontmatter', 'set', '.planning/objectives/01-a/01-01-TRD.md', '--field', 'type', '--value', 'tdd'],
-  'frontmatter merge': ['frontmatter', 'merge', '.planning/objectives/01-a/01-01-TRD.md', '--data', '{"wave":2}'],
-  'frontmatter validate': ['frontmatter', 'validate', '.planning/objectives/01-a/01-01-TRD.md', '--schema', 'trd'],
+  'frontmatter get': ['frontmatter', 'get', '.aoforge/objectives/01-a/01-01-TRD.md', '--field', 'type'],
+  'frontmatter set': ['frontmatter', 'set', '.aoforge/objectives/01-a/01-01-TRD.md', '--field', 'type', '--value', 'tdd'],
+  'frontmatter merge': ['frontmatter', 'merge', '.aoforge/objectives/01-a/01-01-TRD.md', '--data', '{"wave":2}'],
+  'frontmatter validate': ['frontmatter', 'validate', '.aoforge/objectives/01-a/01-01-TRD.md', '--schema', 'trd'],
   'config-ensure-section': ['config-ensure-section'],
   'config-set': ['config-set', 'mode', 'yolo'],
   'roadmap get-objective': ['roadmap', 'get-objective', '1'],
@@ -305,7 +305,7 @@ const PROBES = {
   'project-accept': ['project-accept'],
   'merge-driver install': ['merge-driver', 'install', '--check'],
   'merge-driver uninstall': ['merge-driver', 'uninstall'],
-  'merge-driver resolve': ['merge-driver', 'resolve', '.planning/state.json'],
+  'merge-driver resolve': ['merge-driver', 'resolve', '.aoforge/state.json'],
   'merge-driver state-json': ['merge-driver', 'state-json', 'base.json', 'ours.json', 'theirs.json'],
   'exec-context check': ['exec-context', 'check', '--repo', '/nonexistent/df-flag-probe'],
   'exec-context worktree': ['exec-context', 'worktree', '--repo', '/nonexistent/df-flag-probe', '--id', 'probe'],

@@ -4,7 +4,7 @@
 // (helpers.parseObjectiveDirName, objectiveDirMatches, normalizeObjectiveName: the objective 56 rule), so
 // `milestone complete`, `estimate milestone` and `tokens coverage --milestone` pick the directory `find-objective` picks.
 //
-// Every project is a hand-built temp dir (never this repository's .planning/); each test removes its own.
+// Every project is a hand-built temp dir (never this repository's .aoforge/); each test removes its own.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -53,7 +53,7 @@ test('6b. a stray second directory of one number resolves to the same one find-o
   });
   try {
     const [entry] = scope.currentDirObjectives(project.root);
-    assert.strictEqual(entry.dir, '.planning/objectives/04-a');
+    assert.strictEqual(entry.dir, '.aoforge/objectives/04-a');
     assert.strictEqual(entry.dir, toPosix(findObjectiveInternal(project.root, '4').directory));
   } finally {
     project.cleanup();
@@ -73,16 +73,16 @@ test('7. decimal objectives stay exact: 4.1 is 04.1-one and never 04.10-ten', ()
   try {
     const both = scope.selectMilestoneObjectives(project.root);
     const dirOf = (entries, number) => entries.find((e) => e.number === number)?.dir;
-    assert.strictEqual(dirOf(both.objectives, '4.1'), '.planning/objectives/04.1-one');
-    assert.strictEqual(dirOf(both.objectives, '4.10'), '.planning/objectives/04.10-ten');
-    assert.strictEqual(dirOf(scope.currentDirObjectives(project.root), '4.1'), '.planning/objectives/04.1-one');
-    assert.strictEqual(dirOf(scope.currentDirObjectives(project.root), '4.10'), '.planning/objectives/04.10-ten');
-    assert.strictEqual(dirOf(scope.sectionObjectives(project.root), '4.1'), '.planning/objectives/04.1-one');
-    assert.strictEqual(dirOf(scope.sectionObjectives(project.root), '4.10'), '.planning/objectives/04.10-ten');
+    assert.strictEqual(dirOf(both.objectives, '4.1'), '.aoforge/objectives/04.1-one');
+    assert.strictEqual(dirOf(both.objectives, '4.10'), '.aoforge/objectives/04.10-ten');
+    assert.strictEqual(dirOf(scope.currentDirObjectives(project.root), '4.1'), '.aoforge/objectives/04.1-one');
+    assert.strictEqual(dirOf(scope.currentDirObjectives(project.root), '4.10'), '.aoforge/objectives/04.10-ten');
+    assert.strictEqual(dirOf(scope.sectionObjectives(project.root), '4.1'), '.aoforge/objectives/04.1-one');
+    assert.strictEqual(dirOf(scope.sectionObjectives(project.root), '4.10'), '.aoforge/objectives/04.10-ten');
 
     const one = scope.selectMilestoneObjectives(onlyFirst.root);
     assert.deepStrictEqual(numbersOf(one.objectives), ['4.1']);
-    assert.strictEqual(one.objectives[0].dir, '.planning/objectives/04.1-one');
+    assert.strictEqual(one.objectives[0].dir, '.aoforge/objectives/04.1-one');
   } finally {
     project.cleanup();
     onlyFirst.cleanup();
@@ -118,13 +118,13 @@ test('8b. a hyphen-less 04x is not an objective directory either', () => {
   }
 });
 
-test('9. entries under .planning/objectives/ that are not objective directories are not listed', () => {
+test('9. entries under .aoforge/objectives/ that are not objective directories are not listed', () => {
   const project = scopeProject({
     current: ['01-a'],
     extra: {
-      '.planning/objectives/README.md': '# Objectives\n',
-      '.planning/objectives/.gitkeep': '',
-      '.planning/objectives/notes/x.md': 'scratch\n',
+      '.aoforge/objectives/README.md': '# Objectives\n',
+      '.aoforge/objectives/.gitkeep': '',
+      '.aoforge/objectives/notes/x.md': 'scratch\n',
     },
   });
   try {
@@ -140,9 +140,9 @@ test('10. an archived directory serves an objective only when no current directo
   const both = scopeProject({ roadmap, current: ['01-current'], archived: { 'v0.9': ['01-a'] } });
   try {
     const fromArchive = scope.selectMilestoneObjectives(archivedOnly.root).objectives;
-    assert.strictEqual(fromArchive[0].dir, '.planning/milestones/v0.9-objectives/01-a');
+    assert.strictEqual(fromArchive[0].dir, '.aoforge/milestones/v0.9-objectives/01-a');
     const fromCurrent = scope.selectMilestoneObjectives(both.root).objectives;
-    assert.strictEqual(fromCurrent[0].dir, '.planning/objectives/01-current');
+    assert.strictEqual(fromCurrent[0].dir, '.aoforge/objectives/01-current');
     assert.strictEqual(fromCurrent[0].dir, toPosix(findObjectiveInternal(both.root, '1').directory));
   } finally {
     archivedOnly.cleanup();

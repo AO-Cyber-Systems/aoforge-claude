@@ -28,6 +28,7 @@ const path = require('path');
 
 const fx = require('./__fixtures__/stack-verify-fixtures.cjs');
 const { verifyCommand, resolveBinary } = require('./stack-verify.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const dirs = [];
 function track(dir) { dirs.push(dir); return dir; }
@@ -1081,7 +1082,7 @@ describe('CLI: stack verify, static (test 1)', () => {
 });
 
 describe('CLI: stack verify --draft (test 2)', () => {
-  test('verifies the stack init preview and never creates .planning/STACK.md', () => {
+  test('verifies the stack init preview and never creates .aoforge/STACK.md', () => {
     const repo = track(fx.makeRepo({
       // A stack with no bundled profile, so the draft extends `general` and keeps the
       // Makefile targets (a go.mod would pull in the bundled go profile since 42-02).
@@ -1097,7 +1098,7 @@ describe('CLI: stack verify --draft (test 2)', () => {
       assert.equal(resultFor(r.json, key).resolve.status, 'resolved', key);
       assert.equal(resultFor(r.json, key).command, `make ${key}`);
     }
-    assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false);
+    assert.equal(fs.existsSync(path.join(repo, '.aoforge', 'STACK.md')), false);
     assert.deepEqual(snapshot(repo), before);
   });
 
@@ -1197,7 +1198,7 @@ describe('CLI: stack verify --run (test 3)', () => {
     const r = runVerify(repo, ['--draft', '--run'], { bin });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(resultFor(r.json, 'build').run.exit_code, 0);
-    assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false);
+    assert.equal(fs.existsSync(path.join(repo, '.aoforge', 'STACK.md')), false);
   });
 });
 
@@ -1210,7 +1211,7 @@ describe('CLI: stack verify with components (test 4)', () => {
         'commands:',
         '  lint: { run: "lint-stub" }',
         'components:',
-        '  - { path: "svc/", profile: ".planning/stacks/svc.md" }',
+        '  - { path: "svc/", profile: ".aoforge/stacks/svc.md" }',
       ].join('\n'),
     });
     // Since 42-05 a component command already runs in its component dir, so it names its own
@@ -1258,7 +1259,7 @@ describe('CLI: this repo (the build gate)', () => {
   // The one real-binary test (TRD 42 binding rules): it needs the real `npm` to resolve `npm test`.
   test('stack verify against the checkout runs, reports test via npm, and writes nothing', (t) => {
     const repoRoot = path.join(__dirname, '..', '..', '..', '..', '..');
-    if (!fs.existsSync(path.join(repoRoot, '.planning', 'STACK.md'))) return t.skip('no .planning/STACK.md in this checkout');
+    if (!fs.existsSync(path.join(planningRoot(repoRoot), 'STACK.md'))) return t.skip('no STACK.md in this checkout');
     if (!resolveBinary('npm')) return t.skip('npm is not installed');
     const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repoRoot, 'stack', 'verify'], { encoding: 'utf-8', timeout: 60000 });
     assert.equal(r.status, 0, r.stderr);

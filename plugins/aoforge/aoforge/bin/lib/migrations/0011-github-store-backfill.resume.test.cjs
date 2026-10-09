@@ -7,7 +7,7 @@
 // differ between runs and are never compared).
 //   1  interrupted by maxOps: done ops stay done, the rest stays pending; the resume only flushes (no re-import)
 //   2  offline mid-drain: a `pending` (offline) stop; back online, the resume completes
-//   3  lost mapping: `.planning/.gh-mapping.json` deleted mid-run; the resume finds the issues by marker, no duplicate
+//   3  lost mapping: `.aoforge/.gh-mapping.json` deleted mid-run; the resume finds the issues by marker, no duplicate
 //   4  a secondary rate limit during the drain: slept through (retry-after 30 s), or, when it outlasts the client's
 //      retries, the op stays pending with `retry_after` and the resume after the clock advances completes
 //   5  a human edit of a managed body between runs halts (`gh outbox status` guidance, 0010 never runs); after
@@ -169,9 +169,9 @@ function stateOf(fake) {
   return { issues, comments, milestones };
 }
 
-/** The `.planning/` paths git tracks. */
+/** The `.aoforge/` paths git tracks. */
 function trackedPlanning(env) {
-  const r = spawnSync('git', ['ls-files', '--', '.planning'], { cwd: env.root, env: { ...process.env, ...env.env }, encoding: 'utf-8' });
+  const r = spawnSync('git', ['ls-files', '--', '.aoforge'], { cwd: env.root, env: { ...process.env, ...env.env }, encoding: 'utf-8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.split('\n').filter(Boolean).sort();
 }
@@ -199,7 +199,7 @@ function assertCompleted(env, r) {
   assert.deepEqual(r.applied.map((a) => a.id), ['0011']);
   assert.ok(stamped(env).includes('0011') && stamped(env).includes('0010'), JSON.stringify(upgrade.readStamp(env.root)));
   assert.equal(backfill.hasPendingOps(env.root).any, false, 'the journal is drained');
-  assert.deepEqual(trackedPlanning(env), ['.planning/config.json'], 'only config.json stays tracked');
+  assert.deepEqual(trackedPlanning(env), ['.aoforge/config.json'], 'only config.json stays tracked');
   return r.applied[0];
 }
 
@@ -295,7 +295,7 @@ describe('0011 resume after interruption (tests 1-4)', () => {
     const rec = record(env);
 
     assertStopped(run(env, { maxOps: 40 }), 'pending');
-    const mappingFile = path.join(env.root, '.planning', '.gh-mapping.json');
+    const mappingFile = path.join(env.root, '.aoforge', '.gh-mapping.json');
     assert.ok(fs.existsSync(mappingFile), 'the partial run wrote the mapping');
     fs.rmSync(mappingFile);
 

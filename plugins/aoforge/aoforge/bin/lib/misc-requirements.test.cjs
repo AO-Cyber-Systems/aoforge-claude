@@ -105,7 +105,7 @@ describe('56-03 requirements mark-complete compiles ids literally', () => {
 
   function withRequirements(fn) {
     withProject({ store: false }, (p) => {
-      fs.writeFileSync(path.join(p.root, '.planning', 'REQUIREMENTS.md'), REQUIREMENTS);
+      fs.writeFileSync(path.join(p.root, '.aoforge', 'REQUIREMENTS.md'), REQUIREMENTS);
       fn(p);
     });
   }

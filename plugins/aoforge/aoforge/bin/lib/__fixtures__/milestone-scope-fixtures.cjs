@@ -38,8 +38,8 @@ function bulletRoadmap(bulletObjectivesText, sections = []) {
  * A temp project with the given objective directories. Each directory holds one `<NN>-01-TRD.md`.
  * @param {object} [spec]
  * @param {string} [spec.roadmap]  ROADMAP.md text; no ROADMAP.md is written when absent
- * @param {string[]} [spec.current]  directory names under `.planning/objectives/`
- * @param {Object<string, string[]>} [spec.archived]  `{ 'v0.9': ['01-a'] }` -> `.planning/milestones/v0.9-objectives/01-a/`
+ * @param {string[]} [spec.current]  directory names under `.aoforge/objectives/`
+ * @param {Object<string, string[]>} [spec.archived]  `{ 'v0.9': ['01-a'] }` -> `.aoforge/milestones/v0.9-objectives/01-a/`
  * @param {Object<string, string>} [spec.extra]  further files, `{ relPath: text }` (a README.md, a notes/ directory, ...)
  * @returns {{root: string, read: Function, exists: Function, write: Function, cleanup: Function}} the makeMilestoneProject handle
  */
@@ -53,7 +53,7 @@ function scopeProject({ roadmap, current = [], archived = {}, extra = {} } = {})
   );
   for (const [version, dirs] of Object.entries(archived)) {
     for (const dir of dirs) {
-      project.write(`.planning/milestones/${version}-objectives/${dir}/${dirNumber(dir)}-01-TRD.md`, trdWithTasks(dir, '01', 1));
+      project.write(`.aoforge/milestones/${version}-objectives/${dir}/${dirNumber(dir)}-01-TRD.md`, trdWithTasks(dir, '01', 1));
     }
   }
   for (const [rel, text] of Object.entries(extra)) project.write(rel, text);

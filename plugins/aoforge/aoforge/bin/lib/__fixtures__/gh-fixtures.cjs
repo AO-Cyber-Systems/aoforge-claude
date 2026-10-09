@@ -239,8 +239,8 @@ function buildSyncTargetProject({
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sync-test-'));
 
-  // .planning/PROJECT.md
-  const planningDir = path.join(root, '.planning');
+  // .aoforge/PROJECT.md
+  const planningDir = path.join(root, '.aoforge');
   fs.mkdirSync(planningDir, { recursive: true });
   fs.writeFileSync(
     path.join(planningDir, 'PROJECT.md'),
@@ -248,7 +248,7 @@ function buildSyncTargetProject({
     'utf-8'
   );
 
-  // .planning/ROADMAP.md with the objective
+  // .aoforge/ROADMAP.md with the objective
   const objNum = parseInt(objectiveId.match(/^(\d+)/)?.[1] || '1', 10);
   const roadmapContent = [
     '# ROADMAP',
@@ -263,7 +263,7 @@ function buildSyncTargetProject({
   ].join('\n');
   fs.writeFileSync(path.join(planningDir, 'ROADMAP.md'), roadmapContent, 'utf-8');
 
-  // .planning/objectives/<objectiveId>/
+  // .aoforge/objectives/<objectiveId>/
   const objDir = path.join(planningDir, 'objectives', objectiveId);
   fs.mkdirSync(objDir, { recursive: true });
 

@@ -2,7 +2,7 @@
 
 // Migration 0008 — runtime-state-untrack (TRD 44-06, AUT-05).
 //
-// AOForge hooks write two runtime-state files inside `.planning/`: guard-no-progress.js rewrites
+// AOForge hooks write two runtime-state files inside `.aoforge/`: guard-no-progress.js rewrites
 // the progress-guard file on EVERY tool call, and awareness-cache-populate.js refreshes the
 // awareness cache at session start. Several repos committed them before they were ignored, so they
 // show as modified in nearly every session and trip dirty-tree refusals (44-EVIDENCE DF-10). This
@@ -15,7 +15,7 @@
 // the entries — otherwise every git fixture in the upgrade/adopt suites would grow a `.gitignore`.
 //
 // "Already ignored" is decided by `git check-ignore --no-index`, never by string-matching
-// `.gitignore` lines, so a `.planning/` rule or a glob counts (the 42-14 D5 lesson). The user's
+// `.gitignore` lines, so a `.aoforge/` rule or a glob counts (the 42-14 D5 lesson). The user's
 // global excludes file is switched off for that check: a personal ignore hides the file on one
 // machine only, and the fix belongs in the repository.
 //
@@ -24,14 +24,14 @@
 // handles staged removals explicitly (lib/misc.cjs cmdCommit), and upgrade-project.js commits
 // these paths even though they were dirty before the upgrade (they land as deletions only).
 //
-// Nested coverage (TRD 45-02, DOC-02). The root `.planning/` is not the only one: aodex also tracks
-// `flutter/.planning/.progress-guard.json`, which a root-only migration never saw. Discovery now
-// covers `**/.planning/<name>` at any depth, and it goes through git pathspecs
-// (`:(glob)**/.planning/<name>` for tracked files, the same with `--others` for untracked ones)
+// Nested coverage (TRD 45-02, DOC-02). The root `.aoforge/` is not the only one: aodex also tracks
+// `flutter/.aoforge/.progress-guard.json`, which a root-only migration never saw. Discovery now
+// covers `**/.aoforge/<name>` at any depth, and it goes through git pathspecs
+// (`:(glob)**/.aoforge/<name>` for tracked files, the same with `--others` for untracked ones)
 // rather than a filesystem walk. Git skips nested repositories and submodules on its own, so a
 // foreign checkout's files are never touched, and there is no hand-rolled recursion to get wrong.
 // `discover(ctx)` is exported for the doctor (45-06), which needs the same view. Nested paths are
-// ignored through `**/.planning/<name>` entries (a pattern with a slash in the middle is anchored to
+// ignored through `**/.aoforge/<name>` entries (a pattern with a slash in the middle is anchored to
 // its .gitignore's directory, so the root-form entry cannot cover them). Root paths keep their
 // root-form entries so every existing project's .gitignore comes out byte-for-byte as before.
 
@@ -39,13 +39,22 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { planningRel, PLANNING_DIR_NAMES, isPlanningDirName } = require('../compat.cjs');
 
-const RUNTIME_STATE_FILES = ['.planning/.progress-guard.json', '.planning/.awareness-cache.json'];
 const RUNTIME_STATE_BASENAMES = ['.progress-guard.json', '.awareness-cache.json'];
+// The default-layout root paths (exported for callers that name them). The migration itself covers the root copies
+// under the project's resolved planning directory (rootRuntimeFiles), and finds nested copies under either name.
+const RUNTIME_STATE_FILES = RUNTIME_STATE_BASENAMES.map((b) => `.aoforge/${b}`);
 // `**/` matches zero or more directories, so these also match the root copies. The literal root
 // paths ride along anyway: they make the root answer independent of glob semantics.
-const GLOB_PATHSPECS = RUNTIME_STATE_BASENAMES.map((b) => `:(glob)**/.planning/${b}`);
-const LIST_PATHSPECS = [...RUNTIME_STATE_FILES, ...GLOB_PATHSPECS];
+const GLOB_PATHSPECS = PLANNING_DIR_NAMES.flatMap((d) => RUNTIME_STATE_BASENAMES.map((b) => `:(glob)**/${d}/${b}`));
+const ALL_ROOT_FILES = PLANNING_DIR_NAMES.flatMap((d) => RUNTIME_STATE_BASENAMES.map((b) => `${d}/${b}`));
+const LIST_PATHSPECS = [...ALL_ROOT_FILES, ...GLOB_PATHSPECS];
+
+/** The root runtime-state paths under the project's resolved planning directory (`.aoforge/`, or a legacy one). */
+function rootRuntimeFiles(root) {
+  return RUNTIME_STATE_BASENAMES.map((b) => planningRel(root, b));
+}
 const GITIGNORE_REL = '.gitignore';
 const HEADER = '# AOForge runtime state (migration 0008)';
 
@@ -83,14 +92,14 @@ function isWorkTree(ctx) {
 }
 
 /**
- * True for `<anything>/.planning/<runtime-state basename>` at any depth, root included. Purely
+ * True for `<anything>/<planning dir>/<runtime-state basename>` at any depth, root included, under either name. Purely
  * lexical, on a project-relative posix path; whether git tracks or ignores it is a separate question.
  */
 function isRuntimeStatePath(rel) {
   if (typeof rel !== 'string') return false;
   const segments = rel.split('/');
   const n = segments.length;
-  return n >= 2 && segments[n - 2] === '.planning' && RUNTIME_STATE_BASENAMES.includes(segments[n - 1]);
+  return n >= 2 && isPlanningDirName(segments[n - 2]) && RUNTIME_STATE_BASENAMES.includes(segments[n - 1]);
 }
 
 function uniqueSorted(paths) {
@@ -170,9 +179,14 @@ function appendEntries(content, entries) {
   return `${content}${sep}${HEADER}\n${entries.join('\n')}\n`;
 }
 
-/** The .gitignore line that covers `rel`: the literal root path, or the any-depth form for nested ones. */
-function ignoreEntryFor(rel) {
-  return RUNTIME_STATE_FILES.includes(rel) ? rel : `**/.planning/${path.posix.basename(rel)}`;
+/**
+ * The .gitignore line that covers `rel`: the literal root path, or the any-depth form for nested ones, under the
+ * planning-directory name the path itself uses.
+ */
+function ignoreEntryFor(rel, rootFiles) {
+  if (rootFiles.includes(rel)) return rel;
+  const segments = rel.split('/');
+  return `**/${segments[segments.length - 2]}/${path.posix.basename(rel)}`;
 }
 
 function apply(ctx) {
@@ -181,11 +195,12 @@ function apply(ctx) {
   const found = discoverInWorkTree(ctx);
   const tracked = found.tracked;
   // The two root paths always need cover (as before); every nested path git found needs it too.
-  const discovered = uniqueSorted([...tracked, ...found.present]).filter((rel) => !RUNTIME_STATE_FILES.includes(rel));
-  const needs = [...RUNTIME_STATE_FILES, ...discovered];
+  const rootFiles = rootRuntimeFiles(ctx.projectRoot);
+  const discovered = uniqueSorted([...tracked, ...found.present]).filter((rel) => !rootFiles.includes(rel));
+  const needs = [...rootFiles, ...discovered];
   const ignored = ignoredSet(ctx, needs);
   const missing = needs.filter((rel) => !ignored.has(rel));
-  const entries = [...new Set(missing.map(ignoreEntryFor))];
+  const entries = [...new Set(missing.map((rel) => ignoreEntryFor(rel, rootFiles)))];
   const changed = [];
 
   if (entries.length) {
@@ -197,7 +212,7 @@ function apply(ctx) {
 
   if (tracked.length && !ctx.dryRun) {
     // --force: when the index holds a staged copy that differs from both HEAD and the working file
-    // (routine for a file a hook rewrites after `git add .planning/`), plain `rm --cached` refuses.
+    // (routine for a file a hook rewrites after `git add .aoforge/`), plain `rm --cached` refuses.
     // With --cached, --force only drops that INDEX entry; the working file is never touched.
     // --literal-pathspecs: these are exact paths git itself listed, so a directory name containing
     // glob characters must not be re-read as a pattern.

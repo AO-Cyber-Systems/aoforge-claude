@@ -594,7 +594,7 @@ test.describe('Case X1-X4 — a failing run exits non-zero (32-04)', () => {
     // CLI wiring stamps both fields regardless of which skip reason was reached.
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-ui-eval-x4b-'));
     try {
-      const objDir = path.join(tmpDir, '.planning', 'objectives', '99-no-manifest');
+      const objDir = path.join(tmpDir, '.aoforge', 'objectives', '99-no-manifest');
       fs.mkdirSync(objDir, { recursive: true });
       // Directory/file naming + frontmatter shape matches makeObjectiveTree() in
       // flutter-ui-eval-resolve.test.cjs (`<id>-<slug>/<trd.name>-TRD.md`), the only other
@@ -631,7 +631,7 @@ test.describe('Case X1-X4 — a failing run exits non-zero (32-04)', () => {
     // in this repo's gotcha catalog.
     const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-ui-eval-x5-')));
     try {
-      const objDirRel = path.join('.planning', 'objectives', '99-unscoped');
+      const objDirRel = path.join('.aoforge', 'objectives', '99-unscoped');
       const objDir = path.join(tmpDir, objDirRel);
       fs.mkdirSync(objDir, { recursive: true });
       // Same shape as X4b's fixture: no evidence manifest (Tier 2 absent) + a Tier 3

@@ -39,6 +39,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 const {
   planningProject,
   CURRENT_STATUS,
@@ -108,7 +109,7 @@ function snapshotTree(dir) {
   return out;
 }
 
-const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escapeRe = escapeRegExp;
 
 /**
  * Output of a verb with everything that legitimately differs between two fixtures replaced: the temp

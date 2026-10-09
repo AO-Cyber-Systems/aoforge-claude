@@ -2,11 +2,11 @@
 
 // Migration 0009 — gh-mapping-v3 (TRD 46-02, GSF-01).
 //
-// `.planning/.gh-mapping.json` has existed in two shapes (v1: bare issue numbers, v2: objects) and the
+// `.aoforge/.gh-mapping.json` has existed in two shapes (v1: bare issue numbers, v2: objects) and the
 // GitHub sync keyed objectives three different ways (ROADMAP number, parseInt of the directory prefix,
 // directory name). A reader of one shape fed the other's value to `gh issue edit` ("[object Object]"), and
 // `pull` could never find the entries `push` wrote. This migration converts the mapping on disk to the one
-// v3 shape and re-keys `.planning/.gh-sync-state.json` by objective id, both through lib/gh-mapping.cjs —
+// v3 shape and re-keys `.aoforge/.gh-sync-state.json` by objective id, both through lib/gh-mapping.cjs —
 // the only place either decision is made.
 //
 // Why `auto`: it is local, deterministic and needs no judgement. Every conversion rule is in the pure
@@ -26,9 +26,11 @@ const fs = require('fs');
 const path = require('path');
 const ghMapping = require('../gh-mapping.cjs');
 const { atomicWrite } = require('../sync-state.cjs');
+const { planningRel } = require('../compat.cjs');
 
-const MAPPING_REL = '.planning/.gh-mapping.json';
-const SYNC_STATE_REL = '.planning/.gh-sync-state.json';
+// under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+const mappingRel = (root) => planningRel(root, '.gh-mapping.json');
+const syncStateRel = (root) => planningRel(root, '.gh-sync-state.json');
 
 // 'v1' (bare issue numbers), 'v2' (objects), 'v1/v2 mixed', or 'v3'. Wording for reasons and notes only.
 function describeShape(raw) {
@@ -43,6 +45,8 @@ function describeShape(raw) {
 // Decide everything detect and apply need, without writing. -> { applies, reason, writes, notes }
 // where writes is [{ rel, content }] in the order they are applied (mapping first).
 function plan(ctx) {
+  const MAPPING_REL = mappingRel(ctx.projectRoot);
+  const SYNC_STATE_REL = syncStateRel(ctx.projectRoot);
   const none = (reason) => ({ applies: false, reason, writes: [], notes: [] });
 
   const mappingAbs = path.join(ctx.projectRoot, MAPPING_REL);

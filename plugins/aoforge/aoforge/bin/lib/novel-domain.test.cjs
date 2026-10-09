@@ -368,9 +368,9 @@ describe('CLI — cmdDetectNovelDomain', () => {
   });
 
   test('24. unknown objective → error reported, exit non-zero', () => {
-    // Create minimal .planning structure but no objective 97
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives'), { recursive: true });
-    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+    // Create minimal .aoforge structure but no objective 97
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
 
     let exitCode = 0;
     let stdout = '';
@@ -416,9 +416,9 @@ describe('CLI — ROADMAP header regex escapes the objective number', () => {
   test('25. metacharacter objective arg `1(` does not throw and exits 0 with JSON (guard)', () => {
     // `1(` is normalised to the 01- directory, so objective_number is the digits `01` and the regex is
     // never built from the raw `(`. Kept as a guard for the CLI surface the TRD names.
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '01-something'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '01-something'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       '# Roadmap\n\n### Objective 1: Something\n\n**Goal:** Test.\n',
       'utf-8',
     );
@@ -432,9 +432,9 @@ describe('CLI — ROADMAP header regex escapes the objective number', () => {
   test('25b. a directory name that is not numeric reaches the header regex without a SyntaxError', () => {
     // searchObjectiveInDir keeps the raw argument as objective_number when the directory name has no
     // leading digits, so `a(` is interpolated into the header regex. Unescaped, `(` is an unterminated group.
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', 'a(-thing'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', 'a(-thing'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       '# Roadmap\n\n### Objective a(: Thing\n\nUse `left-pad` for padding.\n',
       'utf-8',
     );
@@ -449,9 +449,9 @@ describe('CLI — ROADMAP header regex escapes the objective number', () => {
   test('26. decimal 14.1 resolves its own section when 141 and 14.10 precede it (guard)', () => {
     // Two-digit base on purpose: objective_number is the directory's own digits (`04.1` for a `04.1-` dir),
     // so a single-digit decimal would not line up with a `### Objective 4.1:` ROADMAP heading.
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '14.1-decimal'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '14.1-decimal'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       [
         '# Roadmap',
         '',
@@ -478,9 +478,9 @@ describe('CLI — ROADMAP header regex escapes the objective number', () => {
   // TRD 56-02 (ONUM-03): objective_number is the directory's own digits (`04`), and a ROADMAP written
   // `### Objective 4:` has no leading zero. 54-07 could only pin the two-digit cases above.
   test('27. a single-digit objective finds its `### Objective 4:` section for an 04- directory', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '04-thing'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '04-thing'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       '# Roadmap\n\n### Objective 4: Thing\n\nUse `left-pad` for padding.\n',
       'utf-8',
     );
@@ -493,9 +493,9 @@ describe('CLI — ROADMAP header regex escapes the objective number', () => {
   });
 
   test('28. decimal 4.1 resolves `### Objective 4.1:` for an 04.1- directory, past 41 and 4.10', () => {
-    fs.mkdirSync(path.join(tmpDir, '.planning', 'objectives', '04.1-dec'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, '.aoforge', 'objectives', '04.1-dec'), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      path.join(tmpDir, '.aoforge', 'ROADMAP.md'),
       [
         '# Roadmap',
         '',

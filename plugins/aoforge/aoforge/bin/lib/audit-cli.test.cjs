@@ -24,6 +24,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { planningDirLabel } = require('./compat.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 
@@ -587,7 +588,7 @@ describe('defaultIndexPath()', () => {
 describe('aof-tools override (CLI) — TRD 39-02', () => {
   function tmpProject() {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-project-'));
-    fs.mkdirSync(path.join(dir, '.planning'));
+    fs.mkdirSync(path.join(dir, '.aoforge'));
     return dir;
   }
 
@@ -608,9 +609,9 @@ describe('aof-tools override (CLI) — TRD 39-02', () => {
       const json = JSON.parse(r.stdout);
       assert.equal(json.ok, true);
       assert.equal(json.gate, 'edits');
-      const log = fs.readFileSync(path.join(cwd, '.planning', '.override-log.jsonl'), 'utf8').trim().split('\n');
+      const log = fs.readFileSync(path.join(cwd, '.aoforge', '.override-log.jsonl'), 'utf8').trim().split('\n');
       assert.equal(log.length, 1);
-      assert.ok(fs.existsSync(path.join(cwd, '.planning', '.edit-override')));
+      assert.ok(fs.existsSync(path.join(cwd, '.aoforge', '.edit-override')));
     } finally {
       cleanup(cwd, home);
     }
@@ -624,7 +625,7 @@ describe('aof-tools override (CLI) — TRD 39-02', () => {
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
       const json = JSON.parse(r.stdout);
       assert.equal(json.marker, null);
-      assert.equal(fs.existsSync(path.join(cwd, '.planning', '.edit-override')), false);
+      assert.equal(fs.existsSync(path.join(cwd, '.aoforge', '.edit-override')), false);
     } finally {
       cleanup(cwd, home);
     }
@@ -659,13 +660,13 @@ describe('aof-tools override (CLI) — TRD 39-02', () => {
     }
   });
 
-  test('10. no .planning/ directory fails', () => {
+  test('10. no .aoforge/ directory fails', () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-noplanning-'));
     const home = tmpHome();
     try {
       const r = runCli(['override', '--gate', 'edits', '--reason', 'x'], cwd, home);
       assert.equal(r.status, 1);
-      assert.match(r.stderr, /No \.planning\/ directory found/);
+      assert.ok(r.stderr.includes(`No ${planningDirLabel()} directory found`), r.stderr);
     } finally {
       cleanup(cwd, home);
     }
@@ -755,7 +756,7 @@ describe('aof-tools override (CLI) — TRD 39-02', () => {
       const r = runCli(['override', '--help'], cwd, home);
       assert.equal(r.status, 0, `stderr: ${r.stderr}`);
       assert.match(r.stdout, /aof-tools override/);
-      assert.equal(fs.existsSync(path.join(cwd, '.planning', '.override-log.jsonl')), false);
+      assert.equal(fs.existsSync(path.join(cwd, '.aoforge', '.override-log.jsonl')), false);
     } finally {
       cleanup(cwd, home);
     }
@@ -766,7 +767,7 @@ describe('aof-tools override (CLI) — TRD 39-02', () => {
 describe('runOverride() — pruneLog on success', () => {
   test('18. a successful record prunes the log to MAX_ENTRIES (500) lines', () => {
     const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'df-audit-prune-'));
-    const planningDir = path.join(cwd, '.planning');
+    const planningDir = path.join(cwd, '.aoforge');
     fs.mkdirSync(planningDir);
     try {
       const lines = [];

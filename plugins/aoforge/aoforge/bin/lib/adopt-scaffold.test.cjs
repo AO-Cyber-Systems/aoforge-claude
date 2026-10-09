@@ -21,7 +21,7 @@
 // Idempotency / resume:
 //   6. a second scaffold -> created:[], snapshot identical, upgrade.backup:null; a third scaffold's
 //      marker.scaffold (minus `at`) is stable relative to the second's.
-//   7. deleting .planning/ROADMAP.md -> scaffold recreates only that file; every other file
+//   7. deleting .aoforge/ROADMAP.md -> scaffold recreates only that file; every other file
 //      byte-identical.
 //   8. PROJECT.md bytes identical before and after both runs.
 //
@@ -147,18 +147,18 @@ describe('aof-tools adopt scaffold — outermost validity', () => {
     const { status, report, out } = runAdopt(root, 'scaffold');
     assert.strictEqual(status, 0, out);
     assert.strictEqual(report.route, 'scaffold', out);
-    assert.ok(exists(root, '.planning/STATE.md'));
-    assert.ok(exists(root, '.planning/ROADMAP.md'));
-    assert.ok(exists(root, '.planning/STACK.md'));
-    assert.ok(exists(root, '.planning/config.json'));
-    assert.ok(exists(root, '.planning/state.json'));
+    assert.ok(exists(root, '.aoforge/STATE.md'));
+    assert.ok(exists(root, '.aoforge/ROADMAP.md'));
+    assert.ok(exists(root, '.aoforge/STACK.md'));
+    assert.ok(exists(root, '.aoforge/config.json'));
+    assert.ok(exists(root, '.aoforge/state.json'));
 
     const tpl = loadClaudeMdTemplate();
     const claudeMd = readFile(root, 'CLAUDE.md');
     const starts = claudeMd.match(new RegExp(`<!-- AOFORGE:START v=${tpl.version} src=claude-md -->`, 'g')) || [];
     assert.strictEqual(starts.length, 1, claudeMd);
 
-    const config = JSON.parse(readFile(root, '.planning/config.json'));
+    const config = JSON.parse(readFile(root, '.aoforge/config.json'));
     const pluginJson = JSON.parse(fs.readFileSync(PLUGIN_JSON_PATH, 'utf-8'));
     assert.strictEqual(config.aoforge.version, pluginJson.version);
   });
@@ -265,30 +265,30 @@ describe('aof-tools adopt scaffold — idempotency and resume', () => {
     assert.strictEqual(runAdopt(root, 'scaffold').status, 0);
     const before = snapshot(root);
 
-    fs.unlinkSync(path.join(root, '.planning', 'ROADMAP.md'));
-    assert.ok(!exists(root, '.planning/ROADMAP.md'));
+    fs.unlinkSync(path.join(root, '.aoforge', 'ROADMAP.md'));
+    assert.ok(!exists(root, '.aoforge/ROADMAP.md'));
 
     const { status, report, out } = runAdopt(root, 'scaffold');
     assert.strictEqual(status, 0, out);
-    assert.deepStrictEqual(report.created, ['.planning/ROADMAP.md']);
+    assert.deepStrictEqual(report.created, ['.aoforge/ROADMAP.md']);
 
     const after = snapshot(root);
     for (const [key, hash] of Object.entries(before)) {
-      if (key === '.planning/ROADMAP.md') continue;
+      if (key === '.aoforge/ROADMAP.md') continue;
       assert.strictEqual(after[key], hash, key);
     }
-    assert.ok(after['.planning/ROADMAP.md']);
+    assert.ok(after['.aoforge/ROADMAP.md']);
   });
 
   test('8. PROJECT.md is byte-identical before and after both scaffold runs', () => {
     const root = readyFixture('go-service');
-    const before = readFile(root, '.planning/PROJECT.md');
+    const before = readFile(root, '.aoforge/PROJECT.md');
 
     assert.strictEqual(runAdopt(root, 'scaffold').status, 0);
-    assert.strictEqual(readFile(root, '.planning/PROJECT.md'), before);
+    assert.strictEqual(readFile(root, '.aoforge/PROJECT.md'), before);
 
     assert.strictEqual(runAdopt(root, 'scaffold').status, 0);
-    assert.strictEqual(readFile(root, '.planning/PROJECT.md'), before);
+    assert.strictEqual(readFile(root, '.aoforge/PROJECT.md'), before);
   });
 });
 
@@ -305,8 +305,8 @@ describe('aof-tools adopt scaffold — CLAUDE.md placements', () => {
     const tpl = loadClaudeMdTemplate();
     const overview =
       '# Project Overview\n\n' +
-      'See `.planning/PROJECT.md` (what this is, core value) and `.planning/codebase/` (how it is built).\n' +
-      'Adopted by `/aoforge:adopt`; review `.planning/ADOPT-REPORT.md`.\n\n' +
+      'See `.aoforge/PROJECT.md` (what this is, core value) and `.aoforge/codebase/` (how it is built).\n' +
+      'Adopted by `/aoforge:adopt`; review `.aoforge/ADOPT-REPORT.md`.\n\n' +
       tpl.rules;
     const expectedBlock = managedBlock.render(overview, { v: tpl.version, src: 'claude-md' });
     assert.strictEqual(readFile(root, 'CLAUDE.md'), `${expectedBlock}\n`);
@@ -422,7 +422,7 @@ describe('aof-tools adopt scaffold — pure renderers (exact literal expectation
     const expected =
       '# Project State\n\n' +
       '## Project Reference\n\n' +
-      'See: .planning/PROJECT.md\n\n' +
+      'See: .aoforge/PROJECT.md\n\n' +
       '**Core value:** Orders are never lost.\n' +
       '**Current focus:** No objectives yet — add one with /aoforge:objective add\n\n' +
       '## Current Position\n\n' +
@@ -432,7 +432,7 @@ describe('aof-tools adopt scaffold — pure renderers (exact literal expectation
       '## Blockers\n\n' +
       'None.\n\n' +
       '## Session Log\n\n' +
-      '- 2026-09-28: Adopted by /aoforge:adopt (AOForge v2.10.1); see .planning/ADOPT-REPORT.md\n';
+      '- 2026-09-28: Adopted by /aoforge:adopt (AOForge v2.10.1); see .aoforge/ADOPT-REPORT.md\n';
     assert.strictEqual(text, expected);
   });
 
@@ -464,14 +464,14 @@ describe('aof-tools adopt scaffold — dates are the LOCAL calendar date', () =>
     const result = scaffold(root, { env: gitEnv(fakeHome), userHome: fakeHome, pluginVersion: pluginJson.version, now });
     assert.strictEqual(result.route, 'scaffold', JSON.stringify(result));
 
-    const state = readFile(root, '.planning/STATE.md');
+    const state = readFile(root, '.aoforge/STATE.md');
     assert.ok(state.includes('**Last Activity:** 2026-09-28 '), state);
     assert.ok(state.includes('- 2026-09-28: Adopted by /aoforge:adopt'), state);
 
-    const roadmap = readFile(root, '.planning/ROADMAP.md');
+    const roadmap = readFile(root, '.aoforge/ROADMAP.md');
     assert.ok(roadmap.includes('(2026-09-28, current)'), roadmap);
 
-    const stack = stackProfile.parseProfile(readFile(root, '.planning/STACK.md'));
+    const stack = stackProfile.parseProfile(readFile(root, '.aoforge/STACK.md'));
     assert.strictEqual(stack.frontmatter.provenance.reviewed, '2026-09-28');
   });
 });

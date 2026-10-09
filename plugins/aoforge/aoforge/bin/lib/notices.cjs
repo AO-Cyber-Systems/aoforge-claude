@@ -7,7 +7,7 @@
  * Reader:  hooks/route-results.js (36-05) emits unconsumed notices once on the next prompt.
  *
  * Files:
- *   project: <projectRoot>/.planning/.aoforge-notices.json
+ *   project: <projectRoot>/.aoforge/.aoforge-notices.json
  *   global:  <userHome>/.claude/aoforge/.aoforge-notices.json   (userHome is REQUIRED; no default)
  *
  * Shape:
@@ -27,6 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { planningRoot } = require('./compat.cjs');
 
 const SCHEMA = 1;
 const LEVELS = ['info', 'warn', 'action'];
@@ -35,7 +36,7 @@ const DETAIL_MAX_LINES = 40;
 
 function projectNoticesPath(projectRoot) {
   if (!projectRoot) throw new TypeError('projectNoticesPath: projectRoot is required');
-  return path.join(projectRoot, '.planning', '.aoforge-notices.json');
+  return path.join(planningRoot(projectRoot), '.aoforge-notices.json');
 }
 
 function globalNoticesPath(userHome) {

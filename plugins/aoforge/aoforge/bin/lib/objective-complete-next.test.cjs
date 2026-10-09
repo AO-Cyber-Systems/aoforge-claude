@@ -3,7 +3,7 @@
 /**
  * The next objective reported by `objective complete` (TRD 68-04, TOOL-04).
  *
- * It used to scan `.planning/objectives/` only, so when the later objectives existed in ROADMAP.md but had no directory
+ * It used to scan `.aoforge/objectives/` only, so when the later objectives existed in ROADMAP.md but had no directory
  * yet it reported `next_objective: null, is_last_objective: true` and left STATE.md at "Milestone complete" (pending todo
  * objective-complete-next-objective, seen on objectives 56 and 57). The scan also took the first directory in
  * lexicographic order (`100-z` before `99-y`). `nextObjective` reads directories and ROADMAP sections in number order,

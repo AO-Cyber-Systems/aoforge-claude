@@ -35,6 +35,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { planningRoot } = require('./lib/compat.cjs');
 require('./lib/compat.cjs').aliasLegacyEnv();
 const { spawn } = require('child_process');
 
@@ -354,7 +355,7 @@ function runForeground({ projects, shell }) {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  // TRD 20-01: opt-in OS notifications via .planning/config.json
+  // TRD 20-01: opt-in OS notifications via .aoforge/config.json
   //   daemon: { notifications, notify_on_start, notify_on_complete }
   // Disabled by default. Construction errors fall back to no-notifier
   // (deps.notifier=null) — daemon stays functional even if config is
@@ -363,7 +364,7 @@ function runForeground({ projects, shell }) {
   let notify_on_start = true;
   let notify_on_complete = true;
   try {
-    const configPath = path.join(projectRoot, '.planning', 'config.json');
+    const configPath = path.join(planningRoot(projectRoot), 'config.json');
     if (fs.existsSync(configPath)) {
       const cfg = JSON.parse(fs.readFileSync(configPath, 'utf8'));
       if (cfg && cfg.daemon && cfg.daemon.notifications === true) {

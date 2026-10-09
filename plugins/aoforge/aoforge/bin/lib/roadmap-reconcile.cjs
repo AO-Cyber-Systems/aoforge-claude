@@ -3,7 +3,7 @@
 /**
  * Roadmap ↔ disk reconciliation engine.
  *
- * Walks <projectRoot>/.planning/ROADMAP.md and reconciles its checkbox state
+ * Walks <projectRoot>/.aoforge/ROADMAP.md and reconciles its checkbox state
  * against on-disk SUMMARY.md presence + Self-Check verdict.
  *
  * Iron Law: ROADMAP.md mutation is line-level regex; never YAML-parse the body.
@@ -18,11 +18,13 @@
 const fs = require('fs');
 const path = require('path');
 const { objectiveNumPattern } = require('./text-escape.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── TRD 09-01: Constants ─────────────────────────────────────────────────────
 
-const ROADMAP_REL = path.join('.planning', 'ROADMAP.md');
-const OBJECTIVES_REL = path.join('.planning', 'objectives');
+// Inside the project's resolved planning directory (`.aoforge/`, or a legacy one): planningRoot(projectRoot).
+const ROADMAP_FILE = 'ROADMAP.md';
+const OBJECTIVES_DIR = 'objectives';
 
 // ─── TRD 09-01: Injection hooks ───────────────────────────────────────────────
 // All production fs reads/writes route through _runFs.X() — never fs.X() directly.
@@ -148,18 +150,18 @@ function _checkSummaryFailed(summaryContent) {
 // ─── TRD 09-01: _writeReconciledRoadmap ───────────────────────────────────────
 
 /**
- * Atomically rewrite <projectRoot>/.planning/ROADMAP.md via tmp + rename.
+ * Atomically rewrite <projectRoot>/.aoforge/ROADMAP.md via tmp + rename.
  * Mirrors obj 5 TRD 05-02 _writeInitiativeFile pattern exactly.
  *
- * Tmp path: <projectRoot>/.planning/.ROADMAP.md.tmp.<pid>
+ * Tmp path: <projectRoot>/.aoforge/.ROADMAP.md.tmp.<pid>
  * On rename failure: unlinks tmp (best-effort) then rethrows.
  *
  * @param {string} projectRoot - absolute project root path
  * @param {string} content - full ROADMAP.md content to write
  */
 function _writeReconciledRoadmap(projectRoot, content) {
-  const dest = path.join(projectRoot, ROADMAP_REL);
-  const planningDir = path.join(projectRoot, '.planning');
+  const dest = path.join(planningRoot(projectRoot), ROADMAP_FILE);
+  const planningDir = planningRoot(projectRoot);
   if (!_runFs.existsSync(planningDir)) {
     _runFs.mkdirSync(planningDir, { recursive: true });
   }
@@ -179,7 +181,7 @@ function _writeReconciledRoadmap(projectRoot, content) {
  * Find the objective directory under objectivesDir matching `<objectiveNum>-*`.
  * Accepts both bare number and zero-padded number.
  *
- * @param {string} objectivesDir - absolute path to .planning/objectives/
+ * @param {string} objectivesDir - absolute path to .aoforge/objectives/
  * @param {string} objectiveNum - from ROADMAP '### Objective N:' header (may be '1' or '01')
  * @returns {string|null} absolute path to matching directory, or null
  */
@@ -440,7 +442,7 @@ function _rollupObjectiveStatus(lines, today) {
  */
 function reconcile({ projectRoot, mode = 'write', today } = {}) {
   const result = { changes: [], warnings: [] };
-  const roadmapPath = path.join(projectRoot, ROADMAP_REL);
+  const roadmapPath = path.join(planningRoot(projectRoot), ROADMAP_FILE);
 
   if (!_runFs.existsSync(roadmapPath)) {
     result.warnings.push({ kind: 'roadmap_missing', path: roadmapPath });
@@ -450,7 +452,7 @@ function reconcile({ projectRoot, mode = 'write', today } = {}) {
   const content = _runFs.readFileSync(roadmapPath, 'utf-8');
   const trdEntries = _walkTrdLines(content);
   const lines = content.split('\n');
-  const objectivesDir = path.join(projectRoot, OBJECTIVES_REL);
+  const objectivesDir = path.join(planningRoot(projectRoot), OBJECTIVES_DIR);
 
   for (const entry of trdEntries) {
     // Find objective directory for this TRD entry

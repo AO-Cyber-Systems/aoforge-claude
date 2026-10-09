@@ -31,7 +31,7 @@
  *
  * Data each check reads (every call through gh-client):
  *   linked-issue          `GET issues/{n}` per closing reference (404 -> null, a finding), `pulls/{n}/commits` (404 -> none).
- *   planning-consistency  `.planning/config.json` at the PR head via `GET contents/...?ref=<head sha>` (404 -> null -> store
+ *   planning-consistency  `.aoforge/config.json` at the PR head via `GET contents/...?ref=<head sha>` (404 -> null -> store
  *                         off); in store mode with an `aoforge:pr=` marker: the closing targets, the objective issue (a closing
  *                         target, else the `github.labels.objective` issues scanned for `aoforge:id=<id>`), and the TRDs linked
  *                         under it through gh-hierarchy.linkedNumbers (sub-issues, or the `trds` task list without that API).
@@ -48,7 +48,7 @@
  * waiting for a context that never comes, and the runner never throws.
  *
  * Not here on purpose: `requireEnabled(cwd)` (there is no AOForge config on the runner's cwd) and any read of the
- * caller's checkout (in store mode `.planning/` is not in git; the head's config is read through the contents API).
+ * caller's checkout (in store mode `.aoforge/` is not in git; the head's config is read through the contents API).
  * Every GitHub call goes through gh-client, so the gh-seam repo test guards this file.
  */
 
@@ -56,6 +56,7 @@ const fs = require('fs');
 const client = require('./gh-client.cjs');
 const check = require('./gh-check.cjs');
 const ghBody = require('./gh-body.cjs');
+const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 const { CONTEXTS } = check;
 
@@ -262,12 +263,17 @@ function runLinkedIssue(ctx) {
 const storeModeOn = (config) => Boolean(config && config.github && config.github.store === true);
 
 /**
- * The parsed `.planning/config.json` at `ref`, through the contents API: in store mode `.planning/` is not in git,
- * but config.json is tracked, and the runner has no checkout of the caller's. null when it is absent (404), not a
+ * The parsed planning `config.json` at `ref`, through the contents API: in store mode the planning directory is not
+ * in git, but config.json is tracked, and the runner has no checkout of the caller's. The new directory is read
+ * first, then the legacy one (a repository not yet migrated, INST-03). null when neither has it (404), it is not a
  * file, or not a JSON object: the check then reads it as store mode off.
  */
 function fetchConfig(repo, ref) {
-  const got = getJson(`repos/${repo}/contents/.planning/config.json?ref=${encodeURIComponent(ref)}`, 'read .planning/config.json');
+  let got = { missing: true };
+  for (const dir of PLANNING_DIR_NAMES) {
+    got = getJson(`repos/${repo}/contents/${dir}/config.json?ref=${encodeURIComponent(ref)}`, `read ${dir}/config.json`);
+    if (!got.missing) break;
+  }
   if (got.missing || typeof got.json.content !== 'string') return null;
   const text = Buffer.from(got.json.content, got.json.encoding === 'base64' ? 'base64' : 'utf8').toString('utf-8');
   const config = parseJson(text);

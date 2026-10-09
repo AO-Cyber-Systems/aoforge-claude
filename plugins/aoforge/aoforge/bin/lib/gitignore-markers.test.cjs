@@ -2,12 +2,12 @@
 
 // Test list (TDD Playbook habit #2 — reviewable artifact, written before implementation;
 // TRD 40-05, objective 40-tooling-correctness, requirement TOOL-08). This is a CI gate:
-// every file-backed gate marker that override.cjs writes under `.planning/` must have a
-// matching `.planning/<name>` line in the repo `.gitignore`, so a marker can never be
+// every file-backed gate marker that override.cjs writes under `.aoforge/` must have a
+// matching `.aoforge/<name>` line in the repo `.gitignore`, so a marker can never be
 // committed by accident. A new file-backed entry in GATES is checked automatically.
 //
 // 6. missingMarkers(gitignoreText, markers) returns ['.edit-override'] for a sample text
-//    that contains only `.planning/.skill-active` (sensitivity: the helper really reports
+//    that contains only `.aoforge/.skill-active` (sensitivity: the helper really reports
 //    a missing line).
 //    6b. fileBackedMarkers keeps non-null GATES values plus a bare LOG_FILE name, and drops
 //        null gates and a LOG_FILE that is not a bare filename.
@@ -23,6 +23,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { GATES, LOG_FILE } = require('./override.cjs');
+const { planningDirName } = require('./compat.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
@@ -30,9 +31,9 @@ const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
 // ─── Helpers ───────────────────────────────────────────────────────────────────────
 
 /**
- * The marker filenames override.cjs writes inside `.planning/`: every non-null GATES value
+ * The marker filenames override.cjs writes inside `.aoforge/`: every non-null GATES value
  * (the hook-consumed override markers) plus LOG_FILE when it is a bare filename — override.cjs
- * joins it onto the planning dir, so a bare name always lands at `.planning/<name>`.
+ * joins it onto the planning dir, so a bare name always lands at `.aoforge/<name>`.
  */
 function fileBackedMarkers(gates, logFile) {
   const out = Object.values(gates).filter((v) => typeof v === 'string' && v.length > 0);
@@ -43,10 +44,10 @@ function fileBackedMarkers(gates, logFile) {
 }
 
 /**
- * Markers with no exact `.planning/<name>` (or `/.planning/<name>`) line in the gitignore
- * text. Comments, blank lines and negations never count as coverage.
+ * Markers with no exact `<dir>/<name>` (or `/<dir>/<name>`) line in the gitignore text, `dir` the planning
+ * directory (default `.aoforge`). Comments, blank lines and negations never count as coverage.
  */
-function missingMarkers(gitignoreText, markers) {
+function missingMarkers(gitignoreText, markers, dir = '.aoforge') {
   const lines = new Set(
     gitignoreText
       .split(/\r?\n/)
@@ -54,7 +55,7 @@ function missingMarkers(gitignoreText, markers) {
       .filter((l) => l && !l.startsWith('#') && !l.startsWith('!')),
   );
   return markers.filter(
-    (m) => !lines.has(`.planning/${m}`) && !lines.has(`/.planning/${m}`),
+    (m) => !lines.has(`${dir}/${m}`) && !lines.has(`/${dir}/${m}`),
   );
 }
 
@@ -62,14 +63,14 @@ function missingMarkers(gitignoreText, markers) {
 
 describe('gitignore marker helpers — sensitivity', () => {
   test('6: missingMarkers reports .edit-override missing from a sample gitignore', () => {
-    const sample = '# AOForge ephemeral skill marker\n.planning/.skill-active\n';
+    const sample = '# AOForge ephemeral skill marker\n.aoforge/.skill-active\n';
     assert.deepEqual(missingMarkers(sample, ['.skill-active', '.edit-override']), [
       '.edit-override',
     ]);
   });
 
   test('6: a commented-out or negated line does not count as coverage', () => {
-    const sample = '# .planning/.edit-override\n!.planning/.edit-override\n';
+    const sample = '# .aoforge/.edit-override\n!.aoforge/.edit-override\n';
     assert.deepEqual(missingMarkers(sample, ['.edit-override']), ['.edit-override']);
   });
 
@@ -92,14 +93,15 @@ describe(
   'gitignore marker guard — repo .gitignore',
   { skip: IS_AOFORGE_CHECKOUT ? false : 'not an aoforge-claude checkout' },
   () => {
-    test('7: every file-backed override marker has a .planning/<name> line in .gitignore', () => {
+    test('7: every file-backed override marker has a <planning dir>/<name> line in .gitignore', () => {
       const text = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
-      const missing = missingMarkers(text, fileBackedMarkers(GATES, LOG_FILE));
+      // this repository's planning directory, wherever it is (`.planning/` until 72-21, `.aoforge/` after)
+      const missing = missingMarkers(text, fileBackedMarkers(GATES, LOG_FILE), planningDirName(REPO_ROOT));
       assert.deepEqual(
         missing,
         [],
-        'override.cjs writes these markers under .planning/ but .gitignore does not ignore ' +
-          'them — add a `.planning/<name>` line in the ephemeral-marker block: ' +
+        'override.cjs writes these markers under .aoforge/ but .gitignore does not ignore ' +
+          'them — add a `.aoforge/<name>` line in the ephemeral-marker block: ' +
           missing.join(', '),
       );
     });

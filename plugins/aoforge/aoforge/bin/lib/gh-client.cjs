@@ -25,6 +25,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { output } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -365,9 +366,9 @@ function ghPaginate(apiPath, opts) {
 
 const REPO_SLUG = /^[^/\s]+\/[^/\s]+$/;
 
-/** `.planning/config.json` as an object, or null when missing, invalid or not an object. */
+/** `.aoforge/config.json` as an object, or null when missing, invalid or not an object. */
 function readConfig(cwd) {
-  const cfgPath = path.join(cwd, '.planning', 'config.json');
+  const cfgPath = path.join(planningRoot(cwd), 'config.json');
   if (!fs.existsSync(cfgPath)) return null;
   try {
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
@@ -383,7 +384,7 @@ function resolveRepo(cwd) {
   const fromConfig = cfg && cfg.github && cfg.github.repo;
   if (typeof fromConfig === 'string' && REPO_SLUG.test(fromConfig)) return fromConfig;
 
-  const projectPath = path.join(cwd, '.planning', 'PROJECT.md');
+  const projectPath = path.join(planningRoot(cwd), 'PROJECT.md');
   if (!fs.existsSync(projectPath)) return null;
   let fm;
   try {
@@ -409,7 +410,7 @@ function requireEnabled(cwd) {
       skipped: true,
       ok: false,
       enabled: false,
-      reason: 'github.enabled is not true in .planning/config.json',
+      reason: 'github.enabled is not true in .aoforge/config.json',
     };
   }
   const repo = resolveRepo(cwd);
@@ -418,7 +419,7 @@ function requireEnabled(cwd) {
       skipped: true,
       ok: false,
       enabled: false,
-      reason: 'github.repo is not set (need an owner/name in .planning/config.json github.repo or PROJECT.md github_repo)',
+      reason: 'github.repo is not set (need an owner/name in .aoforge/config.json github.repo or PROJECT.md github_repo)',
     };
   }
   return {

@@ -64,11 +64,11 @@ function v1Setup() {
 }
 
 function readProjectMd(project) {
-  return fs.readFileSync(path.join(project, '.planning', 'PROJECT.md'), 'utf-8');
+  return fs.readFileSync(path.join(project, '.aoforge', 'PROJECT.md'), 'utf-8');
 }
 
 function readConfig(project) {
-  return JSON.parse(fs.readFileSync(path.join(project, '.planning', 'config.json'), 'utf-8'));
+  return JSON.parse(fs.readFileSync(path.join(project, '.aoforge', 'config.json'), 'utf-8'));
 }
 
 describe('aof-tools upgrade (project)', () => {
@@ -96,7 +96,7 @@ describe('aof-tools upgrade (project)', () => {
     assert.equal(r.status, 0, r.stderr + r.stdout);
     assert.deepEqual(r.json.applied.map((a) => a.id), AUTO_IDS);
     assert.deepEqual(fx.diffSnapshots(before, fx.snapshot(project)), r.json.changed_files);
-    assert.ok(r.json.changed_files.includes('.planning/config.json'));
+    assert.ok(r.json.changed_files.includes('.aoforge/config.json'));
 
     const conf = readConfig(project);
     assert.equal(conf.aoforge.version, PLUGIN_VERSION);
@@ -133,7 +133,7 @@ describe('aof-tools upgrade (project)', () => {
     const r = upgrade(['--apply', '--only', '0006', '--kind', 'plugin'], { cwd: project, home });
     assert.equal(r.status, 0, r.stderr + r.stdout);
     assert.deepEqual(r.json.applied.map((a) => a.id), ['0006']);
-    assert.ok(r.json.changed_files.includes('.planning/PROJECT.md'));
+    assert.ok(r.json.changed_files.includes('.aoforge/PROJECT.md'));
     assert.match(readProjectMd(project), /^kind: plugin$/m);
     assert.equal(r.json.up_to_date, true);
     assert.ok(readConfig(project).aoforge.migrations_applied.includes('0006'));
@@ -289,7 +289,7 @@ describe('aof-tools upgrade --help', () => {
 //     conflict; `--dry-run` alone (no --prune) -> exit 1.
 // 13. `--register` in a mkdtemp project -> exit 0, {key, path, created:true}; .registry.json has
 //     the entry; again -> created:false. `--register --path <other>` registers <other>. Works
-//     with no .planning/.
+//     with no .aoforge/.
 // 14. `aof-tools upgrade --help` usage line names --prune and --register; help.test.cjs passes
 //     (verified separately, not spawned from this file).
 
@@ -308,8 +308,8 @@ function seedBackups(home, repoDir, ages) {
     const ts = t.toISOString().replace(/[:.]/g, '-');
     let name = ts;
     for (let n = 1; fs.existsSync(path.join(backupsRoot(home), repoDir, name)); n++) name = `${ts}-${n}`;
-    fs.mkdirSync(path.join(backupsRoot(home), repoDir, name, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(backupsRoot(home), repoDir, name, '.planning', 'config.json'), '{}\n');
+    fs.mkdirSync(path.join(backupsRoot(home), repoDir, name, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(backupsRoot(home), repoDir, name, '.aoforge', 'config.json'), '{}\n');
     names.push(name);
   }
   return names;

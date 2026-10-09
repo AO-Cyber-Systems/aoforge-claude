@@ -20,7 +20,7 @@
  * Pass reasons, checked in this order for each target:
  *   unresolvable     the target cannot be resolved statically ($VAR, backticks)
  *   outside-project  not under the project root (tmp, scratchpad, other repos)
- *   planning         any `.planning` segment below the project root
+ *   planning         any `.aoforge` segment below the project root
  *   markdown         `*.md`
  *   untracked        a candidate that git does not track (new files, ignored files)
  *
@@ -58,6 +58,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { detectBashWrites } = require('./bash-write-detect.cjs');
+const { isPlanningDirName } = require('./compat.cjs');
 
 /** Order-preserving unique. */
 function unique(list) {
@@ -116,7 +117,7 @@ function evaluateBashWrites(cmd, ctx = {}) {
         passed.push({ path: null, form: w.form, reason: 'unresolvable' });
       } else if (isOutside(target)) {
         passed.push({ path: target, form: w.form, reason: 'outside-project' });
-      } else if (path.relative(projectRoot, target).split(path.sep).includes('.planning')) {
+      } else if (path.relative(projectRoot, target).split(path.sep).some(isPlanningDirName)) {
         passed.push({ path: target, form: w.form, reason: 'planning' });
       } else if (/\.md$/i.test(target)) {
         passed.push({ path: target, form: w.form, reason: 'markdown' });
@@ -166,7 +167,7 @@ function recommendDefault(rate) {
 }
 
 /**
- * Reads `.planning/config.json` -> `gates.bashEditGate`. A valid mode comes back
+ * Reads `.aoforge/config.json` -> `gates.bashEditGate`. A valid mode comes back
  * verbatim; unset, invalid, a missing or malformed file and a null dir are all
  * null, which means "use BASH_EDIT_GATE_DEFAULT". gate-edits falls back to strict
  * for editGate because strict IS its default; falling back to the shipped default
@@ -226,8 +227,8 @@ function bashGateReason(gatedAbs, projectRoot, mode) {
     'Edit and Write are gated the same way.',
     'Route through a /aoforge: skill (for a small fix, /aoforge:quick or /aoforge:micro).',
     'To bypass once, include "skip aoforge" or "just edit" in your prompt.',
-    'Never gated: .planning/, *.md, untracked files and paths outside the project.',
-    'Severity: gates.bashEditGate (strict|warn|off) in .planning/config.json.',
+    'Never gated: .aoforge/, *.md, untracked files and paths outside the project.',
+    'Severity: gates.bashEditGate (strict|warn|off) in .aoforge/config.json.',
   ].join(' ');
 }
 

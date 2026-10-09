@@ -349,7 +349,7 @@ function classifyUIEvalOutcome(target) {
 function resolveUIEvalTarget(cwd, arg) {
   try {
     // Tier 1: arg names an existing FILE (path-vs-id discriminator is statSync().isFile(),
-    // not a regex — a directory like `.planning` must not be mistaken for a manifest).
+    // not a regex — a directory like `.aoforge` must not be mistaken for a manifest).
     if (typeof arg === 'string' && arg.length > 0) {
       const absArg = path.isAbsolute(arg) ? arg : path.join(cwd, arg);
       if (isExistingFile(absArg)) {

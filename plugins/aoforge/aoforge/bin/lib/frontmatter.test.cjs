@@ -6,6 +6,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { extractFrontmatter, reconstructFrontmatter, spliceFrontmatter, setFrontmatterField, parseMustHavesBlock, FRONTMATTER_SCHEMAS } = require('./frontmatter.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 test('extractFrontmatter — baseline parse (existing fields unchanged)', () => {
   const c = `---\nkind: api\ndefault_work: feature\n---\n\n# Test`;
@@ -430,7 +431,7 @@ const bodyOf = (text) => text.slice(text.indexOf('\n---\n', 3) + 5);
 test('48-14 char 5: local frontmatter set on a TRD rewrites the block exactly as today', () => {
   withFmProject({ store: false }, (p) => {
     const before = STORE_FIXTURE.trds['07-01-alpha-TRD.md'];
-    const r = p.run(['frontmatter', 'set', `.planning/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
+    const r = p.run(['frontmatter', 'set', `.aoforge/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
     strict.equal(r.status, 0, r.stderr);
     strict.equal(r.stdout, JSON.stringify({ updated: true, field: 'status', value: 'done' }, null, 2));
     strict.equal(p.read(FM_TRD_REL), [
@@ -456,7 +457,7 @@ test('48-14 char 5: local frontmatter set on a TRD rewrites the block exactly as
 
 test('48-14 char 5b: local frontmatter merge on OBJECTIVE.md rewrites the block exactly as today', () => {
   withFmProject({ store: false }, (p) => {
-    const r = p.run(['frontmatter', 'merge', `.planning/${FM_OBJ_REL}`, '--data', '{"status":"in_progress","wave":2}']);
+    const r = p.run(['frontmatter', 'merge', `.aoforge/${FM_OBJ_REL}`, '--data', '{"status":"in_progress","wave":2}']);
     strict.equal(r.status, 0, r.stderr);
     strict.equal(r.stdout, JSON.stringify({ merged: true, fields: ['status', 'wave'] }, null, 2));
     strict.equal(p.read(FM_OBJ_REL), [
@@ -477,7 +478,7 @@ test('48-14 char 5b: local frontmatter merge on OBJECTIVE.md rewrites the block 
 test('48-14 store 6: frontmatter set on a cached TRD is refused naming plan put-trd and planning draft; file unchanged', () => {
   withFmProject({ store: true }, (p) => {
     const before = p.read(FM_TRD_REL);
-    const r = p.run(['frontmatter', 'set', `.planning/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
+    const r = p.run(['frontmatter', 'set', `.aoforge/${FM_TRD_REL}`, '--field', 'status', '--value', 'done']);
     strict.equal(r.status, 1);
     strict.ok(r.stderr.includes(`${FM_TRD_REL} is a GitHub-backed cache file in store mode`), r.stderr);
     strict.match(r.stderr, /aof-tools plan put-trd/);
@@ -501,7 +502,7 @@ test('48-14 store 6c: frontmatter set on a runtime planning file and on a non-pl
   withFmProject({ store: true }, (p) => {
     fs.mkdirSync(p.planning('.trd-progress'), { recursive: true });
     fs.writeFileSync(p.planning('.trd-progress/7-01.md'), '---\nstatus: running\n---\n\nprogress\n');
-    const a = p.run(['frontmatter', 'set', '.planning/.trd-progress/7-01.md', '--field', 'status', '--value', 'done']);
+    const a = p.run(['frontmatter', 'set', '.aoforge/.trd-progress/7-01.md', '--field', 'status', '--value', 'done']);
     strict.equal(a.status, 0, a.stderr);
     strict.equal(p.read('.trd-progress/7-01.md'), '---\nstatus: done\n---\n\nprogress\n');
 
@@ -515,7 +516,7 @@ test('48-14 store 6c: frontmatter set on a runtime planning file and on a non-pl
 
 test('48-14 store 7: frontmatter merge on OBJECTIVE.md is refused naming objective put; file unchanged', () => {
   withFmProject({ store: true }, (p) => {
-    const r = p.run(['frontmatter', 'merge', `.planning/${FM_OBJ_REL}`, '--data', '{"status":"in_progress"}']);
+    const r = p.run(['frontmatter', 'merge', `.aoforge/${FM_OBJ_REL}`, '--data', '{"status":"in_progress"}']);
     strict.equal(r.status, 1);
     strict.match(r.stderr, /GitHub-backed cache file in store mode/);
     strict.match(r.stderr, /aof-tools objective put/);
@@ -525,7 +526,7 @@ test('48-14 store 7: frontmatter merge on OBJECTIVE.md is refused naming objecti
 
 test('48-14 store 7b: frontmatter get and validate still read cache files in store mode', () => {
   withFmProject({ store: true }, (p) => {
-    const r = p.run(['frontmatter', 'get', `.planning/${FM_OBJ_REL}`, '--field', 'status']);
+    const r = p.run(['frontmatter', 'get', `.aoforge/${FM_OBJ_REL}`, '--field', 'status']);
     strict.equal(r.status, 0, r.stderr);
     strict.deepEqual(JSON.parse(r.stdout), { status: 'planned' });
   });
@@ -631,7 +632,7 @@ test('43-03 D11 #1: `verify artifacts` lists both artifacts of a 2/4-layout TRD'
 });
 
 test('43-03 D11 #2: every objective-42 TRD yields a non-empty artifact list', (t) => {
-  const dir = path.join(REPO_ROOT, '.planning', 'objectives', '42-codebase-aware-stack-drafter');
+  const dir = path.join(planningRoot(REPO_ROOT), 'objectives', '42-codebase-aware-stack-drafter');
   if (!fs.existsSync(dir)) return t.skip('objective 42 planning files not present');
   const trds = fs.readdirSync(dir).filter((f) => /^42-\d+-TRD\.md$/.test(f)).sort();
   assert.ok(trds.length >= 15, `expected 15 TRDs, found ${trds.length}`);

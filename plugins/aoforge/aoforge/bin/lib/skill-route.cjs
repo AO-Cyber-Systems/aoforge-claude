@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── fs injection (for deprecation logger testability) ────────────────────────
 
@@ -273,7 +274,7 @@ function cmdSkillRouteList(cwd, raw) {
 
 /**
  * CLI handler for `aof-tools deprecation log <old-name>`.
- * Appends a JSONL entry to .planning/.deprecation-log.jsonl.
+ * Appends a JSONL entry to .aoforge/.deprecation-log.jsonl.
  * Returns { logged, old_name, new_form } or { error, got }.
  *
  * @param {string}  cwd      - project root directory
@@ -293,10 +294,10 @@ function cmdDeprecationLog(cwd, oldName, raw) {
     return errResult;
   }
 
-  const logDir = path.join(cwd, '.planning');
+  const logDir = planningRoot(cwd);
   const logPath = path.join(logDir, '.deprecation-log.jsonl');
 
-  // Ensure .planning dir exists
+  // Ensure .aoforge dir exists
   if (!_runFs.existsSync(logDir)) {
     _runFs.mkdirSync(logDir, { recursive: true });
   }

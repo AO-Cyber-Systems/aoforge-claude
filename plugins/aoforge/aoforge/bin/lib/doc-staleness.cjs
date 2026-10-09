@@ -4,9 +4,9 @@
 //
 // One read-only, synchronous function answers "which of this project's docs are stale?" for:
 //   W050  removed-command references still live in CLAUDE.md's AOFORGE block or STATE.md
-//   W051  .planning/STACK.md has no (or an old) provenance.reviewed date
-//   W052  .planning/STACK.md declares languages the repo's own manifest no longer matches
-//   W053  .planning/codebase/*.md is N commits behind HEAD, excluding .planning churn
+//   W051  .aoforge/STACK.md has no (or an old) provenance.reviewed date
+//   W052  .aoforge/STACK.md declares languages the repo's own manifest no longer matches
+//   W053  .aoforge/codebase/*.md is N commits behind HEAD, excluding .aoforge churn
 //
 // All four are advisories only — nothing here writes, and no issue is ever `repairable: true`.
 // Every surface (health, `validate docs`, telemetry, status) calls this module so they can never
@@ -20,6 +20,7 @@ const { scanText } = require('./doc-refs.cjs');
 const { read: readManagedBlock, ManagedBlockError } = require('./managed-block.cjs');
 const { parseProfile, StackProfileError } = require('./stack-profile.cjs');
 const { detectManifest } = require('./project-state.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 // Modeled on awareness.cjs's `peer_stale_days` default pattern. Not added to
 // templates/config.json — these live in code; 38-12 documents the config.docs overrides.
@@ -162,7 +163,7 @@ function _checkRemovedRefs({ projectRoot, issues }) {
     }
   }
 
-  const stateMdPath = path.join(projectRoot, '.planning', 'STATE.md');
+  const stateMdPath = path.join(planningRoot(projectRoot), 'STATE.md');
   if (fs.existsSync(stateMdPath)) {
     const text = fs.readFileSync(stateMdPath, 'utf-8');
     const scanned = _excludeSessionLog(text);
@@ -185,7 +186,7 @@ function _checkRemovedRefs({ projectRoot, issues }) {
 // ─── W051 — STACK.md review age ────────────────────────────────────────────────────────────
 
 function _checkStackReview({ projectRoot, now, thresholds, issues }) {
-  const stackPath = path.join(projectRoot, '.planning', 'STACK.md');
+  const stackPath = path.join(planningRoot(projectRoot), 'STACK.md');
   if (!fs.existsSync(stackPath)) return 'skipped:no-stack';
 
   let parsed;
@@ -235,7 +236,7 @@ function _checkStackReview({ projectRoot, now, thresholds, issues }) {
 // ─── W052 — STACK.md language drift ────────────────────────────────────────────────────────
 
 function _checkStackDrift({ projectRoot, userHome, issues }) {
-  const stackPath = path.join(projectRoot, '.planning', 'STACK.md');
+  const stackPath = path.join(planningRoot(projectRoot), 'STACK.md');
   if (!fs.existsSync(stackPath)) return 'skipped:no-stack';
 
   let parsed;
@@ -267,7 +268,7 @@ function _checkStackDrift({ projectRoot, userHome, issues }) {
 // ─── W053 — codebase-map commits-behind ────────────────────────────────────────────────────
 
 function _checkCodebaseMap({ projectRoot, threshold, issues }) {
-  const codebaseDir = path.join(projectRoot, '.planning', 'codebase');
+  const codebaseDir = path.join(planningRoot(projectRoot), 'codebase');
   let mapFiles = [];
   try {
     mapFiles = fs.readdirSync(codebaseDir).filter((f) => f.endsWith('.md'));
@@ -278,7 +279,7 @@ function _checkCodebaseMap({ projectRoot, threshold, issues }) {
 
   let sha;
   try {
-    sha = runGit(projectRoot, ['log', '-1', '--format=%H', '--', '.planning/codebase']).trim();
+    sha = runGit(projectRoot, ['log', '-1', '--format=%H', '--', planningRel(projectRoot, 'codebase')]).trim();
   } catch (err) {
     const message = (err && (err.stderr || err.message)) || '';
     if (_looksLikeNotAGitRepo(message)) return 'skipped:not-a-git-repo';
@@ -289,7 +290,7 @@ function _checkCodebaseMap({ projectRoot, threshold, issues }) {
 
   let countOutput;
   try {
-    countOutput = runGit(projectRoot, ['rev-list', '--count', `${sha}..HEAD`, '--', '.', ':(exclude).planning']);
+    countOutput = runGit(projectRoot, ['rev-list', '--count', `${sha}..HEAD`, '--', '.', `:(exclude)${planningRel(projectRoot)}`]);
   } catch (err) {
     const message = (err && (err.stderr || err.message)) || '';
     if (_looksLikeNotAGitRepo(message)) return 'skipped:not-a-git-repo';
@@ -302,7 +303,7 @@ function _checkCodebaseMap({ projectRoot, threshold, issues }) {
   if (n > threshold) {
     issues.push({
       code: 'W053',
-      message: `.planning/codebase is ${n} commits behind HEAD, which exceeds the ${threshold}-commit threshold`,
+      message: `${planningRel(projectRoot, 'codebase')} is ${n} commits behind HEAD, which exceeds the ${threshold}-commit threshold`,
       fix: 'Re-run /aoforge:map-codebase to refresh the codebase maps.',
     });
     return 'stale';
@@ -317,7 +318,7 @@ function _checkCodebaseMap({ projectRoot, threshold, issues }) {
  * collect({projectRoot, userHome=null, now=new Date(), config}) -> {issues, checked}
  *
  * Read-only, synchronous. `config` defaults to `{}` (callers typically pass the parsed
- * `.planning/config.json`). Never throws on a missing/malformed git repo, STACK.md, or CLAUDE.md
+ * `.aoforge/config.json`). Never throws on a missing/malformed git repo, STACK.md, or CLAUDE.md
  * managed block — those become `checked.<x> = 'skipped:<why>'`.
  */
 function collect({ projectRoot, userHome = null, now = new Date(), config = {} } = {}) {

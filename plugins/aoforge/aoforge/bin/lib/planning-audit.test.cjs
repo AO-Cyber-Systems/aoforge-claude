@@ -3,12 +3,12 @@
 // Test list (TRD 48-04, objective 48-planning-write-path-migration, GWP-02 / SC1).
 // Written before planning-audit.cjs. Hand-written strings only; test 8 builds a temp tree.
 //
-// 1.  `Write the TRD to .planning/objectives/01-x/01-01-a-TRD.md` -> 1 finding, artifact 'TRD', line 1.
+// 1.  `Write the TRD to .aoforge/objectives/01-x/01-01-a-TRD.md` -> 1 finding, artifact 'TRD', line 1.
 // 2.  Same line with an `aof-tools.cjs plan put-trd` call two lines later -> 0 findings; four lines later -> 1.
-// 3.  `cat > .planning/STATE.md <<EOF` -> 1 finding; `cat .planning/STATE.md` -> 0.
+// 3.  `cat > .aoforge/STATE.md <<EOF` -> 1 finding; `cat .aoforge/STATE.md` -> 0.
 // 4.  `Never write STACK.md yourself` -> 0 (negation); `Do not edit the SUMMARY` -> 0.
 // 5.  `Read @~/.claude/aoforge/templates/summary.md` -> 0; `update ROADMAP.md progress` -> 1;
-//     `node aof-tools.cjs frontmatter set .planning/x/OBJECTIVE.md status done` -> 1.
+//     `node aof-tools.cjs frontmatter set .aoforge/x/OBJECTIVE.md status done` -> 1.
 // 6.  A finding inside a fenced bash block counts the same as prose.
 // 6a. `<!-- planning-audit: allow <reason> -->` above `Write the SUMMARY.md` -> 0 findings, 1 allowed;
 //     the same marker above a line with no finding -> 1 bad marker (stale); reason `ok` -> bad marker (short).
@@ -26,7 +26,7 @@ const audit = require('./planning-audit.cjs');
 const { scanWrites, scanSet, groupOf, GROUPS } = audit;
 
 const PUT_TRD = 'node ~/.claude/aoforge/bin/aof-tools.cjs plan put-trd 01 01-01-a-TRD.md --from "$DRAFT"';
-const WRITE_TRD = 'Write the TRD to .planning/objectives/01-x/01-01-a-TRD.md';
+const WRITE_TRD = 'Write the TRD to .aoforge/objectives/01-x/01-01-a-TRD.md';
 
 describe('planning-audit: write directives', () => {
   test('1: a direct TRD write is one finding on line 1 with artifact TRD', () => {
@@ -54,8 +54,8 @@ describe('planning-audit: write directives', () => {
   });
 
   test('3: a redirect into STATE.md is a write; a plain cat is a read', () => {
-    assert.equal(scanWrites('cat > .planning/STATE.md <<EOF').findings.length, 1);
-    assert.equal(scanWrites('cat .planning/STATE.md').findings.length, 0);
+    assert.equal(scanWrites('cat > .aoforge/STATE.md <<EOF').findings.length, 1);
+    assert.equal(scanWrites('cat .aoforge/STATE.md').findings.length, 0);
   });
 
   test('4: negations are not directives', () => {
@@ -76,7 +76,7 @@ describe('planning-audit: write directives', () => {
     assert.equal(roadmap.findings.length, 1);
     assert.equal(roadmap.findings[0].artifact, 'ROADMAP');
 
-    const fm = scanWrites('node aof-tools.cjs frontmatter set .planning/x/OBJECTIVE.md status done');
+    const fm = scanWrites('node aof-tools.cjs frontmatter set .aoforge/x/OBJECTIVE.md status done');
     assert.equal(fm.findings.length, 1);
     assert.equal(fm.findings[0].artifact, 'OBJECTIVE.md');
   });
@@ -101,29 +101,29 @@ describe('planning-audit: write directives', () => {
   });
 
   test('5d: an XML tag closing bracket is not a redirect', () => {
-    assert.equal(scanWrites('<files>.planning/STATE.md</files>').findings.length, 0);
-    assert.equal(scanWrites('echo done >> .planning/STATE.md').findings.length, 1);
-    // A redirect into .planning/ that names no artifact (runtime/config path) is not a finding.
-    assert.equal(scanWrites('echo "{}" > .planning/config.json').findings.length, 0);
+    assert.equal(scanWrites('<files>.aoforge/STATE.md</files>').findings.length, 0);
+    assert.equal(scanWrites('echo done >> .aoforge/STATE.md').findings.length, 1);
+    // A redirect into .aoforge/ that names no artifact (runtime/config path) is not a finding.
+    assert.equal(scanWrites('echo "{}" > .aoforge/config.json').findings.length, 0);
   });
 
   test('5e: an aof-tools commit message is narration, not a write directive', () => {
     assert.equal(
       scanWrites(
-        'node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create roadmap ([N] objectives)" --files .planning/ROADMAP.md .planning/STATE.md',
+        'node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create roadmap ([N] objectives)" --files .aoforge/ROADMAP.md .aoforge/STATE.md',
       ).findings.length,
       0,
     );
     // ...but a write instruction on the same line as a commit still counts.
     assert.equal(
-      scanWrites('Write ROADMAP.md, then `aof-tools.cjs commit "docs: roadmap" --files .planning/ROADMAP.md`').findings
+      scanWrites('Write ROADMAP.md, then `aof-tools.cjs commit "docs: roadmap" --files .aoforge/ROADMAP.md`').findings
         .length,
       1,
     );
   });
 
   test('6: a finding inside a fenced bash block counts the same as prose', () => {
-    const text = ['Intro', '```bash', 'cat > .planning/STATE.md <<EOF', 'x', 'EOF', '```'].join('\n');
+    const text = ['Intro', '```bash', 'cat > .aoforge/STATE.md <<EOF', 'x', 'EOF', '```'].join('\n');
     const r = scanWrites(text);
     assert.equal(r.findings.length, 1);
     assert.equal(r.findings[0].line, 3);

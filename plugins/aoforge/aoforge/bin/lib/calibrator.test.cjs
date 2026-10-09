@@ -980,7 +980,7 @@ describe('64-08 buildCalibration window', () => {
     const slope = makeProject(slopeSpec());
     const kept = makeProject({ name: 'kept', objectives: [] });
     for (const dir of ['5-e', '6-f', '7-g']) {
-      fs.cpSync(path.join(slope, '.planning', 'objectives', dir), path.join(kept, '.planning', 'objectives', dir), { recursive: true });
+      fs.cpSync(path.join(slope, '.aoforge', 'objectives', dir), path.join(kept, '.aoforge', 'objectives', dir), { recursive: true });
     }
     const windowed = build([slope], { window: 3 });
     const copied = build([kept]);

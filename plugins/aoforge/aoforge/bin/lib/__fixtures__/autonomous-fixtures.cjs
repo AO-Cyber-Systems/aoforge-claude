@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Build a temporary directory with an optional .planning/config.json fixture.
+ * Build a temporary directory with an optional .aoforge/config.json fixture.
  *
  * @param {string} tmpdir  - Root temp directory (caller allocates via fs.mkdtempSync)
  * @param {object|string|null} configObj
@@ -13,7 +13,7 @@ const path = require('path');
  * @returns {string} tmpdir (pass-through for chaining)
  */
 function buildPlanningDirWithConfig(tmpdir, configObj) {
-  const planning = path.join(tmpdir, '.planning');
+  const planning = path.join(tmpdir, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
   if (configObj !== null) {
     fs.writeFileSync(
@@ -27,7 +27,7 @@ function buildPlanningDirWithConfig(tmpdir, configObj) {
 /**
  * Build a spec-conformant DECISION-NNN.md file in dir.
  *
- * @param {string} dir - Directory to write the file into (e.g. .planning/decisions/pending/)
+ * @param {string} dir - Directory to write the file into (e.g. .aoforge/decisions/pending/)
  * @param {object} opts
  * @param {string} opts.id       - e.g. "DECISION-001"
  * @param {string} [opts.status] - "pending" | "resolved" (default: "pending")

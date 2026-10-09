@@ -15,11 +15,12 @@ const oa = require('./org-awareness.cjs');
 const { output } = require('./helpers.cjs');
 const { hasHelpFlag } = require('./help.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { planningRoot } = require('./compat.cjs');
 
-// Read `.planning/config.json` awareness block. Returns {} on any read/parse error.
+// Read `.aoforge/config.json` awareness block. Returns {} on any read/parse error.
 function _loadAwarenessConfig(cwd) {
   try {
-    const cfgPath = pathBase.join(cwd, '.planning', 'config.json');
+    const cfgPath = pathBase.join(planningRoot(cwd), 'config.json');
     const raw = fsBase.readFileSync(cfgPath, 'utf-8');
     const cfg = JSON.parse(raw);
     return cfg.awareness || {};
@@ -41,7 +42,7 @@ function _extractObjectiveTokens(cwd, objective_id) {
   for (const t of tokenize(objective_id)) tokens.add(t);
 
   try {
-    const objDir = pathBase.join(cwd, '.planning', 'objectives');
+    const objDir = pathBase.join(planningRoot(cwd), 'objectives');
     if (!fsBase.existsSync(objDir)) return tokens;
     const entries = fsBase.readdirSync(objDir);
     const sub = entries.find((n) => n.startsWith(`${objective_id}-`) || n === objective_id);
@@ -121,7 +122,7 @@ function cmdOrgAwarenessScanOrgOverlap(cwd, args, raw) {
 
   try {
     const { extractFrontmatter } = require('./frontmatter.cjs');
-    const projectMd = fs.readFileSync(path.join(cwd, '.planning', 'PROJECT.md'), 'utf-8');
+    const projectMd = fs.readFileSync(path.join(planningRoot(cwd), 'PROJECT.md'), 'utf-8');
     const fm = extractFrontmatter(projectMd) || {};
     projectCtx = {
       github_repo: fm.github_repo || null,
@@ -158,7 +159,7 @@ function cmdOrgAwarenessConsiderations(cwd, args, raw) {
   // Read PROJECT.md frontmatter for projectCtx (best-effort)
   let projectCtx = {};
   try {
-    const content = fs.readFileSync(path.join(cwd, '.planning', 'PROJECT.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(planningRoot(cwd), 'PROJECT.md'), 'utf-8');
     const fm = extractFrontmatter(content) || {};
     projectCtx = { github_repo: fm.github_repo || null, org_project: fm.org_project || null };
   } catch { /* PROJECT.md missing — projectCtx stays empty */ }
@@ -166,7 +167,7 @@ function cmdOrgAwarenessConsiderations(cwd, args, raw) {
   // Read OBJECTIVE.md frontmatter for chain-walk (best-effort)
   let frontmatter = {};
   try {
-    const objDir = path.join(cwd, '.planning', 'objectives');
+    const objDir = path.join(planningRoot(cwd), 'objectives');
     if (fs.existsSync(objDir)) {
       const entries = fs.readdirSync(objDir);
       const sub = entries.find(n => n.startsWith(`${objective_id}-`) || n === objective_id);

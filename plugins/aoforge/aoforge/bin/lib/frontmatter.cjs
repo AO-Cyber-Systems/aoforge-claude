@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error, safeReadFile } = require('./helpers.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── YAML Frontmatter Parser ──────────────────────────────────────────────────
 
@@ -447,7 +448,7 @@ function cmdFrontmatterGet(cwd, filePath, field, raw) {
 /**
  * Store mode (objective 48, TRD 48-14, D-19): the refusal for a frontmatter edit of a GitHub-backed cache file, or
  * null when the edit may go ahead (local mode, a runtime / tracked-config / generated planning path, or a file
- * outside .planning/). The target is resolved against the MAIN checkout's .planning/ (D-14), then the cwd's.
+ * outside .aoforge/). The target is resolved against the MAIN checkout's .aoforge/ (D-14), then the cwd's.
  * Everything is required lazily: this module is imported widely and its load cost stays flat.
  */
 function storeCacheRefusal(cwd, fullPath) {
@@ -455,7 +456,7 @@ function storeCacheRefusal(cwd, fullPath) {
   if (!planningMode.isStoreMode(cwd)) return null;
   const planningPaths = require('./planning-paths.cjs');
   const main = planningMode.resolveMainRoot(cwd);
-  for (const dir of [main && path.join(main, '.planning'), path.join(cwd, '.planning')]) {
+  for (const dir of [main && planningRoot(main), planningRoot(cwd)]) {
     const rel = dir ? planningPaths.relToPlanning(fullPath, dir) : null;
     if (rel === null) continue;
     let c;

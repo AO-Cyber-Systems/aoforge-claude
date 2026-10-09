@@ -58,9 +58,9 @@ const LINKED_MARK = 'commit there with: ';
 
 const U1_BLOCK = [
   '# >>> aoforge store (0010) >>>',
-  '.planning/*',
-  '!.planning/config.json',
-  '!.planning/STACK.md',
+  '.aoforge/*',
+  '!.aoforge/config.json',
+  '!.aoforge/STACK.md',
   '# <<< aoforge store (0010) <<<',
   '',
 ].join('\n');
@@ -99,7 +99,7 @@ function storeRepo({ store = true } = {}) {
   fs.writeFileSync(path.join(shim, 'gh'), `#!/bin/sh\necho "$@" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
 
   write(root, SRC, 'module.exports = 0;\n');
-  write(root, '.planning/config.json', `${JSON.stringify({ commit_docs: true, github: { enabled: true, store } })}\n`);
+  write(root, '.aoforge/config.json', `${JSON.stringify({ commit_docs: true, github: { enabled: true, store } })}\n`);
   if (store) write(root, '.gitignore', U1_BLOCK);
   fx.initGitFixture(root, home);
 
@@ -168,7 +168,7 @@ function headFiles(p) {
 }
 
 function overrideLog(root) {
-  const file = path.join(root, '.planning', '.override-log.jsonl');
+  const file = path.join(root, '.aoforge', '.override-log.jsonl');
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
@@ -291,11 +291,11 @@ describe('52-01 the builder (tests 6-7)', () => {
       'branches), then merge it through a pull request:',
     '  git switch -c aoforge-store-cache',
     '  AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="store migration" node ~/.claude/aoforge/bin/aof-tools.cjs ' +
-      'commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/',
+      'commit "chore: gitignore the planning cache (store mode)" --files .gitignore .aoforge/',
     '  git push -u origin aoforge-store-cache',
   ].join('\n');
   const DOCTOR20_COMMAND =
-    'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack AOForge runtime state" --files .gitignore .planning/.progress-guard.json';
+    'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack AOForge runtime state" --files .gitignore .aoforge/.progress-guard.json';
   const HISTORICAL_DOCTOR20_LINES_1_TO_4 = [
     'commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked ' +
       'branches), then merge it through a pull request:',
@@ -308,7 +308,7 @@ describe('52-01 the builder (tests 6-7)', () => {
 
   test('6a. store form: lines 1-4 are the 51-04 0010 text; line 5 is gh pr create; line 6 names gh pr start and ends with the bare command', () => {
     const { branchCommitSteps, commitCommand } = load();
-    const command = commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.planning/']);
+    const command = commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.aoforge/']);
     const out = branchCommitSteps({ branch: 'aoforge-store-cache', reason: 'store migration', command });
     const lines = out.split('\n');
     assert.equal(lines.length, 6, out);
@@ -316,7 +316,7 @@ describe('52-01 the builder (tests 6-7)', () => {
     assert.equal(lines[4], '  gh pr create --head aoforge-store-cache --fill');
     assert.equal(lines[5],
       "  or, on an objective's linked branch (`aof-tools gh pr start <objective>`), commit there with: " +
-      'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/');
+      'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .aoforge/');
     assert.ok(lines[5].includes('aof-tools gh pr start <objective>'));
     assert.ok(lines[5].endsWith(command));
     assert.equal(out.match(ESCAPED_LINE_RE).length, 1, 'only line 3 starts with the escape');
@@ -395,7 +395,7 @@ describe('52-01 all four emitters run as printed (test 11)', () => {
 
   /** Track a runtime file, then untrack it the way doctor 20's fix does: ignore rule, `git rm --cached`, delete. */
   function untrackRuntimeState(p) {
-    const rel = '.planning/.progress-guard.json';
+    const rel = '.aoforge/.progress-guard.json';
     write(p.root, rel, '{\n  "count": 1\n}\n');
     git(p, 'add', '-f', '--', rel);
     git(p, 'commit', '-q', '-m', 'track a runtime file');
@@ -412,7 +412,7 @@ describe('52-01 all four emitters run as printed (test 11)', () => {
       name: 'migration 0010 STORE_COMMIT_STEPS',
       branch: 'aoforge-store-cache',
       reason: 'store migration',
-      // `.planning/` paths are ignored and skipped by design; the `.gitignore` change is what lands.
+      // `.aoforge/` paths are ignored and skipped by design; the `.gitignore` change is what lands.
       prepare: (p) => {
         fs.appendFileSync(path.join(p.root, '.gitignore'), 'node_modules/\n', 'utf-8');
         return ['.gitignore'];
@@ -431,10 +431,10 @@ describe('52-01 all four emitters run as printed (test 11)', () => {
       branch: 'aoforge-upgrade',
       reason: 'AOForge upgrade',
       prepare: (p) => {
-        write(p.root, '.planning/config.json',
+        write(p.root, '.aoforge/config.json',
           `${JSON.stringify({ commit_docs: true, github: { enabled: true, store: true }, aoforge: { version: '9.9.9' } })}\n`);
         write(p.root, 'CLAUDE.md', '# Project\n');
-        return ['.planning/config.json', 'CLAUDE.md'];
+        return ['.aoforge/config.json', 'CLAUDE.md'];
       },
       text: (p, files) => require('./doctor-checks/21-pending-migrations.cjs').commitNote(p.root, '9.9.9', files),
     },

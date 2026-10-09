@@ -9,7 +9,7 @@
 // Tiers in priority order (LOW → HIGH):
 //   1. bundled  — plugins/aoforge/aoforge/references/defaults-table.md (always present)
 //   2. org      — ~/.claude/aoforge/defaults-table.md (optional)
-//   3. project  — .planning/defaults-table.md (optional)
+//   3. project  — .aoforge/defaults-table.md (optional)
 //
 // Returned shape: { table, provenance }
 //   table:      { kind: { work: { field: value } } }
@@ -20,6 +20,7 @@ const path = require('path');
 
 // Reuse parseDefaultsYaml from intent.cjs (already exported)
 const { parseDefaultsYaml } = require('./intent.cjs');
+const { planningRoot, planningDirLabel } = require('./compat.cjs');
 
 const BUNDLED_PATH = path.join(__dirname, '../../references/defaults-table.md');
 
@@ -87,7 +88,7 @@ function loadMergedDefaultsTable({ projectRoot = null, userHome = null } = {}) {
 
   // Project — optional, highest priority
   if (projectRoot) {
-    const projectPath = path.join(projectRoot, '.planning', 'defaults-table.md');
+    const projectPath = path.join(planningRoot(projectRoot), 'defaults-table.md');
     if (fs.existsSync(projectPath)) {
       tiers.push({ table: loadTable(projectPath), name: 'project_table' });
     }
@@ -117,9 +118,9 @@ function scaffoldDefaultsTable({ scope, force = false, dryRun = false, cwd = pro
     const home = userHome || process.env.HOME || require('os').homedir();
     target = path.join(home, '.claude', 'aoforge', 'defaults-table.md');
   } else {
-    const planningDir = path.join(cwd, '.planning');
+    const planningDir = planningRoot(cwd);
     if (!fs.existsSync(planningDir)) {
-      return { ok: false, error: `No .planning/ directory found in ${cwd}. Run \`aof-tools init new-project\` first or run from a project root.` };
+      return { ok: false, error: `No ${planningDirLabel()} directory found in ${cwd}. Run \`aof-tools init new-project\` first or run from a project root.` };
     }
     target = path.join(planningDir, 'defaults-table.md');
   }
@@ -181,7 +182,7 @@ function cmdDefaultsTableInit(cwd, args, raw) {
       '  Scaffold an editable copy of the (kind, work) defaults table.\n' +
       '\n' +
       '  --scope=org      Write to ~/.claude/aoforge/defaults-table.md (org-level overrides)\n' +
-      '  --scope=project  Write to .planning/defaults-table.md (project-level overrides)\n' +
+      '  --scope=project  Write to .aoforge/defaults-table.md (project-level overrides)\n' +
       '  --force          Overwrite existing file (backed up to .bak.<timestamp>)\n' +
       '  --dry-run        Report what would happen without writing\n'
     );

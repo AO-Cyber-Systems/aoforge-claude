@@ -49,7 +49,7 @@
  * executed or written; git is only read, one `git log` per project root.
  *
  * Ambient means all four of: the row's cwd is inside an AOForge project (an
- * ancestor has `.planning/`); the transcript is not an aoforge:* subagent (the
+ * ancestor has `.aoforge/`); the transcript is not an aoforge:* subagent (the
  * sibling `.meta.json` agentType); the row is not attributed to an aoforge:*
  * skill (`attributionSkill`); and no skill-active window is open in that
  * session (`skill-active --start` ... `--end`, or an aoforge Skill call earlier
@@ -76,6 +76,7 @@ const { spawnSync } = require('child_process');
 const {
   evaluateBashWrites, recommendDefault, realpathDeep, BASH_GATE_CLASSIFIER, FP_THRESHOLD,
 } = require('./bash-write-gate.cjs');
+const { findProjectRoot } = require('./compat.cjs');
 
 /**
  * Classifiers, applied ONLY to the content of a failed tool_result.
@@ -362,8 +363,8 @@ function liveIsDirectory(abs) {
 }
 
 /**
- * The nearest ancestor of `cwd` (itself included) that has a `.planning/`
- * directory, or null. `cache` maps every directory visited to its answer, so a
+ * The nearest ancestor of `cwd` (itself included) that has a planning directory (compat.findProjectRoot
+ * one directory at a time, `.aoforge/` or a legacy one), or null. `cache` maps every directory visited to its answer, so a
  * corpus of rows in a few hundred directories stats each directory once.
  * @param {string} cwd
  * @param {Map<string, string|null>} cache
@@ -376,9 +377,9 @@ function findPlanningRoot(cwd, cache) {
   for (let dir = path.resolve(cwd); ; dir = path.dirname(dir)) {
     if (cache.has(dir)) { found = cache.get(dir); break; }
     visited.push(dir);
-    let planning = null;
-    try { planning = fs.statSync(path.join(dir, '.planning'), { throwIfNoEntry: false }); } catch { /* unreadable: no .planning here */ }
-    if (planning && planning.isDirectory()) { found = dir; break; }
+    let isProject = false;
+    try { isProject = findProjectRoot(dir, { maxUp: 0 }) !== null; } catch { /* unreadable: not a project here */ }
+    if (isProject) { found = dir; break; }
     if (path.dirname(dir) === dir) break;
   }
   for (const dir of visited) cache.set(dir, found);

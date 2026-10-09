@@ -484,7 +484,7 @@ describe('57-02 collectProject', () => {
 
   test('4: a malformed state.json is ignored', () => {
     const root = build(ALPHA_SPEC);
-    fs.writeFileSync(path.join(root, '.planning', 'state.json'), '{ not json');
+    fs.writeFileSync(path.join(root, '.aoforge', 'state.json'), '{ not json');
     assert.equal(ci.collectProject(root).metrics.rows, 3);
   });
 
@@ -522,8 +522,8 @@ describe('57-02 collectProject', () => {
 
   test('6: files without an NN-MM key are counted as unkeyed and skipped', () => {
     const root = build(ALPHA_SPEC);
-    fs.writeFileSync(path.join(root, '.planning', 'objectives', '56-new', 'TRD.md'), '---\ntype: standard\n---\n');
-    fs.writeFileSync(path.join(root, '.planning', 'objectives', '56-new', 'notes-SUMMARY.md'), '---\nduration: 1min\n---\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '56-new', 'TRD.md'), '---\ntype: standard\n---\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '56-new', 'notes-SUMMARY.md'), '---\nduration: 1min\n---\n');
     const project = ci.collectProject(root);
     assert.equal(project.counts.unkeyed, 2);
     assert.equal(project.trds.length, 4);
@@ -531,7 +531,7 @@ describe('57-02 collectProject', () => {
 
   test('6: two TRD files with one key keep the first sorted and count the other', () => {
     const root = build(ALPHA_SPEC);
-    fs.writeFileSync(path.join(root, '.planning', 'objectives', '56-new', '56-01-zzz-TRD.md'), '---\ntype: standard\n---\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '56-new', '56-01-zzz-TRD.md'), '---\ntype: standard\n---\n');
     const project = ci.collectProject(root);
     assert.equal(project.counts.duplicate_trds, 1);
     assert.equal(recordOf(project, '56-new', '01').trd_type, 'tdd');
@@ -552,7 +552,7 @@ describe('57-02 collectProject', () => {
 describe('57-02 discoverProjects', () => {
   function layout() {
     const parent = tmpDir();
-    for (const name of ['p2', 'p1', '.hidden']) fs.mkdirSync(path.join(parent, name, '.planning', 'objectives'), { recursive: true });
+    for (const name of ['p2', 'p1', '.hidden']) fs.mkdirSync(path.join(parent, name, '.aoforge', 'objectives'), { recursive: true });
     fs.mkdirSync(path.join(parent, 'notes'));
     return { parent, p1: path.join(parent, 'p1'), p2: path.join(parent, 'p2') };
   }

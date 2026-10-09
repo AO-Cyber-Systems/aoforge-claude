@@ -4,7 +4,7 @@
  * Tests for lib/gh-pr.cjs reconcile and merge (TRD 49-12): `gh pr reconcile` and `gh pr merge`.
  *
  * Hermetic, the same shape as gh-pr.test.cjs: the project root IS a git clone (a local bare `origin`, 49-04
- * makeGitRemote) holding a store-shaped `.planning/` cache; GitHub is the in-memory fake (49-01) installed through
+ * makeGitRemote) holding a store-shaped `.aoforge/` cache; GitHub is the in-memory fake (49-01) installed through
  * gh-client's seam, with origin's branches mirrored into it before every call (`syncRefs`) and a DELETE of a branch
  * mirrored back to origin, exactly as GitHub holds branches. A squash merge's new commit on main is made by
  * `advanceOrigin`. `gh.updateProjectFields` and `gh-cache.pullAll` are stubbed through `opts.deps` (the fake does
@@ -57,10 +57,10 @@ function setup({ store = true, fake: fakeOptions = {} } = {}) {
   const envh = hermeticEnv();
   const g = makeGitRemote();
   const project = makeStoreProject({ store, hasWiki: false });
-  fs.cpSync(path.join(project.root, '.planning'), path.join(g.work, '.planning'), { recursive: true });
+  fs.cpSync(path.join(project.root, '.aoforge'), path.join(g.work, '.aoforge'), { recursive: true });
   project.cleanup();
   const root = g.work;
-  fs.rmSync(path.join(root, '.planning', 'objectives', '07-store-demo', '07-03-gamma-TRD.md'));
+  fs.rmSync(path.join(root, '.aoforge', 'objectives', '07-store-demo', '07-03-gamma-TRD.md'));
 
   const c0 = g.git(root, ['rev-parse', 'HEAD']);
   const fake = createFakeGitHub({
@@ -143,7 +143,7 @@ function startPr() {
 
 /** Give the project an `org_project` so a reconcile has a Project to move to Done. */
 function configureProject(id = 'PVT_demo') {
-  const file = path.join(S.root, '.planning', 'PROJECT.md');
+  const file = path.join(S.root, '.aoforge', 'PROJECT.md');
   const text = fs.readFileSync(file, 'utf8');
   fs.writeFileSync(file, text.startsWith('---\n') ? text.replace('---\n', `---\norg_project: ${id}\n`) : `---\norg_project: ${id}\n---\n${text}`);
 }
@@ -571,7 +571,7 @@ function verify(state = 'success') {
 }
 
 function setMergeMethod(value) {
-  const file = path.join(S.root, '.planning', 'config.json');
+  const file = path.join(S.root, '.aoforge', 'config.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
   cfg.github.pr = { merge_method: value };
   fs.writeFileSync(file, JSON.stringify(cfg));

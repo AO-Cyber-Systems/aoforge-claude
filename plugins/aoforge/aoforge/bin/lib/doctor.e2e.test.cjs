@@ -226,7 +226,7 @@ describe('doctor e2e: aodex-like state (SC4)', () => {
     assert.equal(checks['pending-migrations'].details.from, fixtures.AODEX_PROJECT_STAMP);
     assert.equal(checks['pending-migrations'].details.to, ENGINE_VERSION);
     assert.ok(checks['pending-migrations'].details.pending.includes('0008'));
-    assert.deepEqual(checks['skill-markers'].details.stale.map((s) => s.file), ['.planning/.skill-active']);
+    assert.deepEqual(checks['skill-markers'].details.stale.map((s) => s.file), ['.aoforge/.skill-active']);
     assert.equal(checks['guard-state'].details.stale.length, 2);
     assert.deepEqual(
       checks['awareness-state'].details.entries.map((e) => e.reasons.join('+')).sort(),
@@ -273,7 +273,7 @@ describe('doctor e2e: aodex-like state (SC4)', () => {
 
     assert.ok(fixes['pending-migrations'].notes.includes(`stamped v${ENGINE_VERSION}`),
       `pending-migrations notes name the stamped version; got: ${fixes['pending-migrations'].notes}`);
-    assert.deepEqual(fixes['skill-markers'].changed, ['.planning/.skill-active']);
+    assert.deepEqual(fixes['skill-markers'].changed, ['.aoforge/.skill-active']);
     assert.equal(fixes['guard-state'].changed.length, 2);
     assert.equal(fixes['awareness-state'].changed.length, 2);
     assert.ok(fixes['backups'].changed.length >= 2);

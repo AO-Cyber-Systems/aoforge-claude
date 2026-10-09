@@ -63,7 +63,7 @@ const ID_LINE_RE = /^<!--\s*aoforge:id=([0-9]+(?:\.[0-9]+)?(?:-[0-9]+)?)\s*-->$/
 const FILE_LINE_RE = /^<!--\s*aoforge:file=(\S+?)\s*-->$/;
 // A file name is a single path segment: letters, digits, `.`, `_`, `-`; no
 // leading dot, no `..`, no separators. Keeps `aoforge:file=` from steering a
-// pull outside `.planning/objectives/<dir>/`.
+// pull outside `.aoforge/objectives/<dir>/`.
 const SAFE_FILE_RE = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
 
 function canonicalId(id) {
@@ -127,11 +127,11 @@ function requireEntityId(id) {
 }
 
 /**
- * isSafeEntityPath(path) — true for a path RELATIVE TO `.planning/` made of safe
+ * isSafeEntityPath(path) — true for a path RELATIVE TO `.aoforge/` made of safe
  * file-name segments joined by `/` (e.g. `todos/pending/x.md`,
  * `quick/12-fix-x/12-JOB.md`). No leading or trailing `/`, no empty segment, no
  * dot-prefixed segment, no `..`, no backslash: an entity body's file line can steer
- * a pull to a location under `.planning/`, never outside it and never onto a
+ * a pull to a location under `.aoforge/`, never outside it and never onto a
  * runtime dotfile.
  */
 function isSafeEntityPath(p) {
@@ -213,14 +213,14 @@ function decodeTrdBody(body) {
 //   <!-- aoforge:file=todos/pending/2026-07-31-a.md -->
 //   <the entity file text, exactly>
 //
-// The file line carries the path relative to `.planning/` so a pull rebuilds the
+// The file line carries the path relative to `.aoforge/` so a pull rebuilds the
 // exact location. A separate codec from the TRD one: neither decoder accepts the
 // other's body.
 
 /**
  * encodeEntityBody({id, file, text}) — the issue body for a todo, debug session or
  * quick task. Throws TypeError for an id outside the entity grammar, an unsafe
- * `.planning/`-relative path, or a non-string text.
+ * `.aoforge/`-relative path, or a non-string text.
  */
 function encodeEntityBody({ id, file, text } = {}) {
   if (typeof text !== 'string') {

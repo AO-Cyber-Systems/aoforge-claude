@@ -5,6 +5,7 @@ const path = require('path');
 const { output, error, findPlanFiles, localDate } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRoot, planningRel, planningDirLabel } = require('./compat.cjs');
 
 // ─── State JSON Sidecar ───────────────────────────────────────────────────────
 // state.json holds machine-readable fields alongside the human-readable STATE.md.
@@ -25,7 +26,7 @@ const STATE_JSON_DEFAULTS = {
 };
 
 function readStateJson(cwd) {
-  const jsonPath = path.join(cwd, '.planning', 'state.json');
+  const jsonPath = path.join(planningRoot(cwd), 'state.json');
   try {
     return JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
   } catch {
@@ -34,7 +35,7 @@ function readStateJson(cwd) {
 }
 
 function writeStateJson(cwd, data) {
-  const jsonPath = path.join(cwd, '.planning', 'state.json');
+  const jsonPath = path.join(planningRoot(cwd), 'state.json');
   const existing = readStateJson(cwd) || Object.assign({}, STATE_JSON_DEFAULTS);
   const merged = Object.assign({}, existing, data);
   // Deep-merge metrics sub-object
@@ -86,10 +87,10 @@ STATE.md stays lean; this file grows over time.
 `;
 
 function ensureArchive(cwd) {
-  const archivePath = path.join(cwd, '.planning', 'STATE_ARCHIVE.md');
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
   if (!fs.existsSync(archivePath)) {
-    if (!fs.existsSync(path.join(cwd, '.planning'))) {
-      error('.planning directory not found');
+    if (!fs.existsSync(planningRoot(cwd))) {
+      error(`${planningDirLabel()} directory not found`);
     }
     fs.writeFileSync(archivePath, ARCHIVE_SEED, 'utf-8');
   }
@@ -189,7 +190,7 @@ function setProgressLine(content, bar) {
 
 function cmdStateLoad(cwd, raw) {
   const config = loadConfig(cwd);
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
 
   let stateRaw = '';
   try {
@@ -233,7 +234,7 @@ function cmdStateLoad(cwd, raw) {
 }
 
 function cmdStateGet(cwd, section, raw) {
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   try {
     const content = fs.readFileSync(statePath, 'utf-8');
 
@@ -278,7 +279,7 @@ function cmdStatePatch(cwd, patches, raw) {
     return;
   }
 
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   try {
     let content = fs.readFileSync(statePath, 'utf-8');
     const results = { updated: [], failed: [] };
@@ -316,7 +317,7 @@ function cmdStateUpdate(cwd, field, value) {
     return;
   }
 
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   try {
     let content = fs.readFileSync(statePath, 'utf-8');
     const fieldEscaped = escapeRegExp(field);
@@ -345,7 +346,7 @@ function bareObjectiveNumber(n) {
 // a rerun after a wave merge reports the merged truth.
 function advanceFromDisk(cwd, objective, raw) {
   const info = require('./objective.cjs').findObjectiveInternal(cwd, objective);
-  if (!info) error(`objective ${objective} not found under .planning/objectives`);
+  if (!info) error(`objective ${objective} not found under ${planningRel(cwd, 'objectives')}`);
 
   const total = info.jobs.length;
   if (total === 0) {
@@ -365,7 +366,7 @@ function advanceFromDisk(cwd, objective, raw) {
   const previous = prev && bareObjectiveNumber(prev.current_objective) === num ? (prev.current_job || 0) : 0;
 
   const store = storeMode(cwd);
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   let stateMdUpdated = false;
   if (!store && fs.existsSync(statePath)) {
     const original = fs.readFileSync(statePath, 'utf-8');
@@ -418,7 +419,7 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
   }
 
   const store = storeMode(cwd);
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   const hasStateMd = fs.existsSync(statePath);
   if (!hasStateMd && !store) { output({ error: 'STATE.md not found' }, raw); return; }
 
@@ -462,7 +463,7 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
 
 function cmdStateRecordMetric(cwd, options, raw) {
   const store = storeMode(cwd);
-  const archivePath = path.join(cwd, '.planning', 'STATE_ARCHIVE.md');
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
   ensureArchive(cwd);
 
   let content = fs.readFileSync(archivePath, 'utf-8');
@@ -507,11 +508,11 @@ function cmdStateRecordMetric(cwd, options, raw) {
 // Recomputes the progress bar from SUMMARY/TRD counts and updates, or inserts, the Progress line (exit 1 when there is nowhere to put it).
 function cmdStateUpdateProgress(cwd, raw) {
   const store = storeMode(cwd);
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
-  if (!store && !fs.existsSync(statePath)) error('STATE.md not found at .planning/STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  if (!store && !fs.existsSync(statePath)) error(`STATE.md not found at ${planningRel(cwd, 'STATE.md')}`);
 
   // Count summaries across all objectives
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   let totalJobs = 0;
   let totalSummaries = 0;
 
@@ -556,7 +557,7 @@ function cmdStateUpdateProgress(cwd, raw) {
 
 function cmdStateAddDecision(cwd, options, raw) {
   const store = storeMode(cwd);
-  const archivePath = path.join(cwd, '.planning', 'STATE_ARCHIVE.md');
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
   ensureArchive(cwd);
 
   const { objective, summary, rationale } = options;
@@ -605,7 +606,7 @@ function cmdStateAddBlocker(cwd, text, raw) {
     return;
   }
 
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
   if (!text) { output({ error: 'text required' }, raw); return; }
 
@@ -640,7 +641,7 @@ function cmdStateResolveBlocker(cwd, text, raw) {
     return;
   }
 
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
   if (!text) { output({ error: 'text required' }, raw); return; }
 
@@ -690,7 +691,7 @@ function cmdStateRecordSession(cwd, options, raw) {
     return;
   }
 
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
   if (!fs.existsSync(statePath)) { output({ error: 'STATE.md not found' }, raw); return; }
 
   let content = fs.readFileSync(statePath, 'utf-8');
@@ -732,7 +733,7 @@ function cmdStateRecordSession(cwd, options, raw) {
 }
 
 function cmdStateSnapshot(cwd, raw) {
-  const statePath = path.join(cwd, '.planning', 'STATE.md');
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
 
   if (!fs.existsSync(statePath)) {
     output({ error: 'STATE.md not found' }, raw);

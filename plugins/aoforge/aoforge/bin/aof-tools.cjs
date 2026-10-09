@@ -24,13 +24,13 @@
  *   find-objective <objective>                 Find objective directory by number
  *   commit <message> [--files f1 f2]   Commit planning docs. A message starting
  *                                      with `--` is refused; with no --files the
- *                                      commit is scoped to `.planning/` alone.
+ *                                      commit is scoped to `.aoforge/` alone.
  *   verify-summary <path>              Verify a SUMMARY.md file
  *   generate-slug <text>               Convert text to URL-safe slug
  *   current-timestamp [format]         Get timestamp (full|date|filename)
  *   list-todos [area]                  Count and enumerate pending todos
  *   verify-path-exists <path>          Check file/directory existence
- *   config-ensure-section              Initialize .planning/config.json
+ *   config-ensure-section              Initialize .aoforge/config.json
  *   history-digest                     Aggregate all SUMMARY.md data
  *   summary-extract <path> [--fields]  Extract structured data from SUMMARY.md
  *   state-snapshot                     Structured parse of STATE.md
@@ -62,12 +62,12 @@
  *
  * Workstreams:
  *   workstreams analyze                 Analyze ROADMAP.md deps for parallel workstreams
- *   workstreams provision <id> <path>   Copy .planning/ to worktree with filtering
- *   workstreams reconcile               Regenerate .planning/ state after merge
+ *   workstreams provision <id> <path>   Copy .aoforge/ to worktree with filtering
+ *   workstreams reconcile               Regenerate .aoforge/ state after merge
  *
  * Validation:
  *   validate consistency               Check objective numbering, disk/roadmap sync
- *   validate health [--repair]         Check .planning/ integrity, optionally repair
+ *   validate health [--repair]         Check .aoforge/ integrity, optionally repair
  *   validate requirements [--objective N]  SUMMARY requirements-completed vs VERIFICATION
  *
  * Progress:
@@ -108,8 +108,8 @@
  *   verify flutter-state-coverage <trd-path>  Check Flutter UI artifact state coverage via regex catalog
  *
  * Skill Lifecycle:
- *   skill-active --start <name>        Mark skill as active (writes .planning/.skill-active)
- *   skill-active --end                 Mark skill as ended (removes .planning/.skill-active)
+ *   skill-active --start <name>        Mark skill as active (writes .aoforge/.skill-active)
+ *   skill-active --end                 Mark skill as ended (removes .aoforge/.skill-active)
  *   skill-active --status              Show active skill marker (or {active:false})
  *
  * Merge Driver:
@@ -129,7 +129,7 @@
  * UAT Generation:
  *   generate uat <objective>           Auto-generate 1-page UAT.md checklist from TRDs + Maestro flows
  *     [--raw]                           (mobile-only) + flutter drive web instructions. Writes to
- *                                       .planning/objectives/<obj-dir>/<obj>-UAT.md. Refuses to
+ *                                       .aoforge/objectives/<obj-dir>/<obj>-UAT.md. Refuses to
  *                                       overwrite a UAT.md already in use (non-pending results).
  *
  * Template Fill:
@@ -160,7 +160,7 @@
  *   tokens trd <trd-id>                Executor token totals of one TRD from transcripts
  *     [--objective-dir d] [--repo p] [--root dir]   (read-only; exit 0 even when none is found)
  *   tokens stamp <trd-id> --draft <path>  Write tokens_input/tokens_output/... into a SUMMARY draft
- *     [--objective-dir d] [--repo p] [--root dir]   (a draft inside .planning/ is refused; run before summary post)
+ *     [--objective-dir d] [--repo p] [--root dir]   (a draft inside .aoforge/ is refused; run before summary post)
  *   tokens backfill [--write] [--force]  Recover token usage for historical SUMMARYs from surviving transcripts
  *     [--repo p] [--root dir]            (dry run unless --write: counts recovered/unrecovered by reason, changes no file;
  *                                         --write stamps through summary post; --force restamps already stamped SUMMARYs)
@@ -648,7 +648,7 @@ async function main() {
       if (subcommand === 'uat') {
         // generate uat <objective> [--raw]
         // Auto-generates 1-page UAT checklist from TRDs + Maestro flows + flutter drive web rows.
-        // Writes to .planning/objectives/<obj-dir>/<obj>-UAT.md
+        // Writes to .aoforge/objectives/<obj-dir>/<obj>-UAT.md
         cmdGenerateUAT(cwd, args[2], raw);
       } else {
         error('Unknown generate subcommand. Available: uat');
@@ -1267,12 +1267,12 @@ async function main() {
           process.exit(1);
         }
         const oa = require('./lib/org-awareness.cjs');
-        // Read .planning/config.json awareness.sibling_repos (matches org-awareness-cli.cjs pattern)
+        // Read .aoforge/config.json awareness.sibling_repos (matches org-awareness-cli.cjs pattern)
         let config_paths = null;
         try {
           const fsBase = require('fs');
           const pathBase = require('path');
-          const cfgPath = pathBase.join(cwd, '.planning', 'config.json');
+          const cfgPath = pathBase.join(require('./lib/compat.cjs').planningRoot(cwd), 'config.json');
           const cfgRaw = fsBase.readFileSync(cfgPath, 'utf-8');
           const cfg = JSON.parse(cfgRaw);
           if (cfg && cfg.awareness && Array.isArray(cfg.awareness.sibling_repos)) {

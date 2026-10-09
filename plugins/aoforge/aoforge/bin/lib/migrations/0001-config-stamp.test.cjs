@@ -17,7 +17,7 @@ const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0001-config-stamp.cjs');
 const TEMPLATE_PATH = path.join(__dirname, '..', '..', '..', 'templates', 'config.json');
-const CONFIG_REL = '.planning/config.json';
+const CONFIG_REL = '.aoforge/config.json';
 
 const cleanup = [];
 afterEach(() => {
@@ -36,11 +36,11 @@ function track(dir) {
   return dir;
 }
 
-// A project with `.planning/` and, optionally, a config.json. `config` is an object (written as
+// A project with `.aoforge/` and, optionally, a config.json. `config` is an object (written as
 // JSON), a string (written verbatim) or null (no config.json at all).
 function makeConfigProject(config) {
   const root = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0001-project-')));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (config !== null) {
     const body = typeof config === 'string' ? config : JSON.stringify(config, null, 2) + '\n';
     fs.writeFileSync(path.join(root, CONFIG_REL), body, 'utf-8');
@@ -97,11 +97,11 @@ describe('migration 0001 config-stamp', () => {
       assert.ok(written[section] !== null && !Array.isArray(written[section]));
     }
 
-    // A directory that is not an AOForge project (no .planning/) is never given one.
+    // A directory that is not an AOForge project (no .aoforge/) is never given one.
     const bare = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0001-bare-')));
     const bareDet = m.detect(ctxFor(bare));
     assert.equal(bareDet.applies, false);
-    assert.equal(fs.existsSync(path.join(bare, '.planning')), false);
+    assert.equal(fs.existsSync(path.join(bare, '.aoforge')), false);
   });
 
   test('3. v1 flat config -> detect names the flat keys; apply nests them', () => {

@@ -22,7 +22,7 @@ const ADAPTER_REL = 'web_e2e/lib/uiEval/captureWeb.js';
 const BASELINE_WEB_REL = 'web_e2e/tests/ui_eval/__screenshots__';
 const BASELINE_GOLDENS_REL = 'test/ui_eval/goldens';
 const PLAYWRIGHT_REL = 'playwright.config.js';
-const MARKER_REL = '.planning/.flutter-ui-eval-bootstrap-done';
+const MARKER_REL = '.aoforge/.flutter-ui-eval-bootstrap-done';
 
 const FLUTTER_PUBSPEC = `name: x\ndependencies:\n  flutter:\n    sdk: flutter\n`;
 const NON_FLUTTER_PUBSPEC = `name: x\ndependencies:\n  http: ^1.0.0\n`;
@@ -60,7 +60,7 @@ function makeProject({
       `module.exports = { projects: [{ name: 'ui_eval' }] };\n`);
   }
   if (hasMarker) {
-    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
     fs.writeFileSync(path.join(tmp, MARKER_REL), '');
   }
   return tmp;
@@ -227,7 +227,7 @@ test.describe('checkScaffoldState / scaffoldUIEval — monorepo flutter/ package
     assert.strictEqual(result.prefix, '');
   });
 
-  test('M3 — scaffold writes go under flutter/, marker stays at root .planning/', () => {
+  test('M3 — scaffold writes go under flutter/, marker stays at root .aoforge/', () => {
     const tmp = makeMonorepoProject();
     const result = scaffoldUIEval({ projectDir: tmp });
     assert.strictEqual(result.action, 'scaffolded');
@@ -240,9 +240,9 @@ test.describe('checkScaffoldState / scaffoldUIEval — monorepo flutter/ package
     assert.ok(fs.existsSync(path.join(tmp, 'flutter', PLAYWRIGHT_REL)), 'playwright config under flutter/');
     assert.ok(!fs.existsSync(path.join(tmp, MANIFEST_REL)), 'manifest NOT written at repo root');
 
-    // Marker at repo-root .planning/, not flutter/.planning/.
-    assert.ok(fs.existsSync(path.join(tmp, MARKER_REL)), 'marker present at repo-root .planning/');
-    assert.ok(!fs.existsSync(path.join(tmp, 'flutter', MARKER_REL)), 'marker NOT written under flutter/.planning/');
+    // Marker at repo-root .aoforge/, not flutter/.aoforge/.
+    assert.ok(fs.existsSync(path.join(tmp, MARKER_REL)), 'marker present at repo-root .aoforge/');
+    assert.ok(!fs.existsSync(path.join(tmp, 'flutter', MARKER_REL)), 'marker NOT written under flutter/.aoforge/');
   });
 
   test('M4 — non-Flutter root pubspec + Flutter flutter/pubspec.yaml resolves to flutter/', () => {

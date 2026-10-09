@@ -16,6 +16,7 @@ const fs = require('fs');
 const path = require('path');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const roadmap = require('./roadmap.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const NO_MILESTONE_WARNING = 'no milestone resolved; issue created without one';
 
@@ -60,7 +61,7 @@ function milestoneSectionVersions(text) {
 
 function readObjectiveMilestone(cwd, objDir) {
   if (!objDir) return { present: false };
-  const file = path.join(cwd, '.planning', 'objectives', objDir, 'OBJECTIVE.md');
+  const file = path.join(planningRoot(cwd), 'objectives', objDir, 'OBJECTIVE.md');
   let raw;
   try {
     raw = extractFrontmatter(fs.readFileSync(file, 'utf-8')).milestone;
@@ -97,7 +98,7 @@ function resolveObjectiveMilestone(cwd, objDir, prefix) {
 
   let text = null;
   try {
-    text = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+    text = fs.readFileSync(path.join(planningRoot(cwd), 'ROADMAP.md'), 'utf-8');
   } catch {
     text = null;
   }

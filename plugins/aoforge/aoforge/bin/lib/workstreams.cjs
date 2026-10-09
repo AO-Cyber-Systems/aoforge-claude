@@ -4,9 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const { output, error, normalizeObjectiveName, findPlanFiles, safeReadFile } = require('./helpers.cjs');
 const { objectiveNumPattern } = require('./text-escape.cjs');
+const { planningRoot, planningRel, planningDirLabel } = require('./compat.cjs');
 
 function cmdWorkstreamsAnalyze(cwd, raw) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) {
     error('ROADMAP.md not found');
   }
@@ -51,7 +52,7 @@ function cmdWorkstreamsAnalyze(cwd, raw) {
     const isComplete = checkboxMatch ? checkboxMatch[1] === 'x' : false;
 
     // Check disk status
-    const objectivesDir = path.join(cwd, '.planning', 'objectives');
+    const objectivesDir = path.join(planningRoot(cwd), 'objectives');
     const normalized = normalizeObjectiveName(objectiveNum);
     let diskComplete = false;
     try {
@@ -123,7 +124,7 @@ function cmdWorkstreamsAnalyze(cwd, raw) {
 
 // Pure generator for a workstream worktree's filtered STATE.md. Exported so tests can assert on
 // its content directly without provisioning a real worktree (TRD 38-02).
-function buildWorkstreamState({ ws, relMain, today }) {
+function buildWorkstreamState({ ws, relMain, today, planningDir = '.aoforge' }) {
   const objectiveNames = ws.objectives.map(p => `Objective ${p}`).join(', ');
 
   return `# Project State
@@ -139,7 +140,7 @@ function buildWorkstreamState({ ws, relMain, today }) {
 
 ## Project Reference
 
-See: .planning/PROJECT.md
+See: ${planningDir}/PROJECT.md
 **Current focus:** ${ws.name}
 
 ## Current Position
@@ -172,15 +173,15 @@ function cmdWorkstreamsProvision(cwd, wsId, worktreePath, raw) {
     error('Usage: workstreams provision <ws-id> <worktree-path>');
   }
 
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   if (!fs.existsSync(planningDir)) {
-    error('.planning/ directory not found');
+    error(`${planningDirLabel()} directory not found`);
   }
 
   // Read workstreams.json to get this workstream's details
   const wsJsonPath = path.join(planningDir, 'workstreams.json');
   if (!fs.existsSync(wsJsonPath)) {
-    error('.planning/workstreams.json not found. Run workstreams setup first.');
+    error(`${planningRel(cwd, 'workstreams.json')} not found. Run workstreams setup first.`);
   }
 
   const wsData = JSON.parse(fs.readFileSync(wsJsonPath, 'utf-8'));
@@ -189,7 +190,8 @@ function cmdWorkstreamsProvision(cwd, wsId, worktreePath, raw) {
     error(`Workstream "${wsId}" not found in workstreams.json`);
   }
 
-  const targetPlanning = path.join(worktreePath, '.planning');
+  // the worktree uses the main checkout's planning-directory name, never a second one beside it
+  const targetPlanning = path.join(worktreePath, path.basename(planningDir));
   fs.mkdirSync(targetPlanning, { recursive: true });
 
   // Copy shared files
@@ -257,6 +259,7 @@ function cmdWorkstreamsProvision(cwd, wsId, worktreePath, raw) {
     ws,
     relMain: path.relative(worktreePath, cwd) || '..',
     today: new Date().toISOString().split('T')[0],
+    planningDir: path.basename(planningDir),
   });
 
   fs.writeFileSync(path.join(targetPlanning, 'STATE.md'), filteredState);
@@ -285,11 +288,11 @@ function cmdWorkstreamsProvision(cwd, wsId, worktreePath, raw) {
 }
 
 function cmdWorkstreamsReconcile(cwd, raw) {
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   const wsJsonPath = path.join(planningDir, 'workstreams.json');
 
   if (!fs.existsSync(wsJsonPath)) {
-    error('.planning/workstreams.json not found');
+    error(`${planningRel(cwd, 'workstreams.json')} not found`);
   }
 
   const wsData = JSON.parse(fs.readFileSync(wsJsonPath, 'utf-8'));
@@ -328,7 +331,7 @@ function cmdWorkstreamsReconcile(cwd, raw) {
 
     // Collect accumulated context from workstream STATE.md if worktree still exists
     if (ws.worktree_path) {
-      const wsStatePath = path.join(ws.worktree_path, '.planning', 'STATE.md');
+      const wsStatePath = path.join(planningRoot(ws.worktree_path), 'STATE.md');
       const wsState = safeReadFile(wsStatePath);
       if (wsState) {
         // Extract decisions
@@ -412,7 +415,7 @@ function cmdWorkstreamsReconcile(cwd, raw) {
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated ${today})
+See: ${planningRel(cwd, 'PROJECT.md')} (updated ${today})
 **Core value:** ${coreValue}
 **Current focus:** ${joinPhaseName}
 

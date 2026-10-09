@@ -63,7 +63,7 @@ function outboxFiles(env) {
 }
 
 function configText(root) {
-  return fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf-8');
+  return fs.readFileSync(path.join(root, '.aoforge', 'config.json'), 'utf-8');
 }
 
 /** Patch config.json `github` (an `undefined` value deletes the key); 2-space JSON + newline. */
@@ -73,7 +73,7 @@ function patchGithub(root, patch) {
     if (v === undefined) delete c.github[k];
     else c.github[k] = v;
   }
-  fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify(c, null, 2)}\n`);
+  fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify(c, null, 2)}\n`);
 }
 
 // ─── 1. contract ──────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ describe('0011 detect (test 2)', () => {
     const env = useBackfillEnv(t, SMALL);
     if (!env) return;
     patchGithub(env.root, { store: true });
-    const lists = planningPaths.listByClass(path.join(env.root, '.planning'));
+    const lists = planningPaths.listByClass(path.join(env.root, '.aoforge'));
     ghCache.recordCacheBaseline(env.root, lists.cache);
 
     let d = m0011().detect(ctxFor(env, { dryRun: true }));
@@ -247,8 +247,8 @@ describe('0011 local preflight (test 4)', () => {
     if (!env) return;
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0011-nogit-')));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-    fs.mkdirSync(path.join(root, '.planning'));
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } }, null, 2)}\n`);
+    fs.mkdirSync(path.join(root, '.aoforge'));
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } }, null, 2)}\n`);
     assertPreflightRefusal(env, ctxFor(env, { root }), [LOCAL.noGit]);
     assert.equal(env.fake.calls().length, 0);
   });
@@ -421,8 +421,8 @@ describe('0011 store switch and queue (tests 6-8)', () => {
     if (!env) return;
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-m0011-empty-')));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));
-    fs.mkdirSync(path.join(root, '.planning'));
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } }, null, 2)}\n`);
+    fs.mkdirSync(path.join(root, '.aoforge'));
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } }, null, 2)}\n`);
     fx.initGitFixture(root, env.home);
 
     const res = m0011().migrate(ctxFor(env, { root }));

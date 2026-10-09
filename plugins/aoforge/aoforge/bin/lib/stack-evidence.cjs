@@ -59,7 +59,7 @@
 //               command goes through (`make lint-backend` -> lint-backend, `./scripts/eden/build.sh` ->
 //               build); absent for a raw command. stack-draft's canonical ranking reads it (TRD 43-06).
 //
-// It composes the 42-03..05 readers instead of scraping lines: `.planning/<from>/STACK.md`
+// It composes the 42-03..05 readers instead of scraping lines: `.aoforge/<from>/STACK.md`
 // Commands rows (declared), stack-runners targets whose BODY is normalised and classified
 // (runner, and package.json scripts as manifest), stack-ci workflow steps (ci; a `make x` or
 // `./scripts/x.sh` step is classified by the body it runs; a `uses:` step of an action with a fixed CLI
@@ -78,6 +78,7 @@ const { parseWorkflows, expandsAny } = require('./stack-ci.cjs');
 const { readRunners } = require('./stack-runners.cjs');
 const { detectAreas, cwdHygiene } = require('./stack-detect.cjs');
 const { describeInvocation } = require('./stack-verify.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const STANDARD_KEYS = ['build', 'test', 'lint', 'format', 'fix', 'typecheck', 'audit', 'codegen', 'deps'];
 
@@ -627,9 +628,9 @@ function isSinglePurposeScript(command, cwd) {
 
 // ─── readers ──────────────────────────────────────────────────────────────────
 
-// 1. Explicit table: .planning/<from>/STACK.md `## Commands` rows (declared).
+// 1. Explicit table: .aoforge/<from>/STACK.md `## Commands` rows (declared).
 function readCommandsTable(projectRoot, from, push, ctx) {
-  const full = path.join(projectRoot, '.planning', from, 'STACK.md');
+  const full = path.join(planningRoot(projectRoot), from, 'STACK.md');
   let text;
   try {
     text = fs.readFileSync(full, 'utf-8');
@@ -751,9 +752,9 @@ function readCi(projectRoot, index, push, ctx) {
   }
 }
 
-// 4. .planning/codebase/TESTING.md fenced bash/sh blocks (docs; from=codebase only).
+// 4. .aoforge/codebase/TESTING.md fenced bash/sh blocks (docs; from=codebase only).
 function readTestingMd(projectRoot, index, push, ctx) {
-  const full = path.join(projectRoot, '.planning', 'codebase', 'TESTING.md');
+  const full = path.join(planningRoot(projectRoot), 'codebase', 'TESTING.md');
   let text;
   try {
     text = fs.readFileSync(full, 'utf-8');

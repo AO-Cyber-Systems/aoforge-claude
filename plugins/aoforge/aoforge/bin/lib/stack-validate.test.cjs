@@ -80,7 +80,7 @@ describe('validateProfile (V group)', () => {
       assert.equal(r.ok, false);
       const hit = r.errors.find((e) => e.code === 'STK001' && e.path === 'commands.test.run');
       assert.ok(hit, `expected an STK001 at commands.test.run, got: ${JSON.stringify(r.errors)}`);
-      assert.equal(hit.file, path.join(root, '.planning', 'STACK.md'));
+      assert.equal(hit.file, path.join(root, '.aoforge', 'STACK.md'));
     } finally {
       fx.cleanup(root);
     }
@@ -392,7 +392,7 @@ describe('validateProfile — STK010 placeholder skill pin (V14)', () => {
       const hits = stk010(r.warnings);
       assert.equal(hits.length, 2, JSON.stringify(hits));
       const files = hits.map((w) => w.file).sort();
-      assert.deepEqual(files, [path.join(home, '.claude', 'aoforge', 'stacks', 'acme.md'), path.join(root, '.planning', 'STACK.md')].sort());
+      assert.deepEqual(files, [path.join(home, '.claude', 'aoforge', 'stacks', 'acme.md'), path.join(root, '.aoforge', 'STACK.md')].sort());
     } finally {
       fx.cleanup(root, home);
     }
@@ -404,7 +404,7 @@ describe('validateProfile — STK010 placeholder skill pin (V14)', () => {
       const r = sp.validateProfile({ projectRoot: root });
       assert.equal(r.ok, true, JSON.stringify(r.errors));
       assert.equal(stk010(r.warnings).length, 1, JSON.stringify(r.warnings));
-      assert.equal(stk010(r.warnings)[0].file, path.join(root, '.planning', 'STACK.md'));
+      assert.equal(stk010(r.warnings)[0].file, path.join(root, '.aoforge', 'STACK.md'));
     } finally {
       fx.cleanup(root);
     }

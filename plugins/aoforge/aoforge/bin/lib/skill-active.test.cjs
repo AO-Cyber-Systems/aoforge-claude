@@ -19,8 +19,8 @@ const {
 
 function mkAmbient() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-active-'));
-  fs.mkdirSync(path.join(root, '.planning'));
-  return { root, planningDir: path.join(root, '.planning') };
+  fs.mkdirSync(path.join(root, '.aoforge'));
+  return { root, planningDir: path.join(root, '.aoforge') };
 }
 
 // ─── startSkill ───────────────────────────────────────────────────────────────

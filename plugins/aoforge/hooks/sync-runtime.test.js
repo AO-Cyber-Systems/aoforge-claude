@@ -898,7 +898,8 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
       fs.rmSync(tmp.root, { recursive: true, force: true });
       fs.rmSync(home, { recursive: true, force: true });
     });
-    for (const f of ['global-upgrade.cjs', 'managed-block.cjs', 'notices.cjs']) {
+    // notices.cjs resolves the planning directory through compat.cjs (TRD 72-05), which reads legacy-names.cjs
+    for (const f of ['global-upgrade.cjs', 'managed-block.cjs', 'notices.cjs', 'compat.cjs', 'legacy-names.cjs']) {
       fs.copyFileSync(path.join(REAL_LIB, f), path.join(tmp.aoforgeSrc, 'bin', 'lib', f));
     }
     fs.copyFileSync(REAL_TEMPLATE, path.join(tmp.aoforgeSrc, 'templates', 'global-claude-md.md'));

@@ -5,7 +5,7 @@
  *
  * `collectStoreHealth(root, opts)` answers one question from LOCAL state only: what does this store-mode project
  * have that GitHub does not know about, or disagrees about? It reads the outbox journal, the sync bases, the mapping
- * (`.planning/.gh-mapping.json`) and the cache files; it never calls `gh`, never touches the network and never
+ * (`.aoforge/.gh-mapping.json`) and the cache files; it never calls `gh`, never touches the network and never
  * writes. validate Check 16 and doctor check 25 (50-07) render what it returns.
  *
  *   -> { applicable: boolean, findings: [{ code, message, fix, objective?, id? }] }
@@ -148,9 +148,9 @@ function readLocal(main) {
 /** The v3 mapping, or a thrown Error naming why it cannot be trusted. A missing file is an empty mapping, not an error. */
 function readMapping(main) {
   const rep = ghMapping.readMappingV3WithReport(main);
-  if (rep.error) throw new Error(`.planning/.gh-mapping.json cannot be used: ${rep.error}`);
+  if (rep.error) throw new Error(`.aoforge/.gh-mapping.json cannot be used: ${rep.error}`);
   if ((rep.warnings || []).some((w) => /unparseable/.test(w))) {
-    throw new Error('.planning/.gh-mapping.json is not valid JSON');
+    throw new Error('.aoforge/.gh-mapping.json is not valid JSON');
   }
   return rep.mapping;
 }
@@ -216,7 +216,7 @@ function orphanFindings(local, mapping) {
     if (local.unreadable.has(objective) || present.has(tid)) continue;
     out.push(finding(
       CODES.ORPHANS,
-      `TRD ${tid} is mapped to issue #${entry.issue_number} but its file is gone from .planning/objectives/`,
+      `TRD ${tid} is mapped to issue #${entry.issue_number} but its file is gone from .aoforge/objectives/`,
       `aof-tools gh orphans ${objective} confirms against GitHub; restore the file with aof-tools gh pull --all, `
         + `or close issue #${entry.issue_number} if the TRD was removed on purpose`,
       { objective, id: tid },
@@ -231,7 +231,7 @@ function orphanFindings(local, mapping) {
     const number = isPositiveInt(pr.number) ? ` #${pr.number}` : '';
     out.push(finding(
       CODES.ORPHANS,
-      `objective ${objective} has a pull request entry${number}${branch} but no objective directory under .planning/objectives/`,
+      `objective ${objective} has a pull request entry${number}${branch} but no objective directory under .aoforge/objectives/`,
       `aof-tools gh orphans ${objective} confirms against GitHub; if the objective was removed on purpose, close its pull request there`,
       { objective },
     ));
@@ -312,7 +312,7 @@ function collectStoreHealth(root, opts = {}) {
   section('the GitHub mapping', () => {
     mapping = readMapping(main);
     return [];
-  }, 'repair .planning/.gh-mapping.json (or restore it from git), then run the check again');
+  }, 'repair .aoforge/.gh-mapping.json (or restore it from git), then run the check again');
 
   if (local && mapping) {
     section('the TRD and PR links', () => linkFindings(local, mapping));

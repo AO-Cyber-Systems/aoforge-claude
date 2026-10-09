@@ -1,8 +1,8 @@
 'use strict';
 
-// skill-marker-health — inspect and repair `.planning/.skill-active` (TRD 69-02, TOOL-09).
+// skill-marker-health — inspect and repair `.aoforge/.skill-active` (TRD 69-02, TOOL-09).
 //
-// hooks/gate-edits.js lets every edit through while `.planning/.skill-active` says a skill is running.
+// hooks/gate-edits.js lets every edit through while `.aoforge/.skill-active` says a skill is running.
 // Two failure modes keep that gate open when no skill is:
 //
 //   1. A stale marker. The gate skips a marker whose `expires_at` has passed, but a marker with no
@@ -44,8 +44,16 @@ const path = require('path');
 
 const skillActive = require('./skill-active.cjs');
 const dg = require('./doctor-git.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
-const MARKER_REL = '.planning/.skill-active';
+const MARKER_FILE = '.skill-active';
+// The default-layout path; every check names the marker under the project's resolved planning directory (markerRel).
+const MARKER_REL = `.aoforge/${MARKER_FILE}`;
+
+/** The marker's root-relative posix path under the resolved planning directory (`.aoforge/`, or a legacy one). */
+function markerRel(root) {
+  return planningRel(root, MARKER_FILE);
+}
 const CODES = Object.freeze({ TRACKED: 'E006', STALE: 'W064' });
 const DF = 'node ~/.claude/aoforge/bin/aof-tools.cjs';
 
@@ -62,7 +70,7 @@ function statQuiet(abs) {
  * Copied verbatim from doctor check 23 (69-04 deletes that copy and calls this one).
  */
 function classifySkillActive(root, nowMs) {
-  const abs = skillActive.markerPath(path.join(root, '.planning'));
+  const abs = skillActive.markerPath(planningRoot(root));
   const st = statQuiet(abs);
   if (!st || !st.isFile()) return null;
 
@@ -104,12 +112,13 @@ function inspect(root, opts = {}) {
   const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now();
   const env = opts.env || process.env;
   const git = dg.isGitRepo(root, { env });
-  const st = statQuiet(path.join(root, ...MARKER_REL.split('/')));
+  const rel = markerRel(root);
+  const st = statQuiet(path.join(root, ...rel.split('/')));
   const present = Boolean(st && st.isFile());
-  const tracked = git && dg.lsFiles(root, [MARKER_REL], { env }).includes(MARKER_REL);
-  const ignored = git ? dg.checkIgnored(root, [MARKER_REL], { env }).has(MARKER_REL) : null;
+  const tracked = git && dg.lsFiles(root, [rel], { env }).includes(rel);
+  const ignored = git ? dg.checkIgnored(root, [rel], { env }).has(rel) : null;
   const stale = present ? classifySkillActive(root, nowMs) : null;
-  return { rel: MARKER_REL, git, present, tracked, ignored, stale, live: present && !stale };
+  return { rel, git, present, tracked, ignored, stale, live: present && !stale };
 }
 
 /**
@@ -122,8 +131,8 @@ function planRepair(root, state, opts = {}) {
 
   if (state.tracked) {
     if (state.live && !state.ignored) {
-      return refuse(`${MARKER_REL} is live and this repository does not ignore it, so untracking it would leave it one `
-        + `\`git add -A\` from being tracked again; add ${MARKER_REL} to .gitignore and commit that first`);
+      return refuse(`${state.rel} is live and this repository does not ignore it, so untracking it would leave it one `
+        + `\`git add -A\` from being tracked again; add ${state.rel} to .gitignore and commit that first`);
     }
     const guard = dg.indexChangeGuard(root, { env: opts.env, exclude: opts.exclude });
     if (!guard.ok) return refuse(guard.reason);
@@ -141,12 +150,12 @@ function planRepair(root, state, opts = {}) {
  */
 function findings(state, plan) {
   if (state.tracked) {
-    const message = `skill-marker-tracked: ${MARKER_REL} is tracked in git, so a committed marker holds the edit gate `
+    const message = `skill-marker-tracked: ${state.rel} is tracked in git, so a committed marker holds the edit gate `
       + 'open in every clone and checkout' + (state.stale ? ` (it is also stale: ${state.stale})` : '');
     const fix = plan.fixable
       ? `Run \`${DF} validate health --repair\` or \`${DF} doctor --fix\` (git rm --cached; the file is removed when `
-        + `stale), then commit the removal: \`${DF} commit "chore: untrack ${MARKER_REL}" --files ${MARKER_REL}\``
-        + (state.ignored ? '' : `. Add ${MARKER_REL} to .gitignore so it is not tracked again`)
+        + `stale), then commit the removal: \`${DF} commit "chore: untrack ${state.rel}" --files ${state.rel}\``
+        + (state.ignored ? '' : `. Add ${state.rel} to .gitignore so it is not tracked again`)
       : `${plan.refused}; then run \`${DF} validate health --repair\``;
     return [{ severity: 'error', code: CODES.TRACKED, message, fix, repairable: plan.fixable }];
   }
@@ -154,7 +163,7 @@ function findings(state, plan) {
     return [{
       severity: 'warning',
       code: CODES.STALE,
-      message: `skill-marker-stale: ${MARKER_REL} (${state.stale}); the edit gate stays open until it is removed`,
+      message: `skill-marker-stale: ${state.rel} (${state.stale}); the edit gate stays open until it is removed`,
       fix: `Run \`${DF} validate health --repair\` or \`${DF} doctor --fix\` (removes only this file)`,
       repairable: plan.fixable,
     }];
@@ -179,30 +188,30 @@ function repair(root, opts = {}) {
   const notes = [];
 
   if (!plan.actions.length) {
-    notes.push(plan.refused || (state.live ? `left the live ${MARKER_REL} alone` : `no stale ${MARKER_REL} to repair`));
+    notes.push(plan.refused || (state.live ? `left the live ${state.rel} alone` : `no stale ${state.rel} to repair`));
     return { applied: false, untracked, removed, refused: plan.refused, notes: notes.join('; ') };
   }
 
   if (plan.actions.includes('untrack')) {
-    dg.rmCached(root, [MARKER_REL], { env });
-    untracked.push(MARKER_REL);
-    notes.push(`untracked ${MARKER_REL} (git rm --cached; commit the removal)`);
+    dg.rmCached(root, [state.rel], { env });
+    untracked.push(state.rel);
+    notes.push(`untracked ${state.rel} (git rm --cached; commit the removal)`);
   }
   if (plan.actions.includes('remove')) {
     // Race-safe: classify again right before unlinking; a marker that is live now stays.
     if (classifySkillActive(root, nowMs)) {
       try {
-        fs.unlinkSync(path.join(root, ...MARKER_REL.split('/')));
-        removed.push(MARKER_REL);
-        notes.push(`removed ${MARKER_REL}`);
+        fs.unlinkSync(path.join(root, ...state.rel.split('/')));
+        removed.push(state.rel);
+        notes.push(`removed ${state.rel}`);
       } catch (e) {
         if (!e || e.code !== 'ENOENT') throw e;
       }
     } else {
-      notes.push(`left ${MARKER_REL} alone (it is live now)`);
+      notes.push(`left ${state.rel} alone (it is live now)`);
     }
   }
   return { applied: untracked.length > 0 || removed.length > 0, untracked, removed, refused: null, notes: notes.join('; ') };
 }
 
-module.exports = { MARKER_REL, CODES, classifySkillActive, inspect, planRepair, findings, repair };
+module.exports = { MARKER_REL, markerRel, CODES, classifySkillActive, inspect, planRepair, findings, repair };

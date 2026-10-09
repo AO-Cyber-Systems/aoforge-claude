@@ -330,9 +330,9 @@ const OBJECTIVE_BODY = '<!-- aoforge:id=50 -->\n\nObjective 50';
 const TRD_BODY = (n) => `<!-- aoforge:id=50-0${n} -->\n\nTRD ${n}`;
 const OBJECTIVE_LABEL = 'aoforge:objective';
 
-/** Seed `.planning/config.json` at a ref the way the contents API serves it (`text` is used verbatim). */
+/** Seed `.aoforge/config.json` at a ref the way the contents API serves it (`text` is used verbatim). */
 function seedConfig(ref, config) {
-  fake.files[ref] = { ...(fake.files[ref] || {}), '.planning/config.json': typeof config === 'string' ? config : JSON.stringify(config) };
+  fake.files[ref] = { ...(fake.files[ref] || {}), '.aoforge/config.json': typeof config === 'string' ? config : JSON.stringify(config) };
 }
 
 /** #1 = the objective, #2 and #3 = TRDs linked under it as sub-issues. */
@@ -358,7 +358,7 @@ describe('planning-consistency', () => {
     assert.equal(posted[0].context, CONTEXTS.planningConsistency);
     assert.equal(posted[0].state, 'success');
     assert.match(posted[0].description, /store mode off/);
-    assert.ok(fake.calls().some((a) => a.join(' ').includes(`contents/.planning/config.json?ref=${HEAD_CLOSES}`)), 'the config is read at the PR head through the contents API');
+    assert.ok(fake.calls().some((a) => a.join(' ').includes(`contents/.aoforge/config.json?ref=${HEAD_CLOSES}`)), 'the config is read at the PR head through the contents API');
   });
 
   test('5b. a config that is not store mode, or that does not parse, is also "store mode off"', () => {

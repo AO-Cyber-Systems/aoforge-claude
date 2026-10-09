@@ -31,9 +31,9 @@ afterEach(() => {
 function project({ store = true, mapping = true } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-trailer-')));
   cleanup.push(root);
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   fs.writeFileSync(
-    path.join(root, '.planning', 'config.json'),
+    path.join(root, '.aoforge', 'config.json'),
     `${JSON.stringify({ github: { enabled: true, store } })}\n`,
     'utf-8',
   );
@@ -153,7 +153,7 @@ describe('49-07 refsFor (test 2)', () => {
 
   test('2k. a mapping written by a newer AOForge is reported, not guessed at', () => {
     const root = project({ mapping: false });
-    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), '{"version": 99}\n', 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), '{"version": 99}\n', 'utf-8');
     const r = refsFor(root, 'feat(49-02): x');
     assert.equal(r.issue, null);
     assert.equal(r.reason, 'mapping unreadable');

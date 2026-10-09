@@ -5,8 +5,8 @@
 // No lorem ipsum, no randomised inputs — explicit named scenarios.
 //
 // 5 acceptance fixtures from #28:
-//   mkAmbientProject        — .planning/ + .git/ + package.json + 5 source files
-//   mkBrownfieldSubstantive — git repo (backdated commit) + package.json + 50 source files, no .planning/
+//   mkAmbientProject        — .aoforge/ + .git/ + package.json + 5 source files
+//   mkBrownfieldSubstantive — git repo (backdated commit) + package.json + 50 source files, no .aoforge/
 //   mkScratchDirInTmp       — under /tmp (not os.tmpdir()!) + package.json
 //   mkNoGitProject          — package.json + 5 source files, no .git/
 //   (declined project is composed at test time via writeDecline + mkBrownfieldSubstantive)
@@ -20,6 +20,15 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { NAMES } = require('../legacy-names.cjs');
+
+// The planning-directory name the project builders write (TRD 72-05). The classify-session hook resolves only the legacy name
+// until 72-06 moves it onto the resolver, so its tests call setPlanningDir(LEGACY.planningDir) once at load; 72-06
+// drops those calls. node --test runs each file in its own process, so the switch never leaks.
+let PLANNING = NAMES.planningDir;
+function setPlanningDir(name) {
+  PLANNING = name;
+}
 const { execSync } = require('child_process');
 
 // ─── Non-scratch temp dir helper ─────────────────────────────────────────────
@@ -47,7 +56,7 @@ function mkNonScratchTempDir(prefix) {
 
 /**
  * Builds an "ambient project" fixture:
- * - Has .planning/ (already initialized by AOForge)
+ * - Has .aoforge/ (already initialized by AOForge)
  * - Has .git/
  * - Has package.json (manifest)
  * - Has 5 source .js files (below the code_files > 10 threshold)
@@ -60,7 +69,7 @@ function mkNonScratchTempDir(prefix) {
  */
 function mkAmbientProject() {
   const root = mkNonScratchTempDir('ps-ambient-');
-  fs.mkdirSync(path.join(root, '.planning'));
+  fs.mkdirSync(path.join(root, PLANNING));
   fs.mkdirSync(path.join(root, '.git'));
   fs.writeFileSync(path.join(root, 'package.json'), '{"name":"ambient-project","version":"0.0.0"}');
   for (let i = 0; i < 5; i++) {
@@ -73,7 +82,7 @@ function mkAmbientProject() {
 
 /**
  * Builds a "brownfield substantive" fixture:
- * - No .planning/ (not yet initialized)
+ * - No .aoforge/ (not yet initialized)
  * - Has .git/ with a real git history (first commit backdated 30 days ago)
  * - Has package.json (manifest → primary_lang:'javascript')
  * - Has 50 source .js files (well above code_files > 10 threshold)
@@ -226,6 +235,7 @@ function buildSubstantiveInputs({
 // ─── Exports ──────────────────────────────────────────────────────────────────
 
 module.exports = {
+  setPlanningDir,
   mkAmbientProject,
   mkBrownfieldSubstantive,
   mkScratchDirInTmp,

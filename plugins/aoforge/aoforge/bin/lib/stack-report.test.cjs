@@ -225,7 +225,7 @@ describe('stack report CLI (TRD 42-08 tests 1-3)', () => {
 
       const r = runCli(repo, ['--write']);
       assert.equal(r.status, 0, r.stderr);
-      const file = path.join(repo, '.planning', 'STACK-REPORT.md');
+      const file = path.join(repo, '.aoforge', 'STACK-REPORT.md');
       assert.ok(fs.existsSync(file), 'STACK-REPORT.md written');
       const text = fs.readFileSync(file, 'utf-8');
 
@@ -253,8 +253,8 @@ describe('stack report CLI (TRD 42-08 tests 1-3)', () => {
       // Proposals only: CI, runner files and STACK.md are never touched.
       assert.deepEqual(snapshot(wfDir), wfBefore);
       assert.equal(fs.readFileSync(path.join(repo, 'Makefile'), 'utf-8'), makeBefore);
-      assert.ok(!fs.existsSync(path.join(repo, '.planning', 'STACK.md')));
-      assert.deepEqual(fs.readdirSync(path.join(repo, '.planning')), ['STACK-REPORT.md']);
+      assert.ok(!fs.existsSync(path.join(repo, '.aoforge', 'STACK.md')));
+      assert.deepEqual(fs.readdirSync(path.join(repo, '.aoforge')), ['STACK-REPORT.md']);
     });
   });
 
@@ -288,10 +288,10 @@ describe('stack report CLI (TRD 42-08 tests 1-3)', () => {
       assert.equal(r.status, 0, r.stderr);
       assert.equal(r.json.profile_source, 'draft');
       assert.equal(r.json.profile, 'go');
-      assert.ok(!fs.existsSync(path.join(repo, '.planning')), '.planning must not be created');
+      assert.ok(!fs.existsSync(path.join(repo, '.aoforge')), '.aoforge must not be created');
 
-      fs.mkdirSync(path.join(repo, '.planning'));
-      fs.writeFileSync(path.join(repo, '.planning', 'STACK.md'), '---\nschema: 1\nid: "ledger"\nextends: "go"\ncommands: {}\n---\n\n# ledger\n', 'utf-8');
+      fs.mkdirSync(path.join(repo, '.aoforge'));
+      fs.writeFileSync(path.join(repo, '.aoforge', 'STACK.md'), '---\nschema: 1\nid: "ledger"\nextends: "go"\ncommands: {}\n---\n\n# ledger\n', 'utf-8');
       const fromFile = runCli(repo, ['--raw']);
       assert.equal(fromFile.status, 0, fromFile.stderr);
       assert.equal(fromFile.json.profile_source, 'file');
@@ -562,7 +562,7 @@ describe('report components come from the profile (TRD 42-12 G2-G3)', () => {
       'main.go': 'package main\n\nfunc main() {}\n',
       'svc/go.mod': goMod('svc'),
       'tools/x/go.mod': goMod('tools-x'),
-      '.planning/STACK.md': '---\nschema: 1\nid: "ledger"\nextends: "go"\ncomponents: [{ path: "svc/", profile: "go" }]\ncommands: {}\n---\n\n# ledger\n',
+      '.aoforge/STACK.md': '---\nschema: 1\nid: "ledger"\nextends: "go"\ncomponents: [{ path: "svc/", profile: "go" }]\ncommands: {}\n---\n\n# ledger\n',
     });
     try {
       const r = runCli(repo, ['--raw']);

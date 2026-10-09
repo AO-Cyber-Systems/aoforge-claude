@@ -28,7 +28,7 @@ const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, oversizedTrdText, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
 
-const objectiveDir = (root) => path.join(root, '.planning', 'objectives', STORE_FIXTURE.objectiveDir);
+const objectiveDir = (root) => path.join(root, '.aoforge', 'objectives', STORE_FIXTURE.objectiveDir);
 
 // ─── Pure planning (tests 1-4) ───────────────────────────────────────────────
 
@@ -186,10 +186,10 @@ describe('pure planning', () => {
       'objectives/07-store-demo/07-CONTEXT.md',
       'objectives/07-store-demo/07-RESEARCH.md',
     ]);
-    fs.mkdirSync(path.join(project.root, '.planning', 'codebase'));
-    fs.writeFileSync(path.join(project.root, '.planning', 'codebase', 'STACK.md'), '# stack\n');
-    fs.writeFileSync(path.join(project.root, '.planning', 'codebase', 'notes.txt'), 'x\n');
-    fs.rmSync(path.join(project.root, '.planning', 'REQUIREMENTS.md'));
+    fs.mkdirSync(path.join(project.root, '.aoforge', 'codebase'));
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'codebase', 'STACK.md'), '# stack\n');
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'codebase', 'notes.txt'), 'x\n');
+    fs.rmSync(path.join(project.root, '.aoforge', 'REQUIREMENTS.md'));
     fs.rmSync(path.join(objectiveDir(project.root), '07-RESEARCH.md'));
     assert.deepEqual(hierarchy.REFERENCE_PAGES(project.root, '07-store-demo'), [
       'PROJECT.md',
@@ -365,7 +365,7 @@ describe('budget refusal (SC2)', () => {
     assert.equal(noIssue.error, 'objective 7 has no issue yet; run aof-tools gh sync 7');
     assert.deepEqual(journalOps(), []);
 
-    const cfgFile = path.join(S.root, '.planning', 'config.json');
+    const cfgFile = path.join(S.root, '.aoforge', 'config.json');
     fs.writeFileSync(cfgFile, JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
     const off = push();
     assert.equal(off.ok, true);
@@ -498,7 +498,7 @@ describe('pushHierarchy: user-owned repo without a wiki (SC5 push half)', () => 
       fs.readFileSync(path.join(S.root, 'docs', 'aoforge', 'Objective-7-store-demo.md'), 'utf8'),
       STORE_FIXTURE.objective,
     );
-    assert.equal(fs.existsSync(path.join(S.root, '.planning', 'wiki')), false, 'no wiki clone is created');
+    assert.equal(fs.existsSync(path.join(S.root, '.aoforge', 'wiki')), false, 'no wiki clone is created');
     assert.match(bodyLib.extractSection(objective.body, 'wiki'), /docs\/aoforge\/Objective-7-store-demo\.md/);
   });
 });
@@ -612,7 +612,7 @@ describe('openDecision: native org (12)', () => {
   });
 
   test('12c. a project with github disabled skips', () => {
-    fs.writeFileSync(path.join(S.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
+    fs.writeFileSync(path.join(S.root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false, repo: 'o/r' } }));
     const r = hierarchy.openDecision(S.root, '07-03', { question: QUESTION });
     assert.equal(r.ok, true);
     assert.equal(r.skipped, true);
@@ -634,14 +634,14 @@ describe('openDecision: native org (12)', () => {
     fs.rmSync(path.join(objectiveDir(S.root), '07-02-beta-TRD.md'));
 
     const writesBefore = S.fake.writes().length;
-    const mappingBefore = fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8');
+    const mappingBefore = fs.readFileSync(path.join(S.root, '.aoforge', '.gh-mapping.json'), 'utf8');
     const r = hierarchy.reportOrphans(S.root, '7');
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(r.unlinked, [{ id: '7-09', number: ghost }]);
     assert.deepEqual(r.missing_local, [{ id: '7-02', number: trdNumber('7-02') }]);
     assert.equal(r.unlinked.some((u) => u.number === stray), false, 'a TRD of another objective is not this objective\'s orphan');
     assert.equal(S.fake.writes().length, writesBefore);
-    assert.equal(fs.readFileSync(path.join(S.root, '.planning', '.gh-mapping.json'), 'utf8'), mappingBefore);
+    assert.equal(fs.readFileSync(path.join(S.root, '.aoforge', '.gh-mapping.json'), 'utf8'), mappingBefore);
     assert.equal(getJson(`repos/o/r/issues/${obj}/sub_issues`).length, 3, 'nothing is unlinked or deleted');
   });
 

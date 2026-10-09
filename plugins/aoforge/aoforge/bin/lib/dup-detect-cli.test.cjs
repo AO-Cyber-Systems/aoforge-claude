@@ -19,7 +19,7 @@ const dfTools = path.resolve(__dirname, '..', 'aof-tools.cjs');
 
 function _mkTmpRepo() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-cli-test-'));
-  fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
   return tmp;
 }
 
@@ -137,7 +137,7 @@ test('CLI: resolve subcommand → exits with stub message (04-02 placeholder)', 
   process.exit = (code) => { exitCode = code; throw new Error(`process.exit(${code})`); };
 
   const tmp = _mkTmpRepo();
-  fs.mkdirSync(path.join(tmp, '.planning', 'objectives', '04-test'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', '04-test'), { recursive: true });
   try {
     cmdDupDetectRoute(tmp, ['resolve', '04', '--resolution', 'coordinate', '--peer-branch', 'feature/x', '--peer-objective', '03'], false);
   } catch (e) {
@@ -193,7 +193,7 @@ test('CLI exports: cmdDupDetectRoute and cmdDupDetectDetect are functions', () =
 
 test('CLI8a — resolve --resolution coordinate writes coordination note + jsonl log, exits 0', () => {
   const tmp = _mkTmpRepo();
-  fs.mkdirSync(path.join(tmp, '.planning', 'objectives', '04-test'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', '04-test'), { recursive: true });
   try {
     const r = spawnSync('node', [
       dfTools, 'dup-detect', 'resolve', '04',
@@ -204,7 +204,7 @@ test('CLI8a — resolve --resolution coordinate writes coordination note + jsonl
     ], { encoding: 'utf-8', timeout: 10000 });
     assert.strictEqual(r.status, 0, `expected exit 0\nstderr: ${r.stderr}\nstdout: ${r.stdout}`);
     // jsonl log should exist with at least 1 line
-    const logPath = path.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = path.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     assert.ok(fs.existsSync(logPath), 'JSONL log should exist');
     const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
     assert.ok(lines.length >= 1, 'should have at least 1 JSONL line');
@@ -216,9 +216,9 @@ test('CLI8a — resolve --resolution coordinate writes coordination note + jsonl
   }
 });
 
-test('CLI8b — resolve --resolution defer writes .planning/.deferred/04.json + jsonl log', () => {
+test('CLI8b — resolve --resolution defer writes .aoforge/.deferred/04.json + jsonl log', () => {
   const tmp = _mkTmpRepo();
-  fs.mkdirSync(path.join(tmp, '.planning', 'objectives', '04-test'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', '04-test'), { recursive: true });
   try {
     const r = spawnSync('node', [
       dfTools, 'dup-detect', 'resolve', '04',
@@ -228,9 +228,9 @@ test('CLI8b — resolve --resolution defer writes .planning/.deferred/04.json + 
       '--cwd', tmp,
     ], { encoding: 'utf-8', timeout: 10000 });
     assert.strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    const deferPath = path.join(tmp, '.planning', '.deferred', '04.json');
-    assert.ok(fs.existsSync(deferPath), '.planning/.deferred/04.json should exist');
-    const logPath = path.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const deferPath = path.join(tmp, '.aoforge', '.deferred', '04.json');
+    assert.ok(fs.existsSync(deferPath), '.aoforge/.deferred/04.json should exist');
+    const logPath = path.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     assert.ok(fs.existsSync(logPath), 'JSONL log should exist');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -239,7 +239,7 @@ test('CLI8b — resolve --resolution defer writes .planning/.deferred/04.json + 
 
 test('CLI8c — resolve --resolution merge prints abort message, exits 0, jsonl log recorded', () => {
   const tmp = _mkTmpRepo();
-  fs.mkdirSync(path.join(tmp, '.planning', 'objectives', '04-test'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', '04-test'), { recursive: true });
   try {
     const r = spawnSync('node', [
       dfTools, 'dup-detect', 'resolve', '04',
@@ -253,7 +253,7 @@ test('CLI8c — resolve --resolution merge prints abort message, exits 0, jsonl 
     const result = JSON.parse(r.stdout);
     assert.strictEqual(result.aborted, true, 'should return aborted: true');
     // jsonl log should be recorded
-    const logPath = path.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = path.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     assert.ok(fs.existsSync(logPath), 'JSONL log should exist even for merge');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -262,7 +262,7 @@ test('CLI8c — resolve --resolution merge prints abort message, exits 0, jsonl 
 
 test('CLI8d — resolve --resolution proceed-anyway writes coordination note with warning + jsonl', () => {
   const tmp = _mkTmpRepo();
-  fs.mkdirSync(path.join(tmp, '.planning', 'objectives', '04-test'), { recursive: true });
+  fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives', '04-test'), { recursive: true });
   try {
     const r = spawnSync('node', [
       dfTools, 'dup-detect', 'resolve', '04',
@@ -275,7 +275,7 @@ test('CLI8d — resolve --resolution proceed-anyway writes coordination note wit
     const result = JSON.parse(r.stdout);
     assert.strictEqual(result.ok, true);
     assert.strictEqual(result.warning_appended, true, 'should have warning_appended: true');
-    const logPath = path.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = path.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     assert.ok(fs.existsSync(logPath), 'JSONL log should exist');
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -325,7 +325,7 @@ test('CLI9a — log --mode execute --blocking false --resolution none appends JS
       '--cwd', tmp,
     ], { encoding: 'utf-8', timeout: 10000 });
     assert.strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    const logPath = path.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = path.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     assert.ok(fs.existsSync(logPath), 'JSONL log should exist');
     const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n');
     assert.strictEqual(lines.length, 1, 'should have 1 line');
@@ -351,7 +351,7 @@ test('CLI9b — log --top-match-json parses JSON and includes in record', () => 
       '--cwd', tmp,
     ], { encoding: 'utf-8', timeout: 10000 });
     assert.strictEqual(r.status, 0, `stderr: ${r.stderr}`);
-    const logPath = path.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = path.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const rec = JSON.parse(fs.readFileSync(logPath, 'utf-8').trim());
     assert.ok(rec.top_match, 'top_match should be present');
     assert.strictEqual(rec.top_match.strength, 'strong');

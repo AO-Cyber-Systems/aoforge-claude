@@ -20,6 +20,8 @@ const crypto = require('crypto');
 const { spawnSync, execFileSync } = require('child_process');
 
 const F = require('../aoforge/bin/lib/__fixtures__/upgrade-fixtures.cjs');
+// This hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
+F.setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
 
 const HOOK = path.join(__dirname, 'upgrade-project.js');
 const ROUTE = path.join(__dirname, 'route-results.js');

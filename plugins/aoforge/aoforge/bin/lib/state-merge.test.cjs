@@ -1,6 +1,6 @@
 'use strict';
 
-// mergeStateJson: the pure 3-way merge of .planning/state.json (TRD 59-01, tests 1-10).
+// mergeStateJson: the pure 3-way merge of .aoforge/state.json (TRD 59-01, tests 1-10).
 // Hand-built fixtures only; no I/O, no git.
 
 const { describe, test } = require('node:test');

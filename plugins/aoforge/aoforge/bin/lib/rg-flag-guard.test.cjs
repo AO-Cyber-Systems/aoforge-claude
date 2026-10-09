@@ -12,13 +12,13 @@
 //    `-n -e 'foo -E'` (a quoted pattern token), and prose that mentions ripgrep and `-E`
 //    without an rg command word.
 // 3. Scan set: > 50 files, and it includes plugins/aoforge/agents/planner.md and
-//    plugins/aoforge/aoforge/references/trd-spec.md. No path starts with `.planning/`.
+//    plugins/aoforge/aoforge/references/trd-spec.md. No path starts with `.aoforge/`.
 // 4. Main gate: zero findings across the scan set. The failure message lists `file:line: text`.
 // 5. Guidance present: trd-spec.md and verification-patterns.md each match /-E.*--encoding/
 //    and contain `rg -n -e`.
 //
 // Scope (binding, TRD 40-05): live plugin prose only — agents, skills, workflows, references,
-// templates. Not scanned: `.planning/**` (historical records stay as written), CHANGELOG.md,
+// templates. Not scanned: `.aoforge/**` (historical records stay as written), CHANGELOG.md,
 // and `bin/**` — this file's own fixtures contain the bad form on purpose. The sensitivity
 // fixtures are inline strings below, never files in the scanned tree.
 //
@@ -31,6 +31,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { walkFiles } = require('./doc-refs.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
@@ -117,7 +118,7 @@ describe(
   () => {
     const scanSet = () => walkFiles(REPO_ROOT, { include: SCAN_INCLUDE });
 
-    test('3: scan set is non-empty, includes planner.md and trd-spec.md, excludes .planning', () => {
+    test('3: scan set is non-empty, includes planner.md and trd-spec.md, excludes the planning tree under either name', () => {
       const files = scanSet();
       assert.ok(files.length > 50, `scan set too small: ${files.length}`);
       assert.ok(files.includes('plugins/aoforge/agents/planner.md'), 'planner.md not scanned');
@@ -125,8 +126,10 @@ describe(
         files.includes('plugins/aoforge/aoforge/references/trd-spec.md'),
         'trd-spec.md not scanned',
       );
-      const planning = files.filter((f) => f.startsWith('.planning/'));
-      assert.deepEqual(planning, [], '.planning must never be scanned');
+      // both names: this repository keeps the legacy directory until 72-21 moves it
+      const prefixes = [`${NAMES.planningDir}/`, `${LEGACY.planningDir}/`];
+      const planning = files.filter((f) => prefixes.some((p) => f.startsWith(p)));
+      assert.deepEqual(planning, [], 'the planning tree must never be scanned');
     });
 
     test('4: zero rg invocations with E in a short-flag cluster across the scan set', () => {

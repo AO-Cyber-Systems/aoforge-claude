@@ -18,6 +18,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output } = require('./helpers.cjs');
+const { planningRoot, planningDirLabel } = require('./compat.cjs');
 
 // ─── Signal 1: lib/**/*.dart in TRD files_modified ───────────────────────────
 
@@ -204,10 +205,10 @@ function cmdDetectFlutterUIScope(cwd, objectiveArg, raw) {
     return;
   }
 
-  // Find .planning/objectives directory
-  const objectivesRoot = path.join(cwd, '.planning', 'objectives');
+  // Find .aoforge/objectives directory
+  const objectivesRoot = path.join(planningRoot(cwd), 'objectives');
   if (!fs.existsSync(objectivesRoot)) {
-    output({ detected: false, error: `no .planning/objectives directory in ${cwd}` }, raw);
+    output({ detected: false, error: `no ${planningDirLabel()} objectives directory in ${cwd}` }, raw);
     return;
   }
 

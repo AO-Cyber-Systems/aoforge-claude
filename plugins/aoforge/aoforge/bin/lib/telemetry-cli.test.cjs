@@ -24,6 +24,7 @@ const { spawnSync } = require('child_process');
 const { runTelemetry, DEFAULT_LIMIT } = require('./audit-cli.cjs');
 const { collect } = require('./telemetry.cjs');
 const { gateDenialRow, writeTranscriptTree } = require('./__fixtures__/bash-replay-fixtures.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 
@@ -35,9 +36,9 @@ let tmp, project, projects, home, savedGuardEnv;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-telem-cli-'));
-  // An AOForge project (has .planning/), a transcripts root with two sessions, and an empty HOME.
+  // An AOForge project (has .aoforge/), a transcripts root with two sessions, and an empty HOME.
   project = path.join(tmp, 'project');
-  fs.mkdirSync(path.join(project, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(project, '.aoforge'), { recursive: true });
   projects = path.join(tmp, 'projects');
   writeTranscriptTree(projects, {
     project: 'proj',
@@ -160,7 +161,7 @@ describe('runTelemetry without --scan', () => {
     assert.equal(r.ok, true, r.message);
     assert.equal(r.result.blocks, null);
     assert.equal('scan' in r.result, false);
-    const expected = collect({ planningDir: path.join(project, '.planning'), userHome: home });
+    const expected = collect({ planningDir: path.join(project, '.aoforge'), userHome: home });
     assert.deepEqual(r.result, expected);
     assert.equal(r.text, expected.advisories.join('\n'));
   });
@@ -172,21 +173,21 @@ describe('runTelemetry --scan outside an AOForge project', () => {
     fs.mkdirSync(bare);
     const r = runTelemetry({ argv: ['--scan', '--root', projects], cwd: bare, userHome: home });
     assert.equal(r.ok, true, r.message);
-    assert.ok(r.result.blocks, 'blocks must be non-null without .planning/');
+    assert.ok(r.result.blocks, 'blocks must be non-null without .aoforge/');
     assert.equal(r.result.blocks.total, 2);
     assert.ok(
       r.result.advisories.some((a) => /not an AOForge project/.test(a)),
       `advisories: ${JSON.stringify(r.result.advisories)}`
     );
-    assert.equal(r.result.overrides, null, 'the .planning/ sections stay null');
+    assert.equal(r.result.overrides, null, 'the .aoforge/ sections stay null');
   });
 });
 
-describe('collect() with a report and no .planning/', () => {
+describe('collect() with a report and no .aoforge/', () => {
   test('without a report the early return is unchanged', () => {
     const r = collect({ planningDir: null });
     assert.equal(r.blocks, null);
-    assert.deepEqual(r.advisories, ['no .planning/ — not an AOForge project']);
+    assert.deepEqual(r.advisories, [`no ${planningDirLabel()} — not an AOForge project`]);
   });
 });
 

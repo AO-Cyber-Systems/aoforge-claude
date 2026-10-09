@@ -93,7 +93,7 @@ function useProject({ store = true, sync = true, hasWiki = true } = {}) {
   });
 }
 
-const planning = (...rel) => path.join(S.root, '.planning', ...rel);
+const planning = (...rel) => path.join(S.root, '.aoforge', ...rel);
 const readRel = (rel) => fs.readFileSync(planning(rel), 'utf8');
 const mappingNow = () => mappingLib.readMappingV3(S.root);
 const allOps = () => outbox.readJournal(S.root).journal.ops;

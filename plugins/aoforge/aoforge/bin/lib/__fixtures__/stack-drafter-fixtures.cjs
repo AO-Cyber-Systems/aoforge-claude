@@ -530,7 +530,7 @@ function terminalShape() {
 
 // ─── TRD 42-15: D1-D5 shapes (git-backed, invented names) ─────────────────────
 //
-// Not in SHAPES: several carry files outside `.planning/STACK.md` under `.planning/`, and all need
+// Not in SHAPES: several carry files outside `.aoforge/STACK.md` under `.aoforge/`, and all need
 // git (callers skip when hasGit() is false and put gitOnlyBin() on PATH beside the fake tools).
 
 /**
@@ -687,16 +687,16 @@ function nestedRepoShape() {
 }
 
 /**
- * trackedPlanningIgnoredShape() — D5: `.planning/` is gitignored but `.planning/config.json` is
+ * trackedPlanningIgnoredShape() — D5: `.aoforge/` is gitignored but `.aoforge/config.json` is
  * tracked (force-added). Expected: the preview lists BOTH stack files in `ignored`.
  */
 function trackedPlanningIgnoredShape() {
   return detectFx.makeGitTree({
-    '.gitignore': '.planning/\n',
+    '.gitignore': '.aoforge/\n',
     'go.mod': goMod('planrepo'),
     'main.go': GO_MAIN,
-    '.planning/config.json': '{}\n',
-  }, { track: ['.planning/config.json'] });
+    '.aoforge/config.json': '{}\n',
+  }, { track: ['.aoforge/config.json'] });
 }
 
 /**

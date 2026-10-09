@@ -8,7 +8,7 @@
  * org-side. The scan result is cached OUT OF TREE (TRD 45-01): readCache/writeCache go
  * through awareness-store.cjs, which keeps one file per repo at
  * ~/.claude/aoforge/state/awareness/<repo-key>.json (override: $AOFORGE_AWARENESS_DIR).
- * Nothing here reads or writes <cwd>/.planning/ — an in-tree cache file was attached to
+ * Nothing here reads or writes <cwd>/.aoforge/ — an in-tree cache file was attached to
  * tool results by Claude Code's file watcher and churned repos that committed it.
  *
  * Module growth across waves:
@@ -24,6 +24,7 @@
 const fs = require('fs');
 const path = require('path');
 const store = require('./awareness-store.cjs');
+const { planningRoot, planningRel, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 // ─── TRD 02-01: constants ─────────────────────────────────────────────────────
 
@@ -153,7 +154,7 @@ function aggregateOrgByProductQuarter(items) {
  * Returns null on missing file, empty file, or malformed JSON.
  * Returns only the { peer, org } sections — the store's own bookkeeping
  * (project, updated) is stripped. A legacy in-tree
- * .planning/.awareness-cache.json is deliberately ignored (no fallback).
+ * .aoforge/.awareness-cache.json is deliberately ignored (no fallback).
  * Never throws.
  *
  * @param {string} cwd - the project working directory (keys the store file)
@@ -179,7 +180,7 @@ function readCache(cwd) {
  *   → result is { peer: NEW, org: Y }.
  *
  * The entry is stored as { project: <realpath of cwd>, updated: <ISO>, peer?, org? } via an
- * atomic write. It never creates .planning/ or anything else under cwd. Fails open like the
+ * atomic write. It never creates .aoforge/ or anything else under cwd. Fails open like the
  * store: an unwritable state dir loses the cache, it does not break the scan.
  *
  * @param {string} cwd - the project working directory (keys the store file)
@@ -286,7 +287,7 @@ function _matchesPattern(branch, patterns) {
  * 1. git fetch --all --prune (unless no_fetch=true)
  * 2. git for-each-ref refs/remotes/origin/* to enumerate remote branches
  * 3. Per branch: filter by pattern + stale threshold
- * 4. git show origin/<branch>:.planning/STATE.md to extract state
+ * 4. git show origin/<branch>:.aoforge/STATE.md to extract state
  * 5. parseStateMd → per-branch structured fields
  * 6. git log -1 for last commit metadata
  *
@@ -360,8 +361,12 @@ function scanPeer({
     // Filter: pattern match
     if (!_matchesPattern(branchName, branch_patterns)) continue;
 
-    // 5. Read STATE.md from this branch
-    const showR = _runGit(['show', `${ref}:.planning/STATE.md`], { cwd });
+    // 5. Read STATE.md from this branch (either planning-directory layout)
+    let showR = { ok: false };
+    for (const dir of PLANNING_DIR_NAMES) {
+      showR = _runGit(['show', `${ref}:${dir}/STATE.md`], { cwd });
+      if (showR.ok) break;
+    }
     if (!showR.ok) {
       // SC-2: silently skip branches without STATE.md (no warning)
       continue;
@@ -465,15 +470,15 @@ function parseTaskListFallback(body) {
  * Throws GhAuthError on auth failure — caller (skill / CLI) renders the structured error.
  *
  * @param {object} [opts]
- * @param {string} [opts.project_id] - Project node ID; defaults to `<cwd>/.planning/PROJECT.md` `org_project`
+ * @param {string} [opts.project_id] - Project node ID; defaults to `<cwd>/.aoforge/PROJECT.md` `org_project`
  * @param {string} [opts.cwd] - project root for that default; defaults to process.cwd() (aof-tools --cwd chdirs)
  * @returns {{ items: object[], fetched_at: string, project_id: string|null, warnings: string[] }}
  */
-/** `org_project` from `<cwd>/.planning/PROJECT.md` frontmatter, or null. Never a test fixture (TRD 46-07). */
+/** `org_project` from `<cwd>/.aoforge/PROJECT.md` frontmatter, or null. Never a test fixture (TRD 46-07). */
 function readOrgProject(cwd) {
   const { extractFrontmatter } = require('./frontmatter.cjs');
   try {
-    const fm = extractFrontmatter(fs.readFileSync(path.join(cwd, '.planning', 'PROJECT.md'), 'utf-8')) || {};
+    const fm = extractFrontmatter(fs.readFileSync(path.join(planningRoot(cwd), 'PROJECT.md'), 'utf-8')) || {};
     return typeof fm.org_project === 'string' && fm.org_project.trim() !== '' ? fm.org_project.trim() : null;
   } catch {
     return null;
@@ -494,7 +499,7 @@ function scanOrg({
       items: [],
       fetched_at: new Date().toISOString(),
       project_id: null,
-      warnings: ['scanOrg: no project_id supplied and no org_project in .planning/PROJECT.md'],
+      warnings: [`scanOrg: no project_id supplied and no org_project in ${planningRel(cwd, 'PROJECT.md')}`],
     };
   }
 

@@ -58,9 +58,9 @@ const OBJECTIVE_ISSUE = 700;
 const LINKED = 'df/objective-07-store-demo';
 const U1_BLOCK = [
   '# >>> aoforge store (0010) >>>',
-  '.planning/*',
-  '!.planning/config.json',
-  '!.planning/STACK.md',
+  '.aoforge/*',
+  '!.aoforge/config.json',
+  '!.aoforge/STACK.md',
   '# <<< aoforge store (0010) <<<',
   '',
 ].join('\n');
@@ -95,7 +95,7 @@ function git(p, ...args) {
 
 /**
  * A store-mode git repo on `main`: the makeStoreProject fixture (objective 7, TRDs 7-01..7-03, `github.enabled` +
- * `github.store`), `commit_docs` on, the 0010 gitignore block (so `.planning/` is not tracked but config.json is) and one
+ * `github.store`), `commit_docs` on, the 0010 gitignore block (so `.aoforge/` is not tracked but config.json is) and one
  * tracked source file. The v3 mapping is written AFTER the init commit: objective 7 is issue #700, its TRDs #701-#703, and
  * `link` (when given) is the PR entry that links a branch to the objective. A recording `gh` shim sits first on PATH.
  */
@@ -107,8 +107,8 @@ function storeRepo({ store = true, link = null } = {}) {
   const home = fx.makeFakeHome();
   cleanup.push(home);
 
-  const config = JSON.parse(fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf-8'));
-  write(root, '.planning/config.json', `${JSON.stringify({ commit_docs: true, ...config })}\n`);
+  const config = JSON.parse(fs.readFileSync(path.join(root, '.aoforge', 'config.json'), 'utf-8'));
+  write(root, '.aoforge/config.json', `${JSON.stringify({ commit_docs: true, ...config })}\n`);
   if (store) write(root, '.gitignore', U1_BLOCK);
   write(root, SRC, 'module.exports = 0;\n');
   fx.initGitFixture(root, home);
@@ -235,7 +235,7 @@ describe('SC1: aof-tools commit in a store-mode repo (tests 1-4)', () => {
     assert.match(line, /AOFORGE_SKIP_GH_GATE=1/);
     assert.match(line, /default_branch/);
 
-    const log = fs.readFileSync(path.join(p.root, '.planning', '.override-log.jsonl'), 'utf-8').trim().split('\n').map((l) => JSON.parse(l));
+    const log = fs.readFileSync(path.join(p.root, '.aoforge', '.override-log.jsonl'), 'utf-8').trim().split('\n').map((l) => JSON.parse(l));
     assert.deepEqual(log.map((e) => e.gate), ['gh']);
     assert.deepEqual(ghCalls(p), [], 'the escape is local too');
   });
@@ -254,7 +254,7 @@ describe('SC1: aof-tools commit in a store-mode repo (tests 1-4)', () => {
     assert.notEqual(head(p), before);
     assert.equal(headMessage(p), `wip: notes\n\nRefs #${OBJECTIVE_ISSUE}`);
     assert.deepEqual(ghCalls(p), []);
-    assert.ok(!fs.existsSync(path.join(p.root, '.planning', '.override-log.jsonl')), 'no override is logged for an allowed commit');
+    assert.ok(!fs.existsSync(path.join(p.root, '.aoforge', '.override-log.jsonl')), 'no override is logged for an allowed commit');
   });
 });
 
@@ -293,7 +293,7 @@ describe('SC2: aof-tools gh setup (test 5)', () => {
     fake = createFakeGitHub({ types: [], fields: [], hasWiki: false });
     client._setRunGh(fake.runGh);
     root = tmpDir('df-enforce-setup-');
-    write(root, '.planning/config.json', `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } })}\n`);
+    write(root, '.aoforge/config.json', `${JSON.stringify({ github: { enabled: true, repo: 'o/r' } })}\n`);
   });
 
   afterEach(() => {

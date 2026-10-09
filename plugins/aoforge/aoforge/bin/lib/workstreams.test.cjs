@@ -33,7 +33,7 @@ function track(dir) {
 
 function tmpProject() {
   const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-workstreams-')));
-  fs.mkdirSync(path.join(dir, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge', 'objectives'), { recursive: true });
   return dir;
 }
 
@@ -50,7 +50,7 @@ function run(args, cwd) {
 }
 
 function writeRoadmap(project, body) {
-  fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), body, 'utf-8');
+  fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), body, 'utf-8');
 }
 
 describe('workstreams analyze: checklist checkbox matching', () => {

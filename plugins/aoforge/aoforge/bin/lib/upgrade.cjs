@@ -14,6 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 const DEFAULT_REGISTRY_DIR = path.join(__dirname, 'migrations');
 
@@ -130,10 +131,9 @@ function loadRegistry({ registryDir = DEFAULT_REGISTRY_DIR } = {}) {
 
 // ─── Stamp (config.json `aoforge`) ────────────────────────────────────────────
 
-const CONFIG_REL = '.planning/config.json';
 
 function configPath(projectRoot) {
-  return path.join(projectRoot, '.planning', 'config.json');
+  return path.join(planningRoot(projectRoot), 'config.json');
 }
 
 // -> { exists, config, error } — never throws.
@@ -143,11 +143,11 @@ function readConfig(projectRoot) {
   try {
     const config = JSON.parse(fs.readFileSync(p, 'utf-8'));
     if (!config || typeof config !== 'object' || Array.isArray(config)) {
-      return { exists: true, config: null, error: `${CONFIG_REL} is not a JSON object` };
+      return { exists: true, config: null, error: `${planningRel(projectRoot, 'config.json')} is not a JSON object` };
     }
     return { exists: true, config, error: null };
   } catch (e) {
-    return { exists: true, config: null, error: `${CONFIG_REL} is not valid JSON: ${e.message}` };
+    return { exists: true, config: null, error: `${planningRel(projectRoot, 'config.json')} is not valid JSON: ${e.message}` };
   }
 }
 
@@ -245,7 +245,7 @@ function backupDirFor({ projectRoot, userHome, now = new Date() }) {
 
 /**
  * backup({ projectRoot, userHome, now }) -> absolute backup dir
- * Copies `.planning/` and `CLAUDE.md` (when present). The dir is claimed with a non-recursive
+ * Copies the planning directory (`.aoforge/`, or a legacy one, under its own name) and `CLAUDE.md` (when present). The dir is claimed with a non-recursive
  * mkdir, so two runs racing for the same timestamp still get distinct dirs.
  */
 function backup({ projectRoot, userHome, now = new Date() }) {
@@ -258,9 +258,9 @@ function backup({ projectRoot, userHome, now = new Date() }) {
       if (e.code === 'EEXIST') continue;
       throw e;
     }
-    const planning = path.join(projectRoot, '.planning');
+    const planning = planningRoot(projectRoot);
     if (fs.existsSync(planning)) {
-      fs.cpSync(planning, path.join(dir, '.planning'), { recursive: true });
+      fs.cpSync(planning, path.join(dir, path.basename(planning)), { recursive: true });
     }
     const claudeMd = path.join(projectRoot, 'CLAUDE.md');
     if (fs.existsSync(claudeMd)) fs.copyFileSync(claudeMd, path.join(dir, 'CLAUDE.md'));
@@ -490,7 +490,7 @@ function apply({
         }
       }
       // dryRun lists config.json as a file that WOULD change.
-      if (dryRun || written) changed.add(CONFIG_REL);
+      if (dryRun || written) changed.add(planningRel(root, 'config.json'));
     }
   }
 

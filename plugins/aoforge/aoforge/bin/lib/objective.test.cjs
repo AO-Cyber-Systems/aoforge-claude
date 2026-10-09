@@ -60,7 +60,7 @@ function track(dir) {
 
 function tmpProject() {
   const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-objective-complete-')));
-  fs.mkdirSync(path.join(dir, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge', 'objectives'), { recursive: true });
   return dir;
 }
 
@@ -82,7 +82,7 @@ function run(args, cwd) {
 }
 
 function writeObjective12Dir(project, summaryCount) {
-  const dir = path.join(project, '.planning', 'objectives', '12-objective-under-test');
+  const dir = path.join(project, '.aoforge', 'objectives', '12-objective-under-test');
   fs.mkdirSync(dir, { recursive: true });
   const ids = ['01', '02', '03', '04a', '04b', '04c', '05', '06', '07', '08'];
   ids.forEach((id, i) => {
@@ -95,7 +95,7 @@ function writeObjective12Dir(project, summaryCount) {
 }
 
 function writeObjective13Dir(project) {
-  const dir = path.join(project, '.planning', 'objectives', '13-next-objective');
+  const dir = path.join(project, '.aoforge', 'objectives', '13-next-objective');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, '13-01-TRD.md'), '# TRD 01\n', 'utf-8');
   return dir;
@@ -218,22 +218,22 @@ function removeLines(text, re) {
 }
 
 function readState(project) {
-  return fs.readFileSync(path.join(project, '.planning', 'STATE.md'), 'utf-8');
+  return fs.readFileSync(path.join(project, '.aoforge', 'STATE.md'), 'utf-8');
 }
 
 describe('objective complete — ROADMAP.md 5-column table (Milestone column present)', () => {
   test('marks objective 12 Complete without disturbing Milestone or sibling rows', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
 
     const result = run(['objective', 'complete', '12'], project);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.json.completed_objective, '12');
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const row12 = progressRow(roadmap, 12);
 
     assert.match(row12, /\|\s*v1\.1\s*\|/, `Milestone column dropped/corrupted: ${row12}`);
@@ -246,14 +246,14 @@ describe('objective complete — ROADMAP.md 5-column table (Milestone column pre
 
   test('preserves hand-authored **Jobs:** detail on the completed objective', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
 
     run(['objective', 'complete', '12'], project);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const line = jobsLine(roadmap, 12);
     assert.ok(line, 'Jobs line for objective 12 not found');
     assert.match(line, /^\*\*Jobs:\*\*\s*10\/10 jobs complete/, `counter prefix missing: ${line}`);
@@ -265,14 +265,14 @@ describe('objective complete — ROADMAP.md 5-column table (Milestone column pre
 
   test('duplicate "Objective 1" checklist entries inside the collapsed <details> block are never touched', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
 
     run(['objective', 'complete', '12'], project);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(roadmap, /- \[x\] Objective 1: Foundation \(3\/3 plans\)/);
     assert.match(roadmap, /- \[x\] Objective 1: Duplicate marker from parallel session \(2\/2 plans\) <!-- duplicate number, parallel session -->/);
   });
@@ -285,14 +285,14 @@ describe('objective complete — STATE.md narrative schema (no **Current Objecti
   // re-derived. Only the running log gains one line.
   test('does not reset **Status:** to "Ready to plan"; narrative content survives apart from one appended log line', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
 
     run(['objective', 'complete', '12'], project);
 
-    const state = fs.readFileSync(path.join(project, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(project, '.aoforge', 'STATE.md'), 'utf-8');
     assert.doesNotMatch(state, /\*\*Status:\*\*\s*Ready to plan/, 'STATE.md Status regressed to "Ready to plan"');
     assert.doesNotMatch(state, /\*\*Status:\*\*\s*Milestone complete/, 'STATE.md Status was clobbered with the legacy template value');
     assert.equal(statusLine(state), statusLine(NARRATIVE_STATE), 'the free-text **Status:** line must be byte-identical');
@@ -306,16 +306,16 @@ describe('objective complete — STATE.md narrative schema (no **Current Objecti
 describe('objective complete — STATE.md legacy/template schema (backward compatibility)', () => {
   test('still advances Current Objective + Status to the documented "Ready to plan" value', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), TEMPLATE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), TEMPLATE_STATE, 'utf-8');
 
     const result = run(['objective', 'complete', '12'], project);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.json.next_objective, '13');
 
-    const state = fs.readFileSync(path.join(project, '.planning', 'STATE.md'), 'utf-8');
+    const state = fs.readFileSync(path.join(project, '.aoforge', 'STATE.md'), 'utf-8');
     assert.match(state, /\*\*Current Objective:\*\*\s*13/);
     assert.match(state, /\*\*Status:\*\*\s*Ready to plan/);
     assert.match(state, /\*\*Current Job:\*\*\s*Not started/);
@@ -327,10 +327,10 @@ describe('objective complete — STATE.md legacy/template schema (backward compa
 
   test('TOOL-02: a second run that changes nothing reports state_updated false (unchanged)', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), TEMPLATE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), TEMPLATE_STATE, 'utf-8');
 
     const first = run(['objective', 'complete', '12'], project);
     assert.equal(first.status, 0, first.stderr);
@@ -358,14 +358,14 @@ describe('objective complete — Jobs-line leading-count seed (quick-20)', () =>
 
   test('14: objective complete 12 — leading count replaced in place, no "jobs" inserted', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
 
     run(['objective', 'complete', '12'], project);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.equal(
       jobsLine(roadmap, 12),
       '**Jobs:** 10/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
@@ -385,12 +385,12 @@ describe('objective complete — narrative log append + truthful state_updated (
   function narrativeProject({ roadmap = FIVE_COLUMN_ROADMAP, state = NARRATIVE_STATE } = {}) {
     const project = tmpProject();
     if (roadmap !== null) {
-      fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+      fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), roadmap, 'utf-8');
     }
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
     if (state !== null) {
-      fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), state, 'utf-8');
+      fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), state, 'utf-8');
     }
     return project;
   }
@@ -499,7 +499,7 @@ Last session: 2026-01-20
 
     const result = run(['objective', 'complete', '12'], project);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(fs.existsSync(path.join(project, '.planning', 'STATE.md')), false, 'STATE.md must not be created');
+    assert.equal(fs.existsSync(path.join(project, '.aoforge', 'STATE.md')), false, 'STATE.md must not be created');
     assert.equal(result.json.state_updated, false);
     assert.equal(result.json.state_update_reason, 'state_missing');
   });
@@ -516,7 +516,7 @@ Last session: 2026-01-20
     );
     assert.notEqual(state, NARRATIVE_STATE, 'fixture sanity: objective 12 log line added');
     const project = narrativeProject({ roadmap, state });
-    const dir = path.join(project, '.planning', 'objectives', '12.1-hotfix-insert');
+    const dir = path.join(project, '.aoforge', 'objectives', '12.1-hotfix-insert');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '12.1-01-TRD.md'), '# TRD 01\n', 'utf-8');
     fs.writeFileSync(path.join(dir, '12.1-01-SUMMARY.md'), '# Summary 01\n', 'utf-8');
@@ -532,7 +532,7 @@ Last session: 2026-01-20
 
   test('zero-padded input is normalized: `07` writes `7 —`, and a later `7` is already_logged', () => {
     const project = tmpProject();
-    const dir = path.join(project, '.planning', 'objectives', '07-seventh');
+    const dir = path.join(project, '.aoforge', 'objectives', '07-seventh');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '07-01-TRD.md'), '# TRD 01\n', 'utf-8');
     fs.writeFileSync(path.join(dir, '07-01-SUMMARY.md'), '# Summary 01\n', 'utf-8');
@@ -541,7 +541,7 @@ Last session: 2026-01-20
 **Objective complete:** 6 — Sixth (verified 2026-01-01)
 **Status:** in flight
 `;
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), state, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), state, 'utf-8');
 
     const first = run(['objective', 'complete', '07'], project);
     assert.equal(first.status, 0, first.stderr);
@@ -569,10 +569,10 @@ Last session: 2026-01-20
 describe('objective remove --confirm — truthful state_updated (TOOL-02 sibling)', () => {
   function removableProject(state) {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
     writeObjective13Dir(project);
-    fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), state, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), state, 'utf-8');
     return project;
   }
 
@@ -634,7 +634,7 @@ describe('48-14 characterization: objective ops in local mode', () => {
         padded: '08',
         name: 'Foo bar',
         slug: 'foo-bar',
-        directory: '.planning/objectives/08-foo-bar',
+        directory: '.aoforge/objectives/08-foo-bar',
       }, null, 2));
       assert.equal(p.read('objectives/08-foo-bar/.gitkeep'), '');
       assert.equal(fs.existsSync(p.planning('objectives/08-foo-bar/OBJECTIVE.md')), false);
@@ -747,7 +747,7 @@ describe('48-14 store mode: objective ops route through the planning verbs', () 
       assert.equal(out.objective_number, 8);
       assert.equal(out.padded, '08');
       assert.equal(out.slug, 'foo-bar');
-      assert.equal(out.directory, '.planning/objectives/08-foo-bar');
+      assert.equal(out.directory, '.aoforge/objectives/08-foo-bar');
       assert.equal(out.roadmap, 'generated (gh pull --all)');
       assert.equal(out.published, false);
       assert.equal(out.verb.mode, 'store');
@@ -871,7 +871,7 @@ describe('53-02: findObjectiveInternal incomplete_jobs pairs a named TRD with ei
 
   function projectWith(files) {
     const root = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-objective-pairing-')));
-    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    const dir = path.join(root, '.aoforge', 'objectives', '07-demo');
     fs.mkdirSync(dir, { recursive: true });
     for (const name of files) fs.writeFileSync(path.join(dir, name), '# x\n');
     return root;
@@ -909,10 +909,10 @@ describe('53-02: findObjectiveInternal incomplete_jobs pairs a named TRD with ei
 describe('54-06 objective complete: Requirements lookup is scoped to the objective\'s own section', () => {
   function requirementsProject(roadmap, requirements) {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
-    fs.writeFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), requirements, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), roadmap, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'REQUIREMENTS.md'), requirements, 'utf-8');
     for (const [dir, n] of [['01-auth', '01'], ['02-api', '02']]) {
-      const d = path.join(project, '.planning', 'objectives', dir);
+      const d = path.join(project, '.aoforge', 'objectives', dir);
       fs.mkdirSync(d, { recursive: true });
       fs.writeFileSync(path.join(d, `${n}-01-TRD.md`), '# TRD\n', 'utf-8');
       fs.writeFileSync(path.join(d, `${n}-01-SUMMARY.md`), '# Summary\n', 'utf-8');
@@ -957,7 +957,7 @@ describe('54-06 objective complete: Requirements lookup is scoped to the objecti
     const r = run(['objective', 'complete', '2'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const req = fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    const req = fs.readFileSync(path.join(project, '.aoforge', 'REQUIREMENTS.md'), 'utf-8');
     assert.match(req, /^- \[x\] \*\*R-2\*\*: Second$/m, 'R-2 is ticked');
     assert.match(req, /^- \[ \] \*\*R-1\*\*: First$/m, 'R-1 stays unticked');
     assert.match(req, /^\| R-2 \| Objective 2 \| Complete \|$/m, 'R-2 row is Complete');
@@ -985,16 +985,16 @@ describe('54-06 objective complete: Requirements lookup is scoped to the objecti
 
     const r = run(['objective', 'complete', '1'], project);
     assert.equal(r.status, 0, r.stderr);
-    assert.equal(fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8'), REQUIREMENTS);
+    assert.equal(fs.readFileSync(path.join(project, '.aoforge', 'REQUIREMENTS.md'), 'utf-8'), REQUIREMENTS);
   });
 });
 
 describe('54-06 objective remove / complete: a decimal number never reaches 4.10 or 4.1.2', () => {
   function decimalProject(extraRoadmap) {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), extraRoadmap, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), extraRoadmap, 'utf-8');
     for (const dir of ['04.1-one', '04.10-ten']) {
-      fs.mkdirSync(path.join(project, '.planning', 'objectives', dir), { recursive: true });
+      fs.mkdirSync(path.join(project, '.aoforge', 'objectives', dir), { recursive: true });
     }
     return project;
   }
@@ -1034,7 +1034,7 @@ describe('54-06 objective remove / complete: a decimal number never reaches 4.10
     const r = run(['objective', 'remove', '4.1', '--confirm'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.doesNotMatch(after, /Objective 4\.1: One/, '4.1 checkbox and section are gone');
     assert.doesNotMatch(after, /\| 4\.1 One /, '4.1 row is gone');
     assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 checkbox survives');
@@ -1043,7 +1043,7 @@ describe('54-06 objective remove / complete: a decimal number never reaches 4.10
     assert.match(after, /^### Objective 4\.1\.2: Sub$/m, '4.1.2 section survives');
     assert.match(after, /^\| 4\.10 Ten \| 0\/1 \| Planned \|$/m, '4.10 row survives');
     assert.match(after, /^\| 4\.1\.2 Sub \| 0\/1 \| Planned \|$/m, '4.1.2 row survives');
-    assert.ok(fs.existsSync(path.join(project, '.planning', 'objectives', '04.10-ten')), '04.10 directory survives');
+    assert.ok(fs.existsSync(path.join(project, '.aoforge', 'objectives', '04.10-ten')), '04.10 directory survives');
   });
 
   // Item 7. Regression guard: the `[:\s]` after the number already rejected 4.1.2.
@@ -1058,14 +1058,14 @@ describe('54-06 objective remove / complete: a decimal number never reaches 4.10
 
 **Goal:** One.
 `);
-    const dir = path.join(project, '.planning', 'objectives', '04.1-one');
+    const dir = path.join(project, '.aoforge', 'objectives', '04.1-one');
     fs.writeFileSync(path.join(dir, '04.1-01-TRD.md'), '# TRD\n', 'utf-8');
     fs.writeFileSync(path.join(dir, '04.1-01-SUMMARY.md'), '# Summary\n', 'utf-8');
 
     const r = run(['objective', 'complete', '4.1'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(after, /^- \[ \] \*\*Objective 4\.1\.2: Sub\*\*$/m, '4.1.2 stays unchecked');
     assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 stays unchecked');
     assert.match(after, /^- \[x\] \*\*Objective 4\.1: One\*\* \(completed \d{4}-\d{2}-\d{2}\)$/m, '4.1 is checked');
@@ -1079,16 +1079,16 @@ describe('56-02 objective directory lookups are exact', () => {
   const { objectiveDirMatches } = require('./helpers.cjs');
 
   // Hand-built tree: every directory and file name is written literally by the test.
-  //   current:  ['04.1-one', ...]                          under .planning/objectives/
-  //   archived: { 'v1.2': ['04.1-one', ...] }              under .planning/milestones/v1.2-objectives/
+  //   current:  ['04.1-one', ...]                          under .aoforge/objectives/
+  //   archived: { 'v1.2': ['04.1-one', ...] }              under .aoforge/milestones/v1.2-objectives/
   //   files:    { '04.10-ten': ['04.10-01-TRD.md'] }       empty named files inside a directory
   function objectiveTree({ current = [], archived = {}, files = {} }) {
     const project = tmpProject();
-    const objectives = path.join(project, '.planning', 'objectives');
+    const objectives = path.join(project, '.aoforge', 'objectives');
     for (const dir of current) fs.mkdirSync(path.join(objectives, dir), { recursive: true });
     for (const [version, dirs] of Object.entries(archived)) {
       for (const dir of dirs) {
-        fs.mkdirSync(path.join(project, '.planning', 'milestones', `${version}-objectives`, dir), { recursive: true });
+        fs.mkdirSync(path.join(project, '.aoforge', 'milestones', `${version}-objectives`, dir), { recursive: true });
       }
     }
     for (const [dir, names] of Object.entries(files)) {
@@ -1109,7 +1109,7 @@ describe('56-02 objective directory lookups are exact', () => {
     const project = objectiveTree({ current: ['04.1-one', '04.10-ten'] });
     const r = run(['find-objective', '4.1'], project);
     assert.equal(r.json.found, true);
-    assert.equal(r.json.directory, path.join('.planning', 'objectives', '04.1-one'));
+    assert.equal(r.json.directory, path.join('.aoforge', 'objectives', '04.1-one'));
   });
 
   test('3: only 04.1-x exists: find-objective 4 is not found', () => {
@@ -1161,10 +1161,10 @@ describe('56-02 objective directory lookups are exact', () => {
 
   test('8: the full directory name resolves to itself, and a non-numeric name still resolves', () => {
     const project = objectiveTree({ current: ['04.1-one', '04.10-ten'] });
-    assert.equal(run(['find-objective', '04.1-one'], project).json.directory, path.join('.planning', 'objectives', '04.1-one'));
-    assert.equal(findObjectiveInternal(project, '04.1-one').directory, path.join('.planning', 'objectives', '04.1-one'));
+    assert.equal(run(['find-objective', '04.1-one'], project).json.directory, path.join('.aoforge', 'objectives', '04.1-one'));
+    assert.equal(findObjectiveInternal(project, '04.1-one').directory, path.join('.aoforge', 'objectives', '04.1-one'));
     const odd = objectiveTree({ current: ['a(-thing'] });
-    assert.equal(findObjectiveInternal(odd, 'a(').directory, path.join('.planning', 'objectives', 'a(-thing'));
+    assert.equal(findObjectiveInternal(odd, 'a(').directory, path.join('.aoforge', 'objectives', 'a(-thing'));
   });
 
   test('9: no production lib file selects a directory with a bare startsWith(normalized|padded)', () => {
@@ -1221,7 +1221,7 @@ describe('56-03 objective complete reads `**Requirements**:` through requirement
   // so completing the objective ticked nothing.
   test('5: `**Requirements**: R-1, R-2` ticks R-1 and R-2 only', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), `# Roadmap
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), `# Roadmap
 
 ### Objective 1: Auth
 
@@ -1234,8 +1234,8 @@ describe('56-03 objective complete reads `**Requirements**:` through requirement
 **Goal**: API.
 **Requirements**: R-3
 `, 'utf-8');
-    fs.writeFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), REQUIREMENTS, 'utf-8');
-    const dir = path.join(project, '.planning', 'objectives', '01-auth');
+    fs.writeFileSync(path.join(project, '.aoforge', 'REQUIREMENTS.md'), REQUIREMENTS, 'utf-8');
+    const dir = path.join(project, '.aoforge', 'objectives', '01-auth');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '01-01-TRD.md'), '# TRD\n', 'utf-8');
     fs.writeFileSync(path.join(dir, '01-01-SUMMARY.md'), '# Summary\n', 'utf-8');
@@ -1243,7 +1243,7 @@ describe('56-03 objective complete reads `**Requirements**:` through requirement
     const r = run(['objective', 'complete', '1'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const req = fs.readFileSync(path.join(project, '.planning', 'REQUIREMENTS.md'), 'utf-8');
+    const req = fs.readFileSync(path.join(project, '.aoforge', 'REQUIREMENTS.md'), 'utf-8');
     assert.match(req, /^- \[x\] \*\*R-1\*\*: First$/m, 'R-1 is ticked');
     assert.match(req, /^- \[x\] \*\*R-2\*\*: Second$/m, 'R-2 is ticked');
     assert.match(req, /^- \[ \] \*\*R-3\*\*: Third$/m, 'R-3 stays unticked');
@@ -1256,9 +1256,9 @@ describe('56-03 objective complete reads `**Requirements**:` through requirement
 describe('56-03 objective remove renumbers later objectives and their `**Depends on**:` lines', () => {
   function removeProject(dirs, roadmap) {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmap, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), roadmap, 'utf-8');
     for (const dir of dirs) {
-      fs.mkdirSync(path.join(project, '.planning', 'objectives', dir), { recursive: true });
+      fs.mkdirSync(path.join(project, '.aoforge', 'objectives', dir), { recursive: true });
     }
     return project;
   }
@@ -1291,7 +1291,7 @@ describe('56-03 objective remove renumbers later objectives and their `**Depends
     const r = run(['objective', 'remove', '3', '--confirm'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.deepEqual(after.match(/^### Objective .*$/gm), [
       '### Objective 3: D',
       '### Objective 4: E',
@@ -1306,7 +1306,7 @@ describe('56-03 objective remove renumbers later objectives and their `**Depends
     const r = run(['objective', 'remove', '3', '--confirm'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(after, /^\*\*Depends on\*\*: Objective 3$/m, 'objective 5 (now 4) depends on 4 (now 3)');
     assert.match(after, /^\*\*Depends on\*\*: Objective 3, Objective 4$/m, 'objective 6 (now 5) depends on 4, 5 (now 3, 4)');
   });
@@ -1338,7 +1338,7 @@ describe('56-03 objective remove renumbers later objectives and their `**Depends
     const r = run(['objective', 'remove', '3', '--confirm'], project);
     assert.equal(r.status, 0, r.stderr);
 
-    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(after, /^\*\*Depends on:\*\* Objective 3, Objective 4, Objective 5 \(note, see 4\.1\)$/m);
   });
 });

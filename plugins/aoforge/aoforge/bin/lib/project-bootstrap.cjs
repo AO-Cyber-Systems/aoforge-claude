@@ -23,7 +23,7 @@
  *   Idempotent: returns { applied: false, reason: 'already exists' } when file exists.
  *
  * backfillAllObjectives(cwd):
- *   Walks .planning/objectives/ subdirectories and calls bootstrapObjectiveMd per dir.
+ *   Walks .aoforge/objectives/ subdirectories and calls bootstrapObjectiveMd per dir.
  *   Returns { scanned, applied, skipped, errors }. Does NOT auto-commit.
  *
  * All functions return shape: { applied, added_fields, path, reason }
@@ -34,6 +34,7 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const { objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 // ─── Internal helpers ───────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ function _parseGithubRemote(url) {
 // ─── bootstrapProjectMd ─────────────────────────────────────────────────────
 
 function bootstrapProjectMd(cwd) {
-  const projectMdPath = path.join(cwd, '.planning', 'PROJECT.md');
+  const projectMdPath = path.join(planningRoot(cwd), 'PROJECT.md');
 
   if (!fs.existsSync(projectMdPath)) {
     return { applied: false, added_fields: [], path: null, reason: 'no PROJECT.md' };
@@ -116,12 +117,12 @@ function bootstrapProjectMd(cwd) {
  * Creates a minimal OBJECTIVE.md stub for the given objective directory when
  * one does not already exist.
  *
- * @param {string} cwd - Project root (directory containing .planning/)
+ * @param {string} cwd - Project root (directory containing .aoforge/)
  * @param {string} objectiveId - Objective directory name, e.g. '09-roadmap-disk-reconciliation'
  * @returns {{ applied: boolean, added_fields: string[], path: string|null, reason: string|null }}
  */
 function bootstrapObjectiveMd(cwd, objectiveId) {
-  const objectiveDir = path.join(cwd, '.planning', 'objectives', objectiveId);
+  const objectiveDir = path.join(planningRoot(cwd), 'objectives', objectiveId);
 
   if (!fs.existsSync(objectiveDir)) {
     return { applied: false, added_fields: [], path: null, reason: 'objective dir not found' };
@@ -134,7 +135,7 @@ function bootstrapObjectiveMd(cwd, objectiveId) {
   }
 
   // Read PROJECT.md to get default_work (best-effort, fallback: 'feature')
-  const projectMdPath = path.join(cwd, '.planning', 'PROJECT.md');
+  const projectMdPath = path.join(planningRoot(cwd), 'PROJECT.md');
   let defaultWork = 'feature';
   if (fs.existsSync(projectMdPath)) {
     const content = fs.readFileSync(projectMdPath, 'utf-8');
@@ -146,7 +147,7 @@ function bootstrapObjectiveMd(cwd, objectiveId) {
   }
 
   // Extract objective name + goal from ROADMAP.md (best-effort)
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   // Strip leading zeros from the numeric segment: '09-foo' → '9', '0' → '0'
   const objectiveNum = String(objectiveId).split('-')[0].replace(/^0+/, '') || '0';
   let goalLine = '_(extract from ROADMAP.md "### Objective N:" entry)_';
@@ -192,7 +193,7 @@ ${goalLine}
 // ─── backfillAllObjectives ──────────────────────────────────────────────────
 
 /**
- * Walks .planning/objectives/ subdirectories and calls bootstrapObjectiveMd for each
+ * Walks .aoforge/objectives/ subdirectories and calls bootstrapObjectiveMd for each
  * objective directory that is missing an OBJECTIVE.md.
  *
  * Options (TRD 36-04b, used by upgrade migration 0004):
@@ -209,7 +210,7 @@ ${goalLine}
  *   that would be created).
  */
 function backfillAllObjectives(cwd, { match = null, dryRun = false } = {}) {
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const result = { scanned: 0, applied: 0, skipped: 0, errors: [], paths: [] };
 
   if (!fs.existsSync(objectivesDir)) return result;
@@ -218,7 +219,7 @@ function backfillAllObjectives(cwd, { match = null, dryRun = false } = {}) {
   for (const entry of entries) {
     if (match && !match.test(entry)) continue;
     const dir = path.join(objectivesDir, entry);
-    const rel = path.posix.join('.planning', 'objectives', entry, 'OBJECTIVE.md');
+    const rel = planningRel(cwd, 'objectives', entry, 'OBJECTIVE.md');
     try {
       const stat = fs.statSync(dir);
       if (!stat.isDirectory()) continue;

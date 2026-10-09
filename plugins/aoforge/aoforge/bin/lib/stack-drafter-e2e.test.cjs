@@ -19,7 +19,7 @@
 //  8  empty / docs-only             general, commands {}, an info note, exit 0
 //  9a gosec-only                    audit is the joined gosec, no sast
 //  9  binary missing                test: discover, binary_missing note, body names the command
-//  10 every shape                   validation ok, reviewed = localDate(), no .planning/stacks/
+//  10 every shape                   validation ok, reviewed = localDate(), no .aoforge/stacks/
 
 const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -275,7 +275,7 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     assert.match(raw.stdout, /<!-- stack init notes[\s\S]*narrow[\s\S]*-->/);
   }));
 
-  test('10: every shape validates, is reviewed today, and --write never creates .planning/stacks/', () => {
+  test('10: every shape validates, is reviewed today, and --write never creates .aoforge/stacks/', () => {
     for (const [name, build] of Object.entries(fx.SHAPES)) {
       withShape(build, (repo) => {
         const before = localDate();
@@ -286,8 +286,8 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
         assert.equal(r.json.validation.ok, true, `${name}: ${JSON.stringify(r.json.validation.errors)}`);
         assert.equal(r.json.action, 'written', name);
         assert.ok([before, after].includes(r.fm.provenance.reviewed), `${name}: reviewed ${r.fm.provenance.reviewed}`);
-        assert.equal(fs.existsSync(path.join(repo, '.planning', 'stacks')), false, `${name} created .planning/stacks/`);
-        const planning = fs.readdirSync(path.join(repo, '.planning'));
+        assert.equal(fs.existsSync(path.join(repo, '.aoforge', 'stacks')), false, `${name} created .aoforge/stacks/`);
+        const planning = fs.readdirSync(path.join(repo, '.aoforge'));
         assert.deepStrictEqual(planning, ['STACK.md'], `${name}: stack init writes only STACK.md`);
         assertNoFragments(r.fm.commands);
       });
@@ -384,15 +384,15 @@ describe('stack init closes D1-D5 end to end (TRD 42-15)', () => {
     assert.ok(notes.some((x) => x.candidate === 'go build ./...'), JSON.stringify(json.notes));
   }));
 
-  test('17: D5 tracked-but-ignored .planning — the preview lists both stack files in `ignored`', { skip: NO_GIT }, () => withShape(fx.trackedPlanningIgnoredShape, (repo) => {
+  test('17: D5 tracked-but-ignored .aoforge — the preview lists both stack files in `ignored`', { skip: NO_GIT }, () => withShape(fx.trackedPlanningIgnoredShape, (repo) => {
     const r = stackInit(repo, { git: true });
     assert.equal(r.status, 0, r.stderr);
-    assert.deepStrictEqual([...r.json.ignored].sort(), ['.planning/STACK-REPORT.md', '.planning/STACK.md']);
+    assert.deepStrictEqual([...r.json.ignored].sort(), ['.aoforge/STACK-REPORT.md', '.aoforge/STACK.md']);
     const raw = stackInit(repo, { raw: true, git: true });
     assert.equal(raw.status, 0, raw.stderr);
-    assert.match(raw.stderr, /\.planning\/STACK\.md/);
-    assert.match(raw.stderr, /\.planning\/STACK-REPORT\.md/);
-    assert.equal(fs.existsSync(path.join(repo, '.planning', 'STACK.md')), false, 'a preview writes nothing');
+    assert.match(raw.stderr, /\.aoforge\/STACK\.md/);
+    assert.match(raw.stderr, /\.aoforge\/STACK-REPORT\.md/);
+    assert.equal(fs.existsSync(path.join(repo, '.aoforge', 'STACK.md')), false, 'a preview writes nothing');
   }));
 });
 

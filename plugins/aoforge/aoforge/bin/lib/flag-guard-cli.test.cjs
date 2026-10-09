@@ -1,7 +1,7 @@
 'use strict';
 
 // Test list (TRD 68-03 task 3, TOOL-01): the real binary rejects an unknown flag on a writing command before anything
-// runs. Hand-built temp project, fake HOME, `gh` PATH shim (flag-guard-fixtures.cjs); never this repository's `.planning/`.
+// runs. Hand-built temp project, fake HOME, `gh` PATH shim (flag-guard-fixtures.cjs); never this repository's `.aoforge/`.
 //
 //  14. `aof-tools --cwd <p> milestone complete v1.0 --zz-unknown` -> exit 1, `Error: unknown flag --zz-unknown for
 //      `milestone complete`...`, the tree is unchanged, no gh call.
@@ -116,7 +116,7 @@ describe('writing commands reject an unknown flag (TOOL-01)', () => {
     });
 
     test('frontmatter get with --field and a global --raw', () => {
-      const r = project.run(['frontmatter', 'get', '.planning/objectives/01-a/01-01-TRD.md', '--field', 'type', '--raw']);
+      const r = project.run(['frontmatter', 'get', '.aoforge/objectives/01-a/01-01-TRD.md', '--field', 'type', '--raw']);
       stderrIsClean(r);
       assert.equal(r.status, 0, r.stderr);
     });

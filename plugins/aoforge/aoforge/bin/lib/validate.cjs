@@ -12,6 +12,7 @@ const { getMilestoneInfo } = require('./roadmap.cjs');
 const m0001 = require('./migrations/0001-config-stamp.cjs');
 const m0002 = require('./migrations/0002-job-to-trd.cjs');
 const m0003 = require('./migrations/0003-state-json-seed.cjs');
+const { planningRoot, planningRel, planningDirLabel } = require('./compat.cjs');
 
 // ─── Engine lag helpers (Check 11 in cmdValidateHealth) ───────────────────────
 
@@ -63,8 +64,8 @@ function defaultMainVersionFn() {
 }
 
 function cmdValidateConsistency(cwd, raw) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   const errors = [];
   const warnings = [];
 
@@ -184,7 +185,7 @@ function cmdValidateConsistency(cwd, raw) {
 }
 
 function cmdValidateHealth(cwd, options, raw) {
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   const projectPath = path.join(planningDir, 'PROJECT.md');
   const roadmapPath = path.join(planningDir, 'ROADMAP.md');
   const statePath = path.join(planningDir, 'STATE.md');
@@ -204,9 +205,9 @@ function cmdValidateHealth(cwd, options, raw) {
     else info.push(issue);
   };
 
-  // ─── Check 1: .planning/ exists ───────────────────────────────────────────
+  // ─── Check 1: .aoforge/ exists ───────────────────────────────────────────
   if (!fs.existsSync(planningDir)) {
-    addIssue('error', 'E001', '.planning/ directory not found', 'Run /aoforge:new-project to initialize');
+    addIssue('error', 'E001', `${planningDirLabel()} directory not found`, 'Run /aoforge:new-project to initialize');
     output({
       engine_version: pluginVersion(),
       schema_version: 1,
@@ -258,8 +259,8 @@ function cmdValidateHealth(cwd, options, raw) {
       for (const m of stateContent.matchAll(re)) positionRefs.add(m[1]);
     }
 
-    // Known objectives: .planning/objectives/<NN-...> UNION any <NN-...> dir one
-    // or two levels under .planning/milestones/ (archived objectives keep their
+    // Known objectives: .aoforge/objectives/<NN-...> UNION any <NN-...> dir one
+    // or two levels under .aoforge/milestones/ (archived objectives keep their
     // numbers valid forever — W002 must never fire on history).
     const knownObjectives = new Set();
     const addNumberedDirs = (dirPath) => {
@@ -539,7 +540,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   const engine = { running: runningVer, mirror: mirrorVer, installed: installedVer, main: mainVer };
 
-  // ─── Check 12: Stack profile (.planning/STACK.md) ──────────────────────────
+  // ─── Check 12: Stack profile (.aoforge/STACK.md) ──────────────────────────
   // Not auto-repaired: drafting a profile needs human confirmation (`stack init`).
   // See TRD 35-05's mapping table for the STK -> health code assignments below.
   try {
@@ -561,8 +562,8 @@ function cmdValidateHealth(cwd, options, raw) {
         addIssue(
           'error',
           'E030',
-          `stack-profile-invalid: .planning/STACK.md — ${first.code}: ${first.msg}${more > 0 ? ` (+${more} more)` : ''}`,
-          'Run `aof-tools stack validate` for the full list and fix .planning/STACK.md'
+          `stack-profile-invalid: ${planningRel(cwd, 'STACK.md')} — ${first.code}: ${first.msg}${more > 0 ? ` (+${more} more)` : ''}`,
+          `Run \`aof-tools stack validate\` for the full list and fix ${planningRel(cwd, 'STACK.md')}`
         );
       }
 
@@ -589,7 +590,7 @@ function cmdValidateHealth(cwd, options, raw) {
           'warning',
           'W031',
           `stack-undefined-command: ${e.path} names "${key}", which no tier defines`,
-          `Define commands.${key} in .planning/STACK.md or remove it from ${e.path}`
+          `Define commands.${key} in ${planningRel(cwd, 'STACK.md')} or remove it from ${e.path}`
         );
       }
 
@@ -609,7 +610,7 @@ function cmdValidateHealth(cwd, options, raw) {
         addIssue(
           'info',
           'I030',
-          `stack-profile-absent: a ${m.primary_lang} manifest is present but .planning/STACK.md is not (general profile in use)`,
+          `stack-profile-absent: a ${m.primary_lang} manifest is present but ${planningRel(cwd, 'STACK.md')} is not (general profile in use)`,
           'Draft one with `aof-tools stack init`, review it, then `aof-tools stack init --write`'
         );
       }
@@ -707,7 +708,7 @@ function cmdValidateHealth(cwd, options, raw) {
 
   // ─── Check 15: Planning cache drift (objective 48) ─────────────────────────
   // Store mode only (planning-mode.cjs); local mode returns before reading any outbox state, so
-  // nothing here changes for a local project. W055: a cache or generated `.planning/` file whose
+  // nothing here changes for a local project. W055: a cache or generated `.aoforge/` file whose
   // bytes match neither its cache-index baseline nor a pending verb write — changed outside the
   // aof-tools verbs (D-15). Advisory and never repairable: publishing and restoring are both valid
   // fixes, and only the user knows which was meant. A check that cannot run, or ran partially
@@ -785,7 +786,7 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W063', `model-id-check-failed: ${e.message}`, 'Run `aof-tools doctor` to see why', false);
   }
 
-  // ─── Check 19: .planning/.skill-active marker (objective 69, TOOL-09) ─────
+  // ─── Check 19: .aoforge/.skill-active marker (objective 69, TOOL-09) ─────
   // E006 a tracked marker (holds the edit gate open in every clone), W064 a stale untracked one. Repairable when
   // skill-marker-health's plan says so; the repair untracks and/or removes that one file behind the DOC-06 index
   // guard. Doctor check 23 owns both codes; check 22 defers them. A check that cannot run is never silent.
@@ -833,7 +834,7 @@ function cmdValidateHealth(cwd, options, raw) {
             const milestone = getMilestoneInfo(cwd);
             let stateContent = `# Session State\n\n`;
             stateContent += `## Project Reference\n\n`;
-            stateContent += `See: .planning/PROJECT.md\n\n`;
+            stateContent += `See: ${planningRel(cwd, 'PROJECT.md')}\n\n`;
             stateContent += `## Position\n\n`;
             stateContent += `**Milestone:** ${milestone.version} ${milestone.name}\n`;
             stateContent += `**Current objective:** (determining...)\n`;
@@ -858,7 +859,7 @@ function cmdValidateHealth(cwd, options, raw) {
           }
           case 'repairSkillMarker': {
             // Untrack and/or remove the one marker file (skill-marker-health owns the guard and the re-check).
-            // `path` is relative to .planning/, which is how doctor check 22 builds its `changed` list.
+            // `path` is relative to .aoforge/, which is how doctor check 22 builds its `changed` list.
             const res = skillMarker.repair(cwd, { nowMs: skillMarkerNowMs, env: process.env });
             if ((res.untracked || []).length) repairActions.push({ action: 'untrackSkillMarker', success: true, path: '.skill-active' });
             if ((res.removed || []).length) repairActions.push({ action: 'removeStaleSkillMarker', success: true, path: '.skill-active' });
@@ -907,9 +908,10 @@ function cmdValidateHealth(cwd, options, raw) {
 // for every status call); this drives the same doc-staleness.collect() as
 // Check 14 above, with no other check attached — no network, no git fetch.
 function cmdValidateDocs(cwd, raw) {
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   if (!fs.existsSync(planningDir)) {
-    output({ issues: [], checked: {}, note: 'no .planning/' }, raw, 'no .planning/');
+    const note = `no ${planningDirLabel()}`;
+    output({ issues: [], checked: {}, note }, raw, note);
     return;
   }
 
@@ -939,9 +941,10 @@ function cmdValidateDocs(cwd, raw) {
 // one objective (matched by number, as the other objective-scoped commands do). Advisory like `validate docs`: every
 // outcome, findings included, exits 0, and scripts read the JSON.
 function cmdValidateRequirements(cwd, { objective } = {}, raw) {
-  const planningDir = path.join(cwd, '.planning');
+  const planningDir = planningRoot(cwd);
   if (!fs.existsSync(planningDir)) {
-    output({ findings: [], checked: {}, note: 'no .planning/' }, raw, 'no .planning/');
+    const note = `no ${planningDirLabel()}`;
+    output({ findings: [], checked: {}, note }, raw, note);
     return;
   }
 

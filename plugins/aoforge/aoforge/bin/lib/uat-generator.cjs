@@ -2,6 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output } = require('./helpers.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── State Description Map ───────────────────────────────────────────────────
 // Human-readable expected text per common state name. Custom states fall back to
@@ -135,7 +136,7 @@ skipped: 0
 
 /**
  * aof-tools command handler: reads objective dir, parses TRDs, lists .maestro/ files,
- * calls generateUAT, and writes .planning/objectives/<obj-dir>/<obj>-UAT.md.
+ * calls generateUAT, and writes .aoforge/objectives/<obj-dir>/<obj>-UAT.md.
  *
  * Safety: refuses to overwrite a UAT.md that already has non-pending results
  * or a non-testing status (i.e., a walkthrough in progress or complete).
@@ -152,7 +153,7 @@ function cmdGenerateUAT(cwd, objectiveArg, raw) {
 
   const { extractFrontmatter } = require('./frontmatter.cjs');
   const { parseMustHavesArtifacts } = require('./trd-artifacts.cjs');
-  const objectivesRoot = path.join(cwd, '.planning', 'objectives');
+  const objectivesRoot = path.join(planningRoot(cwd), 'objectives');
 
   // Find the objective directory by prefix match
   const padded = String(objectiveArg).padStart(2, '0');

@@ -4,7 +4,7 @@
 // TRD 36-02 Task 2: the one-shot notices queue. Every file lives under an mkdtemp dir; nothing
 // here reads or writes the real ~/.claude.
 //
-//  15. projectNoticesPath(root) = <root>/.planning/.aoforge-notices.json;
+//  15. projectNoticesPath(root) = <root>/.aoforge/.aoforge-notices.json;
 //      globalNoticesPath(home) = <home>/.claude/aoforge/.aoforge-notices.json;
 //      globalNoticesPath() with no home throws.
 //  16. appendNotice(file, {source:'upgrade', level:'info', message:'m'}, {now}) creates parent dirs
@@ -46,7 +46,7 @@ const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf-8'));
 
 describe('notices paths', () => {
   test('15. project and global paths; global requires an explicit home', () => {
-    assert.equal(notices.projectNoticesPath('/r'), path.join('/r', '.planning', '.aoforge-notices.json'));
+    assert.equal(notices.projectNoticesPath('/r'), path.join('/r', '.aoforge', '.aoforge-notices.json'));
     assert.equal(
       notices.globalNoticesPath('/h'),
       path.join('/h', '.claude', 'aoforge', '.aoforge-notices.json'),

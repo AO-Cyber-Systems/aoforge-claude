@@ -96,22 +96,22 @@ test('SC5 — empty sibling set scores 0', () => {
 
 // ─── Group D — sibling discovery (discoverSiblings via _setRunFs) ─────────────
 
-test('D1 — default glob includes only repos with .git + .planning', () => {
-  // Three dirs: one with .git+.planning, one with .git only, one with .planning only
+test('D1 — default glob includes only repos with .git + .aoforge', () => {
+  // Three dirs: one with .git+.aoforge, one with .git only, one with .aoforge only
   const sourceRoot = path.join(os.homedir(), 'Source');
-  const repoA = path.join(sourceRoot, 'repo-a'); // .git + .planning → included
+  const repoA = path.join(sourceRoot, 'repo-a'); // .git + .aoforge → included
   const repoB = path.join(sourceRoot, 'repo-b'); // .git only → excluded
-  const repoC = path.join(sourceRoot, 'repo-c'); // .planning only → excluded
+  const repoC = path.join(sourceRoot, 'repo-c'); // .aoforge only → excluded
 
   const mock = fix.buildMockRunFs({
     dirs: {
       [sourceRoot]: ['repo-a', 'repo-b', 'repo-c'],
-      [repoA]: ['.git', '.planning'],
+      [repoA]: ['.git', '.aoforge'],
       [repoB]: ['.git'],
-      [repoC]: ['.planning'],
+      [repoC]: ['.aoforge'],
     },
     files: {
-      [path.join(repoA, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# repo-a\n`,
+      [path.join(repoA, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# repo-a\n`,
     },
   });
 
@@ -126,11 +126,11 @@ test('D1 — default glob includes only repos with .git + .planning', () => {
     },
     existsSync(p) {
       if (p === path.join(repoA, '.git')) return true;
-      if (p === path.join(repoA, '.planning')) return true;
+      if (p === path.join(repoA, '.aoforge')) return true;
       if (p === path.join(repoB, '.git')) return true;
-      if (p === path.join(repoB, '.planning')) return false;
+      if (p === path.join(repoB, '.aoforge')) return false;
       if (p === path.join(repoC, '.git')) return false;
-      if (p === path.join(repoC, '.planning')) return true;
+      if (p === path.join(repoC, '.aoforge')) return true;
       if (p === sourceRoot) return true;
       return mock.existsSync(p);
     },
@@ -141,7 +141,7 @@ test('D1 — default glob includes only repos with .git + .planning', () => {
     // repoA should be included (has both), B and C excluded
     const repos = result.matches.map(m => m.repo);
     assert.ok(repos.includes('repo-a'), `expected repo-a in matches, got: ${JSON.stringify(repos)}`);
-    assert.ok(!repos.includes('repo-b'), 'repo-b should be excluded (no .planning)');
+    assert.ok(!repos.includes('repo-b'), 'repo-b should be excluded (no .aoforge)');
     assert.ok(!repos.includes('repo-c'), 'repo-c should be excluded (no .git)');
   } finally {
     oa._resetFsMock();
@@ -154,10 +154,10 @@ test('D2 — configured sibling_repos replaces default glob; non-existent path e
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [realPath]: ['.git', '.planning'],
+      [realPath]: ['.git', '.aoforge'],
     },
     files: {
-      [path.join(realPath, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# configured-repo\n`,
+      [path.join(realPath, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# configured-repo\n`,
     },
     missing: [missingPath],
   });
@@ -172,7 +172,7 @@ test('D2 — configured sibling_repos replaces default glob; non-existent path e
       if (p === missingPath) return false;
       if (p === realPath) return true;
       if (p === path.join(realPath, '.git')) return true;
-      if (p === path.join(realPath, '.planning')) return true;
+      if (p === path.join(realPath, '.aoforge')) return true;
       return mock.existsSync(p);
     },
   });
@@ -198,10 +198,10 @@ test('D3 — home-relative ~/foo path expanded correctly via os.homedir()', () =
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [expandedPath]: ['.git', '.planning'],
+      [expandedPath]: ['.git', '.aoforge'],
     },
     files: {
-      [path.join(expandedPath, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# foo-repo\n`,
+      [path.join(expandedPath, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# foo-repo\n`,
     },
   });
 
@@ -214,7 +214,7 @@ test('D3 — home-relative ~/foo path expanded correctly via os.homedir()', () =
     existsSync(p) {
       if (p === expandedPath) return true;
       if (p === path.join(expandedPath, '.git')) return true;
-      if (p === path.join(expandedPath, '.planning')) return true;
+      if (p === path.join(expandedPath, '.aoforge')) return true;
       return mock.existsSync(p);
     },
   });
@@ -239,11 +239,11 @@ test('D4 — current repo excluded from sibling list even if it would match', ()
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [sibling]: ['.git', '.planning'],
+      [sibling]: ['.git', '.aoforge'],
     },
     files: {
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current-repo\n`,
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# sibling-repo\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current-repo\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# sibling-repo\n`,
     },
   });
 
@@ -258,9 +258,9 @@ test('D4 — current repo excluded from sibling list even if it would match', ()
       if (p === cwd) return true;
       if (p === sibling) return true;
       if (p === path.join(cwd, '.git')) return true;
-      if (p === path.join(cwd, '.planning')) return true;
+      if (p === path.join(cwd, '.aoforge')) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
+      if (p === path.join(sibling, '.aoforge')) return true;
       return mock.existsSync(p);
     },
   });
@@ -286,9 +286,9 @@ test('D5 — sibling without PROJECT.md silently excluded', () => {
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [sibling]: ['.git', '.planning'],
+      [sibling]: ['.git', '.aoforge'],
     },
-    missing: [path.join(sibling, '.planning', 'PROJECT.md'), path.join(cwd, '.planning', 'PROJECT.md')],
+    missing: [path.join(sibling, '.aoforge', 'PROJECT.md'), path.join(cwd, '.aoforge', 'PROJECT.md')],
   });
 
   oa._setRunFs({
@@ -300,9 +300,9 @@ test('D5 — sibling without PROJECT.md silently excluded', () => {
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
-      if (p === path.join(sibling, '.planning', 'PROJECT.md')) return false;
-      if (p === path.join(cwd, '.planning', 'PROJECT.md')) return false;
+      if (p === path.join(sibling, '.aoforge')) return true;
+      if (p === path.join(sibling, '.aoforge', 'PROJECT.md')) return false;
+      if (p === path.join(cwd, '.aoforge', 'PROJECT.md')) return false;
       return mock.existsSync(p);
     },
   });
@@ -325,10 +325,10 @@ test('D6 — sibling with org mismatch silently excluded', () => {
   const cwd = '/fake/cwd-has-org';
 
   const mock = fix.buildMockRunFs({
-    dirs: { [sibling]: ['.git', '.planning'] },
+    dirs: { [sibling]: ['.git', '.aoforge'] },
     files: {
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\norg: Different-Org\nkind: api\n---\n# wrong-org\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\norg: Different-Org\nkind: api\n---\n# wrong-org\n`,
     },
   });
 
@@ -341,7 +341,7 @@ test('D6 — sibling with org mismatch silently excluded', () => {
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
+      if (p === path.join(sibling, '.aoforge')) return true;
       return mock.existsSync(p);
     },
   });
@@ -364,10 +364,10 @@ test('D7 — sibling without org, current also without org → INCLUDED (fallbac
   const cwd = '/fake/no-org-cwd';
 
   const mock = fix.buildMockRunFs({
-    dirs: { [sibling]: ['.git', '.planning'] },
+    dirs: { [sibling]: ['.git', '.aoforge'] },
     files: {
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\nkind: api\n---\n# current (no org)\n`,
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\nkind: api\n---\n# sibling (no org)\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\nkind: api\n---\n# current (no org)\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\nkind: api\n---\n# sibling (no org)\n`,
     },
   });
 
@@ -380,7 +380,7 @@ test('D7 — sibling without org, current also without org → INCLUDED (fallbac
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
+      if (p === path.join(sibling, '.aoforge')) return true;
       return mock.existsSync(p);
     },
   });
@@ -402,12 +402,12 @@ test('D8 — sibling without org, current HAS org → EXCLUDED', () => {
   const cwd = '/fake/has-org-cwd-d8';
 
   const mock = fix.buildMockRunFs({
-    dirs: { [sibling]: ['.git', '.planning'] },
+    dirs: { [sibling]: ['.git', '.aoforge'] },
     files: {
       // current has org: AO-Cyber-Systems
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current (has org)\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current (has org)\n`,
       // sibling has NO org field
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\nkind: api\n---\n# sibling (no org)\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\nkind: api\n---\n# sibling (no org)\n`,
     },
   });
 
@@ -420,7 +420,7 @@ test('D8 — sibling without org, current HAS org → EXCLUDED', () => {
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
+      if (p === path.join(sibling, '.aoforge')) return true;
       return mock.existsSync(p);
     },
   });
@@ -459,8 +459,8 @@ test('S1 — happy path: 2 siblings sorted by score descending', () => {
 
     // Current objective tokens: "auth flow token"
     const currentCwd = path.join(tmp, 'current');
-    fs.mkdirSync(path.join(currentCwd, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(currentCwd, '.planning', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
+    fs.mkdirSync(path.join(currentCwd, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(currentCwd, '.aoforge', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
 
     const result = oa.scanSiblings({
       objective_id: 'auth-flow-token',
@@ -484,8 +484,8 @@ test('S2 — top-N truncation: 5 siblings with non-zero scores returns top 3', (
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-s2-'));
   try {
     const currentCwd = path.join(tmp, 'current');
-    fs.mkdirSync(path.join(currentCwd, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(currentCwd, '.planning', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
+    fs.mkdirSync(path.join(currentCwd, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(currentCwd, '.aoforge', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
 
     const config_paths = [];
     for (let i = 1; i <= 5; i++) {
@@ -516,7 +516,7 @@ test('S3 — empty siblings list returns empty matches with warning', () => {
   const cwd = '/fake/cwd';
 
   const mock = fix.buildMockRunFs({
-    missing: [path.join(cwd, '.planning', 'PROJECT.md')],
+    missing: [path.join(cwd, '.aoforge', 'PROJECT.md')],
   });
 
   oa._setRunFs({
@@ -556,14 +556,14 @@ test('S4 — SUMMARY.md older than 90 days not included in token scoring', () =>
     });
 
     // Manually backdate the old summary
-    const oldSummaryPath = path.join(sib.root, '.planning', 'objectives', '02-old', '02-old-SUMMARY.md');
+    const oldSummaryPath = path.join(sib.root, '.aoforge', 'objectives', '02-old', '02-old-SUMMARY.md');
     const oldMs = Date.now() - 100 * 86400000;
     const oldSec = oldMs / 1000;
     fs.utimesSync(oldSummaryPath, oldSec, oldSec);
 
     const currentCwd = path.join(tmp, 'current');
-    fs.mkdirSync(path.join(currentCwd, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(currentCwd, '.planning', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
+    fs.mkdirSync(path.join(currentCwd, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(currentCwd, '.aoforge', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
 
     const result = oa.scanSiblings({
       objective_id: 'auth-flow-token',
@@ -588,12 +588,12 @@ test('S5 — sibling with no objectives/ subdirectory skipped silently', () => {
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [sibling]: ['.git', '.planning'],
-      // .planning/ exists but has no objectives/ entry
+      [sibling]: ['.git', '.aoforge'],
+      // .aoforge/ exists but has no objectives/ entry
     },
     files: {
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# no-objectives\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# no-objectives\n`,
     },
   });
 
@@ -606,8 +606,8 @@ test('S5 — sibling with no objectives/ subdirectory skipped silently', () => {
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
-      if (p === path.join(sibling, '.planning', 'objectives')) return false;
+      if (p === path.join(sibling, '.aoforge')) return true;
+      if (p === path.join(sibling, '.aoforge', 'objectives')) return false;
       return mock.existsSync(p);
     },
   });
@@ -630,17 +630,17 @@ test('S5 — sibling with no objectives/ subdirectory skipped silently', () => {
 test('S6 — SUMMARY.md unreadable: warning logged, sibling included with empty tokens', () => {
   const sibling = '/fake/unreadable-summary-repo';
   const cwd = '/fake/cwd';
-  const summaryPath = path.join(sibling, '.planning', 'objectives', '01-obj', '01-obj-SUMMARY.md');
+  const summaryPath = path.join(sibling, '.aoforge', 'objectives', '01-obj', '01-obj-SUMMARY.md');
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [sibling]: ['.git', '.planning'],
-      [path.join(sibling, '.planning', 'objectives')]: ['01-obj'],
-      [path.join(sibling, '.planning', 'objectives', '01-obj')]: ['01-obj-SUMMARY.md'],
+      [sibling]: ['.git', '.aoforge'],
+      [path.join(sibling, '.aoforge', 'objectives')]: ['01-obj'],
+      [path.join(sibling, '.aoforge', 'objectives', '01-obj')]: ['01-obj-SUMMARY.md'],
     },
     files: {
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# unreadable\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# unreadable\n`,
     },
   });
 
@@ -654,8 +654,8 @@ test('S6 — SUMMARY.md unreadable: warning logged, sibling included with empty 
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
-      if (p === path.join(sibling, '.planning', 'objectives')) return true;
+      if (p === path.join(sibling, '.aoforge')) return true;
+      if (p === path.join(sibling, '.aoforge', 'objectives')) return true;
       return mock.existsSync(p);
     },
     readFileSync(p, enc) {
@@ -690,8 +690,8 @@ test('S7 — tie-break on equal score: most-recent SUMMARY.md mtime wins', () =>
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'scan-s7-'));
   try {
     const currentCwd = path.join(tmp, 'current');
-    fs.mkdirSync(path.join(currentCwd, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(currentCwd, '.planning', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
+    fs.mkdirSync(path.join(currentCwd, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(currentCwd, '.aoforge', 'PROJECT.md'), `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`, 'utf-8');
 
     // Both siblings have identical tokens → same score; sibling-newer has fresher mtime
     const sibOlder = fix.buildSiblingRepoTree({
@@ -729,13 +729,13 @@ test('S8 — current OBJECTIVE.md absent: uses objective slug as token source, d
 
   const mock = fix.buildMockRunFs({
     dirs: {
-      [sibling]: ['.git', '.planning'],
+      [sibling]: ['.git', '.aoforge'],
     },
     files: {
-      [path.join(cwd, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
-      [path.join(sibling, '.planning', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# sib\n`,
+      [path.join(cwd, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# current\n`,
+      [path.join(sibling, '.aoforge', 'PROJECT.md')]: `---\norg: AO-Cyber-Systems\nkind: api\n---\n# sib\n`,
     },
-    missing: [path.join(cwd, '.planning', 'objectives')],
+    missing: [path.join(cwd, '.aoforge', 'objectives')],
   });
 
   oa._setRunFs({
@@ -747,8 +747,8 @@ test('S8 — current OBJECTIVE.md absent: uses objective slug as token source, d
     existsSync(p) {
       if (p === sibling) return true;
       if (p === path.join(sibling, '.git')) return true;
-      if (p === path.join(sibling, '.planning')) return true;
-      if (p === path.join(cwd, '.planning', 'objectives')) return false;
+      if (p === path.join(sibling, '.aoforge')) return true;
+      if (p === path.join(cwd, '.aoforge', 'objectives')) return false;
       return mock.existsSync(p);
     },
   });
@@ -778,8 +778,8 @@ test('F1 — buildSiblingRepoTree creates expected directory layout', () => {
       org: 'AO-Cyber-Systems',
     });
     assert.ok(fs.existsSync(path.join(result.root, '.git')), 'should have .git dir');
-    assert.ok(fs.existsSync(path.join(result.root, '.planning')), 'should have .planning dir');
-    assert.ok(fs.existsSync(path.join(result.root, '.planning', 'PROJECT.md')), 'should have .planning/PROJECT.md');
+    assert.ok(fs.existsSync(path.join(result.root, '.aoforge')), 'should have .aoforge dir');
+    assert.ok(fs.existsSync(path.join(result.root, '.aoforge', 'PROJECT.md')), 'should have .aoforge/PROJECT.md');
     assert.ok(result.objective_paths.length > 0, 'should have objective paths');
     assert.ok(fs.existsSync(result.objective_paths[0]), 'SUMMARY.md should exist');
   } finally {
@@ -995,7 +995,7 @@ test('RP2 — config awareness.eden_libs_path wins over default', () => {
 
   const mock = fix.buildMockRunFs({
     files: {
-      [path.join(cwd, '.planning', 'config.json')]: configJson,
+      [path.join(cwd, '.aoforge', 'config.json')]: configJson,
     },
   });
   oa._setRunFs(mock);
@@ -1011,7 +1011,7 @@ test('RP3 — default DEFAULT_EDEN_LIBS_PATH used when neither opts.path nor con
   const cwd = '/fake/cwd-rp3';
 
   const mock = fix.buildMockRunFs({
-    missing: [path.join(cwd, '.planning', 'config.json')],
+    missing: [path.join(cwd, '.aoforge', 'config.json')],
   });
   oa._setRunFs(mock);
   try {
@@ -2174,11 +2174,11 @@ test('DG2 — dogfood-04.md fixture exists and has 3 subsection headers', () => 
  * @returns {string} root path (for chaining)
  */
 function _stScaffoldSibling(root, trds) {
-  // Ensure .git + .planning/objectives exist so _discoverSiblings accepts the path
+  // Ensure .git + .aoforge/objectives exist so _discoverSiblings accepts the path
   fs.mkdirSync(path.join(root, '.git'), { recursive: true });
-  fs.mkdirSync(path.join(root, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'objectives'), { recursive: true });
   for (const { objDir, trdName, content } of trds) {
-    const fullObjDir = path.join(root, '.planning', 'objectives', objDir);
+    const fullObjDir = path.join(root, '.aoforge', 'objectives', objDir);
     fs.mkdirSync(fullObjDir, { recursive: true });
     fs.writeFileSync(path.join(fullObjDir, trdName), content, 'utf-8');
   }
@@ -2211,8 +2211,8 @@ test('ST2 — sibling exists but has no objectives/018-* dir returns scanned:1 w
   try {
     const sibling = path.join(tmp, 'sibling');
     fs.mkdirSync(path.join(sibling, '.git'), { recursive: true });
-    // Create .planning/objectives but with a non-matching dir (017-foo)
-    fs.mkdirSync(path.join(sibling, '.planning', 'objectives', '017-foo'), { recursive: true });
+    // Create .aoforge/objectives but with a non-matching dir (017-foo)
+    fs.mkdirSync(path.join(sibling, '.aoforge', 'objectives', '017-foo'), { recursive: true });
 
     const r = oa.scanSiblingTrds({
       objective_id: '18',
@@ -2259,7 +2259,7 @@ test('ST3 — sibling with one matching TRD returns full match record with all f
     assert.strictEqual(r.matches.length, 1);
     const m = r.matches[0];
     assert.strictEqual(m.sibling_repo, sibling);
-    assert.strictEqual(m.trd_path, path.join(sibling, '.planning', 'objectives', '018-foo', '018-01-TRD.md'));
+    assert.strictEqual(m.trd_path, path.join(sibling, '.aoforge', 'objectives', '018-foo', '018-01-TRD.md'));
     assert.strictEqual(m.objective, '018-foo');
     assert.strictEqual(m.trd, '018-01');
     assert.deepStrictEqual(m.files_modified, ['a.go', 'b.go']);

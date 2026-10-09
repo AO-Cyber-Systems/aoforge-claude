@@ -4,7 +4,7 @@
  * help.cjs — `--help` / `-h` for every aof-tools subcommand (issue #87).
  *
  * Why this exists: before it, `aof-tools commit --help` took `--help` as the
- * commit MESSAGE, found no `--files`, staged `.planning/` and committed
+ * commit MESSAGE, found no `--files`, staged `.aoforge/` and committed
  * whatever was dirty. The universal "tell me before you do anything" gesture
  * was the one input that guaranteed a write — and it succeeded silently,
  * printing a hash.
@@ -31,7 +31,7 @@ const VERB_DETAILS = [
 const COMMANDS = {
   'state': {
     usage: 'aof-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session] [--raw]',
-    summary: 'Read or update .planning/STATE.md.',
+    summary: 'Read or update .aoforge/STATE.md.',
     mutates: true,
   },
   'resolve-model': {
@@ -53,12 +53,12 @@ const COMMANDS = {
       '              limited to these pathspecs, so a concurrent executor\'s staged',
       '              changes are not swept in.',
       '              Omitted, the command falls back to staging and committing',
-      '              .planning/ only — never the rest of the working tree.',
+      '              .aoforge/ only — never the rest of the working tree.',
       '  --amend     Amend the previous commit (--no-edit); <message> is not required.',
       '',
       'Examples:',
-      '  aof-tools commit "docs(12-03): complete TRD" --files .planning/STATE.md',
-      '  aof-tools commit "chore: sync mapping" --files .planning/.gh-mapping.json',
+      '  aof-tools commit "docs(12-03): complete TRD" --files .aoforge/STATE.md',
+      '  aof-tools commit "chore: sync mapping" --files .aoforge/.gh-mapping.json',
     ],
   },
   'verify-summary': {
@@ -116,17 +116,17 @@ const COMMANDS = {
   },
   'config-ensure-section': {
     usage: 'aof-tools config-ensure-section [--raw]',
-    summary: 'Initialize .planning/config.json.',
+    summary: 'Initialize .aoforge/config.json.',
     mutates: true,
   },
   'config-set': {
     usage: 'aof-tools config-set <key> <value> [--raw]',
-    summary: 'Set a key in .planning/config.json.',
+    summary: 'Set a key in .aoforge/config.json.',
     mutates: true,
   },
   'config-get': {
     usage: 'aof-tools config-get <key> [--raw]',
-    summary: 'Read a key from .planning/config.json.',
+    summary: 'Read a key from .aoforge/config.json.',
   },
   'history-digest': {
     usage: 'aof-tools history-digest [--raw]',
@@ -134,7 +134,7 @@ const COMMANDS = {
   },
   'migrate': {
     usage: 'aof-tools migrate <plan|apply> [--kind k] [--default-work w] [--work-choices json] [--dry-run]',
-    summary: 'Plan or apply a .planning/ layout migration.',
+    summary: 'Plan or apply a .aoforge/ layout migration.',
     mutates: true,
   },
   'upgrade': {
@@ -147,7 +147,7 @@ const COMMANDS = {
     usage: 'aof-tools adopt <preflight|begin|scaffold|report> [--raw]',
     summary: 'Adopt an existing repo as an AOForge project (routes, branches, scaffolds, reports; never pushes).',
     mutates: true,
-    details: 'preflight is read-only: it routes to adopt | resume | upgrade | new-project | refuse. begin creates the aoforge/adopt branch and a progress marker in the git dir. scaffold writes config/STATE/state.json/ROADMAP/STACK.md and the CLAUDE.md block, then stamps. report writes .planning/ADOPT-REPORT.md and prints the files to commit. Refusals (dirty tree, rebase/merge, detached HEAD, not a repo) change nothing and exit 3. Combine with the global --cwd <dir> flag to target another repo.',
+    details: 'preflight is read-only: it routes to adopt | resume | upgrade | new-project | refuse. begin creates the aoforge/adopt branch and a progress marker in the git dir. scaffold writes config/STATE/state.json/ROADMAP/STACK.md and the CLAUDE.md block, then stamps. report writes .aoforge/ADOPT-REPORT.md and prints the files to commit. Refusals (dirty tree, rebase/merge, detached HEAD, not a repo) change nothing and exit 3. Combine with the global --cwd <dir> flag to target another repo.',
   },
   'intent': {
     usage: 'aof-tools intent resolve [--objective N] [--trd path] [--raw]',
@@ -202,7 +202,7 @@ const COMMANDS = {
     details: VERB_DETAILS,
   },
   'doc': {
-    usage: 'aof-tools doc put <rel-under-.planning> --from <path|-> [--message <text>] [--raw]',
+    usage: 'aof-tools doc put <rel-under-.aoforge> --from <path|-> [--message <text>] [--raw]',
     summary: 'Write a planning document that has a wiki page (PROJECT.md, research/, CONTEXT, RESEARCH, ...).',
     mutates: true,
     details: VERB_DETAILS,
@@ -227,7 +227,7 @@ const COMMANDS = {
   },
   'validate': {
     usage: 'aof-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]> [--raw]',
-    summary: 'Check .planning/ integrity, objective numbering, documentation staleness, and SUMMARY/VERIFICATION requirement agreement.',
+    summary: 'Check .aoforge/ integrity, objective numbering, documentation staleness, and SUMMARY/VERIFICATION requirement agreement.',
     mutates: true,
   },
   'doctor': {
@@ -257,7 +257,7 @@ const COMMANDS = {
     usage: 'aof-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force] | coverage [--milestone <v> | --objective <N>]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]',
     summary: 'Executor token usage of one TRD from Claude Code transcripts; `stamp` writes it into a SUMMARY draft before `summary post`; `backfill` recovers it for historical SUMMARYs; `coverage` reports how many SUMMARYs of a milestone or objective were stamped at write time.',
     mutates: true,
-    details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .planning/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .planning/. backfill covers every SUMMARY of the checkout holding cwd and is a dry run by default: it prints recovered and unrecovered counts (by reason) and changes no file. --write stamps each recovered SUMMARY through `summary post` (tokens_source: "backfill"); a second --write writes nothing. --force also restamps a SUMMARY that already has token values. Unrecoverable history is the normal outcome (exit 0); exit 1 only for usage errors or a failed write. coverage is read-only and writes nothing: it classifies every TRD SUMMARY of the current milestone (--milestone <v> for another, --objective <N> for one objective, not both) as live (tokens_source "live"), backfill, unlabeled, missing (no token fields, with or without a Self-Check) or in progress (a Progress checkpoint only, listed but not counted), and prints live/counted as an exact fraction with the decimal floored at 6 places and an integer check of the 95% target; each missing SUMMARY says why (stamp_skipped when an executor transcript exists, else no_transcript and the other reasons). A report exits 0 whatever the coverage; exit 1 only for a usage error, an unknown milestone, a missing ROADMAP.md or an objective with no directory.',
+    details: 'trd is read-only; stamp writes only the draft you name (tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model, tokens_source: "live"), never a file under .aoforge/. Transcripts are read from --root, default ~/.claude/projects, for the repository at --repo (default: the main checkout). Exit 0 even when no transcript is found (stamped: false, the draft is left byte-identical); exit 1 for usage errors or a draft inside .aoforge/. backfill covers every SUMMARY of the checkout holding cwd and is a dry run by default: it prints recovered and unrecovered counts (by reason) and changes no file. --write stamps each recovered SUMMARY through `summary post` (tokens_source: "backfill"); a second --write writes nothing. --force also restamps a SUMMARY that already has token values. Unrecoverable history is the normal outcome (exit 0); exit 1 only for usage errors or a failed write. coverage is read-only and writes nothing: it classifies every TRD SUMMARY of the current milestone (--milestone <v> for another, --objective <N> for one objective, not both) as live (tokens_source "live"), backfill, unlabeled, missing (no token fields, with or without a Self-Check) or in progress (a Progress checkpoint only, listed but not counted), and prints live/counted as an exact fraction with the decimal floored at 6 places and an integer check of the 95% target; each missing SUMMARY says why (stamp_skipped when an executor transcript exists, else no_transcript and the other reasons). A report exits 0 whatever the coverage; exit 1 only for a usage error, an unknown milestone, a missing ROADMAP.md or an objective with no directory.',
   },
   'calibrate': {
     usage: 'aof-tools calibrate [--paths <dir[,dir]>] [--out <file>] [--rates <file>] [--root <dir> | --no-overhead] [--window <N|all>] [--minutes <task_sum|trd_level>] [--through <N>] [--dry-run] [--raw]',
@@ -273,7 +273,7 @@ const COMMANDS = {
   },
   'override': {
     usage: 'aof-tools override --gate <edits|commits|changelog> --reason "<why>" | --list [--limit N] [--raw]',
-    summary: 'Record a structured, logged gate override in .planning/.override-log.jsonl, or list recent overrides.',
+    summary: 'Record a structured, logged gate override in .aoforge/.override-log.jsonl, or list recent overrides.',
     mutates: true,
   },
   'progress': {
@@ -338,7 +338,7 @@ const COMMANDS = {
   },
   'stack': {
     usage: 'aof-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services]> [--raw]',
-    summary: 'Resolve, validate and slice the project stack profile (.planning/STACK.md over bundled general).',
+    summary: 'Resolve, validate and slice the project stack profile (.aoforge/STACK.md over bundled general).',
     mutates: true,
   },
   'awareness': {
@@ -352,12 +352,12 @@ const COMMANDS = {
   'planning': {
     usage: 'aof-tools planning sibling-trd-scan <objective> | planning draft <rel> | planning import [--dry-run] | planning mode [--raw]',
     summary: 'Planning mode (local|store), a draft path for a planning file, import local work into the store, sibling TRD scan.',
-    // `import` writes; `mode`, `draft` (a temp draft outside .planning/) and `sibling-trd-scan` do not.
+    // `import` writes; `mode`, `draft` (a temp draft outside .aoforge/) and `sibling-trd-scan` do not.
     mutates: true,
     details: [
       '  planning mode     prints `local` or `store` (--raw: {mode, reason, root}); writes nothing.',
       '  planning draft    prints a draft path under the OS temp dir, seeded from the current file; edit it, then pass',
-      '                    it to the owning verb with --from. Writes nothing under .planning/.',
+      '                    it to the owning verb with --from. Writes nothing under .aoforge/.',
       '  planning import   store mode: queue existing local planning files to GitHub. --dry-run writes nothing and prints the plan, the request estimate and the history closes; with the store off and github.enabled true it previews the backfill.',
     ],
   },
@@ -430,7 +430,7 @@ const COMMANDS = {
   },
   'skill-active': {
     usage: 'aof-tools skill-active <--start <name>|--end|--status> [--raw]',
-    summary: 'Mark a skill active or ended (.planning/.skill-active).',
+    summary: 'Mark a skill active or ended (.aoforge/.skill-active).',
     mutates: true,
   },
   'micro': {
@@ -440,7 +440,7 @@ const COMMANDS = {
   },
   'merge-driver': {
     usage: 'aof-tools merge-driver <install [--check]|uninstall|resolve <path>|state-json <base> <ours> <theirs>> [--raw]',
-    summary: 'Merge .planning/state.json (JSON-aware) and STATE_ARCHIVE.md (union) without conflicts in wave merges.',
+    summary: 'Merge .aoforge/state.json (JSON-aware) and STATE_ARCHIVE.md (union) without conflicts in wave merges.',
     mutates: true,
     details: [
       '  install      Register the state.json driver and the attributes in info/attributes and',

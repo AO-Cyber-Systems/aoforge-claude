@@ -19,7 +19,7 @@
 // `root` is the repository top, in the spelling mkdtemp returned (NOT realpath'd, so on macOS it is under
 // `/var`, which is a symlink to `/private/var`). A test that wants the other spelling calls
 // `fs.realpathSync(root)`. `projectRoot` is the directory that holds `planningDir`: it equals `root` for the
-// default `.planning`, and `<root>/pkg` for `planningDir: 'pkg/.planning'` (a nested project).
+// default `.aoforge`, and `<root>/pkg` for `planningDir: 'pkg/.aoforge'` (a nested project).
 //
 // Every git call is hermetic: `env` is `process.env` overlaid with `gitTestEnv(home)` (GIT_CONFIG_GLOBAL and
 // GIT_CONFIG_SYSTEM pointed at /dev/null, a temp HOME, an explicit identity) with the variables that would
@@ -46,7 +46,7 @@ function makeTrackedRepo({
   files = {},
   untracked = {},
   ignored = {},
-  planningDir = '.planning',
+  planningDir = '.aoforge',
   history = [],
 } = {}) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'df-tracked-'));

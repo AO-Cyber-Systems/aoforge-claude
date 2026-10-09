@@ -488,7 +488,7 @@ test.describe('agent-shell-harness — the runtime model (X)', () => {
 // it diagnosable:
 //   Scratch repo and stubs (F)
 //     F1 — makeScratchRepo() builds a monorepo by hand: flutter/pubspec.yaml, lib/,
-//          integration_test/, test_driver/integration_test.dart, .planning/objectives/
+//          integration_test/, test_driver/integration_test.dart, .aoforge/objectives/
 //          34-demo/, and a git repo with one commit
 //     F2 — the REAL `aof-tools verify flutter-ui-bootstrap` resolves packageDir to
 //          <root>/flutter, ABSOLUTE (the W0-4 contract executor.md's prose relies on)
@@ -527,7 +527,7 @@ test.describe('agent-shell-harness — the scratch monorepo and the stubs (F)', 
     ]) {
       assert.ok(fs.existsSync(path.join(root, rel)), `${rel} must exist`);
     }
-    assert.ok(fs.statSync(path.join(root, '.planning/objectives/34-demo')).isDirectory(),
+    assert.ok(fs.statSync(path.join(root, '.aoforge/objectives/34-demo')).isDirectory(),
       'the objective dir the evidence mv lands under');
 
     // `git rev-parse --show-toplevel` is executor.md's re-derivation path for $REPO_ROOT.
@@ -581,7 +581,7 @@ test.describe('agent-shell-harness — the scratch monorepo and the stubs (F)', 
       'flutter drive emits the WEB screenshots under their own name, so the web and '
       + 'mobile evidence moves in executor.md are each independently falsifiable');
 
-    const junit = path.join(root, '.planning/objectives/34-demo/evidence/maestro.xml');
+    const junit = path.join(root, '.aoforge/objectives/34-demo/evidence/maestro.xml');
     fs.mkdirSync(path.dirname(junit), { recursive: true });
     run('maestro', ['test', '.maestro/', '--format', 'junit', '--output', junit]);
     assert.ok(fs.existsSync(junit), 'maestro writes the junit xml at --output');
@@ -853,7 +853,7 @@ test.describe('agent-shell-harness — the `# harness:` annotation vocabulary (A
 
     assert.strictEqual(out.root.ok, true, `from the repo root: ${JSON.stringify(out.root.findings)}`);
     assert.strictEqual(out.subdir.ok, true, `from <root>/flutter: ${JSON.stringify(out.subdir.findings)}`);
-    assert.strictEqual(out.root.landed, '.planning/objectives/34-demo/evidence/shot.png');
+    assert.strictEqual(out.root.landed, '.aoforge/objectives/34-demo/evidence/shot.png');
     assert.strictEqual(out.root.landed, out.subdir.landed,
       'the SAME landing path from either starting cwd — that is the whole claim');
   });

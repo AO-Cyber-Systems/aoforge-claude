@@ -16,8 +16,8 @@ const upgrade = require('../upgrade.cjs');
 const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0008-runtime-state-untrack.cjs');
-const GUARD = '.planning/.progress-guard.json';
-const CACHE = '.planning/.awareness-cache.json';
+const GUARD = '.aoforge/.progress-guard.json';
+const CACHE = '.aoforge/.awareness-cache.json';
 const GITIGNORE = '.gitignore';
 const HEADER = '# AOForge runtime state (migration 0008)';
 const PLUGIN_VERSION = '2.12.0';
@@ -122,9 +122,9 @@ describe('migration 0008 runtime-state-untrack', () => {
     assert.equal(det.applies, false);
   });
 
-  test('5d2. a .planning/ rule counts as ignored (check-ignore, not string matching) -> applies:false', (t) => {
+  test('5d2. a .aoforge/ rule counts as ignored (check-ignore, not string matching) -> applies:false', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = project({ tracked: [], untrackedPresent: [GUARD, CACHE], gitignore: '.planning/\n' });
+    const p = project({ tracked: [], untrackedPresent: [GUARD, CACHE], gitignore: '.aoforge/\n' });
     const det = m0008().detect(ctxFor(p));
     assert.equal(det.applies, false);
   });
@@ -161,19 +161,19 @@ describe('migration 0008 runtime-state-untrack', () => {
 
     const res = m0008().apply(ctxFor(p));
     assert.deepEqual(res.changed, [GITIGNORE, GUARD]);
-    assert.match(String(res.notes), /untracked: \.planning\/\.progress-guard\.json/);
+    assert.match(String(res.notes), /untracked: \.aoforge\/\.progress-guard\.json/);
     assert.equal(readRel(p.root, GITIGNORE), `${HEADER}\n${GUARD}\n${CACHE}\n`);
     assert.deepEqual(trackedRuntime(p), [], 'guard file no longer in the index');
     assert.equal(readRel(p.root, GUARD), guardBytes, 'working copy never deleted or rewritten');
     assert.equal(git(p, 'check-ignore', '--no-index', '--', GUARD).trim(), GUARD, 'now ignored');
   });
 
-  test('6b. .gitignore with .planning/ -> no entries added, but the tracked file is still rm --cached', (t) => {
+  test('6b. .gitignore with .aoforge/ -> no entries added, but the tracked file is still rm --cached', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = project({ tracked: [GUARD, CACHE], gitignore: '.planning/\n' });
+    const p = project({ tracked: [GUARD, CACHE], gitignore: '.aoforge/\n' });
 
     const res = m0008().apply(ctxFor(p));
-    assert.equal(readRel(p.root, GITIGNORE), '.planning/\n', '.gitignore byte-identical');
+    assert.equal(readRel(p.root, GITIGNORE), '.aoforge/\n', '.gitignore byte-identical');
     assert.deepEqual(res.changed, [GUARD, CACHE].sort(), '.gitignore omitted from changed');
     assert.deepEqual(trackedRuntime(p), []);
     assert.ok(fs.existsSync(path.join(p.root, GUARD)));
@@ -257,21 +257,21 @@ describe('migration 0008 runtime-state-untrack', () => {
     const report = upgrade.apply({ projectRoot: p.root, userHome: p.home, pluginVersion: PLUGIN_VERSION });
     assert.deepEqual(report.failed, []);
     assert.ok(report.applied.some((a) => a.id === '0008'), `applied: ${JSON.stringify(report.applied)}`);
-    assert.deepEqual(report.changed_files, [GITIGNORE, GUARD, '.planning/config.json'].sort());
+    assert.deepEqual(report.changed_files, [GITIGNORE, GUARD, '.aoforge/config.json'].sort());
     assert.deepEqual(trackedRuntime(p), []);
   });
 });
 
-// ─── TRD 45-02: nested `.planning/` runtime state (DOC-02) ─────────────────────
+// ─── TRD 45-02: nested `.aoforge/` runtime state (DOC-02) ─────────────────────
 //
-// aodex also tracks `flutter/.planning/.progress-guard.json`, which the root-only 0008 never saw.
-// Discovery goes through git pathspecs (`:(glob)**/.planning/<name>`), never a filesystem walk.
+// aodex also tracks `flutter/.aoforge/.progress-guard.json`, which the root-only 0008 never saw.
+// Discovery goes through git pathspecs (`:(glob)**/.aoforge/<name>`), never a filesystem walk.
 
-const NESTED_GUARD = 'flutter/.planning/.progress-guard.json';
-const NESTED_CACHE = 'packages/app/.planning/.awareness-cache.json';
+const NESTED_GUARD = 'flutter/.aoforge/.progress-guard.json';
+const NESTED_CACHE = 'packages/app/.aoforge/.awareness-cache.json';
 const RUNTIME_GLOBS = [
-  ':(glob)**/.planning/.progress-guard.json',
-  ':(glob)**/.planning/.awareness-cache.json',
+  ':(glob)**/.aoforge/.progress-guard.json',
+  ':(glob)**/.aoforge/.awareness-cache.json',
 ];
 
 /** Every runtime-state path git tracks at any depth, sorted. */
@@ -287,15 +287,15 @@ function isIgnored(p, rel) {
 }
 
 describe('nested runtime state (TRD 45-02)', () => {
-  test('1. isRuntimeStatePath: `.planning/<basename>` at any depth, nothing else', () => {
+  test('1. isRuntimeStatePath: `.aoforge/<basename>` at any depth, nothing else', () => {
     const { isRuntimeStatePath, RUNTIME_STATE_BASENAMES } = m0008();
     assert.deepEqual(RUNTIME_STATE_BASENAMES, ['.progress-guard.json', '.awareness-cache.json']);
-    assert.equal(isRuntimeStatePath('.planning/.progress-guard.json'), true);
-    assert.equal(isRuntimeStatePath('flutter/.planning/.awareness-cache.json'), true);
-    assert.equal(isRuntimeStatePath('a/b/c/.planning/.progress-guard.json'), true);
-    assert.equal(isRuntimeStatePath('.planning/progress-guard.json'), false);
+    assert.equal(isRuntimeStatePath('.aoforge/.progress-guard.json'), true);
+    assert.equal(isRuntimeStatePath('flutter/.aoforge/.awareness-cache.json'), true);
+    assert.equal(isRuntimeStatePath('a/b/c/.aoforge/.progress-guard.json'), true);
+    assert.equal(isRuntimeStatePath('.aoforge/progress-guard.json'), false);
     assert.equal(isRuntimeStatePath('x/planning/.progress-guard.json'), false);
-    assert.equal(isRuntimeStatePath('.planning/sub/.progress-guard.json'), false);
+    assert.equal(isRuntimeStatePath('.aoforge/sub/.progress-guard.json'), false);
     assert.equal(isRuntimeStatePath('.progress-guard.json'), false);
   });
 
@@ -370,9 +370,9 @@ describe('nested runtime state (TRD 45-02)', () => {
     assert.equal(m.detect(ctxFor(p, { dryRun: true })).applies, false);
   });
 
-  test('7. nested file already ignored by a `**/.planning/` rule and untracked -> applies:false', (t) => {
+  test('7. nested file already ignored by a `**/.aoforge/` rule and untracked -> applies:false', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
-    const p = project({ tracked: [], untrackedPresent: [NESTED_GUARD], gitignore: '**/.planning/\n' });
+    const p = project({ tracked: [], untrackedPresent: [NESTED_GUARD], gitignore: '**/.aoforge/\n' });
     const det = m0008().detect(ctxFor(p));
     assert.equal(det.applies, false, det.reason);
   });
@@ -395,7 +395,7 @@ describe('nested runtime state (TRD 45-02)', () => {
     const root = fx.makeStampedProject('2.0.0');
     const home = fx.makeFakeHome();
     cleanup.push(root, home);
-    fs.mkdirSync(path.join(root, 'flutter/.planning'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'flutter/.aoforge'), { recursive: true });
     fs.writeFileSync(path.join(root, NESTED_GUARD), '{}\n');
     const found = m0008().discover({ projectRoot: root, userHome: home, pluginVersion: PLUGIN_VERSION, dryRun: true, options: {} });
     assert.deepEqual(found, { tracked: [], present: [], unignored: [] });

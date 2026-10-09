@@ -6,7 +6,7 @@
 // Test list (TRD 57-03), outermost first:
 //   end to end (spawned aof-tools, HOME = fake home)
 //     1 stamp writes the six token fields into a SUMMARY draft           2 summary post publishes them
-//     3 no transcript: exit 0, stamped:false, draft unchanged            4 a --draft inside .planning/ is refused
+//     3 no transcript: exit 0, stamped:false, draft unchanged            4 a --draft inside .aoforge/ is refused
 //     5 shared objective number: draft path decides, else ambiguous      6 tokens trd --raw / JSON
 //     7 re-stamp overwrites after the transcript grew                    8 usage errors exit 1       9 --help
 //   in-process
@@ -87,15 +87,15 @@ function bodyOf(text) {
 }
 
 /**
- * A fake project: `<tmp>/repo/.planning/objectives/<dir>/` per `dirs` (99-demo also gets its 99-01 TRD), a fake HOME
+ * A fake project: `<tmp>/repo/.aoforge/objectives/<dir>/` per `dirs` (99-demo also gets its 99-01 TRD), a fake HOME
  * with an empty projects tree, and a drafts directory outside the repo.
  */
 function makeProject({ dirs = ['99-demo'] } = {}) {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-tokens-')));
   const repo = path.join(tmp, 'repo');
-  for (const d of dirs) fs.mkdirSync(path.join(repo, '.planning', 'objectives', d), { recursive: true });
+  for (const d of dirs) fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', d), { recursive: true });
   if (dirs.includes('99-demo')) {
-    fs.writeFileSync(path.join(repo, '.planning', 'objectives', '99-demo', '99-01-demo-TRD.md'), TRD_TEXT);
+    fs.writeFileSync(path.join(repo, '.aoforge', 'objectives', '99-demo', '99-01-demo-TRD.md'), TRD_TEXT);
   }
   const { home, projectsRoot } = makeFakeHome();
   const drafts = path.join(tmp, 'drafts');
@@ -187,7 +187,7 @@ describe('aof-tools tokens stamp (end to end)', () => {
       const post = p.run(['summary', 'post', '99-01', '--from', draft]);
       assert.equal(post.status, 0, `${post.stdout}\n${post.stderr}`);
 
-      const published = fs.readFileSync(path.join(p.repo, '.planning', 'objectives', '99-demo', '99-01-SUMMARY.md'), 'utf-8');
+      const published = fs.readFileSync(path.join(p.repo, '.aoforge', 'objectives', '99-demo', '99-01-SUMMARY.md'), 'utf-8');
       assert.match(published, /^tokens_input: 140747$/m);
       assert.match(published, /^tokens_output: 1370$/m);
     } finally {
@@ -211,11 +211,11 @@ describe('aof-tools tokens stamp (end to end)', () => {
     }
   });
 
-  test('4. a --draft inside .planning/ exits 1, names --draft and summary post, and is not touched', () => {
+  test('4. a --draft inside .aoforge/ exits 1, names --draft and summary post, and is not touched', () => {
     const p = makeProject();
     try {
       p.transcript('99-01', '99-demo');
-      const inside = path.join(p.repo, '.planning', 'objectives', '99-demo', '99-01-SUMMARY.md');
+      const inside = path.join(p.repo, '.aoforge', 'objectives', '99-demo', '99-01-SUMMARY.md');
       fs.writeFileSync(inside, SUMMARY_TEXT);
       const before = fs.readFileSync(inside);
 
@@ -487,8 +487,8 @@ function treeBytes(dir) {
 /** makeProject with the two backfill SUMMARYs (and a config.json); 99-01 has a transcript, 98-01 does not. */
 function makeBackfillProject() {
   const p = makeProject({ dirs: ['99-demo', '98-old'] });
-  const objectives = path.join(p.repo, '.planning', 'objectives');
-  fs.writeFileSync(path.join(p.repo, '.planning', 'config.json'), '{}\n');
+  const objectives = path.join(p.repo, '.aoforge', 'objectives');
+  fs.writeFileSync(path.join(p.repo, '.aoforge', 'config.json'), '{}\n');
   fs.writeFileSync(path.join(objectives, '99-demo', '99-01-SUMMARY.md'), SUMMARY_TEXT);
   fs.writeFileSync(path.join(objectives, '98-old', '98-01-SUMMARY.md'), SUMMARY_98_01);
   p.transcript('99-01', '99-demo');
@@ -743,7 +743,7 @@ describe('66-01 tokens coverage (end to end)', () => {
       assert.equal(r.scope.kind, 'milestone');
       assert.equal(r.scope.version, 'v1.5');
       assert.deepEqual(r.entries.map((e) => [e.id, e.class, e.path]), [
-        ['64-01', 'live', '.planning/milestones/v1.5-objectives/64-old/64-01-SUMMARY.md'],
+        ['64-01', 'live', '.aoforge/milestones/v1.5-objectives/64-old/64-01-SUMMARY.md'],
       ]);
       assert.equal(r.forward.ratio_text, '1');
       assert.equal(r.forward.met, true);
@@ -767,7 +767,7 @@ describe('66-01 tokens coverage (end to end)', () => {
       assert.equal(r.scope.kind, 'objective');
       assert.equal(r.scope.objective, '65');
       assert.deepEqual(r.entries.map((e) => e.id), ['65-01', '65-02', '65-03', '65-04']);
-      assert.deepEqual(r.scope.objectives, [{ number: '65', dir: '.planning/objectives/65-release' }]);
+      assert.deepEqual(r.scope.objectives, [{ number: '65', dir: '.aoforge/objectives/65-release' }]);
       assert.ok(
         coverageText(p, ['--objective', '65']).startsWith('objective 65 forward-stamped 2/4 = 0.5 (target 95%: not met)'),
       );

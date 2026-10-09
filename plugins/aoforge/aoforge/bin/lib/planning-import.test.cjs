@@ -65,7 +65,7 @@ function useProject({ store = true } = {}) {
   });
 }
 
-const planning = (rel) => path.join(S.root, '.planning', ...rel.split('/'));
+const planning = (rel) => path.join(S.root, '.aoforge', ...rel.split('/'));
 function seed(rel, text) {
   fs.mkdirSync(path.dirname(planning(rel)), { recursive: true });
   fs.writeFileSync(planning(rel), text);

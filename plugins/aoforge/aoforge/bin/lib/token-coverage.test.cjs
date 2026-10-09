@@ -175,19 +175,19 @@ describe('66-01 token-coverage: collectSummaries', () => {
     });
     try {
       fs.writeFileSync(
-        path.join(p.repo, '.planning', 'objectives', '65-a', '65-02-push-branch-SUMMARY.md'),
+        path.join(p.repo, '.aoforge', 'objectives', '65-a', '65-02-push-branch-SUMMARY.md'),
         summaryText('backfill', { id: '65-02', objectiveDir: '65-a' }),
       );
       const { entries, skipped } = collectSummaries(p.repo, [
-        { number: '65', dir: '.planning/objectives/65-a' },
-        { number: '65', dir: '.planning/objectives/65-b' },
+        { number: '65', dir: '.aoforge/objectives/65-a' },
+        { number: '65', dir: '.aoforge/objectives/65-b' },
       ]);
       assert.deepEqual(entries.map((e) => [e.id, e.file, e.class, e.objective_dir, e.objective]), [
         ['65-01', '65-01-SUMMARY.md', 'live', '65-a', '65'],
         ['65-02', '65-02-push-branch-SUMMARY.md', 'backfill', '65-a', '65'],
         ['65-04', '65-04-SUMMARY.md', 'missing', '65-b', '65'],
       ]);
-      assert.equal(entries[0].path, '.planning/objectives/65-a/65-01-SUMMARY.md');
+      assert.equal(entries[0].path, '.aoforge/objectives/65-a/65-01-SUMMARY.md');
       assert.equal(entries[0].source, 'live');
       assert.deepEqual(skipped, []);
     } finally {
@@ -198,12 +198,12 @@ describe('66-01 token-coverage: collectSummaries', () => {
   test('11. an unkeyed file is skipped as unkeyed and a second file for the same id is skipped as duplicate', () => {
     const p = makeCoverageProject({ objectives: { '65-a': [{ id: '65-02', kind: 'live' }] } });
     try {
-      const dir = path.join(p.repo, '.planning', 'objectives', '65-a');
+      const dir = path.join(p.repo, '.aoforge', 'objectives', '65-a');
       fs.writeFileSync(path.join(dir, 'SUMMARY.md'), text('live'));
       fs.writeFileSync(path.join(dir, 'notes-SUMMARY.md'), text('live'));
       fs.writeFileSync(path.join(dir, '65-02-push-branch-SUMMARY.md'), summaryText('missing_final', { id: '65-02', objectiveDir: '65-a' }));
 
-      const { entries, skipped } = collectSummaries(p.repo, [{ number: '65', dir: '.planning/objectives/65-a' }]);
+      const { entries, skipped } = collectSummaries(p.repo, [{ number: '65', dir: '.aoforge/objectives/65-a' }]);
       assert.deepEqual(entries.map((e) => [e.id, e.file, e.class]), [['65-02', '65-02-SUMMARY.md', 'live']],
         'the first in sorted order wins and counts once');
       assert.deepEqual(skipped, [
@@ -220,8 +220,8 @@ describe('66-01 token-coverage: collectSummaries', () => {
     const p = makeCoverageProject({ objectives: { '65-a': [{ id: '65-01', kind: null }] } });
     try {
       const out = collectSummaries(p.repo, [
-        { number: '65', dir: '.planning/objectives/65-a' },
-        { number: '70', dir: '.planning/objectives/70-gone' },
+        { number: '65', dir: '.aoforge/objectives/65-a' },
+        { number: '70', dir: '.aoforge/objectives/70-gone' },
       ]);
       assert.deepEqual(out, { entries: [], skipped: [] }, 'the TRD alone is not a SUMMARY');
     } finally {
@@ -232,8 +232,8 @@ describe('66-01 token-coverage: collectSummaries', () => {
   test('11. a SUMMARY that cannot be read is missing with reason unreadable and the scan goes on', () => {
     const p = makeCoverageProject({ objectives: { '65-a': [{ id: '65-01', kind: 'live' }] } });
     try {
-      fs.mkdirSync(path.join(p.repo, '.planning', 'objectives', '65-a', '65-05-SUMMARY.md'));
-      const { entries } = collectSummaries(p.repo, [{ number: '65', dir: '.planning/objectives/65-a' }]);
+      fs.mkdirSync(path.join(p.repo, '.aoforge', 'objectives', '65-a', '65-05-SUMMARY.md'));
+      const { entries } = collectSummaries(p.repo, [{ number: '65', dir: '.aoforge/objectives/65-a' }]);
       assert.deepEqual(entries.map((e) => [e.id, e.class, e.reason || null]), [
         ['65-01', 'live', null],
         ['65-05', 'missing', 'unreadable'],
@@ -257,7 +257,7 @@ describe('66-01 token-coverage: explainMissing', () => {
       },
     });
     p.transcript('65-03', '65-release');
-    const { entries } = collectSummaries(p.repo, [{ number: '65', dir: '.planning/objectives/65-release' }]);
+    const { entries } = collectSummaries(p.repo, [{ number: '65', dir: '.aoforge/objectives/65-release' }]);
     const index = tokenUsage.indexExecutorTranscripts({ root: p.projectsRoot, repoRoot: p.repo });
     return { p, entries, index };
   }
@@ -328,8 +328,8 @@ describe('66-01 token-coverage: explainMissing', () => {
         records: THREE_MESSAGES,
       });
       const { entries } = collectSummaries(p.repo, [
-        { number: '65', dir: '.planning/objectives/65-a' },
-        { number: '65', dir: '.planning/objectives/65-b' },
+        { number: '65', dir: '.aoforge/objectives/65-a' },
+        { number: '65', dir: '.aoforge/objectives/65-b' },
       ]);
       const index = tokenUsage.indexExecutorTranscripts({ root: p.projectsRoot, repoRoot: p.repo });
       assert.equal(index.entries.length, 1, 'the directory-less transcript is identified');
@@ -404,9 +404,9 @@ describe('66-01 token-coverage: buildCoverage', () => {
     });
     try {
       const dirs = [
-        { number: '10', dir: '.planning/objectives/10-late' },
-        { number: '4.1', dir: '.planning/objectives/04.1-hotfix' },
-        { number: '4', dir: '.planning/objectives/04-early' },
+        { number: '10', dir: '.aoforge/objectives/10-late' },
+        { number: '4.1', dir: '.aoforge/objectives/04.1-hotfix' },
+        { number: '4', dir: '.aoforge/objectives/04-early' },
       ];
       const report = buildCoverage({
         readRoot: p.repo,
@@ -430,7 +430,7 @@ describe('66-01 token-coverage: buildCoverage', () => {
     });
     try {
       let calls = 0;
-      const dirs = [{ number: '65', dir: '.planning/objectives/65-release' }];
+      const dirs = [{ number: '65', dir: '.aoforge/objectives/65-release' }];
       const before = hashTree(p.repo);
       const report = buildCoverage({
         readRoot: p.repo,

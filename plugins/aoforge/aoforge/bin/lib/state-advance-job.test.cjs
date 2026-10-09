@@ -35,7 +35,7 @@
  *   13. Legacy control: the 48-13 counters (2/4), no --objective -> unchanged result.
  *   14. The pre-59 call shape `cmdStateAdvanceJob(cwd, raw)` still works.
  *
- * Fixtures: lib/__fixtures__/state-position-fixtures.cjs. The repo's own .planning/ is
+ * Fixtures: lib/__fixtures__/state-position-fixtures.cjs. The repo's own .aoforge/ is
  * never touched; aof-tools is spawned with the temp project as cwd under a fake HOME.
  */
 
@@ -93,7 +93,7 @@ function edit(src, from, to) {
 }
 
 function exists(p, rel) {
-  return fs.existsSync(path.join(p.root, '.planning', rel));
+  return fs.existsSync(path.join(p.root, '.aoforge', rel));
 }
 
 const FOUR_TRDS = [{ nn: '01' }, { nn: '02' }, { nn: '03' }, { nn: '04' }];
@@ -229,7 +229,7 @@ describe('state advance-job --objective: position from disk (PLMB-01)', () => {
       objectives: [{ dir: '07-alpha', trds: FOUR_TRDS, summaries: ['01', '02'] }],
     });
     run(['state', 'advance-job', '--objective', '7'], p.root);
-    fs.writeFileSync(path.join(p.root, '.planning', 'objectives', '07-alpha', '07-03-SUMMARY.md'), '# s\n', 'utf-8');
+    fs.writeFileSync(path.join(p.root, '.aoforge', 'objectives', '07-alpha', '07-03-SUMMARY.md'), '# s\n', 'utf-8');
     const r = run(['state', 'advance-job', '--objective', '7'], p.root);
     assert.equal(r.json.advanced, true);
     assert.equal(r.json.previous_job, 2);

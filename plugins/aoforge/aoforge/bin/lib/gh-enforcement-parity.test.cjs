@@ -78,7 +78,7 @@ function git(p, ...args) {
 
 /**
  * A local-mode git repo on `main`: the makeStoreProject fixture (objective 7 and its TRDs) with `commit_docs` on, the
- * `github` block replaced by `github` (null removes it), one tracked source file and NO store gitignore block, so `.planning/`
+ * `github` block replaced by `github` (null removes it), one tracked source file and NO store gitignore block, so `.aoforge/`
  * is tracked as it is today. A recording `gh` shim (every call fails) sits first on PATH.
  */
 function localRepo(github) {
@@ -91,7 +91,7 @@ function localRepo(github) {
 
   const config = { commit_docs: true };
   if (github) config.github = github;
-  write(root, '.planning/config.json', `${JSON.stringify(config)}\n`);
+  write(root, '.aoforge/config.json', `${JSON.stringify(config)}\n`);
   write(root, SRC, 'module.exports = 0;\n');
   fx.initGitFixture(root, home);
 
@@ -203,7 +203,7 @@ describe('D-01 parity: store off, objective 50 changes nothing (test 8)', () => 
       const got = run(variant);
       assert.deepEqual(got.snapshot.commitOnMain, base.snapshot.commitOnMain, `${variant.name}: commit on main`);
       assert.deepEqual(got.snapshot.commitOnUnlinked, base.snapshot.commitOnUnlinked, `${variant.name}: commit on feat/x`);
-      assert.ok(!fs.existsSync(path.join(got.p.root, '.planning', '.override-log.jsonl')), `${variant.name}: no override log`);
+      assert.ok(!fs.existsSync(path.join(got.p.root, '.aoforge', '.override-log.jsonl')), `${variant.name}: no override log`);
       assert.deepEqual(got.p.shim.readCalls(), [], `${variant.name}: zero gh calls`);
     }
     assert.deepEqual(base.p.shim.readCalls(), [], 'baseline: zero gh calls');
@@ -292,9 +292,9 @@ describe('D-01 parity: store off, objective 50 changes nothing (test 8)', () => 
       const { p } = run(variant);
       assert.deepEqual(files(p.outbox), [], `${variant.name}: no outbox journal`);
       for (const name of ['.gh-mapping.json', '.override-log.jsonl', '.gh-sync-state.json']) {
-        assert.ok(!fs.existsSync(path.join(p.root, '.planning', name)), `${variant.name}: no ${name}`);
+        assert.ok(!fs.existsSync(path.join(p.root, '.aoforge', name)), `${variant.name}: no ${name}`);
       }
-      assert.equal(git(p, 'status', '--porcelain', '--', '.planning/'), '', `${variant.name}: .planning/ stays tracked and clean`);
+      assert.equal(git(p, 'status', '--porcelain', '--', '.aoforge/'), '', `${variant.name}: .aoforge/ stays tracked and clean`);
     }
   });
 });

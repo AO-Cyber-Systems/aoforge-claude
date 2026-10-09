@@ -105,7 +105,7 @@ describe('local mode (store off)', () => {
     assert.deepEqual(health.collectStoreHealth(proj.root), { applicable: false, findings: [] });
   });
 
-  test('1c. a directory with no .planning/ at all is not applicable', () => {
+  test('1c. a directory with no .aoforge/ at all is not applicable', () => {
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-health-bare-'));
     try {
       assert.deepEqual(health.collectStoreHealth(bare), { applicable: false, findings: [] });
@@ -368,7 +368,7 @@ describe('W059 orphans (the offline half)', () => {
 
 describe('W060 frozen-body drift', () => {
   const FILE = '07-02-beta-TRD.md';
-  const trdPath = () => path.join(proj.root, '.planning', 'objectives', proj.objectiveDir, FILE);
+  const trdPath = () => path.join(proj.root, '.aoforge', 'objectives', proj.objectiveDir, FILE);
 
   /** The base the flusher records for a frozen TRD: it hashes the issue body, which is encodeTrdBody of the file. */
   function freezeBase(root, text, extra = {}) {
@@ -446,7 +446,7 @@ describe('W060 frozen-body drift', () => {
     const original = fs.readFileSync(trdPath(), 'utf8');
     freezeBase(root, original);
     fs.writeFileSync(trdPath(), `${original}\nedited\n`);
-    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), '{ not json');
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), '{ not json');
 
     const result = health.collectStoreHealth(root);
 
@@ -475,7 +475,7 @@ describe('W060 frozen-body drift', () => {
 describe('W061 the check itself failed', () => {
   test('7a. an unparseable mapping is one W061, no throw; checks that do not need it still run', () => {
     const root = storeProject(null);
-    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), '{ not json');
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), '{ not json');
     queueTwo(root);
 
     let result;
@@ -491,7 +491,7 @@ describe('W061 the check itself failed', () => {
 
   test('7b. a mapping from a newer AOForge is a W061, never a crash', () => {
     const root = storeProject(null);
-    fs.writeFileSync(path.join(root, '.planning', '.gh-mapping.json'), JSON.stringify({ version: 99, objectives: {} }));
+    fs.writeFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), JSON.stringify({ version: 99, objectives: {} }));
 
     const result = health.collectStoreHealth(root);
 

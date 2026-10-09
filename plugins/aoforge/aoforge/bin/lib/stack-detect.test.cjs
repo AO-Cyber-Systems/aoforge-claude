@@ -287,7 +287,7 @@ describe('detectAreas: gitignored dirs never become areas (42-12 T1)', () => {
       assert.ok(dirsOf(staticOnly).includes('bundle/svcapp/'), JSON.stringify(dirsOf(staticOnly)));
       assert.equal(staticOnly.ignore_source, 'static');
       // Why --no-index: the dir holds a tracked file, so the default (index-aware) check says
-      // "not ignored" (exit 1) — the same miss as the `.planning` dir check.
+      // "not ignored" (exit 1) — the same miss as the `.aoforge` dir check.
       assert.equal(spawnSync('git', ['-C', root, 'check-ignore', '-q', 'bundle/svcapp']).status, 1);
       assert.equal(spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', 'bundle/svcapp']).status, 0);
     });

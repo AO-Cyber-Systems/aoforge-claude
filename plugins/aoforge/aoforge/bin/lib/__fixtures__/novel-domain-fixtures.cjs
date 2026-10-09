@@ -135,7 +135,7 @@ function makePatternsMd({ headings = [] } = {}) {
  * Directory layout:
  *   <tmpRoot>/
  *     package.json                                    ← optional
- *     .planning/
+ *     .aoforge/
  *       objectives/
  *         <NN>-<name>/
  *           <NN>-CONTEXT.md                           ← description source
@@ -154,15 +154,15 @@ function makePatternsMd({ headings = [] } = {}) {
 function setupObjectiveScaffold(tmpRoot, { objective = '98', description = null, packageJson = null, patternsMd = null } = {}) {
   const objectiveNum = String(objective).padStart(2, '0');
   const objectiveDirName = `${objectiveNum}-test-obj`;
-  const objectiveDir = path.join(tmpRoot, '.planning', 'objectives', objectiveDirName);
+  const objectiveDir = path.join(tmpRoot, '.aoforge', 'objectives', objectiveDirName);
 
   // Create directories
   fs.mkdirSync(objectiveDir, { recursive: true });
-  fs.mkdirSync(path.join(tmpRoot, '.planning', 'codebase'), { recursive: true });
+  fs.mkdirSync(path.join(tmpRoot, '.aoforge', 'codebase'), { recursive: true });
 
   // Write ROADMAP.md (minimal — required so findObjectiveInternal can parse objective number)
   const roadmapContent = `# Roadmap\n\n### Objective ${parseInt(objectiveNum, 10)}: Test objective\n\n**Goal:** Test.\n\n**Status:** In progress\n`;
-  fs.writeFileSync(path.join(tmpRoot, '.planning', 'ROADMAP.md'), roadmapContent, 'utf-8');
+  fs.writeFileSync(path.join(tmpRoot, '.aoforge', 'ROADMAP.md'), roadmapContent, 'utf-8');
 
   // Write CONTEXT.md if description provided
   if (description !== null) {
@@ -177,7 +177,7 @@ function setupObjectiveScaffold(tmpRoot, { objective = '98', description = null,
 
   // Write PATTERNS.md if provided
   if (patternsMd !== null) {
-    fs.writeFileSync(path.join(tmpRoot, '.planning', 'codebase', 'PATTERNS.md'), patternsMd, 'utf-8');
+    fs.writeFileSync(path.join(tmpRoot, '.aoforge', 'codebase', 'PATTERNS.md'), patternsMd, 'utf-8');
   }
 
   return { objectiveDir, objectiveNum };

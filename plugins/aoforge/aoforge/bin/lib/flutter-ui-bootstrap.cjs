@@ -6,7 +6,7 @@
  * Implements `aof-tools verify flutter-ui-bootstrap <project-dir>`:
  * - Pure logic, no LLM, no network
  * - Checks pubspec.yaml dev_dependencies, integration_test/, .maestro/ dirs,
- *   and .planning/.flutter-ui-bootstrap-done marker
+ *   and .aoforge/.flutter-ui-bootstrap-done marker
  *
  * REQ-10-07 graceful-bootstrap semantics:
  *   action:'skip' — all checks pass (infra present + optionally marker present)
@@ -15,9 +15,9 @@
  *
  * Monorepo support (W0-4): the Flutter package may live at `projectDir/pubspec.yaml`
  * OR `projectDir/flutter/pubspec.yaml` (eden-biz/aodex layout — the executor's cwd and
- * AOForge's `.planning/` are always the repo root). resolveFlutterPackageDir
+ * AOForge's `.aoforge/` are always the repo root). resolveFlutterPackageDir
  * (flutter-package-dir.cjs) finds it; pubspec/integration_test/.maestro/test_driver
- * checks resolve against the resulting `packageDir`, while the `.planning/` marker
+ * checks resolve against the resulting `packageDir`, while the `.aoforge/` marker
  * always stays at `projectDir` (the repo root).
  *
  * Output shape:
@@ -35,6 +35,7 @@ const fs = require('fs');
 const path = require('path');
 const { output } = require('./helpers.cjs');
 const { resolveFlutterPackageDir } = require('./flutter-package-dir.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -60,18 +61,18 @@ const INTEGRATION_TEST_DEP_RE = /^\s+integration_test\s*:\s*\n\s+sdk\s*:\s*flutt
  *
  * PATHS: the task is executed from the repo root (the executor's cwd), so every
  * package path is prefixed with the resolved `prefix` (`flutter/` in a monorepo,
- * nothing in a root-layout project). The `.planning/` marker is AOForge's own and
+ * nothing in a root-layout project). The `.aoforge/` marker is AOForge's own and
  * always stays root-relative.
  *
  * @param {''|'flutter'} prefix - resolved package prefix from resolveFlutterPackageDir
  * @returns {string} XML task block
  */
-function setupTaskTemplate(prefix) {
+function setupTaskTemplate(prefix, planningDir = '.aoforge') {
   const p = prefix ? `${prefix}/` : '';
   return `<!-- Auto-emitted Flutter UI bootstrap setup task -->
 <task type="auto" caution="pause-before-destructive">
   <name>Bootstrap Flutter UI testing infrastructure</name>
-  <files>${p}pubspec.yaml, ${p}integration_test/.gitkeep, ${p}.maestro/.gitkeep, ${p}test_driver/integration_test.dart, .planning/.flutter-ui-bootstrap-done</files>
+  <files>${p}pubspec.yaml, ${p}integration_test/.gitkeep, ${p}.maestro/.gitkeep, ${p}test_driver/integration_test.dart, ${planningDir}/.flutter-ui-bootstrap-done</files>
   <action>
 First-time setup for Flutter UI verification (all paths relative to the repo root):
 
@@ -97,13 +98,13 @@ First-time setup for Flutter UI verification (all paths relative to the repo roo
 
 5. \`${p ? `( cd ${prefix} && flutter pub get )` : 'flutter pub get'}\` to install the new dev dep.
 
-6. ONLY AFTER all of 1-5 succeed: touch \`.planning/.flutter-ui-bootstrap-done\` to mark bootstrap complete.
+6. ONLY AFTER all of 1-5 succeed: touch \`${planningDir}/.flutter-ui-bootstrap-done\` to mark bootstrap complete.
    This marker triggers HARD FAIL on future runs if any of the above goes missing.
 
 The caution attribute pauses execution before this task lands so the user can review the proposed pubspec diff.
   </action>
   <verify>
-test -f .planning/.flutter-ui-bootstrap-done && \\
+test -f ${planningDir}/.flutter-ui-bootstrap-done && \\
   test -d ${p}integration_test && \\
   test -d ${p}.maestro && \\
   test -f ${p}test_driver/integration_test.dart && \\
@@ -140,9 +141,9 @@ function checkBootstrapState({ projectDir }) {
   const pubspecPath = path.join(packageDir, 'pubspec.yaml');
   const integrationTestDir = path.join(packageDir, 'integration_test');
   const maestroDir = path.join(packageDir, '.maestro');
-  // The `.planning/` marker is AOForge's own bookkeeping — it always lives at the
+  // The `.aoforge/` marker is AOForge's own bookkeeping — it always lives at the
   // repo root (projectDir), never under packageDir, even in the monorepo layout.
-  const markerPath = path.join(projectDir, '.planning', '.flutter-ui-bootstrap-done');
+  const markerPath = path.join(planningRoot(projectDir), '.flutter-ui-bootstrap-done');
 
   const missing = [];
 
@@ -181,7 +182,7 @@ function checkBootstrapState({ projectDir }) {
 
   // Only emit setup_task on first-run warn
   if (action === 'warn') {
-    result.setup_task = setupTaskTemplate(prefix);
+    result.setup_task = setupTaskTemplate(prefix, planningRel(projectDir));
   }
 
   return result;

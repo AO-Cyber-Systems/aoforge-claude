@@ -549,7 +549,7 @@ const BACKFILL_SHAPE = layout().shape;
  *   oversizeTrd       false  add a 61,000-char `NN-MM-big-step-TRD.md` to the last objective
  *   home              null   the fake home git runs with; a fresh `makeFakeHome()` when omitted (removed by cleanup)
  *
- * `files` lists every written path relative to `.planning/` in write order; `paths` names the deferred TRD, the TRD the
+ * `files` lists every written path relative to `.aoforge/` in write order; `paths` names the deferred TRD, the TRD the
  * decision blocks, and the variant files (null when absent). `cleanup()` removes the project (and a home it created).
  */
 function makeBackfillProject({
@@ -561,7 +561,7 @@ function makeBackfillProject({
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-backfill-'));
   try {
     for (const [rel, text] of entries) {
-      const full = path.join(root, '.planning', ...rel.split('/'));
+      const full = path.join(root, '.aoforge', ...rel.split('/'));
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, text, 'utf-8');
     }

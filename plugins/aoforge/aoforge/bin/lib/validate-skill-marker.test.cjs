@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Tests for validate health Check 19: the `.planning/.skill-active` marker, E006 and W064 (TRD 69-02, TOOL-09).
+ * Tests for validate health Check 19: the `.aoforge/.skill-active` marker, E006 and W064 (TRD 69-02, TOOL-09).
  *
  * Check 19 renders what skill-marker-health returns: E006 `skill-marker-tracked` (an error) when the marker is in the
  * git index, W064 `skill-marker-stale` (a warning) when an untracked marker is expired, unparseable or empty, or has no
@@ -103,7 +103,7 @@ describe('Check 19: the spawned CLI (test 1)', () => {
       [{ action: 'untrackSkillMarker', success: true, path: MARKER_NAME }]);
     assert.deepEqual(done.filter((r) => r.action === 'removeStaleSkillMarker'),
       [{ action: 'removeStaleSkillMarker', success: true, path: MARKER_NAME }]);
-    assert.equal(p.porcelain(), 'D  .planning/.skill-active\n');
+    assert.equal(p.porcelain(), 'D  .aoforge/.skill-active\n');
     assert.equal(fs.existsSync(p.markerPath), false);
     assert.equal(p.git(['rev-parse', 'HEAD']).stdout, head, 'HEAD has not moved');
     assert.deepEqual([...p.snapshot()], withoutMarker(before), 'every other file is byte-identical');
@@ -120,7 +120,7 @@ describe('Check 19: stale and live markers', () => {
     assert.equal(report.warnings.filter((i) => i.code === 'W064').length, 1, 'a warning');
     assert.equal(w064[0].repairable, true);
     assert.equal(byCode(report, 'E006').length, 0);
-    assert.match(w064[0].message, /^skill-marker-stale: \.planning\/\.skill-active \(expired at /);
+    assert.match(w064[0].message, /^skill-marker-stale: \.aoforge\/\.skill-active \(expired at /);
 
     const repaired = runHealth(p, { repair: true });
     assert.deepEqual((repaired.repairs_performed || []).filter((r) => r.action.endsWith('SkillMarker')),
@@ -176,7 +176,7 @@ describe('Check 19: tracked markers and the repair guard', () => {
     const done = (repaired.repairs_performed || []).filter((r) => r.action.endsWith('SkillMarker'));
     assert.deepEqual(done, [{ action: 'untrackSkillMarker', success: true, path: MARKER_NAME }]);
     assert.deepEqual(fs.readFileSync(p.markerPath), bytes);
-    assert.equal(p.porcelain(), 'D  .planning/.skill-active\n');
+    assert.equal(p.porcelain(), 'D  .aoforge/.skill-active\n');
     assert.deepEqual([...p.snapshot()], [...before]);
   });
 

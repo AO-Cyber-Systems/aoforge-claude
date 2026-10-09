@@ -43,9 +43,9 @@ const LINKED = '50-enforce';
 
 const U1_BLOCK = [
   '# >>> aoforge store (0010) >>>',
-  '.planning/*',
-  '!.planning/config.json',
-  '!.planning/STACK.md',
+  '.aoforge/*',
+  '!.aoforge/config.json',
+  '!.aoforge/STACK.md',
   '# <<< aoforge store (0010) <<<',
   '',
 ].join('\n');
@@ -112,7 +112,7 @@ function storeRepo({ store = true } = {}) {
   fs.writeFileSync(path.join(shim, 'gh'), `#!/bin/sh\necho "$@" >> "${ghLog}"\nexit 1\n`, { mode: 0o755 });
 
   write(root, SRC, 'module.exports = 0;\n');
-  write(root, '.planning/config.json', `${JSON.stringify({ commit_docs: true, github: { enabled: true, store } })}\n`);
+  write(root, '.aoforge/config.json', `${JSON.stringify({ commit_docs: true, github: { enabled: true, store } })}\n`);
   write(root, '.gitignore', U1_BLOCK);
   fx.initGitFixture(root, home);
 
@@ -169,7 +169,7 @@ function addWorktree(p, name, branch) {
 }
 
 function overrideLog(root) {
-  const file = path.join(root, '.planning', '.override-log.jsonl');
+  const file = path.join(root, '.aoforge', '.override-log.jsonl');
   if (!fs.existsSync(file)) return [];
   return fs.readFileSync(file, 'utf-8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
@@ -308,7 +308,7 @@ describe('50-06 executor worktrees (test 4)', () => {
     const p = storeRepo();
     git(p, 'checkout', '-q', '-b', LINKED);
     const wt = addWorktree(p, 'exec-50-03', 'df/exec-50-03');
-    assert.ok(!fs.existsSync(path.join(wt, '.planning', '.gh-mapping.json')), 'the worktree holds no mapping of its own');
+    assert.ok(!fs.existsSync(path.join(wt, '.aoforge', '.gh-mapping.json')), 'the worktree holds no mapping of its own');
     write(wt, SRC, 'module.exports = 7;\n');
 
     const r = dfCommit(p, 'feat(50-02): from the worktree', [SRC], { dir: wt });
@@ -391,7 +391,7 @@ describe('50-06 the logged escape (test 5)', () => {
   test('5d. a log failure does not block the escaped commit: gate_log_error says why', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = storeRepo();
-    fs.mkdirSync(path.join(p.root, '.planning', '.override-log.jsonl'));
+    fs.mkdirSync(path.join(p.root, '.aoforge', '.override-log.jsonl'));
     write(p.root, SRC, 'module.exports = 12;\n');
     const before = head(p);
 
@@ -528,8 +528,8 @@ describe('50-06 local mode parity (test 7)', () => {
   test('7c. no github block at all: a commit on main lands exactly as before', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = storeRepo();
-    write(p.root, '.planning/config.json', `${JSON.stringify({ commit_docs: true })}\n`);
-    git(p, 'add', '.planning/config.json');
+    write(p.root, '.aoforge/config.json', `${JSON.stringify({ commit_docs: true })}\n`);
+    git(p, 'add', '.aoforge/config.json');
     git(p, 'commit', '-q', '-m', 'chore: drop the github block');
     write(p.root, SRC, 'module.exports = 21;\n');
 
@@ -544,10 +544,10 @@ describe('50-06 the gate sits after the planning filter and before git add (test
   test('8a. every requested path ignored → skipped_gitignored, exit 0, gate not reached', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = storeRepo();
-    write(p.root, '.planning/STATE.md', '# State\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
     const before = head(p);
 
-    const r = dfCommit(p, 'docs: state', ['.planning/STATE.md']);
+    const r = dfCommit(p, 'docs: state', ['.aoforge/STATE.md']);
     assert.equal(r.status, 0, `${r.out} ${r.err}`);
     assert.deepEqual(r.json, { committed: false, hash: null, reason: 'skipped_gitignored' });
     assert.equal(head(p), before);
@@ -556,11 +556,11 @@ describe('50-06 the gate sits after the planning filter and before git add (test
   test('8b. an ignored planning path next to code still reaches the gate for the code', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = storeRepo();
-    write(p.root, '.planning/STATE.md', '# State\n');
+    write(p.root, '.aoforge/STATE.md', '# State\n');
     write(p.root, SRC, 'module.exports = 22;\n');
     const before = head(p);
 
-    const r = dfCommit(p, 'docs: state and code', ['.planning/STATE.md', SRC]);
+    const r = dfCommit(p, 'docs: state and code', ['.aoforge/STATE.md', SRC]);
     assertRefused(p, r, before, 'default_branch');
   });
 

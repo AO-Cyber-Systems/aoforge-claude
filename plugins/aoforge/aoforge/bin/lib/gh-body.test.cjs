@@ -171,13 +171,13 @@ describe('buildObjectiveSections', () => {
   test('4g: footer names the objective directory, preferring state.dir over objectiveId', () => {
     const s = ghBody.buildObjectiveSections(makeState());
     assert.ok(s.footer.startsWith('_Tracked by [AOForge]('));
-    assert.ok(s.footer.includes('`.planning/objectives/46-github-sync-foundations/`'));
+    assert.ok(s.footer.includes('`.aoforge/objectives/46-github-sync-foundations/`'));
 
     const viaDir = ghBody.buildObjectiveSections(makeState({ dir: '46-dir-name', objectiveId: '46-other' }));
-    assert.ok(viaDir.footer.includes('`.planning/objectives/46-dir-name/`'));
+    assert.ok(viaDir.footer.includes('`.aoforge/objectives/46-dir-name/`'));
 
     const viaObjectiveId = ghBody.buildObjectiveSections(makeState({ dir: undefined }));
-    assert.ok(viaObjectiveId.footer.includes('`.planning/objectives/46-github-sync-foundations/`'));
+    assert.ok(viaObjectiveId.footer.includes('`.aoforge/objectives/46-github-sync-foundations/`'));
   });
 
   test('4g2 (55-04): state.store swaps the footer for the store text; without the flag it is today\'s footer', () => {
@@ -185,17 +185,17 @@ describe('buildObjectiveSections', () => {
     assert.strictEqual(
       storeFooter,
       '_Tracked by [AOForge](https://github.com/AO-Cyber-Systems/aoforge-claude). ' +
-        'This issue is the source of truth (store mode); `.planning/` in a checkout is a local cache rebuilt from it._'
+        'This issue is the source of truth (store mode); `.aoforge/` in a checkout is a local cache rebuilt from it._'
     );
     assert.ok(!storeFooter.includes('in this repo'));
-    assert.ok(!storeFooter.includes('.planning/objectives/'));
+    assert.ok(!storeFooter.includes('.aoforge/objectives/'));
 
     // Mirror mode is byte-identical to the pre-55-04 footer, with the flag absent, false or any other value.
     const mirror = ghBody.buildObjectiveSections(makeState()).footer;
     assert.strictEqual(
       mirror,
       '_Tracked by [AOForge](https://github.com/AO-Cyber-Systems/aoforge-claude). ' +
-        'Source of truth: `.planning/objectives/46-github-sync-foundations/` in this repo._'
+        'Source of truth: `.aoforge/objectives/46-github-sync-foundations/` in this repo._'
     );
     assert.strictEqual(ghBody.buildObjectiveSections({ ...makeState(), store: false }).footer, mirror);
     assert.strictEqual(ghBody.buildObjectiveSections({ ...makeState(), store: 'yes' }).footer, mirror);

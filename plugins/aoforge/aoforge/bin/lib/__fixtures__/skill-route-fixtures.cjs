@@ -47,7 +47,7 @@ function buildSkillRouteResponse({
 
 /**
  * Build a canonical deprecation log entry shape.
- * Represents a single line in .planning/.deprecation-log.jsonl.
+ * Represents a single line in .aoforge/.deprecation-log.jsonl.
  *
  * @param {object} opts
  * @param {string} [opts.old_name]      - deprecated skill name (default: 'add-objective')

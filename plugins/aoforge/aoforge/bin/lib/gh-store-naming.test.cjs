@@ -3,7 +3,7 @@
 // gh-store-naming.test.cjs (TRD 55-04) — what a new store-mode objective issue is CALLED and what its footer SAYS.
 // Item 55-6 of the live smoke: `objective add "Hello CLI"` made the issue `[Objective 1] 01-hello-cli` (the directory
 // name, because a fresh store has no ROADMAP entry to read the name from), and the managed body ended with
-// "Source of truth: `.planning/objectives/<dir>/` in this repo", which is wrong when the issue IS the record.
+// "Source of truth: `.aoforge/objectives/<dir>/` in this repo", which is wrong when the issue IS the record.
 //
 // Test list (TRD 55-04), outermost first:
 //   title   1  store `objective add "Hello CLI"` on a project with an empty ROADMAP -> `[Objective 1] Hello CLI`
@@ -46,9 +46,9 @@ function useEmptyStoreProject({ roadmap = GENERATED_ROADMAP } = {}) {
   beforeEach((t) => {
     const envh = hermeticEnv();
     const project = makeStoreProject({ store: true });
-    fs.rmSync(path.join(project.root, '.planning', 'objectives', project.objectiveDir), { recursive: true, force: true });
-    fs.mkdirSync(path.join(project.root, '.planning', 'objectives'), { recursive: true });
-    fs.writeFileSync(path.join(project.root, '.planning', 'ROADMAP.md'), roadmap);
+    fs.rmSync(path.join(project.root, '.aoforge', 'objectives', project.objectiveDir), { recursive: true, force: true });
+    fs.mkdirSync(path.join(project.root, '.aoforge', 'objectives'), { recursive: true });
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'ROADMAP.md'), roadmap);
     const fake = createFakeGitHub(project.fakeOptions);
     const clock = { t: T0 };
     client._resetClient();
@@ -112,7 +112,7 @@ function runObjectiveAdd(description) {
 
 /** Write an OBJECTIVE.md for directory `dir` through the real store verb (the dir is created first, as `add` does). */
 function putObjective(dir, id, text) {
-  fs.mkdirSync(path.join(S.root, '.planning', 'objectives', dir), { recursive: true });
+  fs.mkdirSync(path.join(S.root, '.aoforge', 'objectives', dir), { recursive: true });
   const r = verbs.objectivePut(S.root, { id: String(id), text });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r;
@@ -130,7 +130,7 @@ describe('55-04 store objective issue title', () => {
     const { code, out } = runObjectiveAdd('Hello CLI');
     assert.equal(code, 0, JSON.stringify(out));
     assert.equal(out.objective_number, 1);
-    assert.equal(out.directory, '.planning/objectives/01-hello-cli');
+    assert.equal(out.directory, '.aoforge/objectives/01-hello-cli');
     const issues = objectiveIssues();
     assert.equal(issues.length, 1, `one objective issue, got ${JSON.stringify(issues.map((i) => i.title))}`);
     assert.equal(issues[0].title, '[Objective 1] Hello CLI');
@@ -161,7 +161,7 @@ describe('55-04 store objective issue footer', () => {
     assert.match(footer[0], /source of truth/i);
     assert.match(footer[0], /cache/);
     assert.ok(!footer[0].includes('in this repo'), footer[0]);
-    assert.ok(!issues[0].body.includes('.planning/objectives/'), 'the body must not point at a repo path');
+    assert.ok(!issues[0].body.includes('.aoforge/objectives/'), 'the body must not point at a repo path');
     // The footer is the LAST managed section: nothing AOForge-owned follows it.
     const begin = issues[0].body.indexOf('<!-- aoforge:begin footer -->');
     const end = issues[0].body.indexOf('<!-- aoforge:end footer -->');
@@ -181,7 +181,7 @@ describe('55-04 store objective issue footer', () => {
     const mirror = gh.buildIssueBody(state).split('\n').pop();
     assert.equal(
       mirror,
-      '_Tracked by [AOForge](https://github.com/AO-Cyber-Systems/aoforge-claude). Source of truth: `.planning/objectives/01-hello-cli/` in this repo._'
+      '_Tracked by [AOForge](https://github.com/AO-Cyber-Systems/aoforge-claude). Source of truth: `.aoforge/objectives/01-hello-cli/` in this repo._'
     );
     // The two builders agree on the store text.
     assert.equal(store, bodyLib.buildObjectiveSections({ ...state, store: true }).footer);

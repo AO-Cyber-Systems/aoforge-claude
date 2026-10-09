@@ -49,7 +49,7 @@ function track(dir) {
 
 function tmpProject() {
   const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-roadmap-progress-')));
-  fs.mkdirSync(path.join(dir, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(dir, '.aoforge', 'objectives'), { recursive: true });
   return dir;
 }
 
@@ -72,7 +72,7 @@ function run(args, cwd) {
 
 // Objective 12 dir with 10 TRDs (incl. suffixed 04a/04b/04c) and `count` SUMMARYs.
 function writeObjective12Dir(project, summaryCount) {
-  const dir = path.join(project, '.planning', 'objectives', '12-objective-under-test');
+  const dir = path.join(project, '.aoforge', 'objectives', '12-objective-under-test');
   fs.mkdirSync(dir, { recursive: true });
   const ids = ['01', '02', '03', '04a', '04b', '04c', '05', '06', '07', '08'];
   ids.forEach((id, i) => {
@@ -198,7 +198,7 @@ function jobsLine(roadmap, objectiveNum) {
 describe('roadmap update-job-progress — 5-column table (Milestone column present)', () => {
   test('updates only Plans + Status on objective 12’s row; Milestone, Objective 11/13 rows untouched', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10); // all 10 TRDs summarized -> Complete
 
     const result = run(['roadmap', 'update-job-progress', '12'], project);
@@ -207,7 +207,7 @@ describe('roadmap update-job-progress — 5-column table (Milestone column prese
     assert.equal(result.json.summary_count, 10);
     assert.equal(result.json.job_count, 10);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const row12 = progressRow(roadmap, 12);
 
     // Milestone column must survive byte-identical — this is the column that
@@ -225,12 +225,12 @@ describe('roadmap update-job-progress — 5-column table (Milestone column prese
 
   test('preserves hand-authored **Jobs:** detail instead of wiping it', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
 
     run(['roadmap', 'update-job-progress', '12'], project);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const line = jobsLine(roadmap, 12);
     assert.ok(line, 'Jobs line for objective 12 not found');
     assert.match(line, /^\*\*Jobs:\*\*\s*10\/10 jobs complete/, `counter prefix missing: ${line}`);
@@ -245,25 +245,25 @@ describe('roadmap update-job-progress — 5-column table (Milestone column prese
 
   test('duplicate "Objective 1" checklist entries inside the collapsed <details> block are never touched', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
 
     run(['roadmap', 'update-job-progress', '12'], project);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(roadmap, /- \[x\] Objective 1: Foundation \(3\/3 plans\)/);
     assert.match(roadmap, /- \[x\] Objective 1: Duplicate marker from parallel session \(2\/2 plans\) <!-- duplicate number, parallel session -->/);
   });
 
   test('partial completion (9/10) sets status In Progress and leaves Completed column as "—"', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 9);
 
     const result = run(['roadmap', 'update-job-progress', '12'], project);
     assert.equal(result.json.status, 'In Progress');
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const row12 = progressRow(roadmap, 12);
     assert.match(row12, /\|\s*v1\.1\s*\|/, `Milestone column dropped/corrupted: ${row12}`);
     assert.match(row12, /\|\s*9\/10\s*\|/, `Plans column wrong: ${row12}`);
@@ -275,14 +275,14 @@ describe('roadmap update-job-progress — 5-column table (Milestone column prese
 describe('roadmap update-job-progress — 4-column table (no Milestone column; older shape)', () => {
   test('still updates Plans + Status + Completed correctly with no Milestone column to misalign against', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), FOUR_COLUMN_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FOUR_COLUMN_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
 
     const result = run(['roadmap', 'update-job-progress', '12'], project);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.json.updated, true);
 
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     const row12 = progressRow(roadmap, 12);
     assert.match(row12, /\|\s*10\/10\s*\|/, `Plans column wrong: ${row12}`);
     assert.match(row12, /\|\s*Complete\s*\|/, `Status column wrong: ${row12}`);
@@ -401,11 +401,11 @@ describe('roadmap update-job-progress — Jobs-line leading-count seed (quick-20
 
   test('12: all 10 summaries present — leading count replaced in place, no "jobs" inserted; idempotent on rerun', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 10);
 
     run(['roadmap', 'update-job-progress', '12'], project);
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.equal(
       jobsLine(roadmap, 12),
       '**Jobs:** 10/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
@@ -414,17 +414,17 @@ describe('roadmap update-job-progress — Jobs-line leading-count seed (quick-20
 
     // Second run: byte-identical file (idempotent).
     run(['roadmap', 'update-job-progress', '12'], project);
-    const roadmapAgain = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmapAgain = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.equal(roadmapAgain, roadmap, 'second run must be byte-identical to the first');
   });
 
   test('13: 9 of 10 summaries present — leading count replaced with the partial numbers, author\'s own verb kept', () => {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), SEEDED_ROADMAP, 'utf-8');
     writeObjective12Dir(project, 9);
 
     run(['roadmap', 'update-job-progress', '12'], project);
-    const roadmap = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.equal(
       jobsLine(roadmap, 12),
       '**Jobs:** 9/10 complete — 10 TRDs in 4 waves (planned 2026-01-15; 12-04 split into 04a/04b/04c; notes about wave rebalancing)'
@@ -451,12 +451,12 @@ describe('roadmap update-job-progress — Jobs-line leading-count seed (quick-20
 describe('getMilestoneInfo — status-aware ## Milestones parsing', () => {
   const { getMilestoneInfo } = require('./roadmap.cjs');
 
-  // Writes `roadmapText` as .planning/ROADMAP.md in a fresh tmp project (or
+  // Writes `roadmapText` as .aoforge/ROADMAP.md in a fresh tmp project (or
   // writes nothing when it is null) and returns getMilestoneInfo(project).
   function milestoneInfoFor(roadmapText) {
     const project = tmpProject();
     if (roadmapText !== null) {
-      fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), roadmapText, 'utf-8');
+      fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), roadmapText, 'utf-8');
     }
     return getMilestoneInfo(project);
   }
@@ -472,7 +472,7 @@ describe('getMilestoneInfo — status-aware ## Milestones parsing', () => {
       '- 🚧 **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (in progress; audit 2026-09-28 gaps_found → 39–41)',
       '- 📋 **v1.4 — not yet planned** — candidate: Objective 26 (moved from v1.3 2026-09-28; kill candidate)',
       '',
-      'Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (contains both v1.1 and v1.2 detail).',
+      'Full archived roadmaps: `.aoforge/milestones/v1.2-ROADMAP.md` (contains both v1.1 and v1.2 detail).',
       '',
       '## Objectives',
       '',
@@ -662,9 +662,9 @@ describe('roadmap update-job-progress — nested TRD checkboxes', () => {
   // PASSED 39-01-SUMMARY.md on disk, so reconcile() sees drift there too.
   function writeNestedFixture(verdicts40) {
     const project = tmpProject();
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), NESTED_ROADMAP, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), NESTED_ROADMAP, 'utf-8');
 
-    const dir40 = path.join(project, '.planning', 'objectives', '40-fixture');
+    const dir40 = path.join(project, '.aoforge', 'objectives', '40-fixture');
     fs.mkdirSync(dir40, { recursive: true });
     for (const id of ['01', '02', '03']) {
       fs.writeFileSync(path.join(dir40, `40-${id}-TRD.md`), `# TRD 40-${id}\n`, 'utf-8');
@@ -677,7 +677,7 @@ describe('roadmap update-job-progress — nested TRD checkboxes', () => {
       }
     }
 
-    const dir39 = path.join(project, '.planning', 'objectives', '39-other');
+    const dir39 = path.join(project, '.aoforge', 'objectives', '39-other');
     fs.mkdirSync(dir39, { recursive: true });
     fs.writeFileSync(path.join(dir39, '39-01-TRD.md'), '# TRD 39-01\n', 'utf-8');
     fs.writeFileSync(path.join(dir39, '39-01-SUMMARY.md'), '# Summary 39-01\n\n## Self-Check: PASSED\n', 'utf-8');
@@ -685,7 +685,7 @@ describe('roadmap update-job-progress — nested TRD checkboxes', () => {
   }
 
   function readRoadmap(project) {
-    return fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    return fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
   }
 
   // Lines of the `### Objective N:` section, up to the next ##/### heading.
@@ -832,22 +832,22 @@ const ROADMAP_STORE_MESSAGE = 'ROADMAP.md is generated in store mode; run `aof-t
 
 function roadmap7Project(summaries, config) {
   const project = tmpProject();
-  const obj = path.join(project, '.planning', 'objectives', '07-seven');
+  const obj = path.join(project, '.aoforge', 'objectives', '07-seven');
   fs.mkdirSync(obj, { recursive: true });
-  fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), ROADMAP_7, 'utf-8');
+  fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), ROADMAP_7, 'utf-8');
   fs.writeFileSync(path.join(obj, '07-01-alpha-TRD.md'), '# a\n', 'utf-8');
   fs.writeFileSync(path.join(obj, '07-02-beta-TRD.md'), '# b\n', 'utf-8');
   for (const s of summaries) {
     fs.writeFileSync(path.join(obj, `${s}-SUMMARY.md`), '# s\n\n## Self-Check: PASSED\n', 'utf-8');
   }
   if (config) {
-    fs.writeFileSync(path.join(project, '.planning', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
   }
   return project;
 }
 
 function readRoadmap(project) {
-  return fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+  return fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
 }
 
 function rmEdit(src, from, to) {
@@ -940,7 +940,7 @@ describe('48-13 store mode — roadmap update-job-progress defers to gh pull --a
 
 describe('54-06 objective-number boundaries in roadmap analyze / get-objective / update-job-progress', () => {
   function writeRoadmap(project, body) {
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), body, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), body, 'utf-8');
   }
 
   // Item 1. RED before the fix: cmdRoadmapAnalyze's checkbox pattern had no trailing boundary, so
@@ -1013,7 +1013,7 @@ describe('54-06 objective-number boundaries in roadmap analyze / get-objective /
       '',
     ].join('\n');
     writeRoadmap(project, roadmap);
-    const dir = path.join(project, '.planning', 'objectives', '04.1-one');
+    const dir = path.join(project, '.aoforge', 'objectives', '04.1-one');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '04.1-01-TRD.md'), '# TRD 01\n', 'utf-8');
     fs.writeFileSync(path.join(dir, '04.1-01-SUMMARY.md'), '# Summary 01\n', 'utf-8');
@@ -1022,7 +1022,7 @@ describe('54-06 objective-number boundaries in roadmap analyze / get-objective /
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json.updated, true);
 
-    const after = fs.readFileSync(path.join(project, '.planning', 'ROADMAP.md'), 'utf-8');
+    const after = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(after, /^- \[ \] \*\*Objective 4\.10: Ten\*\*$/m, '4.10 stays unchecked');
     assert.match(after, /^- \[x\] \*\*Objective 4\.1: One\*\* \(completed \d{4}-\d{2}-\d{2}\)$/m, '4.1 is checked');
   });
@@ -1048,7 +1048,7 @@ function v15Section(num, name, { goal, requirements, dependsOn, criteria, form =
 
 describe('56-04 ROADMAP labels with the colon outside the bold', () => {
   function writeRoadmap(project, body) {
-    fs.writeFileSync(path.join(project, '.planning', 'ROADMAP.md'), body, 'utf-8');
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), body, 'utf-8');
   }
 
   const V15_GOAL = 'Objective lookups resolve exactly the objective asked for.';

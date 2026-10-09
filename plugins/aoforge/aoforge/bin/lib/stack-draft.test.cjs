@@ -89,7 +89,7 @@ describe('assembleDraft preference (D11)', () => {
 
     const d2 = assembleDraft({
       areas: ROOT_GO,
-      evidence: [...evidence, ev('test', 'go test -short ./...', { source: 'declared', sourceFile: '.planning/codebase/STACK.md' })],
+      evidence: [...evidence, ev('test', 'go test -short ./...', { source: 'declared', sourceFile: '.aoforge/codebase/STACK.md' })],
       tierCommands: TIERS,
       verify: resolvedAll,
     });
@@ -526,7 +526,7 @@ describe('assembleDraft tiered root/primary placement (B2, TRD 43-10)', () => {
   });
 
   test('B2h: a declared row still beats every tier', () => {
-    const declared = ev('build', './scripts/mine.sh', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', form: 'build', tool: null, bodyStacks: [], effectiveArea: '' });
+    const declared = ev('build', './scripts/mine.sh', { source: 'declared', sourceFile: '.aoforge/codebase/STACK.md', form: 'build', tool: null, bodyStacks: [], effectiveArea: '' });
     assert.deepStrictEqual(draft([t2(), t1(), declared]).commands.build, { run: './scripts/mine.sh' });
   });
 
@@ -1222,7 +1222,7 @@ describe('assembleDraft e2e_env prefers the scenario-named target (D34, TRD 43-0
   });
 
   test('D34c: source still outranks the flag: a declared body-only candidate beats a named runner target', () => {
-    const declared = ev('e2e_env', 'make infra-up', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', tool: 'docker' });
+    const declared = ev('e2e_env', 'make infra-up', { source: 'declared', sourceFile: '.aoforge/codebase/STACK.md', tool: 'docker' });
     const d = assembleDraft({ areas: NO_AREAS, evidence: [named(), declared], tierCommands: TIERS, verify: resolvedAll });
     assert.equal(d.commands.e2e_env.run, 'make infra-up');
   });
@@ -1504,7 +1504,7 @@ describe('assembleDraft e2e_env needs a scenario name (D38, TRD 43-06)', () => {
   });
 
   test('D38c: a declared body-only row is the user\'s own choice and stays the key', () => {
-    const declared = ev('e2e_env', 'make up', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', form: 'mutate', tool: 'docker' });
+    const declared = ev('e2e_env', 'make up', { source: 'declared', sourceFile: '.aoforge/codebase/STACK.md', form: 'mutate', tool: 'docker' });
     const d = assembleDraft({ areas: NO_AREAS, evidence: [declared], tierCommands: TIERS, verify: resolvedAll });
     assert.deepStrictEqual(d.commands.e2e_env, { run: 'make up' });
   });
@@ -1683,7 +1683,7 @@ describe('assembleDraft environment teardown and reset (T1-T5, TRD 43-11 test 7)
   });
 
   test('T5: a declared row is the user\'s own choice and stays', () => {
-    const declared = ev('e2e_env', 'make e2e-stack-down', { source: 'declared', sourceFile: '.planning/codebase/STACK.md', tool: null });
+    const declared = ev('e2e_env', 'make e2e-stack-down', { source: 'declared', sourceFile: '.aoforge/codebase/STACK.md', tool: null });
     const d = run([declared]);
     assert.deepStrictEqual(d.commands.e2e_env, { run: 'make e2e-stack-down' });
   });
@@ -1989,7 +1989,7 @@ describe('assembleDraft runtime-assigned variables rank after plain commands (RT
 
   test('RT3: the source ranks first: a CI runtime-var lane beats a plain docs line', () => {
     const d = run([
-      ev('test', 'go test -short ./... -count=1', { tool: 'go', source: 'docs', sourceFile: '.planning/codebase/TESTING.md' }),
+      ev('test', 'go test -short ./... -count=1', { tool: 'go', source: 'docs', sourceFile: '.aoforge/codebase/TESTING.md' }),
       ev('test', HEAVY, { tool: 'go', runtimeVar: true }),
     ]);
     assert.equal(d.commands.test.run, HEAVY);
@@ -2083,7 +2083,7 @@ describe('assembleDraft self-test steps never fill a key beside their gate (ST1-
 
   test('ST6: a declared row carrying a self-test argument is the user\'s own and is kept', () => {
     const d = run([
-      script('audit', `${GATE} --self-test`, 'vuln-gate', { source: 'declared', sourceFile: '.planning/codebase/STACK.md' }),
+      script('audit', `${GATE} --self-test`, 'vuln-gate', { source: 'declared', sourceFile: '.aoforge/codebase/STACK.md' }),
       script('audit', GATE, 'vuln-gate'),
     ]);
     assert.equal(d.commands.audit.run, `${GATE} --self-test`, JSON.stringify(d.commands.audit));

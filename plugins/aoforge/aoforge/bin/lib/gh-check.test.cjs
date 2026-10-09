@@ -498,7 +498,7 @@ describe('planningConsistency: an objective PR in store mode', () => {
     assert.ok(r.description.length <= 140);
   });
 
-  test('the module is pure: its only require is gh-body, so it cannot read .planning/ or spawn gh/git', () => {
+  test('the module is pure: its only require is gh-body, so it cannot read .aoforge/ or spawn gh/git', () => {
     const source = fs.readFileSync(path.join(__dirname, 'gh-check.cjs'), 'utf8');
     const required = Array.from(source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)).map((m) => m[1]);
     assert.deepStrictEqual(required, ['./gh-body.cjs']);

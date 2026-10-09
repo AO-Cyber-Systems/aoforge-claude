@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { extractFrontmatter } = require('./frontmatter.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── TRD 03-01: Constants ─────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ function _normalizeObjNum(s) {
  *
  * Returns { paths: string[], warnings: string[] }.
  *
- * Default: walks ~/Source/ (glob: star-slash) for dirs with both .git and .planning.
+ * Default: walks ~/Source/ (glob: star-slash) for dirs with both .git and .aoforge.
  * Configured: awareness.sibling_repos in config.json replaces default entirely.
  *
  * The current repo (cwd) is always excluded.
@@ -201,8 +202,8 @@ function _discoverSiblings({ cwd = process.cwd(), config_paths = null } = {}) {
     // Must have .git (is a git repo)
     if (!_runFs.existsSync(path.join(p, '.git'))) continue;
 
-    // Must have .planning (is an AOForge project)
-    if (!_runFs.existsSync(path.join(p, '.planning'))) continue;
+    // Must have .aoforge (is an AOForge project)
+    if (!_runFs.existsSync(planningRoot(p))) continue;
 
     out.paths.push(p);
   }
@@ -220,8 +221,8 @@ function _discoverSiblings({ cwd = process.cwd(), config_paths = null } = {}) {
  * @returns {object|null}
  */
 function _readProjectMd(repoPath) {
-  // PROJECT.md lives at <repo>/.planning/PROJECT.md, not at the repo root.
-  const p = path.join(repoPath, '.planning', 'PROJECT.md');
+  // PROJECT.md lives at <repo>/.aoforge/PROJECT.md, not at the repo root.
+  const p = path.join(planningRoot(repoPath), 'PROJECT.md');
   if (!_runFs.existsSync(p)) return null;
   try {
     const content = _runFs.readFileSync(p, 'utf-8');
@@ -236,7 +237,7 @@ function _readProjectMd(repoPath) {
 // ─── TRD 03-01: Recent SUMMARY.md reader ─────────────────────────────────────
 
 /**
- * Walk a sibling's .planning/objectives/ and collect recent SUMMARY.md files.
+ * Walk a sibling's .aoforge/objectives/ and collect recent SUMMARY.md files.
  * "Recent" = mtime within the last SUMMARY_RECENCY_DAYS days.
  *
  * Returns { items: Array<{ obj, path, mtime, body }>, warnings: string[] }.
@@ -247,7 +248,7 @@ function _readProjectMd(repoPath) {
  */
 function _readRecentSummaries(repoPath, recencyMs = SUMMARY_RECENCY_DAYS * 86400000) {
   const out = { items: [], warnings: [] };
-  const objDir = path.join(repoPath, '.planning', 'objectives');
+  const objDir = path.join(planningRoot(repoPath), 'objectives');
 
   if (!_runFs.existsSync(objDir)) return out;
 
@@ -321,7 +322,7 @@ function _readCurrentObjectiveTokens(objective_id, cwd) {
   for (const t of _tokenize(objective_id)) tokens.add(t);
 
   // Try to find the objective's directory
-  const objsDir = path.join(cwd, '.planning', 'objectives');
+  const objsDir = path.join(planningRoot(cwd), 'objectives');
   if (!_runFs.existsSync(objsDir)) return tokens;
 
   let objs;
@@ -476,7 +477,7 @@ function scanSiblings({ objective_id, cwd = process.cwd(), config_paths = null }
  * Reuses _discoverSiblings (sibling repo discovery + path validation) and
  * _runFs (filesystem injection) — never duplicates either.
  *
- * Match rule: a sibling's `.planning/objectives/<dir>/` matches when the
+ * Match rule: a sibling's `.aoforge/objectives/<dir>/` matches when the
  * leading numeric prefix of <dir> normalizes (leading zeros stripped) to the
  * normalized form of objective_id. "18" and "018" both normalize to "18".
  *
@@ -492,7 +493,7 @@ function scanSiblings({ objective_id, cwd = process.cwd(), config_paths = null }
  * @param {object} opts
  * @param {string}        opts.objective_id   - objective number (required, e.g. "18" or "018")
  * @param {string}        [opts.cwd]          - current repo path (default: process.cwd())
- * @param {string[]|null} [opts.config_paths] - configured sibling paths from .planning/config.json
+ * @param {string[]|null} [opts.config_paths] - configured sibling paths from .aoforge/config.json
  * @returns {{
  *   ok: boolean,
  *   scanned: number,                                  // siblings actually inspected
@@ -536,7 +537,7 @@ function scanSiblingTrds({ objective_id, cwd = process.cwd(), config_paths = nul
   for (const siblingPath of disc.paths) {
     out.scanned++;
 
-    const objsDir = path.join(siblingPath, '.planning', 'objectives');
+    const objsDir = path.join(planningRoot(siblingPath), 'objectives');
     if (!_runFs.existsSync(objsDir)) continue;
 
     let dirEntries;
@@ -762,7 +763,7 @@ function _walkDartLib(libDir, out = [], depth = 0) {
  *
  * Priority (highest wins):
  *   1. opts.path (explicit override)
- *   2. awareness.eden_libs_path in .planning/config.json
+ *   2. awareness.eden_libs_path in .aoforge/config.json
  *   3. DEFAULT_EDEN_LIBS_PATH (~/ Source/eden-libs)
  *
  * All paths are home-expanded via _expandHome.
@@ -774,8 +775,8 @@ function _walkDartLib(libDir, out = [], depth = 0) {
 function _resolveEdenLibsPath(opts = {}, cwd = process.cwd()) {
   if (opts.path) return _expandHome(opts.path);
 
-  // Check .planning/config.json
-  const configPath = path.join(cwd, '.planning', 'config.json');
+  // Check .aoforge/config.json
+  const configPath = path.join(planningRoot(cwd), 'config.json');
   if (_runFs.existsSync(configPath)) {
     try {
       const cfg = JSON.parse(_runFs.readFileSync(configPath, 'utf-8'));

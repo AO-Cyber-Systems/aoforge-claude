@@ -5,7 +5,7 @@
 //
 // Hermetic: every project is a temp directory, every wiki remote is a local bare repo
 // (`__fixtures__/wiki-remote.cjs`) reached over file://. Nothing here touches the network, `gh`,
-// this repository's .planning/, or the real ~/.claude. Git runs with an isolated config (no global or
+// this repository's .aoforge/, or the real ~/.claude. Git runs with an isolated config (no global or
 // system config, a temp HOME, no terminal prompts, explicit identity) so a developer's hooks, signing
 // or init.defaultBranch cannot leak in.
 
@@ -31,9 +31,9 @@ afterEach(() => {
 function tmpProject(config) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-wiki-'));
   cleanup.push(root);
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (config !== undefined) {
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify(config));
   }
   return root;
 }
@@ -148,7 +148,7 @@ describe('page mapping (tests 1-4)', () => {
       assert.equal(rule.match, undefined, rule.name);
       assert.equal(typeof rule.invert, 'function', rule.name);
     }
-    assert.equal(wiki.WIKI_DIR_REL, '.planning/wiki');
+    assert.equal(wiki.WIKI_DIR_REL, '.aoforge/wiki');
     assert.equal(wiki.DOCS_DIR_REL, 'docs/aoforge');
   });
 
@@ -338,10 +338,10 @@ function assertNoForce(git) {
   }
 }
 
-/** A project whose `.planning/wiki/` exists, so `push` has a clone to run in. */
+/** A project whose `.aoforge/wiki/` exists, so `push` has a clone to run in. */
 function projectWithClone() {
   const root = tmpProject();
-  fs.mkdirSync(path.join(root, '.planning', 'wiki'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'wiki'), { recursive: true });
   return root;
 }
 
@@ -371,7 +371,7 @@ describe('push sequence (tests 7-10)', () => {
       'pull --rebase origin master',
       'push origin HEAD:master',
     ]);
-    assert.ok(git.calls.every((c) => c.cwd === path.join(root, '.planning', 'wiki')), 'every call runs in the clone');
+    assert.ok(git.calls.every((c) => c.cwd === path.join(root, '.aoforge', 'wiki')), 'every call runs in the clone');
     assertNoForce(git);
   });
 
@@ -792,7 +792,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     const root = tmpProject();
     out(root, ['init', '-q', '-b', 'main']);
     process.env.AOFORGE_WIKI_REMOTE = remote.remoteUrl;
-    return { remote, root, clone: path.join(root, '.planning', 'wiki') };
+    return { remote, root, clone: path.join(root, '.aoforge', 'wiki') };
   }
 
   function setupWithClone(seedOpts) {
@@ -812,9 +812,9 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     assert.ok(bad.stderr.length > 0, 'git stderr is included');
   });
 
-  test('13. ensureClone clones into .planning/wiki, excludes it once, and the project does not see it', () => {
+  test('13. ensureClone clones into .aoforge/wiki, excludes it once, and the project does not see it', () => {
     const { remote, root, clone } = setup();
-    fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), '# state\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), '# state\n');
 
     const r = wiki.ensureClone(root, { remote: remote.remoteUrl });
 
@@ -822,10 +822,10 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     assert.equal(r.cloned, true);
     assert.equal(fs.readFileSync(path.join(clone, 'Home.md'), 'utf-8'), '# Home\n');
     const exclude = fs.readFileSync(path.join(root, '.git', 'info', 'exclude'), 'utf-8');
-    assert.equal(exclude.split('\n').filter((l) => l === '/.planning/wiki/').length, 1);
+    assert.equal(exclude.split('\n').filter((l) => l === '/.aoforge/wiki/').length, 1);
     const status = out(root, ['status', '--porcelain', '--untracked-files=all']);
-    assert.ok(status.includes('.planning/STATE.md'), 'control: other planning files are still visible');
-    assert.ok(!status.includes('.planning/wiki'), `wiki clone leaked into status:\n${status}`);
+    assert.ok(status.includes('.aoforge/STATE.md'), 'control: other planning files are still visible');
+    assert.ok(!status.includes('.aoforge/wiki'), `wiki clone leaked into status:\n${status}`);
   });
 
   test('13b. a second ensureClone is a no-op and adds no duplicate exclude line', () => {
@@ -836,7 +836,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     assert.equal(again.ok, true);
     assert.equal(again.cloned, false);
     const exclude = fs.readFileSync(path.join(root, '.git', 'info', 'exclude'), 'utf-8');
-    assert.equal(exclude.split('\n').filter((l) => l.trim() === '/.planning/wiki/').length, 1);
+    assert.equal(exclude.split('\n').filter((l) => l.trim() === '/.aoforge/wiki/').length, 1);
     assert.deepEqual(wiki.ensureExcluded(root), { ok: true, added: false, path: path.join(root, '.git', 'info', 'exclude') });
   });
 
@@ -852,7 +852,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     assert.ok(fs.existsSync(path.join(clone, 'Home.md')), 'the clone is untouched');
   });
 
-  test('13d. a non-empty .planning/wiki that is not a clone is reported, not overwritten', () => {
+  test('13d. a non-empty .aoforge/wiki that is not a clone is reported, not overwritten', () => {
     const { remote, root, clone } = setup();
     fs.mkdirSync(clone, { recursive: true });
     fs.writeFileSync(path.join(clone, 'precious.md'), 'keep me\n');
@@ -884,7 +884,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     const r = wiki.ensureClone(wt, { remote: remote.remoteUrl });
 
     assert.equal(r.ok, true, JSON.stringify(r));
-    assert.ok(fs.existsSync(path.join(wt, '.planning', 'wiki', 'Home.md')));
+    assert.ok(fs.existsSync(path.join(wt, '.aoforge', 'wiki', 'Home.md')));
     const status = out(wt, ['status', '--porcelain', '--untracked-files=all']);
     assert.ok(!status.includes('wiki'), `worktree sees the clone:\n${status}`);
   });
@@ -1068,7 +1068,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
       assert.equal(w.ok, false, JSON.stringify(bad));
       assert.equal(wiki.readPage(root, bad), null, JSON.stringify(bad));
     }
-    assert.ok(!fs.existsSync(path.join(root, '.planning', 'evil.md')));
+    assert.ok(!fs.existsSync(path.join(root, '.aoforge', 'evil.md')));
     assert.deepEqual(fs.readdirSync(clone).filter((f) => f !== '.git'), ['Home.md']);
   });
 
@@ -1077,7 +1077,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     const w = wiki.writePage(root, 'Project', 'x');
     assert.equal(w.ok, false);
     assert.match(w.error, /clone/);
-    assert.ok(!fs.existsSync(path.join(root, '.planning', 'wiki')));
+    assert.ok(!fs.existsSync(path.join(root, '.aoforge', 'wiki')));
   });
 
   test('20d. listPages returns page names only: no extension, no dotfiles, no .git, sorted', () => {
@@ -1116,7 +1116,7 @@ describe('wiki integration (local git)', { skip: !HAS_GIT && 'git not installed'
     assert.deepEqual(wiki.diff(noPlanning, 'abc1234'), { ok: false, reason: 'no-wiki-clone', error: `no wiki clone at ${wiki.WIKI_DIR_REL}` });
 
     const dirNoGit = tmpProject();
-    fs.mkdirSync(path.join(dirNoGit, '.planning', 'wiki'), { recursive: true });
+    fs.mkdirSync(path.join(dirNoGit, '.aoforge', 'wiki'), { recursive: true });
     assert.equal(wiki.diff(dirNoGit, 'abc1234').reason, 'no-wiki-clone', 'a wiki dir that is not a clone');
     assert.equal(calls.length, 0);
   });

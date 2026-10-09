@@ -95,8 +95,8 @@ function buildBootstrapTarget(tmpdir, opts) {
   if (o.hasIntegrationTestDir) fs.mkdirSync(path.join(root, 'integration_test'), { recursive: true });
   if (o.hasMaestroDir) fs.mkdirSync(path.join(root, '.maestro'), { recursive: true });
   if (o.hasMarker) {
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', '.flutter-ui-bootstrap-done'), '');
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', '.flutter-ui-bootstrap-done'), '');
   }
   return root;
 }

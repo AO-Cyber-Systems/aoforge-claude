@@ -31,6 +31,7 @@ const trdBulk = require('./trd-bulk.cjs');
 const { objectiveNumPattern } = require('./text-escape.cjs');
 const { roadmapRequirementIds } = require('./requirement-ids.cjs');
 const { findProjectRoot } = require('./estimate-run-store.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -128,7 +129,7 @@ function parseTrdRequirements(reqField) {
  * `none (tech debt; ...)` declares nothing; ranges (`GWP-01..GWP-05`) expand and `<objective>-<n>` is an ID.
  */
 function extractRoadmapRequirements(cwd, objectiveNum) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) return { ids: [], found: false };
 
   const content = safeReadFile(roadmapPath);
@@ -413,13 +414,13 @@ function checkTrdBudget(trds) {
 /**
  * Where to look for the objective `arg` names, from any cwd inside the project (TRD 70-01).
  * The job-checker ran `verify trd-pre` from the objective directory and got "Objective not found",
- * because findObjectiveInternal reads `<cwd>/.planning` only. The walk-up is local to this command:
+ * because findObjectiveInternal reads `<cwd>/.aoforge` only. The walk-up is local to this command:
  * findObjectiveInternal and normalizeObjectiveName have about 20 other callers.
  *   - `arg` containing a path separator is a path to an objective directory (relative to cwd, or
  *     absolute, trailing slash allowed): the root is found from that directory, the name is its basename.
  *   - otherwise `arg` is an objective number or name, and the root is found from cwd. findProjectRoot
- *     is inclusive, so a cwd that has its own `.planning/` is itself the root.
- * With no `.planning/` anywhere above, the root falls back to cwd, so the not-found answer names it.
+ *     is inclusive, so a cwd that has its own `.aoforge/` is itself the root.
+ * With no `.aoforge/` anywhere above, the root falls back to cwd, so the not-found answer names it.
  * @returns {{root: string, name: string}}
  */
 function resolveTarget(cwd, arg) {

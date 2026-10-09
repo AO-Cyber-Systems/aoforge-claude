@@ -4,9 +4,9 @@
 //
 // Spawned aof-tools (`spawnSync(process.execPath, [DF_TOOLS, ...])`, cwd = an unrelated
 // mkdtemp dir) — added by Task 2:
-//   1. `--cwd <proj> find-objective 1 --raw` finds `<proj>/.planning/objectives/01-alpha`,
-//      while the spawn cwd has no `.planning/`.
-//   2. `--cwd <proj> state load --raw` reads `<proj>/.planning/STATE.md` (not the spawn
+//   1. `--cwd <proj> find-objective 1 --raw` finds `<proj>/.aoforge/objectives/01-alpha`,
+//      while the spawn cwd has no `.aoforge/`.
+//   2. `--cwd <proj> state load --raw` reads `<proj>/.aoforge/STATE.md` (not the spawn
 //      cwd's).
 //   3. `find-objective 1 --raw --cwd <proj>` (trailing) → same as 1.
 //   4. `--cwd=<proj> find-objective 1 --raw` → same as 1.
@@ -67,11 +67,11 @@ function run(argv, cwd, envOverrides) {
 // real, distinguishable target. Deliberately NOT a git repo (git only matters
 // for test 8, which uses adopt-fixtures' makeFixture('aoforge', ...) instead).
 function makeProject(dir) {
-  fs.mkdirSync(path.join(dir, '.planning', 'objectives', '01-alpha'), { recursive: true });
-  fs.writeFileSync(path.join(dir, '.planning', 'objectives', '01-alpha', 'OBJECTIVE.md'), '# alpha\n', 'utf-8');
-  fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '# State\n\n**Status:** active\n', 'utf-8');
-  fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
-  fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{}\n', 'utf-8');
+  fs.mkdirSync(path.join(dir, '.aoforge', 'objectives', '01-alpha'), { recursive: true });
+  fs.writeFileSync(path.join(dir, '.aoforge', 'objectives', '01-alpha', 'OBJECTIVE.md'), '# alpha\n', 'utf-8');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'STATE.md'), '# State\n\n**Status:** active\n', 'utf-8');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'ROADMAP.md'), '# Roadmap\n', 'utf-8');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), '{}\n', 'utf-8');
   return dir;
 }
 
@@ -102,12 +102,12 @@ describe('aof-tools --cwd — end to end (spawned)', () => {
     const spawnCwd = mkdtemp('df-cwd-spawn-');
     const r = run(['--cwd', proj, 'find-objective', '1', '--raw'], spawnCwd, { HOME: fakeHome });
     assert.strictEqual(r.status, 0, r.out);
-    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+    assert.strictEqual(r.stdout.trim(), path.join('.aoforge', 'objectives', '01-alpha'));
   });
 
   test('2. --cwd <proj> state load --raw reads the project STATE.md, not the spawn cwd\'s', () => {
     const proj = makeProject(mkdtemp('df-cwd-proj-'));
-    const spawnCwd = mkdtemp('df-cwd-spawn-'); // no .planning/ at all
+    const spawnCwd = mkdtemp('df-cwd-spawn-'); // no .aoforge/ at all
     const r = run(['--cwd', proj, 'state', 'load', '--raw'], spawnCwd, { HOME: fakeHome });
     assert.strictEqual(r.status, 0, r.out);
     assert.match(r.stdout, /state_exists=true/);
@@ -124,7 +124,7 @@ describe('aof-tools --cwd — end to end (spawned)', () => {
     const spawnCwd = mkdtemp('df-cwd-spawn-');
     const r = run(['find-objective', '1', '--raw', '--cwd', proj], spawnCwd, { HOME: fakeHome });
     assert.strictEqual(r.status, 0, r.out);
-    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+    assert.strictEqual(r.stdout.trim(), path.join('.aoforge', 'objectives', '01-alpha'));
   });
 
   test('4. --cwd=<proj> find-objective 1 --raw — same as 1', () => {
@@ -132,7 +132,7 @@ describe('aof-tools --cwd — end to end (spawned)', () => {
     const spawnCwd = mkdtemp('df-cwd-spawn-');
     const r = run([`--cwd=${proj}`, 'find-objective', '1', '--raw'], spawnCwd, { HOME: fakeHome });
     assert.strictEqual(r.status, 0, r.out);
-    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+    assert.strictEqual(r.stdout.trim(), path.join('.aoforge', 'objectives', '01-alpha'));
   });
 
   test('5. relative --cwd resolves against the spawn (original) cwd', () => {
@@ -140,7 +140,7 @@ describe('aof-tools --cwd — end to end (spawned)', () => {
     makeProject(path.join(parent, 'proj'));
     const r = run(['--cwd', 'proj', 'find-objective', '1', '--raw'], parent, { HOME: fakeHome });
     assert.strictEqual(r.status, 0, r.out);
-    assert.strictEqual(r.stdout.trim(), path.join('.planning', 'objectives', '01-alpha'));
+    assert.strictEqual(r.stdout.trim(), path.join('.aoforge', 'objectives', '01-alpha'));
   });
 
   test('6. --cwd as the last token errors before running anything', () => {

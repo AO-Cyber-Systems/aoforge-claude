@@ -11,8 +11,8 @@
 //                                STATE_ARCHIVE.md in the ARCHIVE_SEED shape; decisions become the bullets
 //                                cmdStateAddDecision writes, metrics become the rows cmdStateRecordMetric writes
 //   makeWaveRepo({state, archive})
-//                                a hermetic temp repository holding .planning/state.json and
-//                                .planning/STATE_ARCHIVE.md in one base commit on `main`, plus helpers to
+//                                a hermetic temp repository holding .aoforge/state.json and
+//                                .aoforge/STATE_ARCHIVE.md in one base commit on `main`, plus helpers to
 //                                branch, commit and run git
 //
 // Every git call goes through `gitTestEnv(home)` (GIT_CONFIG_GLOBAL=/dev/null, temp HOME, explicit identity)
@@ -131,8 +131,8 @@ function makeWaveRepo({ state, archive }) {
   git(['config', 'commit.gpgsign', 'false']);
 
   writeFiles({
-    '.planning/state.json': stateText(state),
-    '.planning/STATE_ARCHIVE.md': archive,
+    '.aoforge/state.json': stateText(state),
+    '.aoforge/STATE_ARCHIVE.md': archive,
   });
   git(['add', '-A']);
   git(['commit', '-m', 'base']);

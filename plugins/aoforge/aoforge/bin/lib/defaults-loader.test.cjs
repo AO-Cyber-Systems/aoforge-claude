@@ -21,10 +21,10 @@
 //
 // scaffoldDefaultsTable + cmdDefaultsTableInit (CLI, C group):
 //   C1: scaffoldDefaultsTable scope=org → writes ~/.claude/aoforge/defaults-table.md = bundled file content
-//   C2: scaffoldDefaultsTable scope=project → writes .planning/defaults-table.md = bundled file content
+//   C2: scaffoldDefaultsTable scope=project → writes .aoforge/defaults-table.md = bundled file content
 //   C3: scaffoldDefaultsTable scope=org when target exists → ok=false, refuse
 //   C4: scaffoldDefaultsTable scope=org --force when target exists → backup to .bak.<ISO> + overwrite
-//   C5: scaffoldDefaultsTable scope=project when no .planning/ → ok=false
+//   C5: scaffoldDefaultsTable scope=project when no .aoforge/ → ok=false
 //   C6: scaffoldDefaultsTable scope=foo → ok=false, invalid scope
 //   C7: cmdDefaultsTableInit --help → prints usage (exit 0)
 
@@ -36,6 +36,7 @@ const os = require('os');
 
 const loader = require('./defaults-loader.cjs');
 const fx = require('./__fixtures__/defaults-table-fixtures.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 describe('mergeDefaultsTables (pure logic)', () => {
   test('M1: bundled-only input → merged = bundled, provenance all = bundled_table', () => {
@@ -243,12 +244,12 @@ describe('scaffoldDefaultsTable + cmdDefaultsTableInit (CLI)', () => {
     } finally { project.cleanup(); }
   });
 
-  test('C2: scaffold scope=project → writes <root>/.planning/defaults-table.md = bundled content', () => {
+  test('C2: scaffold scope=project → writes <root>/.aoforge/defaults-table.md = bundled content', () => {
     const project = fx.buildTempProjectWithDefaults({});
     try {
       const r = loader.scaffoldDefaultsTable({ scope: 'project', cwd: project.root, userHome: project.userHome });
       assert.strictEqual(r.ok, true);
-      const target = path.join(project.root, '.planning', 'defaults-table.md');
+      const target = path.join(project.root, '.aoforge', 'defaults-table.md');
       assert.strictEqual(r.target_path, target);
       assert.ok(fs.existsSync(target));
       const written = fs.readFileSync(target, 'utf-8');
@@ -286,14 +287,14 @@ describe('scaffoldDefaultsTable + cmdDefaultsTableInit (CLI)', () => {
     } finally { project.cleanup(); }
   });
 
-  test('C5: scaffold scope=project when no .planning/ → ok=false', () => {
-    // Create a tmp dir WITHOUT .planning
+  test('C5: scaffold scope=project when no .aoforge/ → ok=false', () => {
+    // Create a tmp dir WITHOUT .aoforge
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'df-noplanning-'));
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'df-userhome-'));
     try {
       const r = loader.scaffoldDefaultsTable({ scope: 'project', cwd: tmpRoot, userHome: tmpHome });
       assert.strictEqual(r.ok, false);
-      assert.match(r.error, /No \.planning\/ directory/);
+      assert.ok(r.error.includes(`No ${planningDirLabel()} directory`), r.error);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
       fs.rmSync(tmpHome, { recursive: true, force: true });
@@ -334,7 +335,7 @@ describe('scaffoldDefaultsTable + cmdDefaultsTableInit (CLI)', () => {
       // Verify file was NOT created
       const fs = require('fs');
       const path = require('path');
-      assert.strictEqual(fs.existsSync(path.join(project.root, '.planning', 'defaults-table.md')), false);
+      assert.strictEqual(fs.existsSync(path.join(project.root, '.aoforge', 'defaults-table.md')), false);
     } finally { project.cleanup(); }
   });
 
@@ -344,7 +345,7 @@ describe('scaffoldDefaultsTable + cmdDefaultsTableInit (CLI)', () => {
       // Pre-create file
       const fs = require('fs');
       const path = require('path');
-      const target = path.join(project.root, '.planning', 'defaults-table.md');
+      const target = path.join(project.root, '.aoforge', 'defaults-table.md');
       fs.writeFileSync(target, 'existing content', 'utf-8');
 
       const r = loader.scaffoldDefaultsTable({ scope: 'project', force: true, dryRun: true, cwd: project.root, userHome: project.userHome });

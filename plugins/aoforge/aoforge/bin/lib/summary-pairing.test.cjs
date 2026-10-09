@@ -19,6 +19,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+// Every reader is compared on the legacy planning directory: gate-executor-stop (a hook) resolves only that name until
+// 72-06 moves it onto the resolver, and the library readers reach it through the fallback (TRD 72-05).
+const PLANNING = require('./legacy-names.cjs').LEGACY.planningDir;
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
@@ -45,12 +48,12 @@ after(() => {
 /** Hand-built project: ROADMAP listing the TRDs plus the objective dir with the given files. */
 function makeProject(files, trdIds = ['01', '02', '03', '04']) {
   const root = mkTmp('df-pairing-');
-  const dir = path.join(root, '.planning', 'objectives', '07-demo');
+  const dir = path.join(root, PLANNING, 'objectives', '07-demo');
   fs.mkdirSync(dir, { recursive: true });
   for (const [name, body] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), body);
   const lines = trdIds.map((n) => `- [ ] 07-${n}-x-TRD.md — x`).join('\n');
   fs.writeFileSync(
-    path.join(root, '.planning', 'ROADMAP.md'),
+    path.join(root, PLANNING, 'ROADMAP.md'),
     `# Roadmap\n\n### Objective 07: demo\n\n${lines}\n`,
   );
   return { root, dir };
@@ -204,11 +207,11 @@ describe('TRD 53-02: legacy shapes still pair across the readers', () => {
 
   test('decimal objective: 07.1-02-x-TRD.md pairs with 07.1-02-SUMMARY.md', () => {
     const root = mkTmp('df-pairing-dec-');
-    const dir = path.join(root, '.planning', 'objectives', '07.1-urgent');
+    const dir = path.join(root, PLANNING, 'objectives', '07.1-urgent');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, '07.1-02-x-TRD.md'), TRD_BODY(2));
     fs.writeFileSync(path.join(dir, '07.1-02-SUMMARY.md'), PASSED);
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n\n### Objective 07.1: urgent\n');
+    fs.writeFileSync(path.join(root, PLANNING, 'ROADMAP.md'), '# Roadmap\n\n### Objective 07.1: urgent\n');
     const home = mkTmp('df-pairing-home-');
     const json = cli(root, ['objective-job-index', '07.1'], home);
     assert.deepStrictEqual(json.jobs.map((j) => j.has_summary), [true], JSON.stringify(json.jobs));

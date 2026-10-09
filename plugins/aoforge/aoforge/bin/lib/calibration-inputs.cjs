@@ -11,6 +11,7 @@ const { parseTrdTasks, resolveEffectiveTddFlag } = require('./trd-tdd.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findPlanFiles, trdKey, normalizeObjectiveName, objectiveDirMatches } = require('./helpers.cjs');
 const { resolveMainRoot } = require('./planning-mode.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── Model rates ──────────────────────────────────────────────────────────────
 
@@ -341,10 +342,10 @@ function realpathOrNull(p) {
   }
 }
 
-/** Sorted realpath'd project roots: a project (`.planning/objectives`) is itself, anything else contributes its project children. */
+/** Sorted realpath'd project roots: a project (`.aoforge/objectives`) is itself, anything else contributes its project children. */
 function discoverProjects(paths) {
   const list = Array.isArray(paths) ? paths : (paths ? [paths] : []);
-  const isProject = (dir) => isDir(path.join(dir, '.planning', 'objectives'));
+  const isProject = (dir) => isDir(path.join(planningRoot(dir), 'objectives'));
   const found = new Set();
   for (const input of list) {
     const real = realpathOrNull(path.resolve(String(input)));
@@ -390,9 +391,9 @@ function readSummary(text) {
 // STATE_ARCHIVE.md rows, then store mode's state.json `metrics_log` (the same rows). Later rows outrank earlier ones.
 function readMetricRows(base) {
   const rows = [];
-  const archive = path.join(base, '.planning', 'STATE_ARCHIVE.md');
+  const archive = path.join(planningRoot(base), 'STATE_ARCHIVE.md');
   if (fs.existsSync(archive)) rows.push(...parseMetricsTable(fs.readFileSync(archive, 'utf-8')));
-  const stateJson = path.join(base, '.planning', 'state.json');
+  const stateJson = path.join(planningRoot(base), 'state.json');
   if (fs.existsSync(stateJson)) {
     let log = [];
     try {
@@ -444,7 +445,7 @@ function collectProject(root, options = {}) {
   const through = options && options.through !== undefined ? options.through : null;
   assertThrough(through);
   const base = realpathOrNull(root) || path.resolve(String(root));
-  const objectivesDir = path.join(base, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(base), 'objectives');
   const dirNames = isDir(objectivesDir)
     ? fs.readdirSync(objectivesDir).filter((name) => isDir(path.join(objectivesDir, name)))
       .filter((name) => withinThrough(name, through)).sort()

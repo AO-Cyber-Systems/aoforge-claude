@@ -262,7 +262,7 @@ describe('upsert-issue', () => {
   test('7. re-running the op after the mapping is deleted finds the issue by marker scan: zero creates', () => {
     exec(trdOp('7-01'));
     const before = S.fake.issues.length;
-    fs.rmSync(path.join(S.root, '.planning', '.gh-mapping.json'));
+    fs.rmSync(path.join(S.root, '.aoforge', '.gh-mapping.json'));
     const writesBefore = S.fake.writes().length;
 
     const { res } = exec(trdOp('7-01'));
@@ -274,7 +274,7 @@ describe('upsert-issue', () => {
 
   test('7b. a crash between create and bookkeeping (no mapping, no base) is repaired by the next run without a write', () => {
     exec(trdOp('7-01'));
-    fs.rmSync(path.join(S.root, '.planning', '.gh-mapping.json'));
+    fs.rmSync(path.join(S.root, '.aoforge', '.gh-mapping.json'));
     fs.rmSync(path.join(S.envh.env.AOFORGE_OUTBOX_DIR), { recursive: true, force: true });
     const writesBefore = S.fake.writes().length;
     const { res } = exec(trdOp('7-01'));
@@ -774,7 +774,7 @@ describe('wiki-push', () => {
       assert.equal(remote.readRemotePage('Requirements'), STORE_FIXTURE.requirements);
 
       // The payload names paths, not text: a later edit to the file is what gets pushed.
-      fs.writeFileSync(path.join(S.root, '.planning', 'PROJECT.md'), '# Edited project\n');
+      fs.writeFileSync(path.join(S.root, '.aoforge', 'PROJECT.md'), '# Edited project\n');
       assert.equal(exec(pagesOp(['PROJECT.md']), { wikiRemote: remote.remoteUrl }).res.ok, true);
       assert.equal(remote.readRemotePage('Project'), '# Edited project\n');
     });
@@ -804,7 +804,7 @@ describe('wiki-push', () => {
     assert.equal(res.class, 'blocked');
     assert.match(res.error, /create the first wiki page in the GitHub web UI/);
     assert.equal(fs.existsSync(path.join(S.root, 'docs')), false);
-    assert.equal(fs.existsSync(path.join(S.root, '.planning', 'wiki')), false);
+    assert.equal(fs.existsSync(path.join(S.root, '.aoforge', 'wiki')), false);
   });
 
   test('16d. an uninitialised wiki is blocked for a human (web UI step), never silently switched to docs', (t) => {
@@ -822,7 +822,7 @@ describe('wiki-push', () => {
     if (!gitAvailable()) return t.skip('git is not available');
     withRemote((remote) => {
       assert.equal(exec(pagesOp(), { wikiRemote: remote.remoteUrl }).res.ok, true);
-      fs.writeFileSync(path.join(S.root, '.planning', 'PROJECT.md'), '# Changed while offline\n');
+      fs.writeFileSync(path.join(S.root, '.aoforge', 'PROJECT.md'), '# Changed while offline\n');
       wiki._setRunGit((args, opts) => {
         if (args.includes('pull') || args.includes('push')) {
           return { ok: false, status: 128, stdout: '', stderr: "fatal: unable to access 'https://github.com/o/r.wiki.git/': Could not resolve host: github.com" };
@@ -2325,7 +2325,7 @@ describe('49-10 PR merge (no merge queue)', () => {
   });
 
   test('6c. the configured merge method is the default', () => {
-    const file = path.join(S.root, '.planning', 'config.json');
+    const file = path.join(S.root, '.aoforge', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
     cfg.github.pr = { merge_method: 'merge' };
     fs.writeFileSync(file, JSON.stringify(cfg));

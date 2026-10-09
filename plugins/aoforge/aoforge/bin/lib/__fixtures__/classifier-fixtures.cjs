@@ -7,15 +7,24 @@
  * Provides:
  *   buildClassifyInput({...})      — factory for classifySession inputs
  *   SCENARIOS                      — named input presets for each branch
- *   mkAmbientTmpProject()          — tmpdir with .planning/ + .git/
+ *   mkAmbientTmpProject()          — tmpdir with .aoforge/ + .git/
  *   mkInitOfferTmpProject()        — tmpdir with .git/ only
  *   mkScratchDir()                 — tmpdir with nothing
- *   mkDeclineMarkerProject()       — tmpdir with .planning/ + .git/ + decline marker
+ *   mkDeclineMarkerProject()       — tmpdir with .aoforge/ + .git/ + decline marker
  */
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { NAMES } = require('../legacy-names.cjs');
+
+// The planning-directory name the project builders write (TRD 72-05). The classify-session hook resolves only the legacy name
+// until 72-06 moves it onto the resolver, so its tests call setPlanningDir(LEGACY.planningDir) once at load; 72-06
+// drops those calls. node --test runs each file in its own process, so the switch never leaks.
+let PLANNING = NAMES.planningDir;
+function setPlanningDir(name) {
+  PLANNING = name;
+}
 
 // ─── Factory builder ──────────────────────────────────────────────────────────
 
@@ -42,16 +51,16 @@ function buildClassifyInput({
 // ─── Named scenarios (pure, no filesystem) ────────────────────────────────────
 
 const SCENARIOS = {
-  /** Ambient: has .planning/ and no decline marker → 'ambient' */
-  ambient: () => buildClassifyInput({ planningDir: '/tmp/p/.planning', hasGitDir: true }),
-  /** Init-offer: git repo, no .planning/, no decline marker → 'init-offer' */
+  /** Ambient: has .aoforge/ and no decline marker → 'ambient' */
+  ambient: () => buildClassifyInput({ planningDir: '/tmp/p/.aoforge', hasGitDir: true }),
+  /** Init-offer: git repo, no .aoforge/, no decline marker → 'init-offer' */
   initOffer: () => buildClassifyInput({ planningDir: null, hasGitDir: true }),
   /** Scratch dir: no planning, no git → 'skip' */
   scratchDir: () => buildClassifyInput({ planningDir: null, hasGitDir: false }),
   /** No-git dir: same as scratch — no planning, no git → 'skip' */
   noGitDir: () => buildClassifyInput({ planningDir: null, hasGitDir: false }),
-  /** Decline marker: has .planning/ but marker present → 'skip' */
-  declineMarker: () => buildClassifyInput({ planningDir: '/tmp/p/.planning', hasGitDir: true, hasDeclineMarker: true }),
+  /** Decline marker: has .aoforge/ but marker present → 'skip' */
+  declineMarker: () => buildClassifyInput({ planningDir: '/tmp/p/.aoforge', hasGitDir: true, hasDeclineMarker: true }),
   // ─── 17-03 new scenarios ─────────────────────────────────────────────────────
   /** Substantive git repo, no planning, not declined → 'init-offer' (17-03) */
   initOfferSubstantive: () => buildClassifyInput({ planningDir: null, hasGitDir: true, isSubstantive: true, previouslyDeclined: false }),
@@ -64,13 +73,13 @@ const SCENARIOS = {
 // ─── Tmpdir scaffolds (used by classify-session subprocess tests) ─────────────
 
 /**
- * Create a temp dir with both .planning/ and .git/ — classifies as 'ambient'.
+ * Create a temp dir with both .aoforge/ and .git/ — classifies as 'ambient'.
  * Caller must clean up: fs.rmSync(root, { recursive: true, force: true })
  * @returns {string} absolute path to project root
  */
 function mkAmbientTmpProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'classify-ambient-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, PLANNING), { recursive: true });
   fs.mkdirSync(path.join(root, '.git'), { recursive: true });
   return root;
 }
@@ -87,7 +96,7 @@ function mkInitOfferTmpProject() {
 }
 
 /**
- * Create a bare temp dir (no .planning/, no .git/) — classifies as 'skip'.
+ * Create a bare temp dir (no .aoforge/, no .git/) — classifies as 'skip'.
  * Caller must clean up.
  * @returns {string} absolute path to scratch dir
  */
@@ -96,18 +105,19 @@ function mkScratchDir() {
 }
 
 /**
- * Create a temp dir with .planning/ + .git/ + .planning/.aoforge-init-declined marker.
- * Despite having .planning/, this classifies as 'skip' due to decline marker.
+ * Create a temp dir with .aoforge/ + .git/ + .aoforge/.aoforge-init-declined marker.
+ * Despite having .aoforge/, this classifies as 'skip' due to decline marker.
  * Caller must clean up.
  * @returns {string} absolute path to project root
  */
 function mkDeclineMarkerProject() {
   const root = mkAmbientTmpProject();
-  fs.writeFileSync(path.join(root, '.planning', '.aoforge-init-declined'), '');
+  fs.writeFileSync(path.join(root, PLANNING, '.aoforge-init-declined'), '');
   return root;
 }
 
 module.exports = {
+  setPlanningDir,
   buildClassifyInput,
   SCENARIOS,
   mkAmbientTmpProject,

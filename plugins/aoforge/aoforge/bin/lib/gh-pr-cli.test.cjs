@@ -3,7 +3,7 @@
 /**
  * Tests for lib/gh-pr-cli.cjs (TRD 49-09): `aof-tools gh pr start | sync | status <objective>`.
  *
- * Same hermetic shape as gh-pr.test.cjs: a git clone with a store-shaped `.planning/` cache, a local bare origin, the
+ * Same hermetic shape as gh-pr.test.cjs: a git clone with a store-shaped `.aoforge/` cache, a local bare origin, the
  * in-memory fake GitHub through gh-client's seam, a clock that never sleeps. `cmdGhPr` runs in-process under capture()
  * (process.exit and stdout/stderr stubbed); the dispatch tests spawn aof-tools against a project with the store off,
  * so no gh is needed. Never the real ~/.claude, a real remote or port 8080.
@@ -71,10 +71,10 @@ function setup({ store = true, fake: fakeOptions = {} } = {}) {
   const envh = hermeticEnv();
   const g = makeGitRemote();
   const project = makeStoreProject({ store, hasWiki: false });
-  fs.cpSync(path.join(project.root, '.planning'), path.join(g.work, '.planning'), { recursive: true });
+  fs.cpSync(path.join(project.root, '.aoforge'), path.join(g.work, '.aoforge'), { recursive: true });
   project.cleanup();
   const root = g.work;
-  fs.rmSync(path.join(root, '.planning', 'objectives', '07-store-demo', '07-03-gamma-TRD.md'));
+  fs.rmSync(path.join(root, '.aoforge', 'objectives', '07-store-demo', '07-03-gamma-TRD.md'));
 
   const c0 = g.git(root, ['rev-parse', 'HEAD']);
   const fake = createFakeGitHub({ repo: 'o/r', hasWiki: false, refs: { main: c0 }, onCreateBranch: (name) => g.createRemoteBranch(name), ...fakeOptions });

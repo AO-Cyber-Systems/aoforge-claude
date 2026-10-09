@@ -240,7 +240,7 @@ describe('5: estimate trd', () => {
   });
 
   test('a path works, a missing TRD and a malformed ref exit 1', () => {
-    const file = path.join(root, '.planning', 'objectives', '80-alpha', '80-02-docs-TRD.md');
+    const file = path.join(root, '.aoforge', 'objectives', '80-alpha', '80-02-docs-TRD.md');
     const byPath = ok(run(['trd', file]));
     assert.equal(byPath.result.id, '80-02');
     assert.match(byPath.text, /^TRD 80-02: 4 min \(P90 8 min\)/);
@@ -1233,7 +1233,7 @@ describe('13c: backtest reads the run history (TRD 64-04, EST-08)', () => {
         git(main, 'commit', '-q', '-m', 'fixture');
         const wt = path.join(base, 'wt');
         git(main, 'worktree', 'add', '-q', '-b', 'df/exec-90-01', wt);
-        assert.ok(fs.existsSync(path.join(wt, '.planning', 'objectives', '90-alpha')), 'the worktree carries the committed planning tree');
+        assert.ok(fs.existsSync(path.join(wt, '.aoforge', 'objectives', '90-alpha')), 'the worktree carries the committed planning tree');
 
         const { env } = freshState();
         store.archiveRunState(main, run90(null), { env });
@@ -1255,8 +1255,8 @@ describe('13c: backtest reads the run history (TRD 64-04, EST-08)', () => {
   test('4b: backtestRunRoot takes the main checkout when it resolves one, else the project root', () => {
     assert.equal(backtestRunRoot(project, { resolveMainRoot: () => '/the/main/checkout' }), '/the/main/checkout');
     assert.equal(backtestRunRoot(project, { resolveMainRoot: () => null }), project);
-    const nested = path.join(project, '.planning');
-    assert.equal(backtestRunRoot(nested, { resolveMainRoot: () => null }), project, 'the directory that holds .planning, found upward');
+    const nested = path.join(project, '.aoforge');
+    assert.equal(backtestRunRoot(nested, { resolveMainRoot: () => null }), project, 'the directory that holds .aoforge, found upward');
   });
 });
 

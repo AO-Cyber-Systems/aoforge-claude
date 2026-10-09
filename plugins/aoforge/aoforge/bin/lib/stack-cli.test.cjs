@@ -19,7 +19,7 @@
 // - L9  `stack` alone and `stack bogus` -> exit 1 naming the available subcommands.
 // - L10 `stack --help` prints `Usage: aof-tools stack`.
 // - L11 (TRD 42-01, SDR-07) `stack validate path/x.md` -> exit 1, stderr names `--profile` (it
-//       used to validate .planning/STACK.md silently); `stack validate --profile path/x.md` still
+//       used to validate .aoforge/STACK.md silently); `stack validate --profile path/x.md` still
 //       validates that file.
 // - L12 (TRD 42-01) `stack frobnicate` -> the error lists all eight subcommands, including the
 //       lazily-dispatched extensions verify, report, mcp.
@@ -227,7 +227,7 @@ describe('aof-tools stack CLI (L group)', () => {
   });
 
   test('L11: stack validate rejects a positional path; --profile <path> still validates that file', () => {
-    // A VALID .planning/STACK.md beside an INVALID path/x.md: before the fix, the positional form
+    // A VALID .aoforge/STACK.md beside an INVALID path/x.md: before the fix, the positional form
     // validated STACK.md and exited 0 — a green result for a file it never read.
     const home = fx.makeHome({});
     const root = fx.makeProject({

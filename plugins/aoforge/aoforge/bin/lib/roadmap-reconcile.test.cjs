@@ -19,7 +19,7 @@ TEST LIST — TRD 09-01 reconciler engine + fixtures
 
 Group F (fixture builder):
 - F1: buildReconcileFixtures returns { projectRoot, cleanup }
-- F2: builds .planning/ROADMAP.md with TRD checkbox lines per spec
+- F2: builds .aoforge/ROADMAP.md with TRD checkbox lines per spec
 - F3: builds <id>-TRD.md and optional <id>-SUMMARY.md per trd.summary spec
 - F4: cleanup() removes the tmpdir tree
 
@@ -46,7 +46,7 @@ Group CSF (_checkSummaryFailed):
 - CSF6: 'FAILEDISH' (no word boundary) → false
 
 Group WR (_writeReconciledRoadmap):
-- WR1: writes content to <projectRoot>/.planning/ROADMAP.md atomically
+- WR1: writes content to <projectRoot>/.aoforge/ROADMAP.md atomically
 - WR2: tmp file does NOT exist after successful write (renamed away)
 - WR3: tmp file is unlinked when rename throws (cleanup branch)
 - WR4: passes through atomic guarantee — partial writes never visible at dest
@@ -105,7 +105,7 @@ test('F1: buildReconcileFixtures returns { projectRoot, cleanup }', () => {
   result.cleanup();
 });
 
-test('F2: builds .planning/ROADMAP.md with TRD checkbox lines per spec', () => {
+test('F2: builds .aoforge/ROADMAP.md with TRD checkbox lines per spec', () => {
   const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
     objectives: [{
       num: '01',
@@ -117,7 +117,7 @@ test('F2: builds .planning/ROADMAP.md with TRD checkbox lines per spec', () => {
       ],
     }],
   });
-  const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
   assert.ok(fs.existsSync(roadmapPath), 'ROADMAP.md exists');
   const content = fs.readFileSync(roadmapPath, 'utf-8');
   assert.ok(content.includes('- [ ] 01-01-alpha-TRD.md — Alpha task'), 'unchecked TRD line present');
@@ -139,7 +139,7 @@ test('F3: builds <id>-TRD.md and optional <id>-SUMMARY.md per trd.summary spec',
       ],
     }],
   });
-  const objDir = path.join(projectRoot, '.planning', 'objectives', '01-foo');
+  const objDir = path.join(projectRoot, '.aoforge', 'objectives', '01-foo');
   // TRD files
   assert.ok(fs.existsSync(path.join(objDir, '01-01-alpha-TRD.md')), 'TRD file for 01-01');
   assert.ok(fs.existsSync(path.join(objDir, '01-04-delta-TRD.md')), 'TRD file for 01-04');
@@ -265,7 +265,7 @@ test('CSE1: returns true when <objectiveDir>/<trdId>-*-SUMMARY.md exists', () =>
       trds: [{ id: '01-01', slug: 'alpha', summary: 'present' }],
     }],
   });
-  const objDir = path.join(projectRoot, '.planning', 'objectives', '01-foo');
+  const objDir = path.join(projectRoot, '.aoforge', 'objectives', '01-foo');
   const result = reconcile._checkSummaryExists(objDir, '01-01');
   assert.strictEqual(result, true);
   cleanup();
@@ -278,7 +278,7 @@ test('CSE2: returns false when SUMMARY file is absent', () => {
       trds: [{ id: '01-01', slug: 'alpha' }],  // no summary
     }],
   });
-  const objDir = path.join(projectRoot, '.planning', 'objectives', '01-foo');
+  const objDir = path.join(projectRoot, '.aoforge', 'objectives', '01-foo');
   const result = reconcile._checkSummaryExists(objDir, '01-01');
   assert.strictEqual(result, false);
   cleanup();
@@ -297,7 +297,7 @@ test('CSE4: handles glob matching — any slug between trd_id and -SUMMARY', () 
     }],
   });
   // File will be 01-01-very-long-slug-name-SUMMARY.md
-  const objDir = path.join(projectRoot, '.planning', 'objectives', '01-foo');
+  const objDir = path.join(projectRoot, '.aoforge', 'objectives', '01-foo');
   const result = reconcile._checkSummaryExists(objDir, '01-01');
   assert.strictEqual(result, true, 'should match regardless of slug length');
   cleanup();
@@ -339,10 +339,10 @@ test('CSF6: "FAILEDISH" does not match (word boundary)', () => {
 
 // ─── Group WR — _writeReconciledRoadmap ───────────────────────────────────────
 
-test('WR1: writes content to <projectRoot>/.planning/ROADMAP.md atomically', () => {
+test('WR1: writes content to <projectRoot>/.aoforge/ROADMAP.md atomically', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-wr-test-'));
-  fs.mkdirSync(path.join(tmpBase, '.planning'), { recursive: true });
-  const dest = path.join(tmpBase, '.planning', 'ROADMAP.md');
+  fs.mkdirSync(path.join(tmpBase, '.aoforge'), { recursive: true });
+  const dest = path.join(tmpBase, '.aoforge', 'ROADMAP.md');
   const content = '# Test ROADMAP\n\nsome content\n';
   reconcile._writeReconciledRoadmap(tmpBase, content);
   assert.ok(fs.existsSync(dest), 'ROADMAP.md written');
@@ -352,7 +352,7 @@ test('WR1: writes content to <projectRoot>/.planning/ROADMAP.md atomically', () 
 
 test('WR2: tmp file does NOT exist after successful write (renamed away)', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-wr-test-'));
-  fs.mkdirSync(path.join(tmpBase, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(tmpBase, '.aoforge'), { recursive: true });
 
   const writtenTmps = [];
   const originalWrite = fs.writeFileSync.bind(fs);
@@ -387,7 +387,7 @@ test('WR2: tmp file does NOT exist after successful write (renamed away)', () =>
 
 test('WR3: tmp file is unlinked when rename throws (cleanup branch)', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-wr-test-'));
-  fs.mkdirSync(path.join(tmpBase, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(tmpBase, '.aoforge'), { recursive: true });
 
   const writtenTmps = [];
   const unlinkedPaths = [];
@@ -429,7 +429,7 @@ test('WR3: tmp file is unlinked when rename throws (cleanup branch)', () => {
 
 test('WR4: atomic guarantee — creates tmp then renames; never writes directly to dest', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-wr-test-'));
-  fs.mkdirSync(path.join(tmpBase, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(tmpBase, '.aoforge'), { recursive: true });
 
   const writeOrder = [];
   reconcile._setRunFs({
@@ -581,7 +581,7 @@ test('R8: mode=dry-run → returns changes WITHOUT writing ROADMAP.md', () => {
       trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: ' ', summary: 'present' }],
     }],
   });
-  const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
   const before = fs.readFileSync(roadmapPath, 'utf-8');
 
   const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
@@ -599,7 +599,7 @@ test('R9: mode=write → returns changes AND ROADMAP.md is rewritten on disk', (
       trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: ' ', summary: 'present' }],
     }],
   });
-  const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
   const before = fs.readFileSync(roadmapPath, 'utf-8');
 
   const result = reconcile.reconcile({ projectRoot, mode: 'write' });
@@ -630,7 +630,7 @@ test('R10: idempotency — second reconcile run returns changes=[]', () => {
 
 test('R11: ROADMAP.md missing → returns warning, no throw', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-r11-'));
-  fs.mkdirSync(path.join(tmpBase, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(tmpBase, '.aoforge'), { recursive: true });
   // No ROADMAP.md written
 
   let result;
@@ -646,17 +646,17 @@ test('R11: ROADMAP.md missing → returns warning, no throw', () => {
 
 test('R12: indent preserved in rewritten lines', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-r12-'));
-  fs.mkdirSync(path.join(tmpBase, '.planning', 'objectives', '01-foo'), { recursive: true });
+  fs.mkdirSync(path.join(tmpBase, '.aoforge', 'objectives', '01-foo'), { recursive: true });
 
   // Write TRD file
   fs.writeFileSync(
-    path.join(tmpBase, '.planning', 'objectives', '01-foo', '01-01-alpha-TRD.md'),
+    path.join(tmpBase, '.aoforge', 'objectives', '01-foo', '01-01-alpha-TRD.md'),
     '---\nobjective: 01\ntrd: 01-01\n---\n',
     'utf-8',
   );
   // Write SUMMARY file (PASSED)
   fs.writeFileSync(
-    path.join(tmpBase, '.planning', 'objectives', '01-foo', '01-01-alpha-SUMMARY.md'),
+    path.join(tmpBase, '.aoforge', 'objectives', '01-foo', '01-01-alpha-SUMMARY.md'),
     '# Summary\n\n## Self-Check: PASSED\n',
     'utf-8',
   );
@@ -667,14 +667,14 @@ test('R12: indent preserved in rewritten lines', () => {
     '  - [ ] 01-01-alpha-TRD.md — indented task',
     '',
   ].join('\n');
-  fs.writeFileSync(path.join(tmpBase, '.planning', 'ROADMAP.md'), roadmapContent, 'utf-8');
+  fs.writeFileSync(path.join(tmpBase, '.aoforge', 'ROADMAP.md'), roadmapContent, 'utf-8');
 
   const result = reconcile.reconcile({ projectRoot: tmpBase, mode: 'write' });
 
   assert.strictEqual(result.changes.length, 1);
   assert.ok(result.changes[0].after.startsWith('  - [x]'), 'indent preserved in written line');
 
-  const written = fs.readFileSync(path.join(tmpBase, '.planning', 'ROADMAP.md'), 'utf-8');
+  const written = fs.readFileSync(path.join(tmpBase, '.aoforge', 'ROADMAP.md'), 'utf-8');
   assert.ok(written.includes('  - [x] 01-01-alpha-TRD.md'), 'ROADMAP.md has indented [x] line');
 
   fs.rmSync(tmpBase, { recursive: true, force: true });
@@ -925,7 +925,7 @@ test('RUI2: reconcile dry-run + ALL [x] in ROADMAP → emits rollup change, does
       ],
     }],
   });
-  const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
   const before = fs.readFileSync(roadmapPath, 'utf-8');
 
   const result = reconcile.reconcile({ projectRoot, mode: 'dry-run', today: '2026-05-04' });
@@ -950,7 +950,7 @@ test('RUI3: reconcile write-mode + rollup → ROADMAP.md has updated Status line
     }],
   });
   reconcile.reconcile({ projectRoot, mode: 'write', today: '2026-05-04' });
-  const written = fs.readFileSync(path.join(projectRoot, '.planning', 'ROADMAP.md'), 'utf-8');
+  const written = fs.readFileSync(path.join(projectRoot, '.aoforge', 'ROADMAP.md'), 'utf-8');
   assert.ok(written.includes('**Status:** complete 2026-05-04'), 'Status line updated on disk');
   cleanup();
 });
@@ -1028,7 +1028,7 @@ test('EX2: module.exports block has banner comment "LOCKED by TRD 09-03"', () =>
 
 test('E2E1: SELF-TEST — reconcile dry-run against this repo ROADMAP shows zero drift', () => {
   // SC-9 acceptance gate. This test must run on every npm test (no env gate).
-  // If it fails: EITHER the manual ROADMAP maintenance broke (fix .planning/ROADMAP.md)
+  // If it fails: EITHER the manual ROADMAP maintenance broke (fix .aoforge/ROADMAP.md)
   //              OR the reconciler logic regressed (bisect the test file).
   const repoRoot = process.cwd();
   const result = reconcile.reconcile({ projectRoot: repoRoot, mode: 'dry-run' });
@@ -1060,7 +1060,7 @@ test('E2E2: fake-breakage workflow — fixture [ ] + SUMMARY → drift → write
     const writeChange = r2.changes.find(c => c.kind === 'trd_summary_exists');
     assert.ok(writeChange, 'trd_summary_exists change applied in write mode');
 
-    const roadmapContent = fs.readFileSync(path.join(projectRoot, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmapContent = fs.readFileSync(path.join(projectRoot, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(roadmapContent, /\[x\] 01-01-a-TRD\.md/, 'ROADMAP now shows [x]');
 
     // Step 3: re-run dry-run is clean (idempotency)
@@ -1203,13 +1203,13 @@ test('SL3: slugged line still yields trd_id NN-NN and full filename (regression 
 
 test('SL4: reconcile flips a slugless [ ] line to [x] when NN-MM-SUMMARY.md is PASSED', () => {
   const tmpBase = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sl4-'));
-  const objDir = path.join(tmpBase, '.planning', 'objectives', '32-visual-eval');
+  const objDir = path.join(tmpBase, '.aoforge', 'objectives', '32-visual-eval');
   try {
     fs.mkdirSync(objDir, { recursive: true });
     fs.writeFileSync(path.join(objDir, '32-01-TRD.md'), '---\nobjective: 32\ntrd: 01\n---\n', 'utf-8');
     fs.writeFileSync(path.join(objDir, '32-01-SUMMARY.md'), '# Summary\n\n## Self-Check: PASSED\n', 'utf-8');
     fs.writeFileSync(
-      path.join(tmpBase, '.planning', 'ROADMAP.md'),
+      path.join(tmpBase, '.aoforge', 'ROADMAP.md'),
       ['### Objective 32: Visual eval', '', '- [ ] 32-01-TRD.md — Wave 1: foo', ''].join('\n'),
       'utf-8',
     );
@@ -1222,7 +1222,7 @@ test('SL4: reconcile flips a slugless [ ] line to [x] when NN-MM-SUMMARY.md is P
     assert.strictEqual(dry.warnings.length, 0, 'no orphan warning — slugless TRD file is found');
 
     reconcile.reconcile({ projectRoot: tmpBase, mode: 'write', today: '2026-09-26' });
-    const written = fs.readFileSync(path.join(tmpBase, '.planning', 'ROADMAP.md'), 'utf-8');
+    const written = fs.readFileSync(path.join(tmpBase, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.ok(written.includes('- [x] 32-01-TRD.md — Wave 1: foo'), 'flip applied on disk');
 
     const again = reconcile.reconcile({ projectRoot: tmpBase, mode: 'dry-run', today: '2026-09-26' });

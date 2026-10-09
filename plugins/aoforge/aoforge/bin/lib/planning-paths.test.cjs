@@ -238,33 +238,33 @@ describe('relToPlanning', () => {
   });
 
   test('7a. inside -> POSIX rel (existing or not), outside -> null', () => {
-    const planning = path.join(tmp, 'proj', '.planning');
+    const planning = path.join(tmp, 'proj', '.aoforge');
     fs.mkdirSync(path.join(planning, 'objectives', '48-x'), { recursive: true });
     fs.writeFileSync(path.join(planning, 'STATE.md'), 'x');
     assert.strictEqual(paths.relToPlanning(path.join(planning, 'STATE.md'), planning), 'STATE.md');
     assert.strictEqual(paths.relToPlanning(path.join(planning, 'objectives', '48-x', '48-01-a-TRD.md'), planning), 'objectives/48-x/48-01-a-TRD.md');
     assert.strictEqual(paths.relToPlanning(path.join(planning, 'new', 'deep', 'file.md'), planning), 'new/deep/file.md');
     assert.strictEqual(paths.relToPlanning(path.join(tmp, 'proj', 'src', 'x.js'), planning), null);
-    assert.strictEqual(paths.relToPlanning(path.join(tmp, 'proj', '.planning-old', 'x.md'), planning), null);
+    assert.strictEqual(paths.relToPlanning(path.join(tmp, 'proj', '.aoforge-old', 'x.md'), planning), null);
     assert.strictEqual(paths.relToPlanning(path.join(planning, '..', 'README.md'), planning), null);
     assert.strictEqual(paths.relToPlanning(planning, planning), null, 'the dir itself is not a path inside it');
   });
 
   test('7b. a symlinked parent resolves through realpath of the deepest existing ancestor', () => {
     const realProj = path.join(tmp, 'real-proj');
-    const planning = path.join(realProj, '.planning');
+    const planning = path.join(realProj, '.aoforge');
     fs.mkdirSync(planning, { recursive: true });
     const link = path.join(tmp, 'link-proj');
     fs.symlinkSync(realProj, link, 'dir');
 
     // the file does not exist yet; only an ancestor is real
-    assert.strictEqual(paths.relToPlanning(path.join(link, '.planning', 'objectives', '7-x', 'OBJECTIVE.md'), planning), 'objectives/7-x/OBJECTIVE.md');
-    assert.strictEqual(paths.relToPlanning(path.join(planning, 'STATE.md'), path.join(link, '.planning')), 'STATE.md');
+    assert.strictEqual(paths.relToPlanning(path.join(link, '.aoforge', 'objectives', '7-x', 'OBJECTIVE.md'), planning), 'objectives/7-x/OBJECTIVE.md');
+    assert.strictEqual(paths.relToPlanning(path.join(planning, 'STATE.md'), path.join(link, '.aoforge')), 'STATE.md');
     assert.strictEqual(paths.relToPlanning(path.join(link, 'src', 'a.js'), planning), null);
   });
 
   test('7c. os.tmpdir() vs its realpath (macOS /var vs /private/var) agree', () => {
-    const planning = path.join(tmp, '.planning');
+    const planning = path.join(tmp, '.aoforge');
     fs.mkdirSync(planning);
     const realPlanning = fs.realpathSync(planning);
     assert.strictEqual(paths.relToPlanning(path.join(planning, 'ROADMAP.md'), realPlanning), 'ROADMAP.md');
@@ -295,7 +295,7 @@ describe('classify: unsafe rels', () => {
 
 describe('U-1 tracked set', () => {
   test('9. gitignoreLines and TRACKED_CONFIG', () => {
-    assert.deepStrictEqual(paths.gitignoreLines(), ['.planning/*', '!.planning/config.json', '!.planning/STACK.md']);
+    assert.deepStrictEqual(paths.gitignoreLines(), ['.aoforge/*', '!.aoforge/config.json', '!.aoforge/STACK.md']);
     assert.deepStrictEqual([...paths.TRACKED_CONFIG], ['config.json', 'STACK.md']);
     assert.ok(Object.isFrozen(paths.TRACKED_CONFIG));
     // a fresh array each call: a caller appending to it cannot change the next caller's lines
@@ -306,7 +306,7 @@ describe('U-1 tracked set', () => {
   test('9b. every TRACKED_CONFIG entry classifies tracked-config and the negations match it', () => {
     for (const rel of paths.TRACKED_CONFIG) {
       assert.strictEqual(paths.classify(rel).class, 'tracked-config');
-      assert.ok(paths.gitignoreLines().includes(`!.planning/${rel}`));
+      assert.ok(paths.gitignoreLines().includes(`!.aoforge/${rel}`));
     }
   });
 });
@@ -329,7 +329,7 @@ describe('listByClass', () => {
   }
 
   test('10a. a hand-built tree -> four sorted lists, wiki/.git/** skipped', () => {
-    const planning = path.join(tmp, '.planning');
+    const planning = path.join(tmp, '.aoforge');
     const files = [
       'config.json',
       'STACK.md',
@@ -358,12 +358,12 @@ describe('listByClass', () => {
     });
   });
 
-  test('10b. a missing .planning/ -> four empty lists', () => {
+  test('10b. a missing .aoforge/ -> four empty lists', () => {
     assert.deepStrictEqual(paths.listByClass(path.join(tmp, 'nope')), { 'tracked-config': [], cache: [], generated: [], runtime: [] });
   });
 
   test('10c. every listed rel classifies to the list it is in', () => {
-    const planning = path.join(tmp, '.planning');
+    const planning = path.join(tmp, '.aoforge');
     for (const [rel] of CLASS_TABLE_ROWS) put(planning, rel);
     const listed = paths.listByClass(planning);
     let count = 0;
@@ -381,7 +381,7 @@ describe('listByClass', () => {
 
 describe('runtime dotfiles', () => {
   // Literal list: hooks/planning-writes.audit.test.js pins .skill-active, .edit-override and .aoforge-notices.json as the only
-  // dotfiles a hook may write under .planning/, and names .progress-guard.json / .awareness-cache.json as moved out (migration 0008).
+  // dotfiles a hook may write under .aoforge/, and names .progress-guard.json / .awareness-cache.json as moved out (migration 0008).
   const DOTFILES = ['.skill-active', '.edit-override', '.aoforge-notices.json', '.progress-guard.json', '.awareness-cache.json'];
 
   test('11. each classifies runtime', () => {

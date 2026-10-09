@@ -84,7 +84,7 @@ test('CLI2: default mode + drift fixture → exit 0, ROADMAP file rewritten with
   });
 
   try {
-    const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+    const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
     const before = fs.readFileSync(roadmapPath, 'utf-8');
     assert.ok(before.includes('- [ ]'), 'fixture starts with unchecked TRD');
 
@@ -114,7 +114,7 @@ test('CLI3: --dry-run flag → exit 0, ROADMAP unchanged on disk, JSON output ha
   });
 
   try {
-    const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+    const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
     const before = fs.readFileSync(roadmapPath, 'utf-8');
 
     const r = spawnSync('node', [DF_TOOLS, 'sync-roadmap', '--dry-run'], {
@@ -193,7 +193,7 @@ test('CLI5: --interactive in non-TTY → warning on stderr + falls back to write
       `expected non-TTY warning in stderr: ${r.stderr}`,
     );
     // Write mode applied — ROADMAP should be updated
-    const roadmapPath = path.join(projectRoot, '.planning', 'ROADMAP.md');
+    const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
     const content = fs.readFileSync(roadmapPath, 'utf-8');
     assert.ok(content.includes('- [x]'), 'write mode applied after non-TTY fallback');
   } finally {
@@ -204,7 +204,7 @@ test('CLI5: --interactive in non-TTY → warning on stderr + falls back to write
 test('CLI6: ROADMAP missing → warning emitted, exit 0 (graceful)', () => {
   // Build tmpdir with no ROADMAP.md
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-cli6-'));
-  fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(tmpDir, '.aoforge'), { recursive: true });
   // No ROADMAP.md written
 
   try {
@@ -335,14 +335,14 @@ require('node:test').afterEach(() => {
 function srProject(config) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-sync-roadmap-'));
   srDirs.push(dir);
-  const obj = path.join(dir, '.planning', 'objectives', '07-seven');
+  const obj = path.join(dir, '.aoforge', 'objectives', '07-seven');
   fs.mkdirSync(obj, { recursive: true });
-  fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), SR_ROADMAP, 'utf-8');
+  fs.writeFileSync(path.join(dir, '.aoforge', 'ROADMAP.md'), SR_ROADMAP, 'utf-8');
   fs.writeFileSync(path.join(obj, '07-01-alpha-TRD.md'), '# a\n', 'utf-8');
   fs.writeFileSync(path.join(obj, '07-02-beta-TRD.md'), '# b\n', 'utf-8');
   fs.writeFileSync(path.join(obj, '07-01-alpha-SUMMARY.md'), '# s\n\n## Self-Check: PASSED\n', 'utf-8');
   if (config) {
-    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
+    fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), JSON.stringify(config, null, 2), 'utf-8');
   }
   return dir;
 }
@@ -362,7 +362,7 @@ function srRun(args, cwd) {
 }
 
 function srRoadmap(dir) {
-  return fs.readFileSync(path.join(dir, '.planning', 'ROADMAP.md'), 'utf-8');
+  return fs.readFileSync(path.join(dir, '.aoforge', 'ROADMAP.md'), 'utf-8');
 }
 
 const SR_TICKED = SR_ROADMAP.replace('- [ ] 07-01-alpha-TRD.md', '- [x] 07-01-alpha-TRD.md');

@@ -12,8 +12,8 @@
 //   - runtimeHome        the runtime mirror under ~/.claude, new and old
 //
 // The new name always wins: when both exist, the new one is used. Nothing here caches a
-// result (a migration can move the planning directory mid-process) and nothing here is
-// wired into a caller; later TRDs of the objective adopt these.
+// result (a migration can move the planning directory mid-process). The libraries under
+// bin/ resolve their planning paths here (TRD 72-05); hooks and prose follow in 72-06.
 //
 // This module spells no old name. Every one is built from LEGACY in legacy-names.cjs,
 // which is also where SHIM_REMOVAL records when the shims go (the release after 3.0.0).
@@ -100,6 +100,27 @@ function planningRoot(root, fsImpl = fs) {
   return path.join(root, planningDirName(root, fsImpl));
 }
 
+/**
+ * A path inside the root's planning directory, relative to the root and in posix form: what git pathspecs,
+ * `--files` lists and JSON output name. `planningRel(root)` is the directory name itself.
+ */
+function planningRel(root, ...segments) {
+  return path.posix.join(planningDirName(root), ...segments.flatMap((s) => String(s).split(/[\\/]+/)));
+}
+
+/** Both planning-directory names, the new one first: for exclusion lists, scans and attribute lines. */
+const PLANNING_DIR_NAMES = Object.freeze([NEW_PLAN_DIR, OLD_PLAN_DIR]);
+
+/** True for a path segment that names either planning directory. */
+function isPlanningDirName(name) {
+  return name === NEW_PLAN_DIR || name === OLD_PLAN_DIR;
+}
+
+/** The planning directory as a "not found" message names it, when there is none to resolve. */
+function planningDirLabel() {
+  return `${NEW_PLAN_DIR}/ (or legacy ${OLD_PLAN_DIR}/)`;
+}
+
 /** True only for a root that has the legacy planning directory and not the new one. */
 function isLegacyPlanning(root, fsImpl = fs) {
   return !hasNewPlanDir(root, fsImpl) && hasOldPlanDir(root, fsImpl);
@@ -160,6 +181,10 @@ module.exports = {
   aliasLegacyEnv,
   planningDirName,
   planningRoot,
+  planningRel,
+  PLANNING_DIR_NAMES,
+  isPlanningDirName,
+  planningDirLabel,
   isLegacyPlanning,
   bothPlanningDirs,
   findProjectRoot,

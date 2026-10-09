@@ -13,7 +13,7 @@
  * message, and the logged AOFORGE_SKIP_GH_GATE=1 escape works as it does there.
  *
  * CLI surface:
- *   aof-tools micro start <description>           write .planning/.skill-active, allocate task slot
+ *   aof-tools micro start <description>           write .aoforge/.skill-active, allocate task slot
  *   aof-tools micro commit [--files <path>...]    atomic commit + STATE.md row (local mode only) + remove marker
  *   aof-tools micro abort                         remove marker without committing (idempotent)
  *
@@ -25,6 +25,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { output, error, generateSlugInternal } = require('./helpers.cjs');
 const { findPlanningDir, startSkill, endSkill, statusSkill, markerPath } = require('./skill-active.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 
 // ─── fs injection (for testability) ──────────────────────────────────────────
 
@@ -47,7 +48,7 @@ function _resetMocks() { _runFs = realFs; }
  * Compute the next sequential number for a quick task slot.
  * Mirrors the pattern used in `cmdInitQuick` (init.cjs:362-371).
  *
- * @param {string} planningDir - absolute path to .planning/
+ * @param {string} planningDir - absolute path to .aoforge/
  * @returns {number}
  */
 function _nextQuickNum(planningDir) {
@@ -182,7 +183,7 @@ function _diffPaths(cwd, args) {
 /**
  * The paths a micro commit covers when the caller named none: what is staged, else the tracked modifications. Untracked files
  * are never included — the old `git add .` fallback swept a user's unrelated drafts into a micro commit and onto a pushed
- * branch. aof-tools commit with no `--files` commits `.planning/` only, so micro resolves the list itself.
+ * branch. aof-tools commit with no `--files` commits `.aoforge/` only, so micro resolves the list itself.
  *
  * @returns {{ paths: string[], error: string|null }}
  */
@@ -240,7 +241,7 @@ function _dfToolsCommitRunner(cwd, opts) {
  * Allocates a new micro task slot and writes the .skill-active marker.
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir - absolute path to .planning/
+ * @param {string|null} opts.planningDir - absolute path to .aoforge/
  * @param {string} opts.description - user-supplied task description
  * @param {number} opts.pid - PID (aof-tools subprocess PID)
  * @param {string} opts.now - ISO8601 timestamp
@@ -251,7 +252,7 @@ function startMicro({ planningDir, description, pid, now }) {
     return {
       ok: false,
       reason: 'no-planning-dir',
-      message: 'No .planning/ directory found in cwd or ancestors',
+      message: `No ${planningDirLabel()} directory found in cwd or ancestors`,
     };
   }
 
@@ -266,7 +267,7 @@ function startMicro({ planningDir, description, pid, now }) {
   const trimmedDesc = description.trim();
   const slug = generateSlugInternal(trimmedDesc)?.substring(0, 40) || 'task';
   const nextNum = _nextQuickNum(planningDir);
-  const taskDir = path.join('.planning', 'quick', `${nextNum}-${slug}`);
+  const taskDir = path.join(path.basename(planningDir), 'quick', `${nextNum}-${slug}`);
 
   // F2: physically create the placeholder dir BEFORE writing the marker.
   // This prevents counter collisions with `aof-tools init quick` which scans the
@@ -320,7 +321,7 @@ function startMicro({ planningDir, description, pid, now }) {
  * `state_row: 'skipped_store_mode'` (52-03).
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir - absolute path to .planning/
+ * @param {string|null} opts.planningDir - absolute path to .aoforge/
  * @param {string} opts.description - task description (used in commit message)
  * @param {string[]|null} opts.files - files to stage and commit (pathspec-limited; unrelated staged changes stay staged); null = what is already staged, else tracked modifications; never untracked files
  * @param {string} opts.now - ISO8601 timestamp (for STATE.md date)
@@ -332,7 +333,7 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
     return {
       ok: false,
       reason: 'no-planning-dir',
-      message: 'No .planning/ directory found in cwd or ancestors',
+      message: `No ${planningDirLabel()} directory found in cwd or ancestors`,
     };
   }
 
@@ -350,7 +351,7 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // cmdMicro reads it from the marker)
   const commitDesc = (description && description.trim()) ? description.trim() : (status.marker.description || 'micro task');
 
-  // Derive project root from planningDir (parent of .planning/)
+  // Derive project root from planningDir (parent of .aoforge/)
   const projectRoot = path.dirname(planningDir);
 
   // 52-03: in store mode STATE.md is a generated view (`aof-tools gh pull --all`
@@ -468,7 +469,7 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
 
   // Remove the marker BEFORE the STATE.md commit so the second commit picks up
   // the marker deletion alongside the STATE.md row. This keeps the working tree
-  // clean post-commit (no `D .planning/.skill-active` lingering) and matches the
+  // clean post-commit (no `D .aoforge/.skill-active` lingering) and matches the
   // /aoforge:quick 2-commit pattern: source → state-and-cleanup.
   // STATE.md commit failure is recoverable; marker cleanup is the user-meaningful
   // unit and must always happen.
@@ -482,18 +483,19 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // Mirrors /aoforge:quick's 2-commit pattern. Only attempt if the row was
   // successfully appended — otherwise nothing to commit.
   //
-  // Also stage `.planning/.skill-active` IF it is already tracked in the
+  // Also stage `<planning dir>/.skill-active` IF it is already tracked in the
   // repository. After endSkill, the marker is deleted on disk; if it was tracked,
   // this shows as `D` in the working tree and must be captured in commit 2 to
   // keep the tree clean. If the marker was never tracked, list nothing for it —
   // `git add` on an untracked, now-deleted path errors with "did not match".
-  const stateFiles = ['.planning/STATE.md'];
-  const lsResult = spawnSync('git', ['ls-files', '--error-unmatch', '.planning/.skill-active'], {
+  const planningRel = path.basename(planningDir); // `.aoforge`, or a legacy planning directory
+  const stateFiles = [`${planningRel}/STATE.md`];
+  const lsResult = spawnSync('git', ['ls-files', '--error-unmatch', `${planningRel}/.skill-active`], {
     cwd: projectRoot,
     encoding: 'utf8',
   });
   if (lsResult.status === 0) {
-    stateFiles.push('.planning/.skill-active');
+    stateFiles.push(`${planningRel}/.skill-active`);
   }
 
   let stateCommitHash = null;
@@ -541,7 +543,7 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
  * Removes the skill-active marker without committing. Idempotent.
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir - absolute path to .planning/
+ * @param {string|null} opts.planningDir - absolute path to .aoforge/
  * @returns {{ ok: boolean, removed?: boolean, reason?: string, message?: string }}
  */
 function abortMicro({ planningDir }) {
@@ -549,7 +551,7 @@ function abortMicro({ planningDir }) {
     return {
       ok: false,
       reason: 'no-planning-dir',
-      message: 'No .planning/ directory found in cwd or ancestors',
+      message: `No ${planningDirLabel()} directory found in cwd or ancestors`,
     };
   }
 

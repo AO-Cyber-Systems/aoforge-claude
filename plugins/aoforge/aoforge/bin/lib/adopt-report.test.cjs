@@ -16,10 +16,10 @@
 //  3. No inference file -> a low row containing "no inference record".
 //  4. `confidence: 'maybe'` entry -> a row naming the malformed entry; the other entries still
 //     listed.
-//  5. Marker `scaffold.stack.ok: false` -> first row mentions `.planning/STACK.md`.
+//  5. Marker `scaffold.stack.ok: false` -> first row mentions `.aoforge/STACK.md`.
 //  6. Missing loop evidence: whichever of test/lint/build has no command evidence (computed
 //     dynamically via stackProfile.draftProfile, not hard-coded) gets a low row.
-//  7. A `.planning/codebase/STACK.md` with 3 lines -> a medium row naming it.
+//  7. A `.aoforge/codebase/STACK.md` with 3 lines -> a medium row naming it.
 //  8. Redaction: AKIAABCDEFGHIJKLMNOP in ARCHITECTURE.md and inside the CLAUDE.md block, and
 //     also in CLAUDE.md user text outside the block -> the first two become [REDACTED], the
 //     outside copy is byte-identical; redactions: 2; rows show file + line + aws-access-key,
@@ -29,8 +29,8 @@
 // 10. A health warning (missing `## Core Value`) -> a row with the W-code.
 // 11. Inference file deleted after the run; marker.inferences holds them; re-run -> byte-
 //     identical ADOPT-REPORT.md.
-// 12. commit_files sorted, includes the owned .planning files + CLAUDE.md, excludes
-//     `.planning/.skill-active` and `.planning/.adopt-inferences.json`.
+// 12. commit_files sorted, includes the owned .aoforge files + CLAUDE.md, excludes
+//     `.aoforge/.skill-active` and `.aoforge/.adopt-inferences.json`.
 // 13. commit_message === `chore(aoforge): adopt repository (AOForge v<checkout plugin version>)`.
 // 14. Guards: on main (never begun) -> exit 3; resume state but not scaffolded -> exit 1
 //     `run adopt scaffold first`.
@@ -107,7 +107,7 @@ function scaffoldedFixture(kind, { inferences } = {}) {
 }
 
 function readReport(root) {
-  return fs.readFileSync(path.join(root, '.planning', 'ADOPT-REPORT.md'), 'utf-8');
+  return fs.readFileSync(path.join(root, '.aoforge', 'ADOPT-REPORT.md'), 'utf-8');
 }
 
 function readMarkerFile(root) {
@@ -189,7 +189,7 @@ describe('adopt report', () => {
       ],
     });
 
-    const archPath = path.join(root, '.planning', 'codebase', 'ARCHITECTURE.md');
+    const archPath = path.join(root, '.aoforge', 'codebase', 'ARCHITECTURE.md');
     fs.appendFileSync(archPath, '\nLeaked key: AKIAABCDEFGHIJKLMNOP\n', 'utf-8');
 
     const marker = readMarkerFile(root);
@@ -236,7 +236,7 @@ describe('adopt report', () => {
     assert.ok(rows.some((r) => r.item === 'validated:List orders'), 'the valid entry must still be listed');
   });
 
-  test('5. marker scaffold.stack.ok:false -> first needs-review row mentions .planning/STACK.md', () => {
+  test('5. marker scaffold.stack.ok:false -> first needs-review row mentions .aoforge/STACK.md', () => {
     const root = scaffoldedFixture('flutter-app');
     const marker = readMarkerFile(root);
     marker.scaffold.stack.ok = false;
@@ -246,7 +246,7 @@ describe('adopt report', () => {
     const result = runAdopt(root, 'report');
     assert.strictEqual(result.status, 0, result.out);
     assert.ok(result.report.needs_review.length > 0);
-    assert.match(result.report.needs_review[0].item, /\.planning\/STACK\.md/);
+    assert.match(result.report.needs_review[0].item, /\.aoforge\/STACK\.md/);
   });
 
   test('6. missing loop-command evidence gets a low row, computed dynamically', () => {
@@ -305,7 +305,7 @@ describe('adopt report', () => {
     // Inherited keys are covered too.
     marker.scaffold.stack.inherited_keys = ['build'];
     adopt.writeMarker(root, gitEnv(fakeHome), marker);
-    fs.rmSync(path.join(root, '.planning', 'ADOPT-REPORT.md'), { force: true });
+    fs.rmSync(path.join(root, '.aoforge', 'ADOPT-REPORT.md'), { force: true });
     const again = runAdopt(root, 'report');
     assert.strictEqual(again.status, 0, again.out);
     assert.ok(!again.report.needs_review.some((r) => r.item === "no command evidence for 'build'"), JSON.stringify(again.report.needs_review));
@@ -313,12 +313,12 @@ describe('adopt report', () => {
 
   test('7. a codebase doc under 20 lines gets a medium row naming it', () => {
     const root = scaffoldedFixture('go-service');
-    fs.writeFileSync(path.join(root, '.planning', 'codebase', 'STACK.md'), '# STACK\n\nShort.\n', 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'codebase', 'STACK.md'), '# STACK\n\nShort.\n', 'utf-8');
 
     const result = runAdopt(root, 'report');
     assert.strictEqual(result.status, 0, result.out);
     assert.ok(
-      result.report.needs_review.some((r) => r.confidence === 'medium' && r.item.includes('.planning/codebase/STACK.md')),
+      result.report.needs_review.some((r) => r.confidence === 'medium' && r.item.includes('.aoforge/codebase/STACK.md')),
       'expected a medium row naming the short STACK.md doc'
     );
   });
@@ -327,7 +327,7 @@ describe('adopt report', () => {
     const root = scaffoldedFixture('go-service');
     const SECRET = 'AKIAABCDEFGHIJKLMNOP';
 
-    const archPath = path.join(root, '.planning', 'codebase', 'ARCHITECTURE.md');
+    const archPath = path.join(root, '.aoforge', 'codebase', 'ARCHITECTURE.md');
     fs.appendFileSync(archPath, `\nLeaked key: ${SECRET}\n`, 'utf-8');
 
     const claudePath = path.join(root, 'CLAUDE.md');
@@ -378,7 +378,7 @@ describe('adopt report', () => {
 
   test('10. a validate-health warning appears with its W-code', () => {
     const root = scaffoldedFixture('flutter-app');
-    const projectMdPath = path.join(root, '.planning', 'PROJECT.md');
+    const projectMdPath = path.join(root, '.aoforge', 'PROJECT.md');
     let text = fs.readFileSync(projectMdPath, 'utf-8');
     text = text.replace(/## Core Value\n\n[^\n]*\n\n/, '');
     fs.writeFileSync(projectMdPath, text, 'utf-8');
@@ -397,7 +397,7 @@ describe('adopt report', () => {
         { field: 'default_work', value: 'feature', confidence: 'low', evidence: 'no history' },
       ],
     });
-    const inferencesPath = path.join(root, '.planning', '.adopt-inferences.json');
+    const inferencesPath = path.join(root, '.aoforge', '.adopt-inferences.json');
     assert.ok(fs.existsSync(inferencesPath));
 
     const first = runAdopt(root, 'report');
@@ -413,9 +413,9 @@ describe('adopt report', () => {
     assert.strictEqual(secondText, firstText, 'a re-run must render a byte-identical report');
   });
 
-  test('12. commit_files is sorted, includes owned .planning files + CLAUDE.md, excludes transient files', () => {
+  test('12. commit_files is sorted, includes owned .aoforge files + CLAUDE.md, excludes transient files', () => {
     const root = scaffoldedFixture('go-service');
-    fs.writeFileSync(path.join(root, '.planning', '.skill-active'), '{}', 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', '.skill-active'), '{}', 'utf-8');
 
     const result = runAdopt(root, 'report');
     assert.strictEqual(result.status, 0, result.out);
@@ -423,16 +423,16 @@ describe('adopt report', () => {
     assert.deepStrictEqual(files, [...files].sort(), 'commit_files must be sorted');
 
     const expectedIncluded = [
-      '.planning/ADOPT-REPORT.md', '.planning/PROJECT.md', '.planning/STATE.md',
-      '.planning/ROADMAP.md', '.planning/STACK.md', '.planning/config.json', '.planning/state.json',
+      '.aoforge/ADOPT-REPORT.md', '.aoforge/PROJECT.md', '.aoforge/STATE.md',
+      '.aoforge/ROADMAP.md', '.aoforge/STACK.md', '.aoforge/config.json', '.aoforge/state.json',
       'CLAUDE.md',
-      '.planning/codebase/STACK.md', '.planning/codebase/INTEGRATIONS.md', '.planning/codebase/ARCHITECTURE.md',
-      '.planning/codebase/STRUCTURE.md', '.planning/codebase/CONVENTIONS.md', '.planning/codebase/TESTING.md',
-      '.planning/codebase/PATTERNS.md', '.planning/codebase/CONCERNS.md',
+      '.aoforge/codebase/STACK.md', '.aoforge/codebase/INTEGRATIONS.md', '.aoforge/codebase/ARCHITECTURE.md',
+      '.aoforge/codebase/STRUCTURE.md', '.aoforge/codebase/CONVENTIONS.md', '.aoforge/codebase/TESTING.md',
+      '.aoforge/codebase/PATTERNS.md', '.aoforge/codebase/CONCERNS.md',
     ];
     for (const f of expectedIncluded) assert.ok(files.includes(f), `expected commit_files to include ${f}`);
-    assert.ok(!files.includes('.planning/.skill-active'), 'commit_files must exclude .skill-active');
-    assert.ok(!files.includes('.planning/.adopt-inferences.json'), 'commit_files must exclude the (deleted) inference file');
+    assert.ok(!files.includes('.aoforge/.skill-active'), 'commit_files must exclude .skill-active');
+    assert.ok(!files.includes('.aoforge/.adopt-inferences.json'), 'commit_files must exclude the (deleted) inference file');
   });
 
   test('13. commit_message names the checkout plugin version', () => {
@@ -447,7 +447,7 @@ describe('adopt report', () => {
   // ADOPT-REPORT.md, and every `gap` finding becomes one medium row.
   test('42-08/13. writes STACK-REPORT.md when absent, never overwrites it, links it, and adds one medium row per gap', () => {
     const root = scaffoldedFixture('go-service');
-    const stackReportPath = path.join(root, '.planning', 'STACK-REPORT.md');
+    const stackReportPath = path.join(root, '.aoforge', 'STACK-REPORT.md');
     assert.ok(!fs.existsSync(stackReportPath), 'scaffold does not write the stack report');
 
     const result = runAdopt(root, 'report');
@@ -458,7 +458,7 @@ describe('adopt report', () => {
     assert.match(written, /^# Stack Report: /m);
 
     const text = readReport(root);
-    assert.ok(text.includes('See .planning/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).'), text);
+    assert.ok(text.includes('See .aoforge/STACK-REPORT.md for CI/CD and local-testing recommendations (proposals only).'), text);
 
     const { buildReport } = require('./stack-report.cjs');
     const gaps = buildReport({ projectRoot: root, userHome: fakeHome }).findings.filter((f) => f.severity === 'gap');
@@ -467,7 +467,7 @@ describe('adopt report', () => {
     assert.strictEqual(gapRows.length, gaps.length, JSON.stringify(gapRows));
     for (const r of gapRows) assert.strictEqual(r.confidence, 'medium');
     for (const g of gaps) assert.ok(gapRows.some((r) => r.item.startsWith(`${g.id}: `)), `missing a row for ${g.id}`);
-    assert.ok(result.report.commit_files.includes('.planning/STACK-REPORT.md'), 'owned path, so adopt commits it');
+    assert.ok(result.report.commit_files.includes('.aoforge/STACK-REPORT.md'), 'owned path, so adopt commits it');
 
     // Present: never overwritten; the rows still come from a fresh computation.
     fs.writeFileSync(stackReportPath, 'hand-edited stack report\n', 'utf-8');

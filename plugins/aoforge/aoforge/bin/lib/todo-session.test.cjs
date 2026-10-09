@@ -32,7 +32,7 @@ function cassetteTest(name, file, body) {
 function todoAddStem(text, iso) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'todo-session-ref-'));
   try {
-    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(dir, '.aoforge'), { recursive: true });
     const r = ev.todoAdd(dir, { text, now: Date.parse(iso) });
     assert.equal(r.ok, true, JSON.stringify(r));
     return r.stem;

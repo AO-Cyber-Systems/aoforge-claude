@@ -10,7 +10,7 @@
 //                                  legacy-named TRDs, TRDs over the 60,000-char budget: refuse, listing every blocker
 //                                  with its fix
 //   1  remote preflight  reads     gh auth, capability detection (a writable token), the wiki and its first page
-//   2  store switch                `github.store: true` in .planning/config.json (idempotent, backed up first)
+//   2  store switch                `github.store: true` in .aoforge/config.json (idempotent, backed up first)
 //   3  queue                       `planImport({noFlush})` exactly once: skipped while the journal holds pending ops
 //                                  (P3), live creates booked into the journal's budget window (G5)
 //   4  drain             writes    a bounded flush loop inside the budgets; the hour budget, the per-run write budget,
@@ -53,6 +53,7 @@ const ghCapability = require('../gh-capability.cjs');
 const { TRD_MAX_CHARS } = require('../gh-trd.cjs');
 const upgrade = require('../upgrade.cjs');
 const { mdCell } = require('../text-escape.cjs');
+const { planningRoot, planningRel } = require('../compat.cjs');
 
 const LEGACY_TRD_RE = /^objectives\/[^/]+\/(\d+(?:\.\d+)?-\d+)-TRD-(.+)\.md$/;
 const GIT_REDIRECT_VARS = [
@@ -78,7 +79,8 @@ const COMPLETE = 'already on GitHub (backfill complete)';
 const MIRROR_ONLY = 'mirror mode kept (github.mirror_only: true): the GitHub store backfill is opted out. ' +
   `To migrate later, run \`aof-tools config-set github.mirror_only false\`, then ${APPLY_COMMAND}.`;
 const KEEP_MIRROR = ' To keep mirror mode instead: `aof-tools config-set github.mirror_only true`.';
-const CONFIG_REL = '.planning/config.json';
+// config.json under the main checkout's resolved planning directory (`.aoforge/`, or a legacy one)
+const configRel = (root) => planningRel(root, 'config.json');
 // P5: the partial window between the store switch and the end of the migration.
 const PARTIAL_WINDOW = 'until the migration finishes, the project is in store mode: the edit gate denies cache edits and ' +
   '`aof-tools commit` refuses the default branch';
@@ -156,7 +158,7 @@ function journalPhrase(j) {
 function unbaselined(main, ctx) {
   const index = outbox.readCacheIndex(main, outboxOpts(ctx));
   // The wiki clone is never a cache file (gh-cache.listOwnedLocal): nothing baselines it.
-  return planningPaths.listByClass(path.join(main, '.planning')).cache
+  return planningPaths.listByClass(planningRoot(main)).cache
     .filter((rel) => !rel.startsWith('wiki/') && !Object.hasOwn(index, rel));
 }
 
@@ -293,7 +295,7 @@ function journalBlockers(main, ctx) {
 
 function legacyBlockers(main) {
   const out = [];
-  for (const rel of planningPaths.listByClass(path.join(main, '.planning')).runtime) {
+  for (const rel of planningPaths.listByClass(planningRoot(main)).runtime) {
     const m = LEGACY_TRD_RE.exec(rel);
     if (m) out.push(`${rel}: legacy TRD name has no GitHub home; rename it to ${m[1]}-${m[2]}-TRD.md`);
   }
@@ -373,15 +375,16 @@ function indentOf(text) {
 }
 
 /**
- * Phase 2: `github.store = true` in the main checkout's .planning/config.json, every other key and the trailing newline
+ * Phase 2: `github.store = true` in the main checkout's .aoforge/config.json, every other key and the trailing newline
  * kept. Already on -> `{changed:false}` and nothing written. Otherwise the project is backed up first (upgrade.backup,
  * plus `0011-config.json.before`), so the rollback note can name the exact backup.
  * @returns {{changed:boolean, rel:string, backup:string|null}}
  */
 function ensureStoreSwitch(ctx) {
   const main = mainOf(ctx);
+  const CONFIG_REL = configRel(main);
   if (planningMode.isStoreMode(main)) return { changed: false, rel: CONFIG_REL, backup: null };
-  const file = path.join(main, '.planning', 'config.json');
+  const file = path.join(planningRoot(main), 'config.json');
   const text = fs.readFileSync(file, 'utf-8');
   const cfg = JSON.parse(text);
   if (!cfg || typeof cfg !== 'object' || !cfg.github || typeof cfg.github !== 'object' || Array.isArray(cfg.github)) {
@@ -482,7 +485,7 @@ function recordObjectiveBases(ctx) {
 }
 
 /**
- * Phase 3b (a resume only): the mapping is state too. When `.planning/.gh-mapping.json` lost entries after the queue
+ * Phase 3b (a resume only): the mapping is state too. When `.aoforge/.gh-mapping.json` lost entries after the queue
  * phase (deleted, or a run killed between an issue create and the mapping write), the ops still queued that address an
  * issue by id (links, edges, comments, closes, fields) would block with "has no issue yet" and halt the drain. Every
  * AOForge issue carries its `aoforge:id` marker, so each id GitHub has and the mapping lacks is re-adopted by marker:
@@ -538,7 +541,7 @@ function readoptMapping(ctx) {
   }
   if (adopted.length) {
     const w = ghMapping.writeMappingV3(main, mapping);
-    if (!w.ok) return { ok: false, error: `could not save .planning/.gh-mapping.json: ${w.error}` };
+    if (!w.ok) return { ok: false, error: `could not save ${planningRel(main, '.gh-mapping.json')}: ${w.error}` };
   }
   return { ok: true, adopted, duplicates };
 }
@@ -798,7 +801,7 @@ function verify(ctx) {
   for (const n of pulled.notes) notes.push(`  - note: ${n}`);
 
   const gaps = [];
-  for (const rel of pulled.orphans.filter((r) => ISSUE_FILE_RE.test(r))) gaps.push(`.planning/${rel}: GitHub has no issue for it`);
+  for (const rel of pulled.orphans.filter((r) => ISSUE_FILE_RE.test(r))) gaps.push(`${planningRel(main, rel)}: GitHub has no issue for it`);
   for (const x of pulled.orphan_trds || []) gaps.push(`TRD issue #${x.number} (${x.id}): no objective to place it under`);
   const mapping = ghMapping.readMappingV3(main);
   let objectives = 0;
@@ -841,7 +844,7 @@ function settleLocalOnly(ctx) {
   if (queued.length) {
     return { gaps: [`GitHub does not hold everything yet: the import would still queue ${queued.join(', ')} (${DRY_RUN_COMMAND} lists them)`], kept: [] };
   }
-  const cache = new Set(planningPaths.listByClass(path.join(main, '.planning')).cache);
+  const cache = new Set(planningPaths.listByClass(planningRoot(main)).cache);
   const index = outbox.readCacheIndex(main, outboxOpts(ctx));
   const kept = [...new Set((plan.kept_local || []).map((x) => x.rel))].filter((rel) => cache.has(rel) && !Object.hasOwn(index, rel));
   if (kept.length) require('../gh-cache.cjs').recordCacheBaseline(main, kept);
@@ -855,7 +858,7 @@ function settleLocalOnly(ctx) {
  * of what ran) before the runner writes 0011's stamp over the same block.
  */
 function recordHandoff(main) {
-  const cfg = JSON.parse(fs.readFileSync(path.join(main, CONFIG_REL), 'utf-8'));
+  const cfg = JSON.parse(fs.readFileSync(path.join(planningRoot(main), 'config.json'), 'utf-8'));
   const prev = cfg && cfg.aoforge && typeof cfg.aoforge === 'object' && !Array.isArray(cfg.aoforge) ? cfg.aoforge : {};
   const applied = Array.isArray(prev.migrations_applied) ? prev.migrations_applied.map(String) : [];
   if (applied.includes('0010')) return;
@@ -905,9 +908,9 @@ function migrate(ctx) {
 
   // Phase 2: the store switch. From here until the migration finishes the project is in store mode (P5).
   const sw = ensureStoreSwitch(ctx);
-  const changed = sw.changed ? [CONFIG_REL] : [];
+  const changed = sw.changed ? [configRel(main)] : [];
   const switched = [
-    sw.changed ? 'store switch: github.store set to true in .planning/config.json' : 'store switch: github.store already true',
+    sw.changed ? `store switch: github.store set to true in ${configRel(main)}` : 'store switch: github.store already true',
     PARTIAL_WINDOW,
     rollbackNote(sw, ctx, main),
   ];

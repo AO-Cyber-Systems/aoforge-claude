@@ -239,13 +239,13 @@ describe('50-02 readGateInputs (test 10)', { skip: !gitAvailable() && 'git not i
   });
 
   /**
-   * A temp main checkout on the linked branch, with a store-mode config and a mapping holding `prs` in `.planning/`
+   * A temp main checkout on the linked branch, with a store-mode config and a mapping holding `prs` in `.aoforge/`
    * (untracked, as in store mode, so a linked worktree of it holds no mapping of its own).
    */
   function project({ mapping = 'valid' } = {}) {
     const g = makeGitRemote();
     remotes.push(g);
-    const planning = path.join(g.work, '.planning');
+    const planning = path.join(g.work, '.aoforge');
     fs.mkdirSync(planning, { recursive: true });
     fs.writeFileSync(path.join(planning, 'config.json'), `${JSON.stringify({ github: { enabled: true, store: true } })}\n`, 'utf-8');
     if (mapping === 'valid') {
@@ -266,7 +266,7 @@ describe('50-02 readGateInputs (test 10)', { skip: !gitAvailable() && 'git not i
     const g = project();
     const wt = path.join(g.root, 'wt-50-03');
     g.git(g.work, ['worktree', 'add', '-q', '-b', 'df/exec-50-03', wt]);
-    assert.equal(fs.existsSync(path.join(wt, '.planning')), false, 'control: the worktree holds no .planning/ of its own');
+    assert.equal(fs.existsSync(path.join(wt, '.aoforge')), false, 'control: the worktree holds no .aoforge/ of its own');
 
     const inputs = readGateInputs(wt);
     assert.equal(inputs.branch, 'df/exec-50-03');

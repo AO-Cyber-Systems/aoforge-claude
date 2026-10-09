@@ -179,7 +179,7 @@ describe('aof-tools intent resolve (CLI)', () => {
       projectFrontmatter: { kind: 'api' },
       objectives: [{ id: '01-foo', work: 'prototype' }],
     });
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'tdd' }), 'utf-8');
 
     const r = runTool(
@@ -308,7 +308,7 @@ describe('precedence chain — fully stacked', () => {
       }),
     });
 
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'tdd' }), 'utf-8');
 
     const result = intent.resolve({
@@ -386,7 +386,7 @@ describe('TRD frontmatter — type:standard (F5: confidence removed)', () => {
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
 
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'standard' }), 'utf-8');
 
     const result = intent.resolve({
@@ -408,7 +408,7 @@ describe('TRD frontmatter — type:standard (F5: confidence removed)', () => {
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
 
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ confidence: 'high' }), 'utf-8');
 
     // Must not throw — back-compat parse path preserved
@@ -430,7 +430,7 @@ describe('TRD frontmatter — type:standard (F5: confidence removed)', () => {
       objectives: [{ id: '01-foo', work: 'spike' }],   // (api, spike) → tdd: none
     });
 
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'tdd' }), 'utf-8');
 
     const result = intent.resolve({
@@ -450,7 +450,7 @@ describe('TRD frontmatter — type:standard (F5: confidence removed)', () => {
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
 
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({}), 'utf-8'); // no type, no confidence
 
     const result = intent.resolve({
@@ -493,7 +493,7 @@ describe('intent-fixtures — buildMatrixProject', () => {
     const matrix = fixtures.buildMatrixProject({ kind: 'api' });
     try {
       for (const objectiveId of matrix.objectiveIds) {
-        const objDir = path.join(matrix.root, '.planning', 'objectives', objectiveId);
+        const objDir = path.join(matrix.root, '.aoforge', 'objectives', objectiveId);
         assert.ok(fs.existsSync(objDir), `objective dir missing: ${objectiveId}`);
 
         const objPath = path.join(objDir, 'OBJECTIVE.md');
@@ -635,7 +635,7 @@ describe('provenance — enum normalization', () => {
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
 
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     fs.writeFileSync(trdPath, fixtures.trdMd({ type: 'tdd' }), 'utf-8');
 
     const result = intent.resolve({
@@ -855,7 +855,7 @@ describe('overrides — multi-level cascade', () => {
     });
 
     // TRD frontmatter sets outside_in: false — should win over OBJECTIVE override
-    const trdPath = path.join(project.root, '.planning', 'objectives', '01-foo', '01-01-TRD.md');
+    const trdPath = path.join(project.root, '.aoforge', 'objectives', '01-foo', '01-01-TRD.md');
     // Write TRD with outside_in: false (boolean false in frontmatter)
     const trdContent = '---\nobjective: 01-test\ntrd: 01\ntype: tdd\noutside_in: false\n---\n\nTest TRD.\n';
     fs.writeFileSync(trdPath, trdContent, 'utf-8');

@@ -1,7 +1,7 @@
 'use strict';
 
 // Tests for lib/skill-marker-health.cjs (TRD 69-02, TOOL-09, tests 11-16): the shared inspection and
-// repair of `.planning/.skill-active` that validate health Check 19 and doctor check 23 (69-04) use.
+// repair of `.aoforge/.skill-active` that validate health Check 19 and doctor check 23 (69-04) use.
 //
 // no_llm_test_data: every project is makeMarkerProject, a hand-built temp git repo with literal marker
 // JSON whose times are offsets from an injected `now`; git runs with a fake HOME and no signing.
@@ -40,7 +40,7 @@ describe('inspect (test 11)', () => {
   });
 
   test('exports the marker path and the two codes', () => {
-    assert.equal(smh.MARKER_REL, '.planning/.skill-active');
+    assert.equal(smh.MARKER_REL, '.aoforge/.skill-active');
     assert.deepEqual({ ...smh.CODES }, { TRACKED: 'E006', STALE: 'W064' });
     assert.equal(Object.isFrozen(smh.CODES), true);
   });
@@ -48,7 +48,7 @@ describe('inspect (test 11)', () => {
   test('no marker at all', () => {
     const s = inspectOf(project({ marker: null }));
     assert.deepEqual(shape(s), { present: false, tracked: false, ignored: false, stale: false, live: false, git: true });
-    assert.equal(s.rel, '.planning/.skill-active');
+    assert.equal(s.rel, '.aoforge/.skill-active');
   });
 
   test('untracked, live', () => {
@@ -213,10 +213,10 @@ describe('repair (tests 14, 15)', () => {
     const r = smh.repair(p.root, { nowMs: p.nowMs, env: p.env });
     assert.equal(r.applied, true);
     assert.deepEqual(r.untracked, []);
-    assert.deepEqual(r.removed, ['.planning/.skill-active']);
+    assert.deepEqual(r.removed, ['.aoforge/.skill-active']);
     assert.equal(r.refused, null);
     const after = p.snapshot();
-    before.delete('.planning/.skill-active');
+    before.delete('.aoforge/.skill-active');
     assert.deepEqual([...after], [...before]);
   });
 
@@ -225,9 +225,9 @@ describe('repair (tests 14, 15)', () => {
     const head = p.git(['rev-parse', 'HEAD']).stdout;
     const r = smh.repair(p.root, { nowMs: p.nowMs, env: p.env });
     assert.equal(r.applied, true);
-    assert.deepEqual(r.untracked, ['.planning/.skill-active']);
-    assert.deepEqual(r.removed, ['.planning/.skill-active']);
-    assert.equal(p.porcelain(), 'D  .planning/.skill-active\n');
+    assert.deepEqual(r.untracked, ['.aoforge/.skill-active']);
+    assert.deepEqual(r.removed, ['.aoforge/.skill-active']);
+    assert.equal(p.porcelain(), 'D  .aoforge/.skill-active\n');
     assert.equal(p.git(['rev-parse', 'HEAD']).stdout, head);
   });
 
@@ -236,10 +236,10 @@ describe('repair (tests 14, 15)', () => {
     const bytes = fs.readFileSync(p.markerPath);
     const r = smh.repair(p.root, { nowMs: p.nowMs, env: p.env });
     assert.equal(r.applied, true);
-    assert.deepEqual(r.untracked, ['.planning/.skill-active']);
+    assert.deepEqual(r.untracked, ['.aoforge/.skill-active']);
     assert.deepEqual(r.removed, []);
     assert.deepEqual(fs.readFileSync(p.markerPath), bytes);
-    assert.equal(p.porcelain(), 'D  .planning/.skill-active\n');
+    assert.equal(p.porcelain(), 'D  .aoforge/.skill-active\n');
   });
 
   test('tracked live not ignored: changes nothing', () => {
@@ -260,14 +260,14 @@ describe('repair (tests 14, 15)', () => {
     assert.equal(fs.existsSync(p.markerPath), true);
     assert.equal(p.porcelain(), 'A  notes.txt\n');
     assert.doesNotMatch(p.porcelain(), / D /);
-    assert.deepEqual(p.tracked(), ['.planning/.skill-active']);
+    assert.deepEqual(p.tracked(), ['.aoforge/.skill-active']);
   });
 
   test('a stale marker outside a git repository is simply removed', () => {
     const p = project({ git: false, marker: 'garbage' });
     const r = smh.repair(p.root, { nowMs: p.nowMs, env: p.env });
     assert.equal(r.applied, true);
-    assert.deepEqual(r.removed, ['.planning/.skill-active']);
+    assert.deepEqual(r.removed, ['.aoforge/.skill-active']);
     assert.equal(fs.existsSync(p.markerPath), false);
   });
 });
@@ -292,9 +292,9 @@ describe('findings (test 16)', () => {
     assert.equal(f.repairable, true);
     assert.ok(f.message.startsWith('skill-marker-tracked: '), f.message);
     assert.match(f.message, /\(it is also stale: expired at 2026-10-08T11:00:00\.000Z\)$/);
-    assert.ok(f.fix.includes(`${DF} commit "chore: untrack .planning/.skill-active" --files .planning/.skill-active`), f.fix);
+    assert.ok(f.fix.includes(`${DF} commit "chore: untrack .aoforge/.skill-active" --files .aoforge/.skill-active`), f.fix);
     assert.ok(f.fix.includes(`${DF} validate health --repair`), f.fix);
-    assert.ok(f.fix.includes('Add .planning/.skill-active to .gitignore'), 'not ignored: say so');
+    assert.ok(f.fix.includes('Add .aoforge/.skill-active to .gitignore'), 'not ignored: say so');
   });
 
   test('a tracked live ignored marker is a repairable E006 without a stale clause or a .gitignore hint', () => {
@@ -302,7 +302,7 @@ describe('findings (test 16)', () => {
     assert.equal(f.code, 'E006');
     assert.equal(f.repairable, true);
     assert.doesNotMatch(f.message, /stale/);
-    assert.doesNotMatch(f.fix, /Add \.planning\/\.skill-active to \.gitignore/);
+    assert.doesNotMatch(f.fix, /Add \.aoforge\/\.skill-active to \.gitignore/);
   });
 
   test('a tracked live marker that is not ignored is a non-repairable E006 whose fix names .gitignore', () => {
@@ -326,7 +326,7 @@ describe('findings (test 16)', () => {
     assert.equal(f.severity, 'warning');
     assert.equal(f.code, 'W064');
     assert.equal(f.repairable, true);
-    assert.ok(f.message.startsWith('skill-marker-stale: .planning/.skill-active (unparseable marker'), f.message);
+    assert.ok(f.message.startsWith('skill-marker-stale: .aoforge/.skill-active (unparseable marker'), f.message);
     assert.ok(f.message.endsWith('the edit gate stays open until it is removed'), f.message);
     assert.equal(f.fix, `Run \`${DF} validate health --repair\` or \`${DF} doctor --fix\` (removes only this file)`);
   });

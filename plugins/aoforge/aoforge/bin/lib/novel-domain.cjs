@@ -25,6 +25,7 @@ const path = require('path');
 const { output, error, safeReadFile } = require('./helpers.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { objectiveNumPattern } = require('./text-escape.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // ─── detectComparisonKeyword ──────────────────────────────────────────────────
 
@@ -326,7 +327,7 @@ function cmdDetectNovelDomain(cwd, objective, raw) {
 
   // Priority 2: ROADMAP section
   if (!description) {
-    const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+    const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
     const roadmapContent = safeReadFile(roadmapPath);
     if (roadmapContent) {
       // Find section for this objective number
@@ -360,7 +361,7 @@ function cmdDetectNovelDomain(cwd, objective, raw) {
 
   // 3. Resolve signal-input paths (used both by failsafe guard and reads below)
   const packageJsonPath = path.join(cwd, 'package.json');
-  const patternsMdPath = path.join(cwd, '.planning', 'codebase', 'PATTERNS.md');
+  const patternsMdPath = path.join(planningRoot(cwd), 'codebase', 'PATTERNS.md');
 
   // Failsafe (additional path): description came only from fallback (ROADMAP/slug),
   // AND no signal-input scaffolding exists. Without real inputs, missing_patterns

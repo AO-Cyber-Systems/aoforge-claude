@@ -61,7 +61,7 @@ function syncRefs() {
 }
 
 /**
- * A git clone with a store-shaped `.planning/` cache inside it (untracked, so a test may edit it and still start), a fake
+ * A git clone with a store-shaped `.aoforge/` cache inside it (untracked, so a test may edit it and still start), a fake
  * GitHub whose `main` is the clone's tip, and the objective issued and mapped. No TRDs are mapped: the title does not
  * depend on them.
  */
@@ -69,7 +69,7 @@ function setup() {
   const envh = hermeticEnv();
   const g = makeGitRemote();
   const project = makeStoreProject({ store: true, hasWiki: false });
-  fs.cpSync(path.join(project.root, '.planning'), path.join(g.work, '.planning'), { recursive: true });
+  fs.cpSync(path.join(project.root, '.aoforge'), path.join(g.work, '.aoforge'), { recursive: true });
   project.cleanup();
   const root = g.work;
 
@@ -102,7 +102,7 @@ afterEach(() => {
   S = null;
 });
 
-const planning = (...parts) => path.join(S.root, '.planning', ...parts);
+const planning = (...parts) => path.join(S.root, '.aoforge', ...parts);
 const writeRoadmap = (text) => fs.writeFileSync(planning('ROADMAP.md'), text);
 const writeObjective = (text) => fs.writeFileSync(planning('objectives', OBJECTIVE_DIR, 'OBJECTIVE.md'), text);
 const prRecords = () => S.fake.issues.filter((i) => i.pr);

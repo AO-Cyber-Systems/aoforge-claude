@@ -241,7 +241,7 @@ describe('totalSize()', () => {
 
 describe('module surface', () => {
   test('exports LEGACY_CACHE_REL for migration/doctor', () => {
-    assert.equal(store.LEGACY_CACHE_REL, '.planning/.awareness-cache.json');
+    assert.equal(store.LEGACY_CACHE_REL, '.aoforge/.awareness-cache.json');
   });
 
   test('requires only node builtins', () => {

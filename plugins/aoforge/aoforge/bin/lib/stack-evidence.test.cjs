@@ -11,7 +11,7 @@
 // - E5 package.json scripts: test → `npm test`, lint → `npm run lint`; malformed JSON → no
 //   evidence, no throw.
 // - E6 codebase/STACK.md Commands table beats CI for the same key.
-// - E7 `from:'research'` reads `.planning/research/STACK.md`, not codebase.
+// - E7 `from:'research'` reads `.aoforge/research/STACK.md`, not codebase.
 // - E8 same key in a Makefile, CI and package.json → all three present, in preference order
 //   runner > ci > manifest (TRD 42-07 truth 2; it was CI-first under the 35-04 scraper).
 // - E9 `echo hi` → unclassified, dropped.
@@ -171,7 +171,7 @@ describe('stack-evidence collectEvidence (E group)', () => {
 
   test('E6: codebase/STACK.md Commands table beats CI for the same key', () => {
     const root = makeRepo({
-      '.planning/codebase/STACK.md': [
+      '.aoforge/codebase/STACK.md': [
         '# Technology Stack',
         '',
         '## Commands',
@@ -193,22 +193,22 @@ describe('stack-evidence collectEvidence (E group)', () => {
       assert.equal(testEntries.length, 2);
       assert.equal(testEntries[0].command, 'go test -race ./...');
       assert.equal(testEntries[0].source, 'declared');
-      assert.equal(testEntries[0].sourceFile, '.planning/codebase/STACK.md');
+      assert.equal(testEntries[0].sourceFile, '.aoforge/codebase/STACK.md');
     } finally {
       cleanup(root);
     }
   });
 
-  test('E7: from:"research" reads .planning/research/STACK.md, not codebase', () => {
+  test('E7: from:"research" reads .aoforge/research/STACK.md, not codebase', () => {
     const root = makeRepo({
-      '.planning/codebase/STACK.md': [
+      '.aoforge/codebase/STACK.md': [
         '## Commands',
         '',
         '| Key | Command | Evidence |',
         '|-----|---------|----------|',
         '| test | `codebase test` | x |',
       ].join('\n'),
-      '.planning/research/STACK.md': [
+      '.aoforge/research/STACK.md': [
         '## Commands',
         '',
         '| Key | Command | Evidence |',
@@ -221,7 +221,7 @@ describe('stack-evidence collectEvidence (E group)', () => {
       const testEntries = evidence.filter((e) => e.key === 'test');
       assert.equal(testEntries.length, 1);
       assert.equal(testEntries[0].command, 'research test');
-      assert.equal(testEntries[0].sourceFile, '.planning/research/STACK.md');
+      assert.equal(testEntries[0].sourceFile, '.aoforge/research/STACK.md');
     } finally {
       cleanup(root);
     }
@@ -355,7 +355,7 @@ describe('stack-evidence collectEvidence composition (E11-E12, TRD 42-07)', () =
 
   test('E12: TESTING.md fenced commands are docs evidence for from=codebase only', () => {
     const root = makeRepo({
-      '.planning/codebase/TESTING.md': [
+      '.aoforge/codebase/TESTING.md': [
         '# Testing',
         '',
         '```bash',
@@ -372,7 +372,7 @@ describe('stack-evidence collectEvidence composition (E11-E12, TRD 42-07)', () =
     try {
       const evidence = collectEvidence(root, { from: 'codebase' });
       assert.deepStrictEqual(evidence.map((e) => [e.key, e.command, e.source, e.sourceFile]), [
-        ['test', 'go test -race ./...', 'docs', '.planning/codebase/TESTING.md'],
+        ['test', 'go test -race ./...', 'docs', '.aoforge/codebase/TESTING.md'],
       ]);
       assert.deepStrictEqual(collectEvidence(root, { from: 'research' }), []);
     } finally {
@@ -452,7 +452,7 @@ describe('stack-evidence target metadata and bodyInvocations (E13, TRD 42-13)', 
   test('E13b: every item carries a non-empty bodyInvocations array; manifest items carry a target', () => {
     const root = makeRepo({
       'package.json': JSON.stringify({ scripts: { test: 'vitest run', lint: 'eslint .' } }),
-      '.planning/codebase/STACK.md': '# Stack\n\n## Commands\n\n| Key | Command |\n|---|---|\n| build | `go build ./...` |\n',
+      '.aoforge/codebase/STACK.md': '# Stack\n\n## Commands\n\n| Key | Command |\n|---|---|\n| build | `go build ./...` |\n',
     });
     try {
       const evidence = collectEvidence(root, { from: 'codebase', areas: [] });

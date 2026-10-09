@@ -10,7 +10,7 @@
 //
 // writeSyncState (S group continued):
 //   S5: writes { version: 1, objectives: {...} } via atomicWrite (tmp + rename)
-//   S6: when .planning/ doesn't exist, creates it before write
+//   S6: when .aoforge/ doesn't exist, creates it before write
 //
 // hashFrontmatter (H group):
 //   H1: empty object → 'sha256:e3b0c...' (well-known empty-string sha256)
@@ -106,13 +106,13 @@ describe('writeSyncState (S5-S6)', () => {
     try {
       const record = fx.buildSyncStateRecord();
       ss.writeSyncState(project.root, { version: 1, objectives: { '21-foo': record } });
-      const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
+      const filePath = path.join(project.root, '.aoforge', '.gh-sync-state.json');
       assert.ok(fs.existsSync(filePath), 'sync state file written');
       const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       assert.strictEqual(parsed.version, 1);
       assert.deepStrictEqual(parsed.objectives['21-foo'].label_set, ['aoforge:objective']);
       // Confirm no leftover tmp file
-      const planningDir = path.join(project.root, '.planning');
+      const planningDir = path.join(project.root, '.aoforge');
       const tmpFiles = fs.readdirSync(planningDir).filter((f) => f.includes('.tmp.'));
       assert.strictEqual(tmpFiles.length, 0, 'no tmp file leaked');
     } finally {
@@ -120,17 +120,17 @@ describe('writeSyncState (S5-S6)', () => {
     }
   });
 
-  test('S6: when .planning/ does not exist, creates it before write', () => {
+  test('S6: when .aoforge/ does not exist, creates it before write', () => {
     const fs = require('fs');
     const os = require('os');
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-syncstate-no-planning-'));
     try {
-      // Note: buildTempProjectWithSyncState pre-creates .planning/. Here we manually
+      // Note: buildTempProjectWithSyncState pre-creates .aoforge/. Here we manually
       // skip that step to test the directory-creation fallback.
-      assert.ok(!fs.existsSync(path.join(root, '.planning')), '.planning does NOT exist initially');
+      assert.ok(!fs.existsSync(path.join(root, '.aoforge')), '.aoforge does NOT exist initially');
       ss.writeSyncState(root, { version: 1, objectives: {} });
-      assert.ok(fs.existsSync(path.join(root, '.planning')), '.planning created');
-      assert.ok(fs.existsSync(path.join(root, '.planning', '.gh-sync-state.json')), 'sync state written');
+      assert.ok(fs.existsSync(path.join(root, '.aoforge')), '.aoforge created');
+      assert.ok(fs.existsSync(path.join(root, '.aoforge', '.gh-sync-state.json')), 'sync state written');
     } finally {
       try { fs.rmSync(root, { recursive: true, force: true }); } catch (_) {}
     }
@@ -223,7 +223,7 @@ describe('recordSync (R1-R4)', () => {
     const project = fx.buildTempProjectWithSyncState({ syncState: null });
     try {
       ss.recordSync(project.root, '21-foo', fx.buildSyncStateRecord());
-      const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
+      const filePath = path.join(project.root, '.aoforge', '.gh-sync-state.json');
       assert.ok(fs.existsSync(filePath));
       const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
       assert.ok(parsed.objectives['21']);
@@ -312,7 +312,7 @@ describe('integration: cmdGhPull --apply records sync state (W1, W3)', () => {
       // Read the actual disk frontmatter to compute the correct hash for last_synced_disk_hash
       const actualFm = require('./frontmatter.cjs').extractFrontmatter(
         require('fs').readFileSync(
-          require('path').join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'),
+          require('path').join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'),
           'utf-8',
         ),
       );
@@ -367,7 +367,7 @@ describe('integration: cmdGhPull --apply records sync state (W1, W3)', () => {
         last_synced_disk_hash: 'sha256:before',
       });
       ss.recordSync(project.root, project.objectiveId, before);
-      const filePath = path.join(project.root, '.planning', '.gh-sync-state.json');
+      const filePath = path.join(project.root, '.aoforge', '.gh-sync-state.json');
       const beforeMtime = fs.statSync(filePath).mtimeMs;
       const beforeContent = fs.readFileSync(filePath, 'utf-8');
 
@@ -400,20 +400,20 @@ describe('integration: cmdGhSyncObjectives (push) records sync state (W2)', () =
   test('W2: cmdGhSyncObjectives push success writes recordSync entry per objective', () => {
     const gh = require('./gh.cjs');
 
-    // Build temp project: PROJECT.md, ROADMAP.md, OBJECTIVE.md, .planning/config.json
+    // Build temp project: PROJECT.md, ROADMAP.md, OBJECTIVE.md, .aoforge/config.json
     const fs = require('fs');
     const path = require('path');
     const os = require('os');
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-syncstate-push-'));
     try {
-      fs.mkdirSync(path.join(root, '.planning', 'objectives', '01-test-objective'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'),
+      fs.mkdirSync(path.join(root, '.aoforge', 'objectives', '01-test-objective'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.aoforge', 'PROJECT.md'),
         '---\nname: TestProj\nversion: v1.0\n---\n\n# Project\n', 'utf-8');
-      fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'),
+      fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'),
         '# Roadmap\n\n## Objectives\n\n### Objective 1: Test Objective\n\n**Goal:** do a thing.\n', 'utf-8');
-      fs.writeFileSync(path.join(root, '.planning', 'objectives', '01-test-objective', 'OBJECTIVE.md'),
+      fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '01-test-objective', 'OBJECTIVE.md'),
         '---\nstatus: open\nkind: plugin\nwork: feature\n---\n\n# Test Objective\n', 'utf-8');
-      fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({
+      fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify({
         github: { enabled: true, repo: 'TestOrg/TestRepo', labels: { objective: 'aoforge:objective' }, milestone_prefix: 'v' },
       }), 'utf-8');
 
@@ -468,7 +468,7 @@ describe('integration: cmdGhSyncObjectives (push) records sync state (W2)', () =
 // ─── TRD 46-06: sync-state keys are objective ids ────────────────────────────
 
 describe('sync-state keys normalise to objective ids (46-06, tests 1-4)', () => {
-  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.planning', '.gh-sync-state.json'), 'utf-8'));
+  const readRaw = (root) => JSON.parse(fs.readFileSync(path.join(root, '.aoforge', '.gh-sync-state.json'), 'utf-8'));
 
   test('1: recordSync under a dir name is found by the bare id and by the padded id', () => {
     const project = fx.buildTempProjectWithSyncState({ syncState: null });

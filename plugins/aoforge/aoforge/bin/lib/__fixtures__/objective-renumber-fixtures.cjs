@@ -5,7 +5,7 @@
  * `objective complete` (TOOL-04), TRD 68-04.
  *
  * Hand-built temp projects only. `objective remove` cascade-renumbers every objective above the removed one, so none of
- * these helpers ever touches this repository's own `.planning/`.
+ * these helpers ever touches this repository's own `.aoforge/`.
  *
  * objective-flags-fixtures.cjs deliberately carries no dates (a date is exactly what the old renumber pass rewrote), so
  * the dated ROADMAPs live here. `flagsProject` is imported from it read-only.
@@ -91,7 +91,7 @@ function datedProject({ roadmap = null, dirs = [], state } = {}) {
     if (!d.cancelled) continue;
     // Written into the returned root after it is built: flagsProject has no way to express a cancelled objective.
     fs.writeFileSync(
-      path.join(handle.root, '.planning', 'objectives', d.dir, 'OBJECTIVE.md'),
+      path.join(handle.root, '.aoforge', 'objectives', d.dir, 'OBJECTIVE.md'),
       '---\nstatus: cancelled\n---\n\n# Cancelled objective\n',
       'utf-8'
     );

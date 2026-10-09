@@ -16,6 +16,8 @@ const { spawnSync } = require('child_process');
 
 const { driverCommand, driverBinPath } = require('./merge-driver-cli.cjs');
 const { gitAvailable } = require('./__fixtures__/wiki-remote.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
+const { planningDirLabel } = require('./compat.cjs');
 const {
   stateDoc, decision, stateText, archiveText, makeWaveRepo,
 } = require('./__fixtures__/state-merge-fixtures.cjs');
@@ -26,10 +28,13 @@ const SKIP_GIT = gitAvailable() ? false : 'git is not available';
 
 const BEGIN = '# >>> aoforge merge drivers (aof-tools merge-driver install)';
 const END = '# <<< aoforge merge drivers';
+// One pair per planning-directory name (TRD 72-05): a project still on the legacy directory merges the same way.
 const BLOCK = [
   BEGIN,
-  '**/.planning/state.json merge=aoforge-state-json',
-  '**/.planning/STATE_ARCHIVE.md merge=union',
+  '**/.aoforge/state.json merge=aoforge-state-json',
+  '**/.aoforge/STATE_ARCHIVE.md merge=union',
+  `**/${LEGACY.planningDir}/state.json merge=aoforge-state-json`,
+  `**/${LEGACY.planningDir}/STATE_ARCHIVE.md merge=union`,
   END,
 ].join('\n') + '\n';
 
@@ -62,12 +67,12 @@ function waveRepo() {
     archive: archiveText({ decisions: [d0] }),
   });
   repo.branchWith('A', {
-    '.planning/state.json': stateText(stateDoc({ decisions: [d0, d1], metrics: { jobs_completed: 1 } })),
-    '.planning/STATE_ARCHIVE.md': archiveText({ decisions: [d0, d1], metrics: [rowA] }),
+    '.aoforge/state.json': stateText(stateDoc({ decisions: [d0, d1], metrics: { jobs_completed: 1 } })),
+    '.aoforge/STATE_ARCHIVE.md': archiveText({ decisions: [d0, d1], metrics: [rowA] }),
   });
   repo.branchWith('B', {
-    '.planning/state.json': stateText(stateDoc({ decisions: [d0, d2], metrics: { jobs_completed: 1 } })),
-    '.planning/STATE_ARCHIVE.md': archiveText({ decisions: [d0, d2], metrics: [rowB] }),
+    '.aoforge/state.json': stateText(stateDoc({ decisions: [d0, d2], metrics: { jobs_completed: 1 } })),
+    '.aoforge/STATE_ARCHIVE.md': archiveText({ decisions: [d0, d2], metrics: [rowB] }),
   });
   return repo;
 }
@@ -183,8 +188,8 @@ describe('merge-driver install', () => {
       const r = dftools(repo, ['merge-driver', 'install'], { cwd: wt });
       assert.strictEqual(r.status, 0, r.stderr);
       assert.strictEqual(fs.readFileSync(infoAttributes(repo), 'utf-8'), BLOCK);
-      assert.match(repo.git(['check-attr', 'merge', '--', '.planning/state.json']), /aoforge-state-json/);
-      assert.match(repo.git(['check-attr', 'merge', '--', '.planning/STATE_ARCHIVE.md']), /union/);
+      assert.match(repo.git(['check-attr', 'merge', '--', '.aoforge/state.json']), /aoforge-state-json/);
+      assert.match(repo.git(['check-attr', 'merge', '--', '.aoforge/STATE_ARCHIVE.md']), /union/);
       assert.strictEqual(repo.git(['config', '--local', '--get', 'merge.aoforge-state-json.driver']), driverCommand(REAL_BIN));
     } finally {
       repo.cleanup();
@@ -222,10 +227,10 @@ describe('merge-driver in a wave merge', () => {
       assert.strictEqual(b.status, 0, b.stdout + b.stderr);
       assert.deepStrictEqual(unmerged(repo), []);
 
-      const state = JSON.parse(fs.readFileSync(path.join(repo.root, '.planning', 'state.json'), 'utf-8'));
+      const state = JSON.parse(fs.readFileSync(path.join(repo.root, '.aoforge', 'state.json'), 'utf-8'));
       assert.deepStrictEqual(state.decisions, [d0, d1, d2]);
       assert.strictEqual(state.metrics.jobs_completed, 2);
-      const archive = fs.readFileSync(path.join(repo.root, '.planning', 'STATE_ARCHIVE.md'), 'utf-8');
+      const archive = fs.readFileSync(path.join(repo.root, '.aoforge', 'STATE_ARCHIVE.md'), 'utf-8');
       assert.match(archive, /\| Objective 59 P01 \|/);
       assert.match(archive, /\| Objective 59 P02 \|/);
       assert.match(archive, /decision from branch A/);
@@ -240,7 +245,7 @@ describe('merge-driver in a wave merge', () => {
       assert.strictEqual(a.status, 0, a.stdout + a.stderr);
       const b = control.run(['merge', '--no-ff', 'B', '-m', 'merge B']);
       assert.strictEqual(b.status, 1);
-      assert.deepStrictEqual(unmerged(control), ['.planning/STATE_ARCHIVE.md', '.planning/state.json']);
+      assert.deepStrictEqual(unmerged(control), ['.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json']);
     } finally {
       control.cleanup();
     }
@@ -252,18 +257,18 @@ describe('merge-driver in a wave merge', () => {
       assert.strictEqual(repo.run(['merge', '--no-ff', 'A', '-m', 'merge A']).status, 0);
       assert.strictEqual(repo.run(['merge', '--no-ff', 'B', '-m', 'merge B']).status, 1);
 
-      const s = dftools(repo, ['merge-driver', 'resolve', '.planning/state.json']);
+      const s = dftools(repo, ['merge-driver', 'resolve', '.aoforge/state.json']);
       assert.strictEqual(s.status, 0, s.stderr);
       assert.strictEqual(JSON.parse(s.stdout).staged, true);
-      const a = dftools(repo, ['merge-driver', 'resolve', '.planning/STATE_ARCHIVE.md']);
+      const a = dftools(repo, ['merge-driver', 'resolve', '.aoforge/STATE_ARCHIVE.md']);
       assert.strictEqual(a.status, 0, a.stderr);
       assert.strictEqual(JSON.parse(a.stdout).strategy, 'union');
 
       assert.deepStrictEqual(unmerged(repo), []);
       repo.git(['commit', '--no-edit']);
-      const state = JSON.parse(fs.readFileSync(path.join(repo.root, '.planning', 'state.json'), 'utf-8'));
+      const state = JSON.parse(fs.readFileSync(path.join(repo.root, '.aoforge', 'state.json'), 'utf-8'));
       assert.deepStrictEqual(state.decisions, [d0, d1, d2]);
-      const archive = fs.readFileSync(path.join(repo.root, '.planning', 'STATE_ARCHIVE.md'), 'utf-8');
+      const archive = fs.readFileSync(path.join(repo.root, '.aoforge', 'STATE_ARCHIVE.md'), 'utf-8');
       assert.match(archive, /decision from branch A/);
       assert.match(archive, /decision from branch B/);
     } finally {
@@ -276,10 +281,10 @@ describe('merge-driver in a wave merge', () => {
     try {
       const other = dftools(repo, ['merge-driver', 'resolve', 'src/a.js']);
       assert.strictEqual(other.status, 1);
-      assert.match(other.stderr, /\.planning\/state\.json/);
+      assert.ok(other.stderr.includes(`state.json and STATE_ARCHIVE.md under ${planningDirLabel()}`), other.stderr);
       assert.match(other.stderr, /STATE_ARCHIVE\.md/);
 
-      const none = dftools(repo, ['merge-driver', 'resolve', '.planning/state.json']);
+      const none = dftools(repo, ['merge-driver', 'resolve', '.aoforge/state.json']);
       assert.strictEqual(none.status, 1);
       assert.match(none.stderr, /no conflicted stages/);
     } finally {
@@ -340,17 +345,17 @@ describe('merge-driver fail safe', () => {
       assert.strictEqual(repo.run(['merge', '--no-ff', 'A', '-m', 'merge A']).status, 0);
       const b = repo.run(['merge', '--no-ff', 'B', '-m', 'merge B']);
       assert.strictEqual(b.status, 1, 'the second merge must stop on a conflict, not abort');
-      assert.ok(unmerged(repo).includes('.planning/state.json'));
-      const text = fs.readFileSync(path.join(repo.root, '.planning', 'state.json'), 'utf-8');
+      assert.ok(unmerged(repo).includes('.aoforge/state.json'));
+      const text = fs.readFileSync(path.join(repo.root, '.aoforge', 'state.json'), 'utf-8');
       assert.match(text, /^<{7} ours$/m);
       assert.match(text, /^>{7} theirs$/m);
       assert.ok(fs.existsSync(path.join(repo.root, '.git', 'MERGE_HEAD')), 'the merge must have stopped, not aborted');
 
-      const r = dftools(repo, ['merge-driver', 'resolve', '.planning/state.json']);
+      const r = dftools(repo, ['merge-driver', 'resolve', '.aoforge/state.json']);
       assert.strictEqual(r.status, 0, r.stderr);
       assert.deepStrictEqual(unmerged(repo), []);
       repo.git(['commit', '--no-edit']);
-      const state = JSON.parse(fs.readFileSync(path.join(repo.root, '.planning', 'state.json'), 'utf-8'));
+      const state = JSON.parse(fs.readFileSync(path.join(repo.root, '.aoforge', 'state.json'), 'utf-8'));
       assert.deepStrictEqual(state.decisions, [d0, d1, d2]);
     } finally {
       repo.cleanup();

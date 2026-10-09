@@ -5,7 +5,7 @@
  *
  * Implements `aof-tools detect brownfield-map [<cwd>]`:
  * - Pure logic, no LLM, no network
- * - Detects when .planning/ exists, .planning/codebase/ is absent, AND substantial
+ * - Detects when .aoforge/ exists, .aoforge/codebase/ is absent, AND substantial
  *   source code (>= 50 files) is present → offers /aoforge:map-codebase
  *
  * Output shape (from 14-RESEARCH.md F3):
@@ -40,8 +40,8 @@ const { countSourceFiles } = repoState;
  * Takes already-evaluated inputs (no filesystem I/O).
  *
  * @param {object} opts
- * @param {boolean} opts.planningExists       - .planning/ directory is present
- * @param {boolean} opts.codebaseMapExists    - .planning/codebase/ directory is present
+ * @param {boolean} opts.planningExists       - .aoforge/ directory is present
+ * @param {boolean} opts.codebaseMapExists    - .aoforge/codebase/ directory is present
  * @param {number}  opts.sourceFileCount      - count of source files in project
  * @param {number}  [opts.threshold=50]       - minimum source file count for "substantial code"
  * @returns {{

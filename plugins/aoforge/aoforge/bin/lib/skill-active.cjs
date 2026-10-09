@@ -3,7 +3,7 @@
 /**
  * skill-active.cjs — aof-tools skill-active CLI subcommand
  *
- * Manages the `.planning/.skill-active` marker file that signals to gate-edits.js
+ * Manages the `.aoforge/.skill-active` marker file that signals to gate-edits.js
  * (TRD 15-03) that an AOForge skill is currently running and Edit/Write/MultiEdit
  * should be allowed.
  *
@@ -25,6 +25,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
+const { planningRoot, findProjectRoot, planningDirLabel } = require('./compat.cjs');
 
 // ─── fs injection (for testability) ──────────────────────────────────────────
 
@@ -43,20 +44,14 @@ function _resetMocks() { _runFs = realFs; }
 // ─── findPlanningDir ──────────────────────────────────────────────────────────
 
 /**
- * Walk up from `start` to find the nearest ancestor containing `.planning/`.
- * Returns the full path to `.planning/` or null if not found.
+ * Walk up from `start` to the nearest ancestor holding a planning directory (compat.findProjectRoot:
+ * `.aoforge/`, or a legacy one). Returns the full path to that directory, or null if not found.
  *
  * Does NOT shell out to git — mirrors the pattern used by other aof-tools helpers.
  */
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (_runFs.existsSync(path.join(dir, '.planning'))) {
-      return path.join(dir, '.planning');
-    }
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 // ─── worktree-aware resolution (TRD 27-01) ───────────────────────────────────
@@ -107,17 +102,17 @@ function mainRepoRootFrom(repoRoot) {
 }
 
 /**
- * The `.planning/` of the MAIN checkout, as seen from anywhere inside a
+ * The `.aoforge/` of the MAIN checkout, as seen from anywhere inside a
  * worktree. Returns null when it cannot be resolved or does not exist.
  *
- * This is the fix for the audit's F-02: `.planning/.skill-active` is gitignored,
- * so a worktree checks out `.planning/` WITHOUT the marker and every
+ * This is the fix for the audit's F-02: `.aoforge/.skill-active` is gitignored,
+ * so a worktree checks out `.aoforge/` WITHOUT the marker and every
  * worktree-isolated agent was denied.
  */
 function sharedPlanningDir(start) {
   const mainRoot = mainRepoRootFrom(findRepoRoot(start));
   if (!mainRoot) return null;
-  const p = path.join(mainRoot, '.planning');
+  const p = planningRoot(mainRoot);
   return _runFs.existsSync(p) ? p : null;
 }
 
@@ -134,8 +129,8 @@ function isExpired(marker, nowMs) {
 // ─── markerPath ───────────────────────────────────────────────────────────────
 
 /**
- * Returns the absolute path to `.planning/.skill-active`.
- * Marker is INSIDE .planning/, not at project root.
+ * Returns the absolute path to `.aoforge/.skill-active`.
+ * Marker is INSIDE .aoforge/, not at project root.
  */
 function markerPath(planningDir) {
   return path.join(planningDir, '.skill-active');
@@ -147,11 +142,11 @@ function markerPath(planningDir) {
  * Writes the skill-active marker file.
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir - absolute path to .planning/ or null
+ * @param {string|null} opts.planningDir - absolute path to .aoforge/ or null
  * @param {string|undefined} opts.skillName - skill name (caller-supplied, opaque)
  * @param {number} opts.pid - process PID (aof-tools subprocess PID)
  * @param {string} opts.now - ISO8601 timestamp string (injected for testability)
- * @param {string|null} [opts.sharedDir] - MAIN checkout's .planning/ when the
+ * @param {string|null} [opts.sharedDir] - MAIN checkout's .aoforge/ when the
  *   caller is inside a linked worktree; the marker is mirrored there so
  *   worktree-isolated agents can see it (TRD 27-01).
  * @param {number} [opts.ttlMs] - marker lifetime, defaults to DEFAULT_TTL_MS
@@ -166,7 +161,7 @@ function startSkill({ planningDir, skillName, pid, now, sharedDir, ttlMs, ttlAnc
     return {
       ok: false,
       reason: 'no-planning-dir',
-      message: 'No .planning/ directory found in cwd or ancestors',
+      message: `No ${planningDirLabel()} directory found in cwd or ancestors`,
     };
   }
 
@@ -192,8 +187,8 @@ function startSkill({ planningDir, skillName, pid, now, sharedDir, ttlMs, ttlAnc
   };
 
   // Write to every distinct location a reader might resolve: the caller's own
-  // .planning/ and — when started from inside a linked worktree — the MAIN
-  // checkout's .planning/, so sibling worktree agents see the same marker.
+  // .aoforge/ and — when started from inside a linked worktree — the MAIN
+  // checkout's .aoforge/, so sibling worktree agents see the same marker.
   const targets = [planningDir];
   if (sharedDir && sharedDir !== planningDir) targets.push(sharedDir);
 
@@ -203,7 +198,7 @@ function startSkill({ planningDir, skillName, pid, now, sharedDir, ttlMs, ttlAnc
       _runFs.writeFileSync(markerPath(dir), JSON.stringify(payload, null, 2) + '\n', 'utf8');
       written.push(markerPath(dir));
     } catch (e) {
-      // The caller's own .planning/ is required; the shared copy is best-effort.
+      // The caller's own .aoforge/ is required; the shared copy is best-effort.
       if (dir === planningDir) {
         return { ok: false, reason: 'write-failed', message: e.message };
       }
@@ -219,7 +214,7 @@ function startSkill({ planningDir, skillName, pid, now, sharedDir, ttlMs, ttlAnc
  * Removes the skill-active marker file. Idempotent — no error if absent.
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir - absolute path to .planning/ or null
+ * @param {string|null} opts.planningDir - absolute path to .aoforge/ or null
  * @returns {{ ok: boolean, removed?: boolean, message?: string, reason?: string }}
  */
 function endSkill({ planningDir, sharedDir }) {
@@ -231,7 +226,7 @@ function endSkill({ planningDir, sharedDir }) {
     return {
       ok: false,
       reason: 'no-planning-dir',
-      message: 'No .planning/ directory found in cwd or ancestors',
+      message: `No ${planningDirLabel()} directory found in cwd or ancestors`,
     };
   }
 
@@ -258,7 +253,7 @@ function endSkill({ planningDir, sharedDir }) {
  * Returns the current marker state.
  *
  * @param {object} opts
- * @param {string|null} opts.planningDir - absolute path to .planning/ or null
+ * @param {string|null} opts.planningDir - absolute path to .aoforge/ or null
  * @returns {{ active: boolean, marker?: object|null, path?: string, reason?: string, parse_error?: string }}
  */
 function statusSkill({ planningDir, sharedDir, nowMs }) {

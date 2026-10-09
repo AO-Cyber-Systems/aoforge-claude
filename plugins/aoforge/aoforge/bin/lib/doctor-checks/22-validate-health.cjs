@@ -18,13 +18,14 @@
 //
 //   remaining errors → error; remaining warnings → warn; else ok
 //   fixable when a non-deferred error or warning is repairable (validate's repairable_count also counts
-//   the deferred ones, so it is recounted here) and `.planning/` has no uncommitted changes (fix = the
+//   the deferred ones, so it is recounted here) and `.aoforge/` has no uncommitted changes (fix = the
 //   same command with --repair). Info codes never affect severity.
 
 const fs = require('fs');
 const { spawnSync } = require('child_process');
 
 const dg = require('../doctor-git.cjs');
+const { planningRel, PLANNING_DIR_NAMES } = require('../compat.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
 const DEFERRED = ['E006', 'E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063', 'W064'];
@@ -80,7 +81,7 @@ function classify(json) {
 
 function planningGuard(ctx) {
   const own = ctx.changedThisRun instanceof Set ? ctx.changedThisRun : new Set(ctx.changedThisRun || []);
-  return dg.worktreeGuard(ctx.projectRoot, ['.planning'], {
+  return dg.worktreeGuard(ctx.projectRoot, [...PLANNING_DIR_NAMES], {
     env: ctx.env,
     exclude: (rel) => own.has(rel) || legacy.isLegacyRuntimePath(rel),
   });
@@ -144,7 +145,7 @@ function fix(ctx) {
   const repairs = Array.isArray(h.json.repairs_performed) ? h.json.repairs_performed : [];
   const done = repairs.filter((r) => r && r.success);
   const failedRepairs = repairs.filter((r) => r && !r.success);
-  const changed = uniqueSorted(done.filter((r) => typeof r.path === 'string' && r.path).map((r) => `.planning/${r.path}`));
+  const changed = uniqueSorted(done.filter((r) => typeof r.path === 'string' && r.path).map((r) => planningRel(ctx.projectRoot, r.path)));
   const notes = [];
   if (done.length) notes.push(`repaired: ${done.map((r) => r.action + (r.path ? ` (${r.path})` : '')).join(', ')}`);
   if (failedRepairs.length) notes.push(`failed: ${failedRepairs.map((r) => `${r.action}: ${r.error}`).join('; ')}`);

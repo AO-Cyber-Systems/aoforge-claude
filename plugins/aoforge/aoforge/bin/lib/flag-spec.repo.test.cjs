@@ -26,7 +26,7 @@
 // dispatch-completeness.test.cjs (a mirror install has no README.md at the repo root). Tests 4-6 and 8 always run.
 //
 // What is scanned, and what is not. The scan set is the documentation a reader or an agent follows. Test files, fixtures
-// and `node_modules` are not documentation: a test names a bad flag on purpose. `.planning/`, CHANGELOG.md and `site/` are
+// and `node_modules` are not documentation: a test names a bad flag on purpose. `.aoforge/`, CHANGELOG.md and `site/` are
 // history and generated text, which name old flags deliberately, and are left out on purpose.
 
 const { test, describe } = require('node:test');
@@ -38,6 +38,7 @@ const { COMMANDS } = require('./help.cjs');
 const { FLAG_SPEC } = require('./flag-spec.cjs');
 const { checkFlags } = require('./flag-guard.cjs');
 const { PROBES, specEntries } = require('./__fixtures__/flag-guard-fixtures.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
@@ -352,7 +353,7 @@ describe('FLAG_SPEC is complete, probed and in step with the documented invocati
         assert.ok(files.includes(expected), `${expected} is not in the scan set`);
       }
       assert.ok(files.some((f) => f.startsWith('plugins/aoforge/hooks/') && f.endsWith('.js')), 'no hook source scanned');
-      assert.ok(!files.some((f) => f.startsWith('.planning/') || f === 'CHANGELOG.md' || f.startsWith('site/')), 'history and generated text must stay out of the scan');
+      assert.ok(!files.some((f) => f.startsWith(`${NAMES.planningDir}/`) || f.startsWith(`${LEGACY.planningDir}/`) || f === 'CHANGELOG.md' || f.startsWith('site/')), 'history and generated text must stay out of the scan');
     });
 
     test('7. every documented invocation of a writing command uses only flags the spec accepts', () => {

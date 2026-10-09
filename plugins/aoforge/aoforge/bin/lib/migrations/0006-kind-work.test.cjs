@@ -16,8 +16,8 @@ const { extractFrontmatter } = require('../frontmatter.cjs');
 const { VALID_KINDS } = require('../intent.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0006-kind-work.cjs');
-const PROJECT_REL = '.planning/PROJECT.md';
-const BETA_REL = '.planning/objectives/02-beta/OBJECTIVE.md';
+const PROJECT_REL = '.aoforge/PROJECT.md';
+const BETA_REL = '.aoforge/objectives/02-beta/OBJECTIVE.md';
 const PLUGIN_VERSION = '2.11.0';
 
 const cleanup = [];
@@ -51,7 +51,7 @@ function frontmatterOf(root, rel) {
 }
 
 function migrateBackupDirs(root) {
-  return fs.readdirSync(path.join(root, '.planning')).filter((e) => e.startsWith('.migrate-backup-'));
+  return fs.readdirSync(path.join(root, '.aoforge')).filter((e) => e.startsWith('.migrate-backup-'));
 }
 
 // v1 fixture plus an OBJECTIVE.md in 02-beta that has no `work` (the fixture's 01-alpha has one).
@@ -112,7 +112,7 @@ describe('migration 0006 kind-work', () => {
   test('15. apply {kind: plugin, defaultWork: feature} -> kind + default_work set, workless objectives get work; no in-repo backup', () => {
     const m = m0006();
     const root = v1WithWorklessObjective();
-    const alphaBefore = read(root, '.planning/objectives/01-alpha/OBJECTIVE.md');
+    const alphaBefore = read(root, '.aoforge/objectives/01-alpha/OBJECTIVE.md');
 
     const res = m.apply(ctxFor(root, { options: { kind: 'plugin', defaultWork: 'feature' } }));
 
@@ -120,7 +120,7 @@ describe('migration 0006 kind-work', () => {
     assert.equal(pfm.kind, 'plugin');
     assert.equal(pfm.default_work, 'feature');
     assert.equal(frontmatterOf(root, BETA_REL).work, 'feature');
-    assert.equal(read(root, '.planning/objectives/01-alpha/OBJECTIVE.md'), alphaBefore, '01-alpha already had work');
+    assert.equal(read(root, '.aoforge/objectives/01-alpha/OBJECTIVE.md'), alphaBefore, '01-alpha already had work');
 
     assert.deepEqual([...res.changed].sort(), [BETA_REL, PROJECT_REL].sort());
     assert.deepEqual(migrateBackupDirs(root), []);

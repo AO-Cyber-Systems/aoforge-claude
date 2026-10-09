@@ -21,6 +21,7 @@ const os = require('os');
 const path = require('path');
 const doctor = require('./doctor.cjs');
 const helpers = require('./helpers.cjs');
+const { planningRoot, planningDirLabel, findProjectRoot } = require('./compat.cjs');
 
 const DF_TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 
@@ -81,26 +82,21 @@ function realpath(p) {
 /**
  * resolveProject(cwd, pathArg) -> { projectRoot: string|null, note?: string }
  *
- * With `pathArg`: that directory is the project iff it has a `.planning/` DIRECTORY (no walking).
- * Without: walk up from `cwd` to the nearest ancestor with a `.planning/` directory. The root is
+ * With `pathArg`: that directory is the project iff it has a planning DIRECTORY, `.aoforge/` or a legacy
+ * one (no walking). Without: compat.findProjectRoot walks up from `cwd` to the nearest ancestor with one. The root is
  * returned as a realpath. When none is found, projectRoot is null and `note` says project checks
  * were skipped.
  */
 function resolveProject(cwd, pathArg) {
   if (pathArg) {
-    if (isDir(path.join(pathArg, '.planning'))) return { projectRoot: realpath(pathArg) };
+    if (isDir(planningRoot(pathArg))) return { projectRoot: realpath(pathArg) };
     return {
       projectRoot: null,
-      note: `no .planning/ at ${pathArg}; project checks skipped (global checks only)`,
+      note: `no ${planningDirLabel()} at ${pathArg}; project checks skipped (global checks only)`,
     };
   }
-  let dir = path.resolve(cwd || process.cwd());
-  for (;;) {
-    if (isDir(path.join(dir, '.planning'))) return { projectRoot: realpath(dir) };
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
+  const found = findProjectRoot(path.resolve(cwd || process.cwd()), { maxUp: Infinity });
+  if (found) return { projectRoot: realpath(found) };
   return {
     projectRoot: null,
     note: `no AOForge project found at or above ${path.resolve(cwd || process.cwd())}; project checks skipped (global checks only)`,

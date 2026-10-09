@@ -928,11 +928,11 @@ describe('readSetupState (test 11)', () => {
     hermetic.restore();
   });
 
-  /** A project dir with `.planning/config.json` (github enabled, repo o/r) and any extra files (relative path -> text). */
+  /** A project dir with `.aoforge/config.json` (github enabled, repo o/r) and any extra files (relative path -> text). */
   function project(github = {}, files = {}) {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-setup-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', ...github } })}\n`);
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', ...github } })}\n`);
     for (const [rel, text] of Object.entries(files)) {
       fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
       fs.writeFileSync(path.join(root, rel), text);

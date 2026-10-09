@@ -250,7 +250,7 @@ function splitCalls(block, opts = {}) {
 // Absolute paths mentioned in a call's TEXT.
 //
 // The scan is WORD-based, with quote tracking, not a regex on the character before the
-// slash. `"$REPO_ROOT"/.planning/evidence` is a variable expansion with a path suffix —
+// slash. `"$REPO_ROOT"/.aoforge/evidence` is a variable expansion with a path suffix —
 // one word, not an absolute path — and reading the `/` after the closing quote as a path
 // start blocked every evidence command `agents/executor.md` writes. A harness that
 // blocks the prose it was built to check verifies nothing.

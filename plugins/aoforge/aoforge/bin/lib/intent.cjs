@@ -15,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const claudeMd = require('./claude-md.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const VALID_KINDS = ['api', 'app', 'library', 'ui-lib', 'cli', 'plugin'];
 const VALID_WORKS = ['feature', 'port', 'refactor', 'foundation', 'bugfix', 'prototype', 'spike'];
@@ -183,7 +184,7 @@ function loadConstraints(tablePath = DEFAULTS_TABLE_PATH) {
 }
 
 function readProjectMd(projectRoot) {
-  const projectPath = path.join(projectRoot, '.planning', 'PROJECT.md');
+  const projectPath = path.join(planningRoot(projectRoot), 'PROJECT.md');
   if (!fs.existsSync(projectPath)) {
     throw new Error(`No PROJECT.md found at ${projectPath}`);
   }
@@ -204,7 +205,7 @@ function objectiveIdKeys(id) {
   return keys;
 }
 
-// Resolve an objective id to its directory under .planning/objectives/ (TOOL-05).
+// Resolve an objective id to its directory under .aoforge/objectives/ (TOOL-05).
 // Planners pass the bare number (`40`) as often as the slugged directory name
 // (`40-tooling-correctness`), so an exact-path lookup alone silently misses.
 //
@@ -218,7 +219,7 @@ function objectiveIdKeys(id) {
 // Deliberately local rather than reusing objective.cjs findObjectiveInternal:
 // intent.cjs does not depend on objective.cjs, and should not start to.
 function findObjectiveDir(projectRoot, id) {
-  const base = path.join(projectRoot, '.planning', 'objectives');
+  const base = path.join(planningRoot(projectRoot), 'objectives');
   const keys = objectiveIdKeys(id);
   if (fs.existsSync(path.join(base, id, 'OBJECTIVE.md'))) {
     return { dir: id, candidates: [id], keys };
@@ -248,7 +249,7 @@ function readObjectiveMd(projectRoot, objectiveId) {
     const named = keys.map((k) => `'${k}'`).join(' or ');
     const prefixed = keys.map((k) => `'${k}-'`).join(' or ');
     warnings.push(
-      `OBJECTIVE.md not found for objective '${objectiveId}': no directory under .planning/objectives/ ` +
+      `OBJECTIVE.md not found for objective '${objectiveId}': no directory under .aoforge/objectives/ ` +
       `is named ${named} or starts with ${prefixed}. work was not read from an OBJECTIVE.md ` +
       `and fell back to the next source (see workSource). Pass the objective number or its directory name.`
     );
@@ -260,7 +261,7 @@ function readObjectiveMd(projectRoot, objectiveId) {
       `using ${dir}. Pass the full directory name to pick another.`
     );
   }
-  const content = fs.readFileSync(path.join(projectRoot, '.planning', 'objectives', dir, 'OBJECTIVE.md'), 'utf-8');
+  const content = fs.readFileSync(path.join(planningRoot(projectRoot), 'objectives', dir, 'OBJECTIVE.md'), 'utf-8');
   return { fm: extractFrontmatter(content) || {}, dir, warnings };
 }
 
@@ -286,7 +287,7 @@ function validateWork(work) {
 // metadata about which precedence level supplied each field.
 //
 // Options:
-//   projectRoot — required. Project root containing .planning/ and optionally CLAUDE.md.
+//   projectRoot — required. Project root containing .aoforge/ and optionally CLAUDE.md.
 //   objectiveId — optional. If set, reads OBJECTIVE.md from the objective's
 //                 directory: the bare number (`40`) or the slugged directory
 //                 name (`40-tooling-correctness`) both resolve (findObjectiveDir).
@@ -548,7 +549,7 @@ function resolve({ projectRoot, objectiveId, trdPath, userHome, tablePath } = {}
 // (kind, work, field) cell — independent of override layers above.
 //
 // Vocabulary:
-//   'project_table'   — project tier (.planning/defaults-table.md) supplied this cell
+//   'project_table'   — project tier (.aoforge/defaults-table.md) supplied this cell
 //   'org_table'       — org tier (~/.claude/aoforge/defaults-table.md) supplied this cell
 //   'bundled_table'   — bundled fallback (references/defaults-table.md) supplied this cell
 //   'table_explicit'  — test path with explicit tablePath (single-file mode)

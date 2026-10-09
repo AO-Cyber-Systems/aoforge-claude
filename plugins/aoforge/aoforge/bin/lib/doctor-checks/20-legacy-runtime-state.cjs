@@ -2,11 +2,11 @@
 
 // Doctor check: legacy-runtime-state (TRD 45-06, DOC-05 + DOC-06).
 //
-// AOForge hook state no longer lives in `.planning/` (45-01 moved the awareness cache, quick-25 the
+// AOForge hook state no longer lives in `.aoforge/` (45-01 moved the awareness cache, quick-25 the
 // progress guard, 45-10 the autonomous retry/resume markers), but projects still carry the old
-// copies — the aodex evidence: a tracked `.planning/.progress-guard.json` AND a tracked
-// `flutter/.planning/.progress-guard.json`, plus an unignored awareness cache. This check finds them
-// at any `.planning/` depth and cleans them up:
+// copies — the aodex evidence: a tracked `.aoforge/.progress-guard.json` AND a tracked
+// `flutter/.aoforge/.progress-guard.json`, plus an unignored awareness cache. This check finds them
+// at any `.aoforge/` depth and cleans them up:
 //
 //   tracked (in the index)              → error
 //   present on disk (ignored or not)    → warn (a dead file: nothing reads it any more)
@@ -16,7 +16,7 @@
 // are discovered here through the same git-pathspec approach and kept in a separate list; they
 // need no ignore rule because nothing writes them in-tree any more.
 //
-// `.planning/.aoforge-notices.json` is a legitimate in-tree file (the one documented exception in
+// `.aoforge/.aoforge-notices.json` is a legitimate in-tree file (the one documented exception in
 // the 45-10 audit) and is never matched.
 //
 // The fix: back up (upgrade.backup + nested copies) → m0008.apply when anything is tracked or
@@ -34,9 +34,11 @@ const upgrade = require('../upgrade.cjs');
 const dg = require('../doctor-git.cjs');
 const planningMode = require('../planning-mode.cjs');
 const { branchCommitSteps } = require('../commit-steps.cjs');
+const { planningRoot, planningRel, PLANNING_DIR_NAMES, isPlanningDirName } = require('../compat.cjs');
 
 const MARKER_PREFIXES = ['.autonomous-retry-', '.autonomous-resume-'];
-const MARKER_PATHSPECS = MARKER_PREFIXES.map((p) => `:(glob)**/.planning/${p}*`);
+// under either planning directory name (a legacy project keeps its runtime state under the legacy one)
+const MARKER_PATHSPECS = PLANNING_DIR_NAMES.flatMap((d) => MARKER_PREFIXES.map((p) => `:(glob)**/${d}/${p}*`));
 const COMMIT_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack AOForge runtime state" --files';
 const DOCTOR_FIX_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs doctor --fix';
 const STORE_BRANCH = 'aoforge-untrack-runtime-state';
@@ -54,16 +56,16 @@ function commitNote(root, files) {
   return branchCommitSteps({ branch: STORE_BRANCH, reason: 'untrack AOForge runtime state', command: `${COMMIT_COMMAND} ${list}` });
 }
 
-/** True for `<anything>/.planning/.autonomous-{retry,resume}-*` at any depth. Lexical. */
+/** True for `<anything>/<planning dir>/.autonomous-{retry,resume}-*` at any depth, under either name. Lexical. */
 function isAutonomousMarkerPath(rel) {
   if (typeof rel !== 'string') return false;
   const segments = rel.split('/');
   const n = segments.length;
-  return n >= 2 && segments[n - 2] === '.planning' &&
+  return n >= 2 && isPlanningDirName(segments[n - 2]) &&
     MARKER_PREFIXES.some((p) => segments[n - 1].startsWith(p) && segments[n - 1].length > p.length);
 }
 
-/** Any path this check owns (the 0008 files or an autonomous marker), at any `.planning/` depth. */
+/** Any path this check owns (the 0008 files or an autonomous marker), at any `.aoforge/` depth. */
 function isLegacyRuntimePath(rel) {
   return m0008.isRuntimeStatePath(rel) || isAutonomousMarkerPath(rel);
 }
@@ -85,17 +87,17 @@ function m8ctx(ctx, dryRun) {
  *   runtime  {tracked, present, unignored} for the 0008 files (m0008.discover)
  *   markers  {tracked, present} for the autonomous markers
  *   isRepo
- * Outside a git repo, only the root `.planning/` is looked at, on disk.
+ * Outside a git repo, only the root `.aoforge/` is looked at, on disk.
  */
 function discover(ctx) {
   const root = ctx.projectRoot;
   const isRepo = dg.isGitRepo(root, gitOpts(ctx));
 
   if (!isRepo) {
-    const planning = path.join(root, '.planning');
+    const planning = planningRoot(root);
     let names = [];
     try { names = fs.readdirSync(planning); } catch { names = []; }
-    const present = names.map((n) => `.planning/${n}`).filter((rel) => {
+    const present = names.map((n) => planningRel(root, n)).filter((rel) => {
       try { return fs.statSync(path.join(root, rel)).isFile(); } catch { return false; }
     });
     return {
@@ -143,7 +145,7 @@ function run(ctx) {
   };
 
   if (tracked.length === 0 && present.length === 0) {
-    return { severity: 'ok', finding: 'no legacy AOForge runtime state in .planning/', fixable: false, details };
+    return { severity: 'ok', finding: 'no legacy AOForge runtime state in .aoforge/', fixable: false, details };
   }
 
   const parts = [];
@@ -189,10 +191,10 @@ function fix(ctx) {
     if (!guard.ok) return { applied: false, refused: guard.reason };
   }
 
-  // 1. Back up: root .planning/ (+ CLAUDE.md) through upgrade.backup, nested copies alongside.
+  // 1. Back up: root .aoforge/ (+ CLAUDE.md) through upgrade.backup, nested copies alongside.
   const bk = upgrade.backup({ projectRoot: root, userHome: ctx.userHome, now: ctx.now });
   for (const rel of present) {
-    if (rel.startsWith('.planning/')) continue; // already inside the .planning/ copy
+    if (rel.startsWith(`${planningRel(root)}/`)) continue; // already inside the root planning-directory copy
     const dest = path.join(bk, 'nested', ...rel.split('/'));
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.copyFileSync(path.join(root, ...rel.split('/')), dest);
@@ -234,7 +236,7 @@ function fix(ctx) {
 
 module.exports = {
   id: 'legacy-runtime-state',
-  title: 'Legacy AOForge runtime state in .planning/',
+  title: 'Legacy AOForge runtime state in .aoforge/',
   scope: 'project',
   run,
   fix,

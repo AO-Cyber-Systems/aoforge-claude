@@ -3,9 +3,10 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 function loadConfig(cwd) {
-  const configPath = path.join(cwd, '.planning', 'config.json');
+  const configPath = path.join(planningRoot(cwd), 'config.json');
   const defaults = {
     mode: 'yolo',
     autonomous: false,
@@ -71,16 +72,16 @@ function loadConfig(cwd) {
 }
 
 function cmdConfigEnsureSection(cwd, raw) {
-  const configPath = path.join(cwd, '.planning', 'config.json');
-  const planningDir = path.join(cwd, '.planning');
+  const configPath = path.join(planningRoot(cwd), 'config.json');
+  const planningDir = planningRoot(cwd);
 
-  // Ensure .planning directory exists
+  // Ensure the planning directory exists (.aoforge/ for a new project; a legacy one is used where it exists)
   try {
     if (!fs.existsSync(planningDir)) {
       fs.mkdirSync(planningDir, { recursive: true });
     }
   } catch (err) {
-    error('Failed to create .planning directory: ' + err.message);
+    error(`Failed to create ${planningRel(cwd)} directory: ${err.message}`);
   }
 
   // Check if config already exists
@@ -130,7 +131,7 @@ function cmdConfigEnsureSection(cwd, raw) {
 
   try {
     fs.writeFileSync(configPath, JSON.stringify(defaults, null, 2), 'utf-8');
-    const result = { created: true, path: '.planning/config.json' };
+    const result = { created: true, path: planningRel(cwd, 'config.json') };
     output(result, raw, 'created');
   } catch (err) {
     error('Failed to create config.json: ' + err.message);
@@ -145,7 +146,7 @@ const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 const RESERVED_KEY_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function cmdConfigSet(cwd, keyPath, value, raw) {
-  const configPath = path.join(cwd, '.planning', 'config.json');
+  const configPath = path.join(planningRoot(cwd), 'config.json');
 
   if (!keyPath) {
     error('Usage: config-set <key.path> <value>');
@@ -317,7 +318,7 @@ function resolveConfigValue(config, keyPath) {
 }
 
 function cmdConfigGet(cwd, keyPath, raw) {
-  const configPath = path.join(cwd, '.planning', 'config.json');
+  const configPath = path.join(planningRoot(cwd), 'config.json');
 
   if (!keyPath) {
     error('Usage: config-get <key.path>');

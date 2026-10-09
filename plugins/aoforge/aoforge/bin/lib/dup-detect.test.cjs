@@ -654,8 +654,8 @@ test('Constants have correct values', () => {
   assert.strictEqual(dd.HARD_MATCH_THRESHOLD, 1);
   assert.strictEqual(dd.STRONG_FILE_OVERLAP_THRESHOLD, 2);
   assert.strictEqual(dd.STRONG_KEYWORD_OVERLAP_THRESHOLD, 3);
-  assert.strictEqual(dd.DUP_DETECT_LOG_REL, '.planning/.dup-detect-log.jsonl');
-  assert.strictEqual(dd.DEFERRED_DIR_REL, '.planning/.deferred');
+  assert.strictEqual(dd.DUP_DETECT_LOG_REL, '.aoforge/.dup-detect-log.jsonl');
+  assert.strictEqual(dd.DEFERRED_DIR_REL, '.aoforge/.deferred');
 });
 
 // ─── TRD 04-02: recordResolution + applyResolution + writers ─────────────────
@@ -666,7 +666,7 @@ const osTest = require('os');
 
 function _mkTmpRepo() {
   const tmp = fsTest.mkdtempSync(pathTest.join(osTest.tmpdir(), 'dd-02-test-'));
-  fsTest.mkdirSync(pathTest.join(tmp, '.planning'), { recursive: true });
+  fsTest.mkdirSync(pathTest.join(tmp, '.aoforge'), { recursive: true });
   return tmp;
 }
 
@@ -680,7 +680,7 @@ test('RR1 — first recordResolution creates JSONL with single line', () => {
       top_match: { strength: 'hard', peer: 'feature/peer', score: 100 },
       resolution: 'coordinate', cwd: tmp,
     });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const content = fsTest.readFileSync(logPath, 'utf-8');
     const lines = content.trim().split('\n');
     assert.strictEqual(lines.length, 1, 'should have 1 line');
@@ -697,7 +697,7 @@ test('RR2 — second recordResolution appends second line', () => {
   try {
     dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: true, top_match: null, resolution: 'merge', cwd: tmp });
     dd.recordResolution({ objective_id: '04', mode: 'execute', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const lines = fsTest.readFileSync(logPath, 'utf-8').trim().split('\n');
     assert.strictEqual(lines.length, 2, 'should have 2 lines after two calls');
   } finally {
@@ -709,7 +709,7 @@ test('RR3 — schema fields exact (timestamp, objective_id, mode, blocking, top_
   const tmp = _mkTmpRepo();
   try {
     dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const rec = JSON.parse(fsTest.readFileSync(logPath, 'utf-8').trim());
     const keys = Object.keys(rec).sort();
     assert.deepStrictEqual(keys, ['blocking', 'mode', 'objective_id', 'resolution', 'timestamp', 'top_match'],
@@ -723,7 +723,7 @@ test('RR4 — top_match: null when caller passes null', () => {
   const tmp = _mkTmpRepo();
   try {
     dd.recordResolution({ objective_id: '04', mode: 'execute', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const rec = JSON.parse(fsTest.readFileSync(logPath, 'utf-8').trim());
     assert.strictEqual(rec.top_match, null, 'top_match should be null');
   } finally {
@@ -739,7 +739,7 @@ test('RR5 — top_match shape: { strength, peer, score } when caller passes a ma
       top_match: { strength: 'strong', peer: 'feature/peer', score: 0.8 },
       resolution: 'coordinate', cwd: tmp,
     });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const rec = JSON.parse(fsTest.readFileSync(logPath, 'utf-8').trim());
     assert.ok(rec.top_match, 'top_match should be present');
     assert.strictEqual(rec.top_match.strength, 'strong');
@@ -754,7 +754,7 @@ test('RR6 — timestamp is ISO 8601 UTC', () => {
   const tmp = _mkTmpRepo();
   try {
     dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const rec = JSON.parse(fsTest.readFileSync(logPath, 'utf-8').trim());
     assert.match(rec.timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, 'timestamp should be ISO 8601');
   } finally {
@@ -762,13 +762,13 @@ test('RR6 — timestamp is ISO 8601 UTC', () => {
   }
 });
 
-test('RR7 — lazy-creates .planning/ directory if missing', () => {
+test('RR7 — lazy-creates .aoforge/ directory if missing', () => {
   const tmp = fsTest.mkdtempSync(pathTest.join(osTest.tmpdir(), 'dd-02-noplan-'));
-  // Deliberately do NOT create .planning/
+  // Deliberately do NOT create .aoforge/
   try {
     dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
-    assert.ok(fsTest.existsSync(logPath), '.planning/.dup-detect-log.jsonl should be created lazily');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
+    assert.ok(fsTest.existsSync(logPath), '.aoforge/.dup-detect-log.jsonl should be created lazily');
   } finally {
     fsTest.rmSync(tmp, { recursive: true, force: true });
   }
@@ -803,7 +803,7 @@ test('RR9 — no developer or PII fields included', () => {
   const tmp = _mkTmpRepo();
   try {
     dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const rec = JSON.parse(fsTest.readFileSync(logPath, 'utf-8').trim());
     assert.strictEqual(rec.developer, undefined, 'developer field must not appear');
     assert.strictEqual(rec.email, undefined, 'email field must not appear');
@@ -819,7 +819,7 @@ test('RR10 — each line is valid JSON parseable (newline-delimited)', () => {
     for (let i = 0; i < 3; i++) {
       dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: false, top_match: null, resolution: 'none', cwd: tmp });
     }
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     const content = fsTest.readFileSync(logPath, 'utf-8');
     const lines = content.trim().split('\n');
     assert.strictEqual(lines.length, 3, 'should have 3 lines');
@@ -835,7 +835,7 @@ test('RR10 — each line is valid JSON parseable (newline-delimited)', () => {
 
 test('AR1 — resolution=coordinate writes coordination note, returns { wrote_coordination_note: true }', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const r = dd.applyResolution({
@@ -861,7 +861,7 @@ test('AR1 — resolution=coordinate writes coordination note, returns { wrote_co
 
 test('AR2 — resolution=proceed-anyway writes coordination note with warning, returns { wrote_coordination_note: true, warning_appended: true }', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const r = dd.applyResolution({
@@ -886,7 +886,7 @@ test('AR2 — resolution=proceed-anyway writes coordination note with warning, r
 
 test('AR3 — resolution=defer calls _writeDeferredState, returns { wrote_deferred: true, defer_path }', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const r = dd.applyResolution({
@@ -909,7 +909,7 @@ test('AR3 — resolution=defer calls _writeDeferredState, returns { wrote_deferr
 
 test('AR4 — resolution=merge returns { aborted: true, suggestion: "git checkout <branch>" }, writes no file', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
 
   const stdoutChunks = [];
@@ -929,7 +929,7 @@ test('AR4 — resolution=merge returns { aborted: true, suggestion: "git checkou
     const ctxPath = pathTest.join(objDir, '04-CONTEXT.md');
     assert.ok(!fsTest.existsSync(ctxPath), 'CONTEXT.md should NOT be created for merge');
     // No .deferred file
-    const deferPath = pathTest.join(tmp, '.planning', '.deferred', '04.json');
+    const deferPath = pathTest.join(tmp, '.aoforge', '.deferred', '04.json');
     assert.ok(!fsTest.existsSync(deferPath), '.deferred file should NOT be created for merge');
   } finally {
     process.stdout.write = origStdout;
@@ -955,7 +955,7 @@ test('AR5 — unknown resolution string throws Error', () => {
 
 test('AR6 — coordinate path + recordResolution records coordinate in JSONL (integration check)', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     dd.applyResolution({
@@ -967,7 +967,7 @@ test('AR6 — coordinate path + recordResolution records coordinate in JSONL (in
     });
     // Also record resolution
     dd.recordResolution({ objective_id: '04', mode: 'plan', blocking: true, top_match: null, resolution: 'coordinate', cwd: tmp });
-    const logPath = pathTest.join(tmp, '.planning', '.dup-detect-log.jsonl');
+    const logPath = pathTest.join(tmp, '.aoforge', '.dup-detect-log.jsonl');
     assert.ok(fsTest.existsSync(logPath), 'JSONL log should exist');
     const rec = JSON.parse(fsTest.readFileSync(logPath, 'utf-8').trim());
     assert.strictEqual(rec.resolution, 'coordinate');
@@ -980,7 +980,7 @@ test('AR6 — coordinate path + recordResolution records coordinate in JSONL (in
 
 test('CN1 — existing CONTEXT.md gets section appended; previous content preserved', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const ctxPath = pathTest.join(objDir, '04-CONTEXT.md');
@@ -1002,7 +1002,7 @@ test('CN1 — existing CONTEXT.md gets section appended; previous content preser
 
 test('CN2 — missing CONTEXT.md is created with frontmatter scaffold + section', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const ctxPath = pathTest.join(objDir, '04-CONTEXT.md');
@@ -1025,7 +1025,7 @@ test('CN2 — missing CONTEXT.md is created with frontmatter scaffold + section'
 
 test('CN3 — second _writeCoordinationNote call appends another section (accumulates, not replaces)', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const note = {
@@ -1046,7 +1046,7 @@ test('CN3 — second _writeCoordinationNote call appends another section (accumu
 
 test('CN4 — signal containing newlines is sanitized (no embedded newlines in markdown bullet)', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const note = {
@@ -1070,7 +1070,7 @@ test('CN4 — signal containing newlines is sanitized (no embedded newlines in m
 
 test('CN5 — peer_objective with special chars renders (no crash)', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const note = {
@@ -1089,7 +1089,7 @@ test('CN5 — peer_objective with special chars renders (no crash)', () => {
 
 test('CN6 — warning field present renders **WARNING:** line (proceed-anyway path)', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const note = {
@@ -1111,7 +1111,7 @@ test('CN6 — warning field present renders **WARNING:** line (proceed-anyway pa
 
 test('CN7 — warning field absent means no **WARNING:** line (coordinate path)', () => {
   const tmp = _mkTmpRepo();
-  const objDir = pathTest.join(tmp, '.planning', 'objectives', '04-test');
+  const objDir = pathTest.join(tmp, '.aoforge', 'objectives', '04-test');
   fsTest.mkdirSync(objDir, { recursive: true });
   try {
     const note = {
@@ -1131,16 +1131,16 @@ test('CN7 — warning field absent means no **WARNING:** line (coordinate path)'
 
 // ─── Group DS: _writeDeferredState ────────────────────────────────────────────
 
-test('DS1 — file written to .planning/.deferred/<objective_id>.json', () => {
+test('DS1 — file written to .aoforge/.deferred/<objective_id>.json', () => {
   const tmp = _mkTmpRepo();
   try {
     dd._writeDeferredState('04', {
-      mode: 'plan', objective_dir: '.planning/objectives/04-test',
+      mode: 'plan', objective_dir: '.aoforge/objectives/04-test',
       trd_count_at_defer: 0, last_commit_at_defer: null,
       blocking_match: { strength: 'hard', source: 'peer', peer_branch: 'feature/x', peer_objective: '03', signal: 'gh', score: 1.0 },
     }, tmp);
-    const filePath = pathTest.join(tmp, '.planning', '.deferred', '04.json');
-    assert.ok(fsTest.existsSync(filePath), '.planning/.deferred/04.json should exist');
+    const filePath = pathTest.join(tmp, '.aoforge', '.deferred', '04.json');
+    assert.ok(fsTest.existsSync(filePath), '.aoforge/.deferred/04.json should exist');
     const state = JSON.parse(fsTest.readFileSync(filePath, 'utf-8'));
     assert.strictEqual(state.objective_id, '04');
     assert.strictEqual(state.mode, 'plan');
@@ -1155,16 +1155,16 @@ test('DS2 — schema correct: objective_id, deferred_at, mode, objective_dir, tr
   try {
     dd._writeDeferredState('04', {
       mode: 'plan',
-      objective_dir: '.planning/objectives/04-test',
+      objective_dir: '.aoforge/objectives/04-test',
       trd_count_at_defer: 2,
       last_commit_at_defer: 'abc1234',
       blocking_match: { strength: 'strong', source: 'peer', peer_branch: 'feature/x', peer_objective: '03', signal: 'file overlap', score: 0.8 },
     }, tmp);
-    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.planning', '.deferred', '04.json'), 'utf-8'));
+    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.aoforge', '.deferred', '04.json'), 'utf-8'));
     assert.strictEqual(state.objective_id, '04');
     assert.ok(state.deferred_at, 'deferred_at required');
     assert.strictEqual(state.mode, 'plan');
-    assert.strictEqual(state.objective_dir, '.planning/objectives/04-test');
+    assert.strictEqual(state.objective_dir, '.aoforge/objectives/04-test');
     assert.strictEqual(state.trd_count_at_defer, 2);
     assert.strictEqual(state.last_commit_at_defer, 'abc1234');
     assert.ok(state.blocking_match, 'blocking_match required');
@@ -1174,17 +1174,17 @@ test('DS2 — schema correct: objective_id, deferred_at, mode, objective_dir, tr
   }
 });
 
-test('DS3 — lazy-creates .planning/.deferred/ directory if missing', () => {
+test('DS3 — lazy-creates .aoforge/.deferred/ directory if missing', () => {
   const tmp = fsTest.mkdtempSync(pathTest.join(osTest.tmpdir(), 'dd-02-nodefer-'));
-  // No .planning/ created at all
+  // No .aoforge/ created at all
   try {
     dd._writeDeferredState('04', {
       mode: 'plan', objective_dir: 'obj',
       trd_count_at_defer: 0, last_commit_at_defer: null,
       blocking_match: null,
     }, tmp);
-    const deferDir = pathTest.join(tmp, '.planning', '.deferred');
-    assert.ok(fsTest.existsSync(deferDir), '.planning/.deferred/ should be created lazily');
+    const deferDir = pathTest.join(tmp, '.aoforge', '.deferred');
+    assert.ok(fsTest.existsSync(deferDir), '.aoforge/.deferred/ should be created lazily');
     assert.ok(fsTest.existsSync(pathTest.join(deferDir, '04.json')), '04.json should exist');
   } finally {
     fsTest.rmSync(tmp, { recursive: true, force: true });
@@ -1196,7 +1196,7 @@ test('DS4 — existing .deferred/<id>.json is overwritten on second call (not ap
   try {
     dd._writeDeferredState('04', { mode: 'plan', objective_dir: 'obj', trd_count_at_defer: 0, last_commit_at_defer: null, blocking_match: null }, tmp);
     dd._writeDeferredState('04', { mode: 'execute', objective_dir: 'obj2', trd_count_at_defer: 3, last_commit_at_defer: 'xyz9999', blocking_match: null }, tmp);
-    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.planning', '.deferred', '04.json'), 'utf-8'));
+    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.aoforge', '.deferred', '04.json'), 'utf-8'));
     assert.strictEqual(state.mode, 'execute', 'second call should overwrite first');
     assert.strictEqual(state.trd_count_at_defer, 3);
   } finally {
@@ -1208,7 +1208,7 @@ test('DS5 — deferred_at and resolution_timestamp are ISO 8601 UTC', () => {
   const tmp = _mkTmpRepo();
   try {
     dd._writeDeferredState('04', { mode: 'plan', objective_dir: 'obj', trd_count_at_defer: 0, last_commit_at_defer: null, blocking_match: null }, tmp);
-    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.planning', '.deferred', '04.json'), 'utf-8'));
+    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.aoforge', '.deferred', '04.json'), 'utf-8'));
     assert.match(state.deferred_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     assert.match(state.resolution_timestamp, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
   } finally {
@@ -1224,7 +1224,7 @@ test('DS6 — blocking_match is preserved verbatim from input', () => {
       mode: 'plan', objective_dir: 'obj', trd_count_at_defer: 0, last_commit_at_defer: null,
       blocking_match: blockingMatch,
     }, tmp);
-    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.planning', '.deferred', '04.json'), 'utf-8'));
+    const state = JSON.parse(fsTest.readFileSync(pathTest.join(tmp, '.aoforge', '.deferred', '04.json'), 'utf-8'));
     assert.deepStrictEqual(state.blocking_match, blockingMatch, 'blocking_match should be preserved verbatim');
   } finally {
     fsTest.rmSync(tmp, { recursive: true, force: true });
@@ -1432,8 +1432,8 @@ test('EX3 — banner comment present (LOCKED by TRD 04-06)', () => {
 
 function _e2eSetup() {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'dd-e2e-'));
-  fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
-  const objDir = path.join(tmp, '.planning', 'objectives', '04-test');
+  fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
+  const objDir = path.join(tmp, '.aoforge', 'objectives', '04-test');
   fs.mkdirSync(objDir, { recursive: true });
   return { tmp, objDir, padded: '04' };
 }
@@ -1476,7 +1476,7 @@ test('E2E1 — coordinate path: detect → resolve → CONTEXT note + JSONL', ()
     assert.match(ctx, /Coordinate/);
     assert.doesNotMatch(ctx, /\*\*WARNING:\*\*/);
 
-    const log = fs.readFileSync(path.join(tmp, '.planning', '.dup-detect-log.jsonl'), 'utf-8').trim();
+    const log = fs.readFileSync(path.join(tmp, '.aoforge', '.dup-detect-log.jsonl'), 'utf-8').trim();
     const rec = JSON.parse(log);
     assert.strictEqual(rec.resolution, 'coordinate');
     assert.strictEqual(rec.blocking, true);
@@ -1522,7 +1522,7 @@ test('E2E2 — proceed-anyway path: CONTEXT note WITH **WARNING** + JSONL', () =
     assert.match(ctx, /\*\*WARNING:\*\*/);
     assert.match(ctx, /Proceed-anyway/);
 
-    const log = fs.readFileSync(path.join(tmp, '.planning', '.dup-detect-log.jsonl'), 'utf-8').trim();
+    const log = fs.readFileSync(path.join(tmp, '.aoforge', '.dup-detect-log.jsonl'), 'utf-8').trim();
     const rec = JSON.parse(log);
     assert.strictEqual(rec.resolution, 'proceed-anyway');
   } finally {
@@ -1531,7 +1531,7 @@ test('E2E2 — proceed-anyway path: CONTEXT note WITH **WARNING** + JSONL', () =
   }
 });
 
-test('E2E3 — defer path: .planning/.deferred/04.json written with schema + JSONL', () => {
+test('E2E3 — defer path: .aoforge/.deferred/04.json written with schema + JSONL', () => {
   const { tmp, objDir, padded } = _e2eSetup();
   // Use hardPeerScan for a blocking match
   const fixtures = fix.buildDupDetectFixtures();
@@ -1565,7 +1565,7 @@ test('E2E3 — defer path: .planning/.deferred/04.json written with schema + JSO
       resolution: 'defer', cwd: tmp,
     });
 
-    const deferPath = path.join(tmp, '.planning', '.deferred', '04.json');
+    const deferPath = path.join(tmp, '.aoforge', '.deferred', '04.json');
     assert.ok(fs.existsSync(deferPath));
     const state = JSON.parse(fs.readFileSync(deferPath, 'utf-8'));
     assert.strictEqual(state.objective_id, '04');
@@ -1574,7 +1574,7 @@ test('E2E3 — defer path: .planning/.deferred/04.json written with schema + JSO
     assert.ok(state.blocking_match);
     assert.strictEqual(state.blocking_match.strength, 'hard');
 
-    const log = fs.readFileSync(path.join(tmp, '.planning', '.dup-detect-log.jsonl'), 'utf-8').trim();
+    const log = fs.readFileSync(path.join(tmp, '.aoforge', '.dup-detect-log.jsonl'), 'utf-8').trim();
     const rec = JSON.parse(log);
     assert.strictEqual(rec.resolution, 'defer');
   } finally {
@@ -1624,11 +1624,11 @@ test('E2E4 — merge path: aborted + suggestion, NO CONTEXT note, NO defer file,
     }
 
     // NO defer file
-    const deferPath = path.join(tmp, '.planning', '.deferred', '04.json');
+    const deferPath = path.join(tmp, '.aoforge', '.deferred', '04.json');
     assert.strictEqual(fs.existsSync(deferPath), false);
 
     // JSONL recorded
-    const log = fs.readFileSync(path.join(tmp, '.planning', '.dup-detect-log.jsonl'), 'utf-8').trim();
+    const log = fs.readFileSync(path.join(tmp, '.aoforge', '.dup-detect-log.jsonl'), 'utf-8').trim();
     const rec = JSON.parse(log);
     assert.strictEqual(rec.resolution, 'merge');
   } finally {
@@ -1657,7 +1657,7 @@ test('E2E5 — no-match execute mode: blocking false, JSONL resolution=none', ()
       top_match: null, resolution: 'none', cwd: tmp,
     });
 
-    const log = fs.readFileSync(path.join(tmp, '.planning', '.dup-detect-log.jsonl'), 'utf-8').trim();
+    const log = fs.readFileSync(path.join(tmp, '.aoforge', '.dup-detect-log.jsonl'), 'utf-8').trim();
     const rec = JSON.parse(log);
     assert.strictEqual(rec.resolution, 'none');
     assert.strictEqual(rec.blocking, false);
@@ -1690,7 +1690,7 @@ test('E2E6 — no-match plan mode with weak advisory: blocking false, advisory h
       top_match: null, resolution: 'none', cwd: tmp,
     });
 
-    const log = fs.readFileSync(path.join(tmp, '.planning', '.dup-detect-log.jsonl'), 'utf-8').trim();
+    const log = fs.readFileSync(path.join(tmp, '.aoforge', '.dup-detect-log.jsonl'), 'utf-8').trim();
     const rec = JSON.parse(log);
     assert.strictEqual(rec.resolution, 'none');
     assert.strictEqual(rec.blocking, false);

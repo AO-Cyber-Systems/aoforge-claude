@@ -85,11 +85,11 @@ function assistantRecords({ id, model = 'claude-opus-5-5', input, cacheWrite, ca
  * The executor prompt shapes seen in history:
  *   plan_id        current orchestrator: objective tag, TRD path, REPO_ROOT / WAVE_BASE / PLAN_ID block
  *   objective_tag  older: `Execute plan <id> of objective <dir>.` only
- *   trd_path       `Execute TRD <repoRoot>/.planning/objectives/<dir>/<id>-<slug>-TRD.md`
+ *   trd_path       `Execute TRD <repoRoot>/.aoforge/objectives/<dir>/<id>-<slug>-TRD.md`
  *   bare           no id at all; only the meta.json description names the TRD
  */
 function executorPrompt(style, { id, objectiveDir, slug = 'demo', repoRoot } = {}) {
-  const trdRel = `.planning/objectives/${objectiveDir}/${id}-${slug}-TRD.md`;
+  const trdRel = `.aoforge/objectives/${objectiveDir}/${id}-${slug}-TRD.md`;
   switch (style) {
     case 'plan_id':
       return [

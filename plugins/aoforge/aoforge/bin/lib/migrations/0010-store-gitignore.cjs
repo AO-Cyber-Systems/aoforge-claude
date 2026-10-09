@@ -3,17 +3,17 @@
 // Migration 0010 — store-gitignore (TRD 48-10, GWP-04, U-1, D-17).
 //
 // In GitHub store mode (planning-mode.cjs: `github.enabled === true && github.store === true`) GitHub is the source of
-// truth and `.planning/` is a cache. U-1 fixes what stays in git: exactly `.planning/config.json` and
-// `.planning/STACK.md`. Everything else is gitignored through one managed `.gitignore` block —
+// truth and `.aoforge/` is a cache. U-1 fixes what stays in git: exactly `.aoforge/config.json` and
+// `.aoforge/STACK.md`. Everything else is gitignored through one managed `.gitignore` block —
 //
 //   # >>> aoforge store (0010) >>>
-//   .planning/*
-//   !.planning/config.json
-//   !.planning/STACK.md
+//   .aoforge/*
+//   !.aoforge/config.json
+//   !.aoforge/STACK.md
 //   # <<< aoforge store (0010) <<<
 //
-// — and every other tracked `.planning/` path is removed from the INDEX ONLY. Working files are never deleted, moved or
-// rewritten. `.planning/*` (not `.planning/`) is deliberate: a directory rule hides config.json too, and a fresh clone
+// — and every other tracked `.aoforge/` path is removed from the INDEX ONLY. Working files are never deleted, moved or
+// rewritten. `.aoforge/*` (not `.aoforge/`) is deliberate: a directory rule hides config.json too, and a fresh clone
 // could then not even tell it is a store-mode project.
 //
 // Why confirm-only, never auto: `upgrade-project.js` applies `auto` migrations on SessionStart and commits them. Applied
@@ -44,7 +44,7 @@
 // `<!-- ... -->` line is a pattern, not a comment. The block helper here keeps the same guarantees (bytes outside the
 // block are preserved; two blocks or an unterminated block refuse).
 //
-// Scope: the ROOT `.planning/` only. Store mode is a root-level config; nested `**/.planning/` dirs are out of scope.
+// Scope: the ROOT `.aoforge/` only. Store mode is a root-level config; nested `**/.aoforge/` dirs are out of scope.
 //
 // Exports: `apply` is the upgrade-runner adapter (a refusal THROWS, so the runner reports it as failed, halts later
 // writes and never stamps 0010 as applied). `migrate` returns the full report or `{applied:false, refused, details}`.
@@ -61,6 +61,7 @@ const outbox = require('../gh-outbox.cjs');
 const ghTrd = require('../gh-trd.cjs');
 const upgrade = require('../upgrade.cjs');
 const { branchCommitSteps, commitCommand } = require('../commit-steps.cjs');
+const { planningRoot, planningRel } = require('../compat.cjs');
 
 const GITIGNORE_REL = '.gitignore';
 const BLOCK_START = '# >>> aoforge store (0010) >>>';
@@ -70,7 +71,7 @@ const RM_BATCH = 200;
 const LOCAL_ONLY_NOTE = 'kept on this machine only after untrack (no GitHub home)';
 // TRD 51-04 (G6): the follow-up commit. 0010 only ever applies in store mode, where `aof-tools commit` refuses the default
 // branch and any branch no objective PR names (objective 50's gate), so a bare commit line would always exit 1. Print
-// the sequence that works instead: a new branch, the logged escape (gate `gh` in .planning/.override-log.jsonl), push,
+// the sequence that works instead: a new branch, the logged escape (gate `gh` in .aoforge/.override-log.jsonl), push,
 // and a pull request. Self-contained so 51-07 can print it after 0011 as well.
 // TRD 52-01: built by the shared commit-steps builder, which adds the linked-branch route (`aof-tools gh pr start
 // <objective>`, then the bare command). Still a string constant computed once at load: 0011 dedupes its notes on
@@ -79,12 +80,13 @@ const STORE_BRANCH = 'aoforge-store-cache';
 const STORE_COMMIT_STEPS = branchCommitSteps({
   branch: STORE_BRANCH,
   reason: 'store migration',
-  command: commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.planning/']),
+  command: commitCommand('chore: gitignore the planning cache (store mode)', ['.gitignore', '.aoforge/']),
 });
 const REMEDY = 'Get everything onto GitHub first: run `aof-tools planning import`, `aof-tools gh outbox flush` and ' +
   '`aof-tools gh pull --all`, then re-run `aof-tools upgrade --apply --only 0010 --confirm`.';
-// A path the block must ignore; used to verify the written rules (it need not exist).
-const PROBE_IGNORED = '.planning/objectives/00-probe/00-01-probe-TRD.md';
+// A path the block must ignore, under the project's planning directory; used to verify the written rules (it need not
+// exist).
+const probeIgnored = (dir) => `${dir}/objectives/00-probe/00-01-probe-TRD.md`;
 
 const GIT_REDIRECT_VARS = [
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
@@ -117,8 +119,8 @@ function isWorkTree(ctx) {
 
 // ─── the managed .gitignore block ───────────────────────────────────────────────
 
-function blockLines() {
-  return [BLOCK_START, ...planningPaths.gitignoreLines(), BLOCK_END];
+function blockLines(dir) {
+  return [BLOCK_START, ...planningPaths.gitignoreLines(dir), BLOCK_END];
 }
 
 /** Locate the block: null when absent, `{start, end, inner:[lines]}`; throws on two blocks or a missing end marker. */
@@ -140,7 +142,7 @@ function blockState(root) {
   try {
     const b = readBlock(text);
     if (!b) return { present: false, current: false, error: null };
-    const want = planningPaths.gitignoreLines();
+    const want = planningPaths.gitignoreLines(planningRel(root));
     const current = b.inner.length === want.length && b.inner.every((l, i) => l === want[i]);
     return { present: true, current, error: null };
   } catch (e) {
@@ -149,8 +151,8 @@ function blockState(root) {
 }
 
 /** `text` with the block replaced in place, or appended newline-safely. Bytes outside the block are kept. */
-function upsertBlock(text) {
-  const block = blockLines();
+function upsertBlock(text, dir) {
+  const block = blockLines(dir);
   if (text === null || text === '') return `${block.join('\n')}\n`;
   const b = readBlock(text);
   if (b) {
@@ -195,8 +197,8 @@ function classOf(rel) {
 }
 
 /**
- * The root `.planning/` as git tracks it:
- *   tracked  every tracked `.planning/` path (project-relative)
+ * The root `.aoforge/` as git tracks it:
+ *   tracked  every tracked `.aoforge/` path (project-relative)
  *   track    those that stay tracked (class tracked-config)
  *   untrack  everything else (project-relative)
  *   byClass  {cache, generated, runtime}: planning-relative rels of `untrack`
@@ -207,15 +209,16 @@ function classOf(rel) {
 function discover(ctx) {
   const empty = { cache: [], generated: [], runtime: [] };
   if (!isWorkTree(ctx)) return { tracked: [], track: [], untrack: [], byClass: empty, legacy: [], block: blockState(ctx.projectRoot) };
-  const r = git(ctx, ['ls-files', '-z', '--', '.planning']);
+  const dir = planningRel(ctx.projectRoot);
+  const r = git(ctx, ['ls-files', '-z', '--', dir]);
   if (r.status !== 0) throw new Error(`git ls-files failed: ${r.err || r.status}`);
-  const tracked = [...new Set(splitZ(r.out).filter((p) => p.startsWith('.planning/')))].sort();
+  const tracked = [...new Set(splitZ(r.out).filter((p) => p.startsWith(`${dir}/`)))].sort();
   const track = [];
   const untrack = [];
   const byClass = { cache: [], generated: [], runtime: [] };
   const legacy = [];
   for (const full of tracked) {
-    const rel = full.slice('.planning/'.length);
+    const rel = full.slice(dir.length + 1);
     const cls = classOf(rel);
     if (cls === 'tracked-config') {
       track.push(full);
@@ -238,7 +241,7 @@ function assess(ctx) {
   if (!isWorkTree(ctx)) return { applies: false, reason: 'not a git work tree' };
   const mode = planningMode.planningMode(ctx.projectRoot);
   if (mode.mode !== planningMode.STORE) {
-    return { applies: false, reason: `local mode (${mode.reason}): .planning/ stays tracked` };
+    return { applies: false, reason: `local mode (${mode.reason}): ${planningRel(ctx.projectRoot)}/ stays tracked` };
   }
   const found = discover(ctx);
   if (found.untrack.length === 0 && found.block.current) {
@@ -247,7 +250,7 @@ function assess(ctx) {
   const parts = [];
   if (found.untrack.length) {
     const c = found.byClass;
-    parts.push(`store mode: ${found.untrack.length} .planning/ path(s) still tracked besides config.json and STACK.md ` +
+    parts.push(`store mode: ${found.untrack.length} ${planningRel(ctx.projectRoot)}/ path(s) still tracked besides config.json and STACK.md ` +
       `(cache ${c.cache.length}, generated ${c.generated.length}, runtime ${c.runtime.length})`);
   }
   if (found.block.error) parts.push(`.gitignore block unreadable: ${found.block.error}`);
@@ -324,10 +327,10 @@ function cacheBlockers(root) {
   const out = [];
   // The wiki clone (`wiki/**`) is read through the page store and is never a cache file (gh-cache.listOwnedLocal):
   // nothing baselines it, so it must not block the switch (objective 51, TRD 51-07).
-  for (const rel of planningPaths.listByClass(path.join(root, '.planning')).cache.filter((r) => !r.startsWith('wiki/'))) {
+  for (const rel of planningPaths.listByClass(planningRoot(root)).cache.filter((r) => !r.startsWith('wiki/'))) {
     let text;
     try {
-      text = fs.readFileSync(path.join(root, '.planning', ...rel.split('/')), 'utf-8');
+      text = fs.readFileSync(path.join(planningRoot(root), ...rel.split('/')), 'utf-8');
     } catch (e) {
       out.push(`${rel}: unreadable (${e.code || e.message})`);
       continue;
@@ -374,7 +377,7 @@ function notesFor(found, gitignoreChanged) {
   const s = summary(found);
   const parts = [
     gitignoreChanged ? 'wrote the store-mode .gitignore block' : '.gitignore block already current',
-    `untracked ${found.untrack.length} .planning/ path(s) (cache ${s.untracked.cache}, generated ${s.untracked.generated}, ` +
+    `untracked ${found.untrack.length} .aoforge/ path(s) (cache ${s.untracked.cache}, generated ${s.untracked.generated}, ` +
       `runtime ${s.untracked.runtime})`,
   ];
   if (s.local_only.length) parts.push(`${LOCAL_ONLY_NOTE}: ${s.local_only.join(', ')}`);
@@ -408,21 +411,23 @@ function migrate(ctx) {
   const changed = [...(gitignoreChanged ? [GITIGNORE_REL] : []), ...found.untrack];
   if (ctx.dryRun) return { applied: false, dryRun: true, changed, notes: notesFor(found, gitignoreChanged), ...summary(found) };
 
-  // Back up before anything changes: .planning/ + CLAUDE.md (upgrade.backup), the old .gitignore, the path list.
+  // Back up before anything changes: .aoforge/ + CLAUDE.md (upgrade.backup), the old .gitignore, the path list.
   const before = readGitignore(root);
   const backup = upgrade.backup({ projectRoot: root, userHome: ctx.userHome });
   if (before !== null) fs.writeFileSync(path.join(backup, '0010-gitignore.before'), before);
   fs.writeFileSync(path.join(backup, '0010-untracked.txt'), found.untrack.map((p) => `${p}\n`).join(''));
 
-  if (gitignoreChanged) fs.writeFileSync(path.join(root, GITIGNORE_REL), upsertBlock(before));
+  const dir = planningRel(root);
+  if (gitignoreChanged) fs.writeFileSync(path.join(root, GITIGNORE_REL), upsertBlock(before, dir));
 
   // Verify with git itself: config.json and STACK.md must stay visible, the cache must be ignored.
-  const probe = ['.planning/config.json', '.planning/STACK.md', PROBE_IGNORED];
+  const PROBE_IGNORED = probeIgnored(dir);
+  const probe = [`${dir}/config.json`, `${dir}/STACK.md`, PROBE_IGNORED];
   const ignored = ignoredSet(ctx, probe);
   const hidden = probe.slice(0, 2).filter((p) => ignored.has(p));
   if (hidden.length || !ignored.has(PROBE_IGNORED)) {
     const why = hidden.length
-      ? `an existing ignore rule still hides ${hidden.join(' and ')} (a \`.planning/\` directory rule cannot be re-included; remove it)`
+      ? `an existing ignore rule still hides ${hidden.join(' and ')} (a \`${dir}/\` directory rule cannot be re-included; remove it)`
       : `the .gitignore block does not ignore ${PROBE_IGNORED}`;
     return { ...rollback(ctx, [], before, why), backup };
   }

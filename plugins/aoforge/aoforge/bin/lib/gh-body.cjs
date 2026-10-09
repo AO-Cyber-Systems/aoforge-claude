@@ -256,15 +256,15 @@ function buildObjectiveSections(state) {
   const criteria = Array.isArray(s.success_criteria) ? s.success_criteria : [];
   const trds = Array.isArray(s.trds) ? s.trds : [];
 
-  // Store mode (`state.store === true`): the issue IS the record and `.planning/` is a gitignored cache, so the
+  // Store mode (`state.store === true`): the issue IS the record and `.aoforge/` is a gitignored cache, so the
   // footer must not point at a repo path. The text depends on the flag alone, so the managed-section hash only
   // changes when the mode does. Mirror mode (flag absent or anything else) keeps today's bytes (D-01).
   const objDir = s.dir || s.objectiveId || '';
   const footer =
     '_Tracked by [AOForge](https://github.com/AO-Cyber-Systems/aoforge-claude). ' +
     (s.store === true
-      ? 'This issue is the source of truth (store mode); `.planning/` in a checkout is a local cache rebuilt from it._'
-      : `Source of truth: \`.planning/objectives/${objDir}/\` in this repo._`);
+      ? 'This issue is the source of truth (store mode); `.aoforge/` in a checkout is a local cache rebuilt from it._'
+      : `Source of truth: \`.aoforge/objectives/${objDir}/\` in this repo._`);
 
   return {
     summary: summary.join('\n'),

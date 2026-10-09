@@ -6,7 +6,7 @@
  * In store mode every commit AOForge records names the issue it serves: a TRD's commits reference the TRD issue,
  * objective-level commits the objective issue. The issue comes from the conventional-commit scope already in every
  * executor message (`feat(49-02): ...` -> TRD 49-02, `docs(49): ...` -> objective 49), resolved through the v3 mapping in
- * the MAIN checkout, so a commit made from a `.df-worktrees/` executor gets the trailer too (its own `.planning/` holds
+ * the MAIN checkout, so a commit made from a `.df-worktrees/` executor gets the trailer too (its own `.aoforge/` holds
  * no mapping in store mode).
  *
  * Format: the literal final paragraph `Refs #N` (the proposal's wording). Git's default trailer separator is `:`, so

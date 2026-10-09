@@ -14,11 +14,11 @@ const upgrade = require('../upgrade.cjs');
 const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0002-job-to-trd.cjs');
-const STATE_REL = '.planning/STATE.md';
-const ALPHA_JOB = '.planning/objectives/01-alpha/01-01-JOB.md';
-const ALPHA_TRD = '.planning/objectives/01-alpha/01-01-TRD.md';
-const BETA_JOB = '.planning/objectives/02-beta/02-01-JOB.md';
-const BETA_TRD = '.planning/objectives/02-beta/02-01-TRD.md';
+const STATE_REL = '.aoforge/STATE.md';
+const ALPHA_JOB = '.aoforge/objectives/01-alpha/01-01-JOB.md';
+const ALPHA_TRD = '.aoforge/objectives/01-alpha/01-01-TRD.md';
+const BETA_JOB = '.aoforge/objectives/02-beta/02-01-JOB.md';
+const BETA_TRD = '.aoforge/objectives/02-beta/02-01-TRD.md';
 const LOG_LINE_RE = /^- (\d{4}-\d{2}-\d{2}): Migrated (\d+) JOB\.md file\(s\) to TRD\.md \(AOForge upgrade, migration 0002\)$/;
 
 const cleanup = [];
@@ -95,11 +95,11 @@ describe('migration 0002 job-to-trd', () => {
 
     // A bare JOB.md becomes TRD.md.
     const bare = track(fx.makeV1Project({ jobFiles: false }));
-    write(bare, '.planning/objectives/03-gamma/JOB.md', '# JOB 03: bare\n');
+    write(bare, '.aoforge/objectives/03-gamma/JOB.md', '# JOB 03: bare\n');
     const bareRes = m.apply(ctxFor(bare));
-    assert.ok(bareRes.changed.includes('.planning/objectives/03-gamma/TRD.md'));
-    assert.equal(read(bare, '.planning/objectives/03-gamma/TRD.md'), '# JOB 03: bare\n');
-    assert.equal(exists(bare, '.planning/objectives/03-gamma/JOB.md'), false);
+    assert.ok(bareRes.changed.includes('.aoforge/objectives/03-gamma/TRD.md'));
+    assert.equal(read(bare, '.aoforge/objectives/03-gamma/TRD.md'), '# JOB 03: bare\n');
+    assert.equal(exists(bare, '.aoforge/objectives/03-gamma/JOB.md'), false);
   });
 
   test('13. STATE.md gains exactly one Session Log line and nothing else changes', () => {

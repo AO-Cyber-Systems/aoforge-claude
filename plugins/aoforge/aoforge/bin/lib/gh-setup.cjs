@@ -737,7 +737,7 @@ const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'templates', 'github');
  * the same ref (55-01). A configured value with no `@`, or nothing after it, pins nothing. GitHub's own `${{ ... }}`
  * expressions are left alone, and a value containing `$&` is inserted literally.
  *
- * @param {object} [cfg] the `github` block of .planning/config.json
+ * @param {object} [cfg] the `github` block of .aoforge/config.json
  * @param {string} version the plugin version (`2.12.0` or `v2.12.0`)
  * @returns {{workflow:string, prTemplate:string}}
  */

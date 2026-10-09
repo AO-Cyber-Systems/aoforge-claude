@@ -7,8 +7,8 @@
 // codebase docs, research notes, milestone entries and archives, ADRs, retros). They live in the repo's
 // wiki, a git repository at `<repo>.wiki.git`. This module is the whole interface to it:
 //
-//   - ONE page table (`PAGE_TABLE`) maps a `.planning/` cache path to a wiki page name and back.
-//   - `.planning/wiki/` is a local clone of the wiki. It is excluded locally through the repo's
+//   - ONE page table (`PAGE_TABLE`) maps a `.aoforge/` cache path to a wiki page name and back.
+//   - `.aoforge/wiki/` is a local clone of the wiki. It is excluded locally through the repo's
 //     `info/exclude` (never `.gitignore`: that is repo content, this is per-checkout cache).
 //   - Writes are: add -> commit (skipped when nothing is staged) -> `pull --rebase origin master` ->
 //     `push origin HEAD:master`. A rebase conflict aborts the rebase and is REPORTED; this module never
@@ -30,11 +30,17 @@ const { toObjectiveId } = require('./gh-mapping.cjs');
 const { atomicWrite } = require('./sync-state.cjs');
 const { readConfig, resolveRepo } = require('./gh-client.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRel } = require('./compat.cjs');
 
-const WIKI_DIR_REL = '.planning/wiki';
+const WIKI_DIR_REL = '.aoforge/wiki';
 const DOCS_DIR_REL = 'docs/aoforge';
 const WIKI_BRANCH = 'master';
 const WIKI_EXCLUDE_LINE = `/${WIKI_DIR_REL}/`;
+
+/** The clone's root-relative path under the project's resolved planning directory (`.aoforge/`, or a legacy one). */
+function wikiDirRel(root) {
+  return planningRel(root, 'wiki');
+}
 const MAX_PUSH_RETRIES = 3;
 const GIT_TIMEOUT_MS = 120000;
 
@@ -134,7 +140,7 @@ function objectiveDocRule(kind, suffix) {
 /**
  * THE page-mapping table (single source for both directions). An ordered rule list; each rule is
  *   { name, toPage(relCachePath) -> page | null, invert(page, {objectiveDirs}) -> relCachePath | null }.
- * `relCachePath` is relative to `.planning/` with `/` separators. Anything no rule matches is not a wiki
+ * `relCachePath` is relative to `.aoforge/` with `/` separators. Anything no rule matches is not a wiki
  * document (STATE.md, config.json, TRDs, SUMMARYs, VERIFICATIONs...), and maps to null.
  *
  * The classes, in order (order is significant: an earlier rule wins):
@@ -263,7 +269,7 @@ const PAGE_TABLE = [
   },
 ];
 
-/** The wiki page a `.planning/`-relative cache path belongs to, or null when it is not a wiki document. */
+/** The wiki page a `.aoforge/`-relative cache path belongs to, or null when it is not a wiki document. */
 function pageForCachePath(rel) {
   const r = normaliseRel(rel);
   if (r === null) return null;
@@ -275,7 +281,7 @@ function pageForCachePath(rel) {
 }
 
 /**
- * The cache path (relative to `.planning/`) for a wiki page, or null. Objective pages cannot be inverted
+ * The cache path (relative to `.aoforge/`) for a wiki page, or null. Objective pages cannot be inverted
  * without the objective directory names (`{objectiveDirs}`): the page name drops the zero padding. A
  * candidate must map forward to the same page, so the two directions can never drift apart.
  */
@@ -303,7 +309,7 @@ function pageRevisionUrl(repo, page, sha) {
 // ─── Remote resolution ────────────────────────────────────────────────────────
 
 /**
- * Where the wiki lives: `AOFORGE_WIKI_REMOTE` (tests and overrides) -> `.planning/config.json`
+ * Where the wiki lives: `AOFORGE_WIKI_REMOTE` (tests and overrides) -> `.aoforge/config.json`
  * `github.wiki.remote` -> `https://github.com/<repo>.wiki.git` from `github.repo`. Null when none apply.
  */
 function resolveWikiRemote(cwd, opts = {}) {
@@ -404,7 +410,7 @@ function normaliseRemote(url) {
 }
 
 function cloneDir(root) {
-  return path.join(root, WIKI_DIR_REL);
+  return path.join(root, wikiDirRel(root));
 }
 
 function local(dir, args) {
@@ -468,8 +474,9 @@ function probeRemote(remote, opts = {}) {
   return { state: 'unavailable', remote, stderr, error: stderr || `git exited ${r.status}`, offline: kind === 'offline', auth: kind === 'auth' };
 }
 
-/** Append `/.planning/wiki/` to the repo's `info/exclude` once. `--git-path` makes worktrees work. */
+/** Append `/<planning dir>/wiki/` to the repo's `info/exclude` once. `--git-path` makes worktrees work. */
 function ensureExcluded(root) {
+  const line = `/${wikiDirRel(root)}/`;
   const r = runGitImpl(['rev-parse', '--git-path', 'info/exclude'], { cwd: root });
   const rel = String(r.stdout || '').trim();
   if (!r.ok || rel === '') {
@@ -482,24 +489,24 @@ function ensureExcluded(root) {
   } catch {
     text = '';
   }
-  if (text.split(/\r?\n/).some((l) => l.trim() === WIKI_EXCLUDE_LINE)) {
+  if (text.split(/\r?\n/).some((l) => l.trim() === line)) {
     return { ok: true, added: false, path: file };
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const lead = text === '' || text.endsWith('\n') ? '' : '\n';
-  fs.appendFileSync(file, `${lead}${WIKI_EXCLUDE_LINE}\n`);
+  fs.appendFileSync(file, `${lead}${line}\n`);
   return { ok: true, added: true, path: file };
 }
 
 /**
- * Make sure `.planning/wiki/` is a clone of the wiki. An existing clone is left alone (and never
+ * Make sure `.aoforge/wiki/` is a clone of the wiki. An existing clone is left alone (and never
  * deleted) when its `origin` matches; a different `origin`, or a non-empty directory that is not a
  * clone, is an error. `{ok, cloned, dir}` or a failure result (`uninitialised` / `offline` / `auth`).
  */
 function ensureClone(root, opts = {}) {
   const remote = opts.remote !== undefined ? opts.remote : resolveWikiRemote(root);
   if (!remote) {
-    return { ok: false, error: 'no wiki remote: set github.repo (or github.wiki.remote) in .planning/config.json' };
+    return { ok: false, error: 'no wiki remote: set github.repo (or github.wiki.remote) in .aoforge/config.json' };
   }
   const dir = cloneDir(root);
 
@@ -514,7 +521,7 @@ function ensureClone(root, opts = {}) {
   }
 
   if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
-    return { ok: false, error: `${WIKI_DIR_REL} exists and is not a git clone; move it aside` };
+    return { ok: false, error: `${wikiDirRel(root)} exists and is not a git clone; move it aside` };
   }
 
   fs.mkdirSync(path.dirname(dir), { recursive: true });
@@ -544,14 +551,14 @@ function validRevision(x) {
  * The unified diff of the wiki clone between two revisions (`git diff --no-color <from>..<to> --`), for the PR
  * lifecycle's wiki-diff comment (GPR-03). `toSha` defaults to HEAD.
  *   success: the diff TEXT, a plain string (untrimmed). `''` is a valid result: nothing changed.
- *   failure: `{ok:false, reason, error}`, reason `no-wiki-clone` (no `.planning/wiki/.git`; git is not run),
+ *   failure: `{ok:false, reason, error}`, reason `no-wiki-clone` (no `.aoforge/wiki/.git`; git is not run),
  *            `bad-revision` (refused before git runs) or `git-failed` (git exited non-zero, e.g. an unknown sha).
  * Callers tell the two apart with `typeof result === 'string'`.
  */
 function diff(root, fromSha, toSha = 'HEAD') {
   const dir = cloneDir(root);
   if (!fs.existsSync(path.join(dir, '.git'))) {
-    return { ok: false, reason: 'no-wiki-clone', error: `no wiki clone at ${WIKI_DIR_REL}` };
+    return { ok: false, reason: 'no-wiki-clone', error: `no wiki clone at ${wikiDirRel(root)}` };
   }
   if (!validRevision(fromSha) || !validRevision(toSha)) {
     return { ok: false, reason: 'bad-revision', error: `invalid revision: ${JSON.stringify([fromSha, toSha])}` };
@@ -570,7 +577,7 @@ function diff(root, fromSha, toSha = 'HEAD') {
 function push(root, opts = {}) {
   const dir = cloneDir(root);
   if (!fs.existsSync(dir)) {
-    return { ok: false, error: `no wiki clone at ${WIKI_DIR_REL}; run ensureClone first` };
+    return { ok: false, error: `no wiki clone at ${wikiDirRel(root)}; run ensureClone first` };
   }
   const remote = opts.remote !== undefined ? opts.remote : resolveWikiRemote(root);
   const message = opts.message || 'aoforge: update planning pages';
@@ -623,7 +630,7 @@ function push(root, opts = {}) {
 function fetch(root, opts = {}) {
   const dir = cloneDir(root);
   if (!fs.existsSync(dir)) {
-    return { ok: false, error: `no wiki clone at ${WIKI_DIR_REL}; run ensureClone first` };
+    return { ok: false, error: `no wiki clone at ${wikiDirRel(root)}; run ensureClone first` };
   }
   const remote = opts.remote !== undefined ? opts.remote : resolveWikiRemote(root);
 
@@ -693,7 +700,7 @@ function writePage(root, page, text, opts = {}) {
   if (typeof text !== 'string') return { ok: false, error: 'page text must be a string' };
   const dir = storeDir(root, mode);
   if (mode === 'wiki' && !fs.existsSync(dir)) {
-    return { ok: false, error: `no wiki clone at ${WIKI_DIR_REL}; run ensureClone first` };
+    return { ok: false, error: `no wiki clone at ${wikiDirRel(root)}; run ensureClone first` };
   }
   const file = path.join(dir, `${page}.md`);
   let previous = null;
@@ -727,7 +734,7 @@ function listPages(root, opts = {}) {
 
 /**
  * One interface over both backends:
- *   mode 'wiki' -> `.planning/wiki/` (a clone; push publishes it; the revision is the clone HEAD sha)
+ *   mode 'wiki' -> `.aoforge/wiki/` (a clone; push publishes it; the revision is the clone HEAD sha)
  *   mode 'docs' -> `docs/aoforge/` (repo content; push is a no-op; the revision is the file path)
  * `{mode, readPage, writePage, listPages, push, fetch, headSha, revisionRef}`. Callers never branch on mode.
  */

@@ -170,7 +170,7 @@ describe('applyDrift', () => {
       assert.strictEqual(r.ok, true);
       assert.deepStrictEqual(r.applied, { status: 'done' });
       // Verify file content updated + other keys preserved
-      const content = fs.readFileSync(path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
+      const content = fs.readFileSync(path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
       assert.match(content, /status: done/);
       assert.match(content, /kind: plugin/);
       assert.match(content, /work: feature/);
@@ -199,7 +199,7 @@ describe('applyDrift', () => {
       });
 
       assert.strictEqual(r.ok, true);
-      const content = fs.readFileSync(path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
+      const content = fs.readFileSync(path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
       assert.match(content, /aoforge:in-progress/);
     } finally { project.cleanup(); }
   });
@@ -317,7 +317,7 @@ describe('cmdGhPull (CLI orchestrator)', () => {
     try {
       // Write a sync-state baseline matching the cassette's updatedAt
       const syncState = { version: 1, objectives: { '21-bidirectional-gh-sync': { gh_updated_at: '2026-05-01T00:00:00Z', label_set: ['aoforge:objective'] } } };
-      fs.writeFileSync(path.join(project.root, '.planning', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
+      fs.writeFileSync(path.join(project.root, '.aoforge', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
 
       const cassette = fx.loadCassette('objective-open-no-drift');
       ghPull._setRunGh((args) => {
@@ -343,7 +343,7 @@ describe('cmdGhPull (CLI orchestrator)', () => {
     });
     try {
       const syncState = { version: 1, objectives: { '21-bidirectional-gh-sync': { gh_updated_at: '2026-05-01T00:00:00Z', label_set: ['aoforge:objective'] } } };
-      fs.writeFileSync(path.join(project.root, '.planning', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
+      fs.writeFileSync(path.join(project.root, '.aoforge', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
 
       const cassette = fx.loadCassette('objective-closed-on-gh');
       ghPull._setRunGh((args) => {
@@ -352,12 +352,12 @@ describe('cmdGhPull (CLI orchestrator)', () => {
         return { ok: false, status: 1, stdout: '', stderr: 'unexpected' };
       });
 
-      const before = fs.readFileSync(path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
+      const before = fs.readFileSync(path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
       const r = captureRun(() => ghPull.cmdGhPull(project.root, ['21-bidirectional-gh-sync'], false));
       assert.strictEqual(r.exitCode, null);
       assert.match(r.stdout, /Drift detected|drift/i);
       // OBJECTIVE.md NOT modified
-      const after = fs.readFileSync(path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
+      const after = fs.readFileSync(path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
       assert.strictEqual(before, after);
     } finally { project.cleanup(); }
   });
@@ -371,7 +371,7 @@ describe('cmdGhPull (CLI orchestrator)', () => {
     });
     try {
       const syncState = { version: 1, objectives: { '21-bidirectional-gh-sync': { gh_updated_at: '2026-05-01T00:00:00Z', label_set: ['aoforge:objective'] } } };
-      fs.writeFileSync(path.join(project.root, '.planning', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
+      fs.writeFileSync(path.join(project.root, '.aoforge', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
 
       const cassette = fx.loadCassette('objective-closed-on-gh');
       ghPull._setRunGh((args) => {
@@ -382,7 +382,7 @@ describe('cmdGhPull (CLI orchestrator)', () => {
 
       const r = captureRun(() => ghPull.cmdGhPull(project.root, ['21-bidirectional-gh-sync', '--apply'], false));
       assert.strictEqual(r.exitCode, null);
-      const after = fs.readFileSync(path.join(project.root, '.planning', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
+      const after = fs.readFileSync(path.join(project.root, '.aoforge', 'objectives', project.objectiveId, 'OBJECTIVE.md'), 'utf-8');
       assert.match(after, /status: done/);
     } finally { project.cleanup(); }
   });
@@ -417,7 +417,7 @@ describe('cmdGhPull (CLI orchestrator)', () => {
     });
     try {
       const syncState = { version: 1, objectives: { '21-bidirectional-gh-sync': { gh_updated_at: '2026-05-01T00:00:00Z', label_set: ['aoforge:objective'] } } };
-      fs.writeFileSync(path.join(project.root, '.planning', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
+      fs.writeFileSync(path.join(project.root, '.aoforge', '.gh-sync-state.json'), JSON.stringify(syncState), 'utf-8');
 
       const cassette = fx.loadCassette('objective-open-no-drift');
       ghPull._setRunGh((args) => {
@@ -477,7 +477,7 @@ describe('cmdGhPull on objective ids (46-06, tests 5-12)', () => {
   }
 
   const repoOf = (view) => view[view.indexOf('--repo') + 1];
-  const objPathOf = (project, dir) => path.join(project.root, '.planning', 'objectives', dir, 'OBJECTIVE.md');
+  const objPathOf = (project, dir) => path.join(project.root, '.aoforge', 'objectives', dir, 'OBJECTIVE.md');
 
   test('5: pull 02-a, 2 and 002 each read issue 7 from o/r with a v2 mapping; no [object Object] reaches gh', () => {
     for (const arg of ['02-a', '2', '002']) {
@@ -526,7 +526,7 @@ describe('cmdGhPull on objective ids (46-06, tests 5-12)', () => {
       mapping: { objectives: { '2': 7 } },
     });
     try {
-      const mp = path.join(project.root, '.planning', '.gh-mapping.json');
+      const mp = path.join(project.root, '.aoforge', '.gh-mapping.json');
       const before = fs.readFileSync(mp, 'utf-8');
       ghPull._setRunGh(recordingGh().fn);
       captureRun(() => ghPull.cmdGhPull(project.root, ['02-a'], true));
@@ -712,7 +712,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
   let fake;
 
   function writeConfig(enabled) {
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2)}\n`);
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled, repo: 'o/r' } }, null, 2)}\n`);
   }
 
   /** A repo whose wiki is disabled (docs mode: no git needed) with one directed objective and its TRDs on GitHub. */
@@ -746,7 +746,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
   beforeEach(() => {
     h = hermeticEnv();
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-pull-all-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
     writeConfig(true);
     fake = null;
   });
@@ -758,7 +758,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
     h.restore();
   });
 
-  const rd = (rel) => fs.readFileSync(path.join(root, '.planning', rel), 'utf-8');
+  const rd = (rel) => fs.readFileSync(path.join(root, '.aoforge', rel), 'utf-8');
 
   test('14: --all prints {ok, written, skipped, local_modified, orphans} as JSON and exits 0', () => {
     seedGithub();
@@ -788,7 +788,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
   test('14: a locally modified cache file makes --all exit 2, and --force takes GitHub with exit 0', () => {
     seedGithub();
     pullAll(root);
-    fs.writeFileSync(path.join(root, '.planning', 'PROJECT.md'), 'my own edits\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'PROJECT.md'), 'my own edits\n');
     const r = pullAll(root);
     assert.strictEqual(exitOf(r), 2, r.stdout + r.stderr);
     const body = JSON.parse(r.stdout);
@@ -804,7 +804,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
 
   test('14: a hand-kept ROADMAP.md or an orphan also asks for a look (exit 2)', () => {
     seedGithub();
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap: by hand\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap: by hand\n');
     const r = pullAll(root);
     assert.strictEqual(exitOf(r), 2);
     assert.deepStrictEqual(JSON.parse(r.stdout).hand_maintained, ['ROADMAP.md']);
@@ -813,7 +813,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
 
   test('14: prose output (no --raw) summarises the pull and names what needs a look', () => {
     seedGithub();
-    fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap: by hand\n');
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap: by hand\n');
     const r = capture(() => ghPull.cmdGhPull(root, ['--all'], false));
     assert.strictEqual(exitOf(r), 2);
     assert.match(r.stdout, /written/i);
@@ -830,7 +830,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
     assert.strictEqual(body.skipped, true);
     assert.strictEqual(body.ok, false);
     assert.deepStrictEqual(fake.calls(), []);
-    assert.ok(!fs.existsSync(path.join(root, '.planning', 'PROJECT.md')));
+    assert.ok(!fs.existsSync(path.join(root, '.aoforge', 'PROJECT.md')));
   });
 
   test('14: an unreachable GitHub is exit 1 with the error in the payload and nothing written', () => {
@@ -841,7 +841,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
     const body = JSON.parse(r.stdout);
     assert.strictEqual(body.ok, false);
     assert.match(body.error, /./);
-    assert.ok(!fs.existsSync(path.join(root, '.planning', 'ROADMAP.md')));
+    assert.ok(!fs.existsSync(path.join(root, '.aoforge', 'ROADMAP.md')));
   });
 
   test('14: the usage message names --all [--force]', () => {
@@ -872,7 +872,7 @@ describe('cmdGhPull --all (47-10, tests 14-15)', () => {
       assert.strictEqual(views.length, 1);
       assert.strictEqual(views[0][2], '7');
       assert.ok(!log.some((a) => a.join(' ').includes('labels=')), 'no list-and-scan read on the per-objective path');
-      assert.ok(!fs.existsSync(path.join(project.root, '.planning', 'ROADMAP.md')), 'no generated view');
+      assert.ok(!fs.existsSync(path.join(project.root, '.aoforge', 'ROADMAP.md')), 'no generated view');
     } finally { project.cleanup(); }
   });
 });

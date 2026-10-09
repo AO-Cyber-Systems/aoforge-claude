@@ -8,10 +8,11 @@ const path = require('path');
 const migrate = require('./migrate.cjs');
 const intent = require('./intent.cjs');
 const fixtures = require('./__fixtures__/intent-fixtures.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 // Repo root for real-disk tests (migrate.test.cjs is at plugins/aoforge/aoforge/bin/lib/)
 // Level counts: lib(1) → bin(2) → aoforge(3) → aoforge(4) → plugins(5) → repo-root = 5 levels up
-// Defensive: verify by checking for .planning directory at the resolved path
+// Defensive: verify by checking for .aoforge directory at the resolved path
 const REPO_ROOT = path.resolve(__dirname, '../../../../../');
 
 describe('migrate.plan', () => {
@@ -77,7 +78,7 @@ describe('migrate.apply', () => {
     const result = migrate.apply({ projectRoot: project.root, kind: 'api' });
 
     assert.strictEqual(result.applied, true);
-    const projectMd = fs.readFileSync(path.join(project.root, '.planning', 'PROJECT.md'), 'utf-8');
+    const projectMd = fs.readFileSync(path.join(project.root, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.match(projectMd, /^kind:\s+api/m);
   });
 
@@ -93,7 +94,7 @@ describe('migrate.apply', () => {
     });
 
     assert.strictEqual(result.applied, true);
-    const projectMd = fs.readFileSync(path.join(project.root, '.planning', 'PROJECT.md'), 'utf-8');
+    const projectMd = fs.readFileSync(path.join(project.root, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.match(projectMd, /^default_work:\s+port/m);
   });
 
@@ -112,11 +113,11 @@ describe('migrate.apply', () => {
 
     assert.strictEqual(result.applied, true);
     const fooMd = fs.readFileSync(
-      path.join(project.root, '.planning', 'objectives', '01-foo', 'OBJECTIVE.md'),
+      path.join(project.root, '.aoforge', 'objectives', '01-foo', 'OBJECTIVE.md'),
       'utf-8'
     );
     const barMd = fs.readFileSync(
-      path.join(project.root, '.planning', 'objectives', '02-bar', 'OBJECTIVE.md'),
+      path.join(project.root, '.aoforge', 'objectives', '02-bar', 'OBJECTIVE.md'),
       'utf-8'
     );
     assert.match(fooMd, /^work:\s+feature/m);
@@ -150,7 +151,7 @@ describe('migrate.apply', () => {
       objectives: [{ id: '01-foo', work: 'feature' }],
     });
     const projectMdBefore = fs.readFileSync(
-      path.join(project.root, '.planning', 'PROJECT.md'),
+      path.join(project.root, '.aoforge', 'PROJECT.md'),
       'utf-8'
     );
 
@@ -165,7 +166,7 @@ describe('migrate.apply', () => {
     assert.ok(result.changes.length > 0);
 
     const projectMdAfter = fs.readFileSync(
-      path.join(project.root, '.planning', 'PROJECT.md'),
+      path.join(project.root, '.aoforge', 'PROJECT.md'),
       'utf-8'
     );
     assert.strictEqual(projectMdBefore, projectMdAfter);
@@ -218,7 +219,7 @@ describe('migrate.apply', () => {
 // ---------------------------------------------------------------------------
 
 function migrateBackupDirs(root) {
-  return fs.readdirSync(path.join(root, '.planning')).filter((e) => e.startsWith('.migrate-backup-'));
+  return fs.readdirSync(path.join(root, '.aoforge')).filter((e) => e.startsWith('.migrate-backup-'));
 }
 
 describe('migrate.apply backup option (36-04b)', () => {
@@ -234,12 +235,12 @@ describe('migrate.apply backup option (36-04b)', () => {
 
     assert.strictEqual(result.applied, true);
     assert.strictEqual(result.backupDir, null);
-    const projectMd = fs.readFileSync(path.join(project.root, '.planning', 'PROJECT.md'), 'utf-8');
+    const projectMd = fs.readFileSync(path.join(project.root, '.aoforge', 'PROJECT.md'), 'utf-8');
     assert.match(projectMd, /^kind:\s+cli$/m);
     assert.deepStrictEqual(migrateBackupDirs(project.root), []);
   });
 
-  test('10. no backup option → still creates .planning/.migrate-backup-* (unchanged default)', () => {
+  test('10. no backup option → still creates .aoforge/.migrate-backup-* (unchanged default)', () => {
     project = fixtures.buildProject({
       projectFrontmatter: {},
       objectives: [{ id: '01-foo', work: 'feature' }],
@@ -269,7 +270,7 @@ describe('migration — 07-handoff-watcher regression', () => {
 
   test('C1: 07-handoff-watcher objective resolves cleanly — kind=plugin, work set, all 9 config fields populated', () => {
     // Verify the objective directory exists on disk (fails loudly if not)
-    const objDir = path.join(REPO_ROOT, '.planning', 'objectives', '07-handoff-watcher');
+    const objDir = path.join(planningRoot(REPO_ROOT), 'objectives', '07-handoff-watcher');
     assert.ok(
       fs.existsSync(objDir),
       `07-handoff-watcher directory missing at ${objDir} — objective must be present on this branch`
@@ -325,7 +326,7 @@ describe('migration — 07-handoff-watcher regression', () => {
   test('C3: each TRD file under 07-handoff-watcher resolves without error (config fields populated)', () => {
     // The TRD files use informal frontmatter (no --- delimiters) — extractFrontmatter returns null.
     // The resolver handles this gracefully (trdFm will be null/empty).
-    const objDir = path.join(REPO_ROOT, '.planning', 'objectives', '07-handoff-watcher');
+    const objDir = path.join(planningRoot(REPO_ROOT), 'objectives', '07-handoff-watcher');
     const trdFiles = fs.readdirSync(objDir)
       .filter((f) => f.match(/^\d{2}-\d{2}-TRD.*\.md$/) || f.match(/^01-\d{2}-TRD/));
 

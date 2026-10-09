@@ -18,6 +18,8 @@ const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const { execSync } = require('child_process');
+const { planningRoot, PLANNING_DIR_NAMES } = require('./compat.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 // ─── Pricing ($/M tokens) ────────────────────────────────────────────────────
 
@@ -190,7 +192,7 @@ async function walkSubagents({ projectDir, since }) {
  * Auto-detect v1.X-obj-N planning directories ↔ merge commits.
  *
  * Strategy: walk ALL commits whose subject contains a PR ref (#NN), inspect
- * which `.planning/objectives/<dir>/` paths each touches, and build:
+ * which `.aoforge/objectives/<dir>/` paths each touches, and build:
  *   - dir → { pr, obj_num, sha, loc, files }
  *   - prefix → 'obj-N' lookup table for the prompt-tagger
  *
@@ -200,7 +202,7 @@ async function walkSubagents({ projectDir, since }) {
 function getRepoMetrics({ repo }) {
   const result = {};
   const dirToObj = {};
-  const objectivesDir = path.join(repo, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(repo), 'objectives');
   if (!fs.existsSync(objectivesDir)) return { result, dirToObj };
 
   const dirs = fs.readdirSync(objectivesDir, { withFileTypes: true })
@@ -235,8 +237,10 @@ function getRepoMetrics({ repo }) {
     } catch { continue; }
 
     const touchedDirs = new Set();
+    // a file under either planning directory's objectives/ (`.aoforge`, or the legacy one)
+    const OBJECTIVE_FILE_RE = new RegExp(`^(?:${PLANNING_DIR_NAMES.map(escapeRegExp).join('|')})/objectives/([^/]+)/`);
     for (const f of touchedFiles.split('\n')) {
-      const m = f.match(/^\.planning\/objectives\/([^/]+)\//);
+      const m = f.match(OBJECTIVE_FILE_RE);
       if (m) touchedDirs.add(m[1]);
     }
 

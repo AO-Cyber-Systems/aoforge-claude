@@ -257,7 +257,7 @@ const FLAG_SPEC = deepFreeze({
   },
   override: {
     ownParser: true,
-    reason: 'audit-cli.cjs runOverride rejects an unknown flag before it appends to .planning/.override-log.jsonl',
+    reason: 'audit-cli.cjs runOverride rejects an unknown flag before it appends to .aoforge/.override-log.jsonl',
   },
 
   // Hand-off of TTY commands. `create` carries the user's own command line.

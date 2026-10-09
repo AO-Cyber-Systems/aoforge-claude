@@ -70,18 +70,18 @@ function buildProject({
   claudeMdUser,        // string content for ~/.claude/CLAUDE.md replacement (we redirect via env)
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-intent-'));
-  fs.mkdirSync(path.join(root, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'objectives'), { recursive: true });
 
   if (projectFrontmatter !== false) {
     fs.writeFileSync(
-      path.join(root, '.planning', 'PROJECT.md'),
+      path.join(root, '.aoforge', 'PROJECT.md'),
       projectMd(projectFrontmatter || {}),
       'utf-8'
     );
   }
 
   for (const obj of objectives) {
-    const dir = path.join(root, '.planning', 'objectives', obj.id);
+    const dir = path.join(root, '.aoforge', 'objectives', obj.id);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, 'OBJECTIVE.md'),
@@ -123,10 +123,10 @@ function buildProject({
 function buildMatrixProject({ kind = 'api', claudeMdUser } = {}) {
   const WORKS = ['feature', 'port', 'refactor', 'foundation', 'bugfix', 'prototype', 'spike'];
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-matrix-'));
-  fs.mkdirSync(path.join(root, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'objectives'), { recursive: true });
 
   fs.writeFileSync(
-    path.join(root, '.planning', 'PROJECT.md'),
+    path.join(root, '.aoforge', 'PROJECT.md'),
     projectMd({ kind }),
     'utf-8'
   );
@@ -135,7 +135,7 @@ function buildMatrixProject({ kind = 'api', claudeMdUser } = {}) {
   WORKS.forEach((work, i) => {
     const id = `0${i + 1}-${kind}-${work}`;
     objectiveIds.push(id);
-    const dir = path.join(root, '.planning', 'objectives', id);
+    const dir = path.join(root, '.aoforge', 'objectives', id);
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, 'OBJECTIVE.md'),

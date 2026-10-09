@@ -151,7 +151,7 @@ const MILESTONES_PATCH_ONLY = [
   '',
 ].join('\n');
 
-// A milestone audit report as `.planning/v1.0-MILESTONE-AUDIT.md` holds it before completion moves it.
+// A milestone audit report as `.aoforge/v1.0-MILESTONE-AUDIT.md` holds it before completion moves it.
 const AUDIT_V1_0 = ['# Milestone Audit: v1.0', '', '**Verdict:** PASSED', '', '- Objective 4: verified', '- Objective 5: verified', ''].join('\n');
 
 function deepFreeze(value) {
@@ -194,7 +194,7 @@ const TWO_MILESTONE_SPEC = deepFreeze({
  */
 function makeMilestoneProject(spec = TWO_MILESTONE_SPEC, { roadmap = true, state = true, files = {} } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-milestone-complete-')));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   const objectivesDir = path.join(planning, 'objectives');
   fs.mkdirSync(objectivesDir, { recursive: true });
 
@@ -239,12 +239,12 @@ function makeMilestoneProject(spec = TWO_MILESTONE_SPEC, { roadmap = true, state
 }
 
 /**
- * The project's `.planning/` tree as `{files, dirs}`: `files` is `snapshot()`'s sha1-per-file map and `dirs` the sorted
- * directory paths, both relative to `<root>/.planning` and POSIX-separated. `snapshot` records files only, so a directory
- * a command created and left empty (`.planning/milestones/`) shows up only in `dirs`.
+ * The project's `.aoforge/` tree as `{files, dirs}`: `files` is `snapshot()`'s sha1-per-file map and `dirs` the sorted
+ * directory paths, both relative to `<root>/.aoforge` and POSIX-separated. `snapshot` records files only, so a directory
+ * a command created and left empty (`.aoforge/milestones/`) shows up only in `dirs`.
  */
 function planningTree(root) {
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   const dirs = [];
   const walk = (dir, rel) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

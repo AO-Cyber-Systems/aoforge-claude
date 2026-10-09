@@ -113,7 +113,7 @@ function useProject({ store = false, sync = false, strip = false } = {}) {
   });
 }
 
-const planning = (...rel) => path.join(S.root, '.planning', ...rel);
+const planning = (...rel) => path.join(S.root, '.aoforge', ...rel);
 const readRel = (rel) => fs.readFileSync(planning(rel), 'utf8');
 const journalExists = (root = S.root) => fs.existsSync(outbox.journalPath(root));
 const ledgerExists = (root = S.root) => fs.existsSync(ledger.ledgerPath(root));
@@ -156,7 +156,7 @@ describe('local mode: putTrd is today\'s file write (D-01)', () => {
     assert.equal(r.mode, 'local');
     assert.equal(r.exit, 0);
     assert.equal(r.rel, `${OBJ_REL}/07-04-x-TRD.md`);
-    assert.equal(r.path, path.join(fs.realpathSync(S.root), '.planning', OBJ_REL, '07-04-x-TRD.md'));
+    assert.equal(r.path, path.join(fs.realpathSync(S.root), '.aoforge', OBJ_REL, '07-04-x-TRD.md'));
     assert.ok(Buffer.from(text).equals(fs.readFileSync(planning(OBJ_REL, '07-04-x-TRD.md'))), 'same bytes');
     assert.equal(S.fake.calls().length, 0, 'zero gh calls');
     assert.equal(journalExists(), false, 'no outbox journal');
@@ -326,7 +326,7 @@ describe('store mode: frozen TRDs and unknown freeze state', () => {
 describe('store mode: a worktree writes the MAIN checkout (D-14)', () => {
   useProject({ store: true, sync: true });
 
-  test('15. putTrd from a linked worktree writes main/.planning and the main journal', () => {
+  test('15. putTrd from a linked worktree writes main/.aoforge and the main journal', () => {
     if (S.skipped) return;
     const main = fs.realpathSync(S.root);
     const gitdir = path.join(main, '.git', 'worktrees', 'wt1');
@@ -336,7 +336,7 @@ describe('store mode: a worktree writes the MAIN checkout (D-14)', () => {
     fs.writeFileSync(path.join(gitdir, 'commondir'), '../..\n');
     fs.writeFileSync(path.join(gitdir, 'gitdir'), `${path.join(wt, '.git')}\n`);
     fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${gitdir}\n`);
-    fs.cpSync(path.join(main, '.planning'), path.join(wt, '.planning'), { recursive: true });
+    fs.cpSync(path.join(main, '.aoforge'), path.join(wt, '.aoforge'), { recursive: true });
 
     const rel = `${OBJ_REL}/07-02-beta-TRD.md`;
     const original = readRel(rel);
@@ -344,9 +344,9 @@ describe('store mode: a worktree writes the MAIN checkout (D-14)', () => {
     const r = verbs.putTrd(wt, { objective: '7', file: '07-02-beta-TRD.md', text, noFlush: true });
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.equal(r.exit, 0);
-    assert.equal(r.path, path.join(main, '.planning', ...rel.split('/')));
-    assert.equal(fs.readFileSync(path.join(main, '.planning', ...rel.split('/')), 'utf8'), text, 'main written');
-    assert.equal(fs.readFileSync(path.join(wt, '.planning', ...rel.split('/')), 'utf8'), original, 'worktree untouched');
+    assert.equal(r.path, path.join(main, '.aoforge', ...rel.split('/')));
+    assert.equal(fs.readFileSync(path.join(main, '.aoforge', ...rel.split('/')), 'utf8'), text, 'main written');
+    assert.equal(fs.readFileSync(path.join(wt, '.aoforge', ...rel.split('/')), 'utf8'), original, 'worktree untouched');
     assert.ok(pendingOps(main).some((o) => o.kind === 'upsert-issue' && o.target.id === '7-02'), 'main journal');
     assert.equal(journalExists(wt), false, 'no worktree journal');
     assert.equal(ledgerEntries(main)[rel].hash, ghTrd.contentHash(text));

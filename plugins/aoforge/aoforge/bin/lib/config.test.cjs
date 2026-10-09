@@ -216,7 +216,7 @@ describe('dead gates removed', () => {
 // ─── TRD 44-07: config-get answers known-but-unset keys with the documented default ──
 //
 // The real aof-tools is spawned with `--cwd <tmp>`, so no case ever reads this repo's own
-// .planning/config.json. The documented defaults live in templates/config.json — the tests read
+// .aoforge/config.json. The documented defaults live in templates/config.json — the tests read
 // that same file for their expectations rather than restating its values.
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
@@ -444,7 +444,7 @@ describe('config-set reserved key segments (54-E)', () => {
     return dir;
   }
 
-  const configBytes = (dir) => fs.readFileSync(path.join(dir, '.planning', 'config.json'));
+  const configBytes = (dir) => fs.readFileSync(path.join(dir, '.aoforge', 'config.json'));
 
   afterEach(() => {
     while (made.length) fs.rmSync(made.pop(), { recursive: true, force: true });

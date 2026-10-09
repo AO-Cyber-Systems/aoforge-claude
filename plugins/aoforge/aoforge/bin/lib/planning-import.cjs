@@ -4,7 +4,7 @@
  * planning-import.cjs — `planning import [--dry-run]` (objective 48, D-17, GWP-04): move a project's existing local
  * planning work into the GitHub store.
  *
- * WHY: migration 0010 untracks `.planning/` cache files once `github.store` is on, and it refuses while any cache file
+ * WHY: migration 0010 untracks `.aoforge/` cache files once `github.store` is on, and it refuses while any cache file
  * has no baseline (the file exists only locally, so untracking it would leave it with no home). Import gives every such
  * file its U-1 home, flushes once, and the drained flush baselines them (gh-store-cli settleLedger), after which 0010
  * can proceed.
@@ -68,6 +68,7 @@ const ev = require('./planning-entity-verbs.cjs');
 const backfill = require('./gh-backfill.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
+const { planningRoot, planningDirLabel } = require('./compat.cjs');
 
 const { EXIT } = storeCli;
 const { STORE } = planningMode;
@@ -84,7 +85,7 @@ const OBJECTIVE_DIR_RE = /^(\d+(?:\.\d+)?)(?:-|$)/;
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const unique = (list) => [...new Set(list)];
 const zero = () => Object.fromEntries(KINDS.map((k) => [k, 0]));
-const planningFile = (main, rel) => path.join(main, '.planning', ...rel.split('/'));
+const planningFile = (main, rel) => path.join(planningRoot(main), ...rel.split('/'));
 
 function readOrNull(file) {
   try {
@@ -135,7 +136,7 @@ function recordQueued(main, rel, warnings) {
   }
 }
 
-/** `.planning/`-relative paths a hierarchy push of `plan` carries (planning-verbs' pushedRels). */
+/** `.aoforge/`-relative paths a hierarchy push of `plan` carries (planning-verbs' pushedRels). */
 function pushedRels(plan) {
   const base = `objectives/${plan.objective.dir}`;
   const rels = plan.trds.map((t) => `${base}/${t.file}`);
@@ -148,7 +149,7 @@ function pushedRels(plan) {
 /** The TRD file of `trdId` in an objective dir, as a rel (the dir itself when no file matches). */
 function trdRelFor(main, dir, trdId) {
   const want = ghMapping.toTrdId(trdId);
-  const file = listDir(path.join(main, '.planning', 'objectives', dir)).find((f) => {
+  const file = listDir(path.join(planningRoot(main), 'objectives', dir)).find((f) => {
     const m = TRD_FILE_RE.exec(f);
     return m && ghMapping.toTrdId(m[1]) === want;
   });
@@ -254,7 +255,7 @@ function planImport(root, opts = {}) {
   const noFlush = o.noFlush === true;
   const report = { ok: true, mode: null, dry_run: dryRun, queued: zero(), skipped: [], kept_local: [], refused: [], warnings: [] };
   const main = planningMode.resolveMainRoot(root);
-  if (!main) return { ...report, ok: false, error: `no .planning/ directory at or above ${root}`, exit: EXIT.ERROR };
+  if (!main) return { ...report, ok: false, error: `no ${planningDirLabel()} directory at or above ${root}`, exit: EXIT.ERROR };
   report.mode = planningMode.planningMode(main).mode;
   if (report.mode !== STORE) {
     // A preview: what the backfill would queue once the store is switched on. Only a dry run, only with GitHub on.
@@ -263,7 +264,7 @@ function planImport(root, opts = {}) {
   }
 
   const index = outbox.readCacheIndex(main);
-  const lists = planningPaths.listByClass(path.join(main, '.planning'));
+  const lists = planningPaths.listByClass(planningRoot(main));
   const pending = lists.cache.filter((rel) => !Object.prototype.hasOwnProperty.call(index, rel));
   const verbOf = (rel) => planningPaths.classify(rel).verb;
   const covered = new Set();

@@ -17,7 +17,7 @@
  *     flutter/integration_test/app_test.dart    the `flutter test` / `flutter drive` target
  *     flutter/test_driver/integration_test.dart the web driver the bootstrap task scaffolds
  *     flutter/.maestro/flow.yaml                the `maestro test .maestro/` target
- *     .planning/objectives/34-demo/             where the evidence `mv` must land
+ *     .aoforge/objectives/34-demo/             where the evidence `mv` must land
  *     .git/                                     one commit, so `git rev-parse --show-toplevel` works
  */
 
@@ -51,7 +51,7 @@ const FILES = {
     '',
   ].join('\n'),
   'flutter/.maestro/flow.yaml': 'appId: com.example.scratch\n---\n- launchApp\n',
-  '.planning/objectives/34-demo/.gitkeep': '',
+  '.aoforge/objectives/34-demo/.gitkeep': '',
 };
 
 function stubBinDir() {
@@ -96,18 +96,18 @@ function makeScratchRepo() {
 const EVIDENCE_BLOCK = [
   '# harness: derive REPO_ROOT={root}',
   '# harness: derive OBJECTIVE_DIR=34-demo',
-  'mkdir -p "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/',
+  'mkdir -p "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/',
   '# harness: derive PACKAGE_DIR={root}/flutter',
   '( cd "$PACKAGE_DIR" && flutter test integration_test/ )',
   '# harness: derive REPO_ROOT={root}',
   '# harness: derive OBJECTIVE_DIR=34-demo',
   '# harness: derive PACKAGE_DIR={root}/flutter',
-  '# harness: expect .planning/objectives/34-demo/evidence/shot.png',
+  '# harness: expect .aoforge/objectives/34-demo/evidence/shot.png',
   'mv "$PACKAGE_DIR"/build/integration_test_screenshots/* '
-    + '"$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true',
+    + '"$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true',
 ].join('\n');
 
-const LANDED = '.planning/objectives/34-demo/evidence/shot.png';
+const LANDED = '.aoforge/objectives/34-demo/evidence/shot.png';
 
 function runEvidenceCaseFromBothCwds(harness) {
   const out = {};

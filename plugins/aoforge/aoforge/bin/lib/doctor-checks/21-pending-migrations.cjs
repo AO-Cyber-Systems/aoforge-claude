@@ -11,7 +11,7 @@
 //                                                             (0006 also needs `--kind <kind>`)
 //   up to date                                              → ok
 //
-// Safety: upgrade.apply writes under `.planning/` (it always stamps config.json), CLAUDE.md and
+// Safety: upgrade.apply writes under `.aoforge/` (it always stamps config.json), CLAUDE.md and
 // `.gitignore`, so the fix is refused while any of those has uncommitted changes (worktreeGuard).
 // When 0008 is among the pending migrations, apply would also change the INDEX, so the same DOC-06
 // indexChangeGuard as the legacy check applies — pending-migrations must never re-apply 0008 behind
@@ -29,11 +29,13 @@ const dg = require('../doctor-git.cjs');
 const planningMode = require('../planning-mode.cjs');
 const { branchCommitSteps, commitCommand } = require('../commit-steps.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
+const { PLANNING_DIR_NAMES } = require('../compat.cjs');
 
 const DF_TOOLS = 'node ~/.claude/aoforge/bin/aof-tools.cjs';
 const APPLY_COMMAND = `${DF_TOOLS} upgrade --apply`;
 const CHECK_COMMAND = `${DF_TOOLS} upgrade --check`;
-const GUARDED_PATHS = ['.planning', 'CLAUDE.md', '.gitignore'];
+// both planning-directory names: a pathspec that names nothing is harmless to git status
+const GUARDED_PATHS = [...PLANNING_DIR_NAMES, 'CLAUDE.md', '.gitignore'];
 const STORE_BRANCH = 'aoforge-upgrade';
 
 function confirmCommand(id) {

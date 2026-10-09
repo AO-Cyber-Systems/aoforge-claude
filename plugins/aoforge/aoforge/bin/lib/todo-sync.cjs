@@ -4,7 +4,7 @@
  * todo-sync.cjs (TRD 63-02) — merge a session's todos into the durable todo archive.
  *
  * The session side is todo-session.cjs (63-01): a transcript in, stable-stem todo items out. The archive side already
- * exists and speaks both planning modes: `todo add` puts `.planning/todos/pending/<stem>.md` (and, with github.store
+ * exists and speaks both planning modes: `todo add` puts `.aoforge/todos/pending/<stem>.md` (and, with github.store
  * on, an `aoforge:todo` issue), `todo complete` moves it to `todos/completed/` (and closes the issue). This module adds no
  * storage. It is three small parts:
  *
@@ -31,6 +31,7 @@ const planningMode = require('./planning-mode.cjs');
 const entity = require('./planning-entity-verbs.cjs');
 const session = require('./todo-session.cjs');
 const { loadConfig } = require('./config.cjs');
+const { planningRoot, planningDirLabel, planningRel } = require('./compat.cjs');
 
 /** Furthest status wins when two items name one todo. */
 const RANK = { deleted: -1, pending: 0, in_progress: 1, completed: 2 };
@@ -79,11 +80,11 @@ function titleOf(file) {
 
 /**
  * readArchive(main) -> { pending: Map<stem, {title}>, completed: Map<stem, {title}>, byTitle: Map<normalized, {stem, state}> }
- * `main` is the MAIN checkout (where `.planning/` lives). `todos/done/` is the old spelling of `todos/completed/`.
+ * `main` is the MAIN checkout (where `.aoforge/` lives). `todos/done/` is the old spelling of `todos/completed/`.
  * When a pending and a completed todo share a title, the completed one is the one found by title.
  */
 function readArchive(main) {
-  const base = path.join(main, '.planning', 'todos');
+  const base = path.join(planningRoot(main), 'todos');
   const pending = new Map();
   const completed = new Map();
   for (const name of markdownFiles(path.join(base, 'pending'))) {
@@ -246,12 +247,12 @@ function resolveSessionTranscript(sessionId, opts = {}) {
 // ─── Git: what is left to commit ─────────────────────────────────────────────
 
 /**
- * The `.md` todo files under `.planning/todos` that git sees as changed, relative to `main`: new, modified, removed and
+ * The `.md` todo files under `.aoforge/todos` that git sees as changed, relative to `main`: new, modified, removed and
  * moved. [] when git is missing or `main` is not in a repository; any other git failure is a warning.
  */
 function uncommittedTodos(main, warnings) {
   const run = (args) => spawnSync('git', ['-C', main, ...args], { encoding: 'utf8' });
-  const status = run(['status', '--porcelain', '-z', '--untracked-files=all', '--', '.planning/todos']);
+  const status = run(['status', '--porcelain', '-z', '--untracked-files=all', '--', planningRel(main, 'todos')]);
   if (status.error) {
     if (status.error.code !== 'ENOENT') warnings.push(`could not run git to list uncommitted todos: ${status.error.message}`);
     return [];
@@ -335,7 +336,7 @@ function syncTodos(cwd, opts = {}) {
   const o = isObject(opts) ? opts : {};
   const main = planningMode.resolveMainRoot(cwd);
   if (!main) {
-    return { ok: false, mode: null, error: `no .planning/ directory at or above ${cwd}`, warnings: [], exit: 1 };
+    return { ok: false, mode: null, error: `no ${planningDirLabel()} directory at or above ${cwd}`, warnings: [], exit: 1 };
   }
   const mode = planningMode.planningMode(main).mode;
   const dryRun = o.dryRun === true;
@@ -378,8 +379,8 @@ function syncTodos(cwd, opts = {}) {
     // A write that reached its flush happened even when the flush then failed: the file is in the archive.
     if (r.ok === false && r.flush === undefined) continue;
     (op.op === 'add' ? added : completed).push(op.stem);
-    if (r.rel) changed.push(`.planning/${r.rel}`);
-    if (r.from) changed.push(`.planning/${r.from}`);
+    if (r.rel) changed.push(planningRel(main, r.rel));
+    if (r.from) changed.push(planningRel(main, r.from));
     if (r.queued) {
       queued.enqueued += Array.isArray(r.queued.enqueued) ? r.queued.enqueued.length : 0;
       queued.coalesced += Array.isArray(r.queued.coalesced) ? r.queued.coalesced.length : 0;

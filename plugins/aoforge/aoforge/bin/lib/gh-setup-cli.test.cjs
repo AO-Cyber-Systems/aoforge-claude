@@ -83,8 +83,8 @@ describe('gh setup command (tests 1, 2, 3, 4, 6, 7, 8)', () => {
 
   function project(github = {}, files = {}) {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-setup-cli-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', ...github } })}\n`);
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: true, repo: 'o/r', ...github } })}\n`);
     for (const [rel, body] of Object.entries(files)) {
       fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
       fs.writeFileSync(path.join(root, rel), body);
@@ -490,8 +490,8 @@ describe('gh setup dispatch, help and config (tests 9, 10)', () => {
   beforeEach(() => {
     hermetic = hermeticEnv();
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-setup-dispatch-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), `${JSON.stringify({ github: { enabled: false } })}\n`);
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), `${JSON.stringify({ github: { enabled: false } })}\n`);
   });
 
   afterEach(() => {

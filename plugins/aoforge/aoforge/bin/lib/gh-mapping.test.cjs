@@ -3,7 +3,7 @@
 // TRD 46-02 — gh-mapping.cjs (GSF-01): one objective id, one mapping shape (v3).
 //
 // Hermetic: every project is a hand-built temp directory (fs.mkdtempSync). Nothing here touches this
-// repository's .planning/, the real ~/.claude, the network or `gh`.
+// repository's .aoforge/, the real ~/.claude, the network or `gh`.
 
 const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -24,7 +24,7 @@ afterEach(() => {
 function tmpProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-mapping-'));
   cleanup.push(root);
-  fs.mkdirSync(path.join(root, '.planning', 'objectives'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'objectives'), { recursive: true });
   return root;
 }
 
@@ -46,18 +46,18 @@ function objectiveMd(name, githubIssue) {
 // objectives/ (a stray file and a non-numeric dir) must never surface as objectives.
 function makeIndexedProject() {
   const root = tmpProject();
-  writeRel(root, '.planning/ROADMAP.md', [
+  writeRel(root, '.aoforge/ROADMAP.md', [
     '# Roadmap', '',
     '### Objective 2: a', '**Goal:** a', '',
     '### Objective 2.1: foo', '**Goal:** foo', '',
     '### Objective 3: b', '**Goal:** b', '',
     '### Objective 10: z', '**Goal:** z', '',
   ].join('\n'));
-  writeRel(root, '.planning/objectives/02-a/OBJECTIVE.md', objectiveMd('02-a', 'o/r#30'));
-  writeRel(root, '.planning/objectives/02.1-foo/OBJECTIVE.md', objectiveMd('02.1-foo', 'o/r#31'));
-  writeRel(root, '.planning/objectives/03-b/OBJECTIVE.md', objectiveMd('03-b'));
-  writeRel(root, '.planning/objectives/.gitkeep', '');
-  writeRel(root, '.planning/objectives/scratch/notes.md', 'not an objective\n');
+  writeRel(root, '.aoforge/objectives/02-a/OBJECTIVE.md', objectiveMd('02-a', 'o/r#30'));
+  writeRel(root, '.aoforge/objectives/02.1-foo/OBJECTIVE.md', objectiveMd('02.1-foo', 'o/r#31'));
+  writeRel(root, '.aoforge/objectives/03-b/OBJECTIVE.md', objectiveMd('03-b'));
+  writeRel(root, '.aoforge/objectives/.gitkeep', '');
+  writeRel(root, '.aoforge/objectives/scratch/notes.md', 'not an objective\n');
   return root;
 }
 
@@ -121,7 +121,7 @@ describe('gh-mapping: objective identity', () => {
 
   test('2c. a dir-only objective (not in ROADMAP) still resolves, roadmapNumber falls back to its id', () => {
     const root = tmpProject();
-    writeRel(root, '.planning/objectives/07-solo/OBJECTIVE.md', objectiveMd('07-solo'));
+    writeRel(root, '.aoforge/objectives/07-solo/OBJECTIVE.md', objectiveMd('07-solo'));
     assert.deepEqual(ghMapping.resolveObjective(root, '7'), { id: '7', dir: '07-solo', roadmapNumber: '7' });
   });
 
@@ -140,7 +140,7 @@ describe('gh-mapping: objective identity', () => {
   test('3b. an empty github_issue field is null, never an object', () => {
     const root = tmpProject();
     // extractFrontmatter turns a bare `github_issue:` into {} — the index must not leak that.
-    writeRel(root, '.planning/objectives/04-x/OBJECTIVE.md', '---\nobjective: 04-x\ngithub_issue:\n---\n\n# x\n');
+    writeRel(root, '.aoforge/objectives/04-x/OBJECTIVE.md', '---\nobjective: 04-x\ngithub_issue:\n---\n\n# x\n');
     const [entry] = ghMapping.listObjectiveIndex(root);
     assert.equal(entry.id, '4');
     assert.equal(entry.github_issue, null);
@@ -149,14 +149,14 @@ describe('gh-mapping: objective identity', () => {
   test('3c. sort is numeric on both parts (2, 2.1, 2.2, 2.10, 9, 10, 100)', () => {
     const root = tmpProject();
     const names = ['100-h', '10-g', '09-f', '02.10-e', '02.2-d', '02.1-c', '02-b'];
-    for (const n of names) writeRel(root, `.planning/objectives/${n}/OBJECTIVE.md`, objectiveMd(n));
+    for (const n of names) writeRel(root, `.aoforge/objectives/${n}/OBJECTIVE.md`, objectiveMd(n));
     assert.deepEqual(
       ghMapping.listObjectiveIndex(root).map((e) => e.id),
       ['2', '2.1', '2.2', '2.10', '9', '10', '100'],
     );
   });
 
-  test('3d. no .planning at all → empty index, no throw', () => {
+  test('3d. no .aoforge at all → empty index, no throw', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'df-gh-mapping-'));
     cleanup.push(root);
     assert.deepEqual(ghMapping.listObjectiveIndex(root), []);
@@ -405,10 +405,10 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
   test('13. readMappingV3: missing file -> empty v3; v2 file -> v3 in memory with the file bytes unchanged', () => {
     const root = tmpProject();
     assert.deepEqual(ghMapping.readMappingV3(root), EMPTY_V3);
-    assert.equal(fs.existsSync(path.join(root, '.planning', '.gh-mapping.json')), false, 'a read never creates the file');
+    assert.equal(fs.existsSync(path.join(root, '.aoforge', '.gh-mapping.json')), false, 'a read never creates the file');
 
     const v2 = JSON.stringify(REAL_V2) + '\n';
-    const file = writeRel(root, '.planning/.gh-mapping.json', v2);
+    const file = writeRel(root, '.aoforge/.gh-mapping.json', v2);
     const m = ghMapping.readMappingV3(root);
     assert.equal(m.version, 3);
     assert.deepEqual(m.objectives['0'], ent(20, 4374249280));
@@ -417,25 +417,25 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
 
   test('13b. readMappingV3 uses the project index to repair a parseInt-collapsed key', () => {
     const root = makeIndexedProject();
-    writeRel(root, '.planning/.gh-mapping.json', JSON.stringify({ objectives: { 2: { issue_id: 31, state_comment_id: null } } }));
+    writeRel(root, '.aoforge/.gh-mapping.json', JSON.stringify({ objectives: { 2: { issue_id: 31, state_comment_id: null } } }));
     assert.deepEqual(ghMapping.readMappingV3(root).objectives, { '2.1': ent(31) });
   });
 
   test('13c. readMappingV3WithReport surfaces warnings, conflicts and errors without throwing', () => {
     const bad = tmpProject();
-    writeRel(bad, '.planning/.gh-mapping.json', '{not json');
+    writeRel(bad, '.aoforge/.gh-mapping.json', '{not json');
     const r1 = ghMapping.readMappingV3WithReport(bad);
     assert.deepEqual(r1.mapping, EMPTY_V3);
     assert.deepEqual(r1.warnings, ['unparseable .gh-mapping.json']);
 
     const future = tmpProject();
-    writeRel(future, '.planning/.gh-mapping.json', JSON.stringify({ version: 4, objectives: {} }));
+    writeRel(future, '.aoforge/.gh-mapping.json', JSON.stringify({ version: 4, objectives: {} }));
     const r2 = ghMapping.readMappingV3WithReport(future);
     assert.match(r2.error, /unsupported mapping version 4/);
     assert.deepEqual(r2.mapping, EMPTY_V3);
 
     const dup = tmpProject();
-    writeRel(dup, '.planning/.gh-mapping.json', JSON.stringify({ objectives: { '02-a': 11, 2: 12 } }));
+    writeRel(dup, '.aoforge/.gh-mapping.json', JSON.stringify({ objectives: { '02-a': 11, 2: 12 } }));
     const r3 = ghMapping.readMappingV3WithReport(dup);
     assert.equal(r3.conflicts['2'].length, 2);
     assert.equal(r3.changed, true);
@@ -463,11 +463,11 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
     }
     assert.equal(result.ok, true);
 
-    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const file = path.join(root, '.aoforge', '.gh-mapping.json');
     assert.deepEqual(renames.map(([, to]) => to), [file], 'exactly one rename, onto the mapping file');
     assert.notEqual(renames[0][0], file, 'from a tmp file');
     assert.equal(path.dirname(renames[0][0]), path.dirname(file), 'in the same directory (atomic on one filesystem)');
-    const leftovers = fs.readdirSync(path.join(root, '.planning')).filter((n) => n.includes('.tmp.'));
+    const leftovers = fs.readdirSync(path.join(root, '.aoforge')).filter((n) => n.includes('.tmp.'));
     assert.deepEqual(leftovers, [], 'no tmp file left behind');
 
     const text = fs.readFileSync(file, 'utf-8');
@@ -487,7 +487,7 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
     m.objectives['2.1'] = ent(21);
     m.objectives['9'] = ent(9);
     assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
-    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const file = path.join(root, '.aoforge', '.gh-mapping.json');
     const first = fs.readFileSync(file, 'utf-8');
     assert.equal(ghMapping.writeMappingV3(root, ghMapping.readMappingV3(root)).ok, true);
     assert.equal(fs.readFileSync(file, 'utf-8'), first);
@@ -497,14 +497,14 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
     const root = tmpProject();
     const r = ghMapping.writeMappingV3(root, { objectives: { '02-a': 11, 2: 12 } });
     assert.equal(r.ok, true);
-    const parsed = JSON.parse(fs.readFileSync(path.join(root, '.planning', '.gh-mapping.json'), 'utf-8'));
+    const parsed = JSON.parse(fs.readFileSync(path.join(root, '.aoforge', '.gh-mapping.json'), 'utf-8'));
     assert.equal(parsed.version, 3);
     assert.equal(parsed.objectives['2'], undefined);
     assert.equal(parsed.conflicts['2'].length, 2);
 
     const clean = tmpProject();
     ghMapping.writeMappingV3(clean, ghMapping.emptyMapping());
-    assert.equal('conflicts' in JSON.parse(fs.readFileSync(path.join(clean, '.planning', '.gh-mapping.json'), 'utf-8')), false);
+    assert.equal('conflicts' in JSON.parse(fs.readFileSync(path.join(clean, '.aoforge', '.gh-mapping.json'), 'utf-8')), false);
   });
 
   test('14d. writeMappingV3 refuses a mapping above version 3 and never overwrites a newer file on disk', () => {
@@ -512,10 +512,10 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
     const refused = ghMapping.writeMappingV3(root, { version: 4, objectives: {} });
     assert.equal(refused.ok, false);
     assert.match(refused.error, /version 4/);
-    assert.equal(fs.existsSync(path.join(root, '.planning', '.gh-mapping.json')), false, 'nothing written');
+    assert.equal(fs.existsSync(path.join(root, '.aoforge', '.gh-mapping.json')), false, 'nothing written');
 
     const newer = JSON.stringify({ version: 4, objectives: { 1: ent(1) } }) + '\n';
-    const file = writeRel(root, '.planning/.gh-mapping.json', newer);
+    const file = writeRel(root, '.aoforge/.gh-mapping.json', newer);
     const clobber = ghMapping.writeMappingV3(root, ghMapping.emptyMapping());
     assert.equal(clobber.ok, false);
     assert.match(clobber.error, /version 4/);
@@ -524,7 +524,7 @@ describe('gh-mapping: readMappingV3 / writeMappingV3', () => {
 
   test('14e. writeMappingV3 will not overwrite a file it cannot parse', () => {
     const root = tmpProject();
-    const file = writeRel(root, '.planning/.gh-mapping.json', '{not json');
+    const file = writeRel(root, '.aoforge/.gh-mapping.json', '{not json');
     const r = ghMapping.writeMappingV3(root, ghMapping.emptyMapping());
     assert.equal(r.ok, false);
     assert.match(r.error, /unparseable/);
@@ -730,7 +730,7 @@ describe('47 trds map accessors', () => {
     ghMapping.setTrd(m, '47-01', { issue_number: 3, rest_id: 1000003, comment_ids: { spec: [9] } });
     ghMapping.setTrd(m, '47-01-d1', { issue_number: 4, rest_id: 1000004 });
     assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
-    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const file = path.join(root, '.aoforge', '.gh-mapping.json');
     const first = fs.readFileSync(file, 'utf-8');
     assert.equal(ghMapping.writeMappingV3(root, ghMapping.readMappingV3(root)).ok, true);
     assert.equal(fs.readFileSync(file, 'utf-8'), first);
@@ -868,7 +868,7 @@ describe('48-02 mapping serialisation (characterization)', () => {
 
   test('5b. a pinned file on disk survives read -> write byte-identically', () => {
     const root = tmpProject();
-    const file = writeRel(root, '.planning/.gh-mapping.json', PINNED_TEXT);
+    const file = writeRel(root, '.aoforge/.gh-mapping.json', PINNED_TEXT);
     const r = ghMapping.readMappingV3WithReport(root);
     assert.equal(r.changed, false);
     assert.equal(ghMapping.writeMappingV3(root, r.mapping).ok, true);
@@ -1029,7 +1029,7 @@ describe('48-02 entities map accessors', () => {
     ghMapping.setEntity(m, 'todo-a', { issue_number: 3, rest_id: 1000003, comment_ids: { state: [9] } });
     ghMapping.setEntity(m, 'debug-x', { issue_number: 4, rest_id: 1000004 });
     assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
-    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const file = path.join(root, '.aoforge', '.gh-mapping.json');
     const first = fs.readFileSync(file, 'utf-8');
 
     const r = ghMapping.readMappingV3WithReport(root);
@@ -1159,7 +1159,7 @@ describe('49-02 prs map', () => {
     assert.equal(ghMapping.serializeMapping(JSON.parse(NO_PRS_TEXT)), NO_PRS_TEXT);
 
     const root = tmpProject();
-    const file = writeRel(root, '.planning/.gh-mapping.json', NO_PRS_TEXT);
+    const file = writeRel(root, '.aoforge/.gh-mapping.json', NO_PRS_TEXT);
     const r = ghMapping.readMappingV3WithReport(root);
     assert.equal(r.changed, false);
     assert.equal(r.mapping.prs, undefined, 'reading a file with no prs does not invent the section');
@@ -1369,7 +1369,7 @@ describe('49-02 prs map', () => {
     ghMapping.setPr(m, '49', PR_FULL);
     ghMapping.setPr(m, '2', { branch: 'df/objective-2-y' });
     assert.equal(ghMapping.writeMappingV3(root, m).ok, true);
-    const file = path.join(root, '.planning', '.gh-mapping.json');
+    const file = path.join(root, '.aoforge', '.gh-mapping.json');
     const first = fs.readFileSync(file, 'utf-8');
 
     const r = ghMapping.readMappingV3WithReport(root);

@@ -26,7 +26,7 @@
 //   - in a git work tree, `git check-ignore --no-index --stdin -z`, ONE spawn per breadth-first
 //     level carrying every candidate dir of that level. `--no-index` because the default,
 //     index-aware check calls a dir "not ignored" as soon as it holds a tracked file (the
-//     `.planning` miss). Dirs are queried BARE (`dist/app`, no trailing slash): git lstat()s the
+//     `.aoforge` miss). Dirs are queried BARE (`dist/app`, no trailing slash): git lstat()s the
 //     path, so a dir-only rule (`dist/`) still matches, while a trailing slash makes `x/*` match
 //     `x/` itself and would wrongly prune `x/keep/` under `x/*` + `!x/keep/`.
 // Pass 1 is therefore planned breadth-first (one batch per level), then processed depth-first
@@ -37,6 +37,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { detectPubspecFlutter } = require('./flutter-ui-scope.cjs');
+const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 // ─── marker data ──────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ const AREA_MARKERS = Object.freeze({
 // Directories the walk never enters. Every other dot-directory is skipped as well (a `.maestro/`
 // is still SEEN as an entry of its parent; it is just never descended into).
 const SKIP_DIRS = new Set([
-  'node_modules', '.git', '.dart_tool', 'build', 'vendor', 'third_party', '.worktrees', '.planning',
+  'node_modules', '.git', '.dart_tool', 'build', 'vendor', 'third_party', '.worktrees', ...PLANNING_DIR_NAMES,
   'example', 'test_support', 'android', 'ios', 'macos', 'linux', 'windows', 'web',
 ]);
 

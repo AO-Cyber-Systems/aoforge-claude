@@ -686,7 +686,7 @@ describe('bash_edit_gate replay', () => {
   });
 
   describe('6: where the project is', () => {
-    test('6a: a cwd with no .planning/ ancestor is not an aoforge project', () => {
+    test('6a: a cwd with no .aoforge/ ancestor is not an aoforge project', () => {
       const loose = mkTmp('df-replay-loose-');
       const g = replay({ sessions: { s1: [bashRow({ id: 'x', command: WRITE_A, ts: D('05'), cwd: loose })] } });
       assert.equal(g.bash_calls, 1);
@@ -699,9 +699,9 @@ describe('bash_edit_gate replay', () => {
       assert.equal(g.excluded.not_aoforge_project, 1);
     });
 
-    test('6c: a .planning/ project that is not a git repository has no history', () => {
+    test('6c: a .aoforge/ project that is not a git repository has no history', () => {
       const proj = mkTmp('df-replay-nogit-');
-      fs.mkdirSync(path.join(proj, '.planning'));
+      fs.mkdirSync(path.join(proj, '.aoforge'));
       const g = replay({ sessions: { s1: [bashRow({ id: 'x', command: WRITE_A, ts: D('05'), cwd: proj })] } });
       assert.equal(g.excluded.history_unavailable, 1);
       assert.equal(g.ambient_bash_calls, 0);
@@ -722,7 +722,7 @@ describe('bash_edit_gate replay', () => {
       const g = replay({ sessions: { s1: [
         br("cat <<'EOF'\necho x > src/a.js\nEOF", D('05')),
         br('echo x >> README.md', D('05')),
-        br('echo {} > .planning/x.json', D('05')),
+        br('echo {} > .aoforge/x.json', D('05')),
         br('echo x > /tmp/x', D('05')),
         br('ls', D('05')),
       ] } });

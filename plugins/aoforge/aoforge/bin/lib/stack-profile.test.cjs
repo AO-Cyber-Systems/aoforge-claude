@@ -424,8 +424,8 @@ describe('resolveProfile (R group)', () => {
         yaml: [
           'schema: 1',
           'components:',
-          '  - { path: "apps/", profile: ".planning/stacks/apps-generic.md" }',
-          '  - { path: "apps/web/", profile: ".planning/stacks/apps-web.md" }',
+          '  - { path: "apps/", profile: ".aoforge/stacks/apps-generic.md" }',
+          '  - { path: "apps/web/", profile: ".aoforge/stacks/apps-web.md" }',
         ].join('\n'),
       });
       const generic = fx.profileMd({ yaml: 'schema: 1' });
@@ -445,7 +445,7 @@ describe('resolveProfile (R group)', () => {
 
     test('a file outside any component prefix resolves no component', () => {
       const stackMd = fx.profileMd({
-        yaml: ['schema: 1', 'components:', '  - { path: "apps/", profile: ".planning/stacks/apps-generic.md" }'].join('\n'),
+        yaml: ['schema: 1', 'components:', '  - { path: "apps/", profile: ".aoforge/stacks/apps-generic.md" }'].join('\n'),
       });
       const generic = fx.profileMd({ yaml: 'schema: 1' });
       const root = fx.makeProject({ stackMd, stacks: { 'apps-generic': generic } });
@@ -501,7 +501,7 @@ describe('resolveProfile (R group)', () => {
         () => sp.resolveProfile({ projectRoot: root }),
         (err) => {
           assert.strictEqual(err.name, 'StackProfileError');
-          assert.ok(err.message.includes(path.join(root, '.planning', 'STACK.md')));
+          assert.ok(err.message.includes(path.join(root, '.aoforge', 'STACK.md')));
           return true;
         }
       );
@@ -655,7 +655,7 @@ describe('component extends walk (CX group, TRD 42-05)', () => {
 
   const rootWithSvc = (svcYaml, rootYaml = ['schema: 1']) => fx.makeProject({
     stackMd: fx.profileMd({
-      yaml: rootYaml.concat(['components:', '  - { path: "svc/", profile: ".planning/stacks/svc.md" }']).join('\n'),
+      yaml: rootYaml.concat(['components:', '  - { path: "svc/", profile: ".aoforge/stacks/svc.md" }']).join('\n'),
     }),
     stacks: { svc: fx.profileMd({ yaml: svcYaml.join('\n') }) },
   });
@@ -713,7 +713,7 @@ describe('component extends walk (CX group, TRD 42-05)', () => {
   test('CX5: a component path without a trailing slash matches `svc/...` but never `svcx/...`', () => {
     const root = fx.makeProject({
       stackMd: fx.profileMd({
-        yaml: ['schema: 1', 'components:', '  - { path: "svc", profile: ".planning/stacks/svc.md" }'].join('\n'),
+        yaml: ['schema: 1', 'components:', '  - { path: "svc", profile: ".aoforge/stacks/svc.md" }'].join('\n'),
       }),
       stacks: { svc: fx.profileMd({ yaml: ['schema: 1', 'commands:', '  build: { run: "svc-build" }'].join('\n') }) },
     });

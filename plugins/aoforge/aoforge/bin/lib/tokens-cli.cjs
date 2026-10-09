@@ -10,7 +10,7 @@
  *   aof-tools tokens stamp <trd-id> --draft <path> [--objective-dir <dir>] [--repo <path>] [--root <dir>]
  *       Writes tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, token_model and
  *       tokens_source: "live" into the frontmatter of a SUMMARY DRAFT. The executor runs it right before
- *       `summary post`, so the store-aware verb publishes the fields. A draft inside .planning/ is refused:
+ *       `summary post`, so the store-aware verb publishes the fields. A draft inside .aoforge/ is refused:
  *       every planning write still goes through `summary post` (D-01).
  *
  *   aof-tools tokens backfill [--write] [--force] [--repo <path>] [--root <dir>]
@@ -33,7 +33,7 @@
  *       unknown milestone, a missing ROADMAP.md or an objective with no directory.
  *
  * Never blocks publication: no matching transcript (retention, an older runtime, another harness) is
- * `stamped:false` with exit 0 and the draft untouched. Only usage errors and a `.planning/` draft exit 1.
+ * `stamped:false` with exit 0 and the draft untouched. Only usage errors and a `.aoforge/` draft exit 1.
  *
  * Same shape as audit-cli.cjs: `runTokens` is pure and returns `{ok, result, text, exit}` or `{ok:false, message}`;
  * the dispatcher's `case 'tokens'` maps that onto output()/error().
@@ -48,6 +48,7 @@ const tokenCoverage = require('./token-coverage.cjs');
 const { selectMilestoneObjectives } = require('./milestone-scope.cjs');
 const { getArchivedObjectiveDirs } = require('./objective.cjs');
 const { normalizeObjectiveName, objectiveDirMatches } = require('./helpers.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 const USAGE =
   'aof-tools tokens <trd <trd-id> | stamp <trd-id> --draft <path> | backfill [--write] [--force] | coverage [--milestone <v> | --objective <N>]> [--objective-dir <dir>] [--repo <path>] [--root <dir>] [--raw]';
@@ -125,7 +126,7 @@ function parseArgs(argv) {
   if (positionals.length > 1) return usageError(`tokens ${sub} takes one TRD id, got ${positionals.length}`);
   const id = tokenUsage.normTrdId(positionals[0]);
   if (!id) return usageError(`invalid TRD id ${JSON.stringify(positionals[0])} (expected <objective>-<NN>, for example 57-03)`);
-  if (sub === 'stamp' && !flags.draft) return usageError('tokens stamp needs --draft <path> (a SUMMARY draft outside .planning/)');
+  if (sub === 'stamp' && !flags.draft) return usageError('tokens stamp needs --draft <path> (a SUMMARY draft outside .aoforge/)');
   return { ok: true, sub, id, flags };
 }
 
@@ -212,7 +213,7 @@ function runBackfill({ flags, cwd, root }) {
 }
 
 /**
- * The tree whose SUMMARYs `tokens coverage` reads: the main checkout in store mode (its `.planning/` is the cache), else
+ * The tree whose SUMMARYs `tokens coverage` reads: the main checkout in store mode (its `.aoforge/` is the cache), else
  * the checkout holding cwd (a local-mode worktree reads its own SUMMARYs), else the main checkout. Same rule as
  * planning-verbs.summaryWriteRoot, so coverage reads where `summary post` writes.
  *
@@ -236,13 +237,13 @@ function objectiveScopeDirs(readRoot, number) {
   const out = [];
   let names = [];
   try {
-    names = fs.readdirSync(path.join(readRoot, '.planning', 'objectives'), { withFileTypes: true })
+    names = fs.readdirSync(path.join(planningRoot(readRoot), 'objectives'), { withFileTypes: true })
       .filter((e) => e.isDirectory()).map((e) => e.name).sort();
   } catch {
     names = [];
   }
   for (const name of names) {
-    if (objectiveDirMatches(name, want)) out.push({ number, dir: `.planning/objectives/${name}` });
+    if (objectiveDirMatches(name, want)) out.push({ number, dir: planningRel(readRoot, 'objectives', name) });
   }
   for (const a of getArchivedObjectiveDirs(readRoot)) {
     if (objectiveDirMatches(a.name, want)) out.push({ number, dir: path.join(a.basePath, a.name).split(path.sep).join('/') });
@@ -326,14 +327,14 @@ function runTokens({ argv = [], cwd = process.cwd(), root } = {}) {
   let draft = null;
   if (sub === 'stamp') {
     draft = path.resolve(base, flags.draft);
-    const planningDirs = [...new Set([checkout, repo])].map((r) => path.join(r, '.planning'));
+    const planningDirs = [...new Set([checkout, repo])].map((r) => planningRoot(r));
     const guarded = [...new Set(planningDirs.flatMap((d) => [d, realOrResolved(d)]))];
     const candidates = [draft, realOrResolved(draft)];
     if (candidates.some((c) => guarded.some((d) => within(c, d)))) {
       return {
         ok: false,
         message:
-          `refusing --draft ${flags.draft}: it is inside .planning/. tokens stamp never writes planning files. `
+          `refusing --draft ${flags.draft}: it is inside ${planningRel(checkout)}/. tokens stamp never writes planning files. `
           + 'Draft the SUMMARY with `aof-tools planning draft <rel>`, stamp that file, then publish it with `aof-tools summary post`.',
       };
     }

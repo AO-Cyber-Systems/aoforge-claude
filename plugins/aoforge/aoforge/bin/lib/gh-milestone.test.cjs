@@ -49,9 +49,9 @@ const ROADMAP_V13 = [
 function makeProject({ roadmap = ROADMAP_V13, objective = '---\nobjective: a\n---\n# a\n', dir = '02-a' } = {}) {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-milestone-'));
   tmpDirs.push(cwd);
-  fs.mkdirSync(path.join(cwd, '.planning', 'objectives', dir), { recursive: true });
-  if (roadmap !== null) fs.writeFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), roadmap);
-  if (objective !== null) fs.writeFileSync(path.join(cwd, '.planning', 'objectives', dir, 'OBJECTIVE.md'), objective);
+  fs.mkdirSync(path.join(cwd, '.aoforge', 'objectives', dir), { recursive: true });
+  if (roadmap !== null) fs.writeFileSync(path.join(cwd, '.aoforge', 'ROADMAP.md'), roadmap);
+  if (objective !== null) fs.writeFileSync(path.join(cwd, '.aoforge', 'objectives', dir, 'OBJECTIVE.md'), objective);
   return cwd;
 }
 

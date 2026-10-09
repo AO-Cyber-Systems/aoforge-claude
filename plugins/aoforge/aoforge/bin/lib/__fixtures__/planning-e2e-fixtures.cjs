@@ -3,13 +3,13 @@
 /**
  * planning-e2e-fixtures.cjs (TRD 48-22) — a real git repository for the planning-verbs end-to-end suite.
  *
- *   const R = makeE2eRepo({ store: true });   // git init, .planning/config.json + STACK.md, initial commit
- *   R.draft('07-01-alpha-TRD.md');            // absolute path of a hand-written draft (outside .planning/)
+ *   const R = makeE2eRepo({ store: true });   // git init, .aoforge/config.json + STACK.md, initial commit
+ *   R.draft('07-01-alpha-TRD.md');            // absolute path of a hand-written draft (outside .aoforge/)
  *   R.run(['commit', 'x', '--files', 'a']);    // spawn aof-tools in the repo (offline gh shim, hermetic env)
  *   R.gitStatus();                            // `git status --porcelain --untracked-files=all` lines
  *   R.cleanup();
  *
- * `store` is the ONLY difference in .planning/config.json between the two modes (`github.store: true` or absent), so
+ * `store` is the ONLY difference in .aoforge/config.json between the two modes (`github.store: true` or absent), so
  * the store-off parity run is the store run with the opt-in removed. The local repo also carries a hand-written
  * ROADMAP.md and STATE.md: those are what today's `objective complete` edits, and in store mode they are generated
  * views that only `gh pull` writes, so the store repo starts without them.
@@ -235,9 +235,9 @@ function git(cwd, env, args) {
 /**
  * A temp git repository shaped like a fresh AOForge project.
  *
- * Store: `.planning/config.json` (`github.enabled/repo/store`) + `.planning/STACK.md`, committed; nothing else.
- * Local: the same config without `store`, STACK.md, ROADMAP.md and STATE.md, all committed (today's tracked .planning/).
- * Both: an empty objective dir `07-store-demo` and the drafts under `<base>/drafts` (outside .planning/).
+ * Store: `.aoforge/config.json` (`github.enabled/repo/store`) + `.aoforge/STACK.md`, committed; nothing else.
+ * Local: the same config without `store`, STACK.md, ROADMAP.md and STATE.md, all committed (today's tracked .aoforge/).
+ * Both: an empty objective dir `07-store-demo` and the drafts under `<base>/drafts` (outside .aoforge/).
  *
  * @param {{store?: boolean}} [opts]
  */
@@ -254,7 +254,7 @@ function makeE2eRepo({ store = false } = {}) {
     for (const k of LEAKY) delete env[k];
     return env;
   };
-  const planning = (rel) => path.join(root, '.planning', ...rel.split('/'));
+  const planning = (rel) => path.join(root, '.aoforge', ...rel.split('/'));
   const write = (rel, text) => {
     fs.mkdirSync(path.dirname(planning(rel)), { recursive: true });
     fs.writeFileSync(planning(rel), text);
@@ -266,11 +266,11 @@ function makeE2eRepo({ store = false } = {}) {
   if (store) github.store = true;
   write('config.json', `${JSON.stringify({ github }, null, 2)}\n`);
   write('STACK.md', STACK_MD);
-  const tracked = ['.planning/config.json', '.planning/STACK.md'];
+  const tracked = ['.aoforge/config.json', '.aoforge/STACK.md'];
   if (!store) {
     write('ROADMAP.md', ROADMAP_MD);
     write('STATE.md', STATE_MD);
-    tracked.push('.planning/ROADMAP.md', '.planning/STATE.md');
+    tracked.push('.aoforge/ROADMAP.md', '.aoforge/STATE.md');
   }
   fs.mkdirSync(planning(`objectives/${OBJECTIVE_DIR}`), { recursive: true });
   git(root, gitEnv(), ['add', '--', ...tracked]);

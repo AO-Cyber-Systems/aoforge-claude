@@ -47,7 +47,7 @@ function unplannedNote(entry, estimate) {
  * @param {object} cal  a loaded calibration (estimate.loadCalibration().calibration)
  * @param {string} cwd  project root
  * @param {{version?: string, parallel?: boolean}} [opts]  `version` names the milestone ('v1.0' or '1.0'; the current
- *   one when omitted); `parallel` overrides `parallelization` from `.planning/config.json` for every objective
+ *   one when omitted); `parallel` overrides `parallelization` from `.aoforge/config.json` for every objective
  * @throws {Error} what selectMilestoneObjectives throws
  */
 function estimateMilestone(cal, cwd, { version, parallel } = {}) {

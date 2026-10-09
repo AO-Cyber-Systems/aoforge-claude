@@ -3,7 +3,7 @@
 // Golden-shape builders for the stack drafter (TRD 43-06, objective 43's success criterion).
 //
 // Objective 42 hand-fixed eleven fleet drafts; the frozen results are
-// `.planning/objectives/42-codebase-aware-stack-drafter/overrides/*.STACK.md`. Each builder below
+// `.aoforge/objectives/42-codebase-aware-stack-drafter/overrides/*.STACK.md`. Each builder below
 // writes ONE invented repository whose EVIDENCE has the shape the override's `provenance.sources`
 // describe (manifests that make the areas detectable, task-runner targets, CI workflow steps), and
 // GOLDEN holds what `stack init` must draft for it: the override's `extends`, `components` and, per
@@ -186,7 +186,7 @@ function goldenTerminalShape() {
       '      - run: npm ci',
       '      - run: npm run build',
     ]),
-    '.planning/codebase/TESTING.md': [
+    '.aoforge/codebase/TESTING.md': [
       '# Testing',
       '',
       'Go packages:',

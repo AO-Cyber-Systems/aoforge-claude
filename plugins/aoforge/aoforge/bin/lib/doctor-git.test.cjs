@@ -54,17 +54,17 @@ describe('doctor-git: stagedPaths / isGitRepo (test 1)', () => {
     const { root, home } = makeDoctorProject();
     write(root, 'src/new.txt', 'new file\n');
     git(root, home, 'add', '--', 'src/new.txt');
-    append(root, '.planning/ROADMAP.md', '\nA staged edit.\n');
-    git(root, home, 'add', '--', '.planning/ROADMAP.md');
-    git(root, home, 'rm', '-q', '--', '.planning/STATE.md');
+    append(root, '.aoforge/ROADMAP.md', '\nA staged edit.\n');
+    git(root, home, 'add', '--', '.aoforge/ROADMAP.md');
+    git(root, home, 'rm', '-q', '--', '.aoforge/STATE.md');
 
     assert.deepEqual(dg.stagedPaths(root, { env: gitEnv(home) }),
-      ['.planning/ROADMAP.md', '.planning/STATE.md', 'src/new.txt']);
+      ['.aoforge/ROADMAP.md', '.aoforge/STATE.md', 'src/new.txt']);
   });
 
   test('unstaged edits and untracked files are not staged paths', () => {
     const { root, home } = makeDoctorProject();
-    append(root, '.planning/ROADMAP.md', '\nAn unstaged edit.\n');
+    append(root, '.aoforge/ROADMAP.md', '\nAn unstaged edit.\n');
     write(root, 'src/untracked.txt', 'untracked\n');
     assert.deepEqual(dg.stagedPaths(root, { env: gitEnv(home) }), []);
   });
@@ -82,23 +82,23 @@ describe('doctor-git: dirtyPaths (test 2)', () => {
     const { root, home } = makeDoctorProject();
     commitGitignore(root, home, 'node_modules/\n');
 
-    append(root, '.planning/ROADMAP.md', '\nUnstaged edit.\n');          // unstaged, in scope
-    append(root, '.planning/PROJECT.md', '\nStaged edit.\n');           // staged, in scope
-    git(root, home, 'add', '--', '.planning/PROJECT.md');
+    append(root, '.aoforge/ROADMAP.md', '\nUnstaged edit.\n');          // unstaged, in scope
+    append(root, '.aoforge/PROJECT.md', '\nStaged edit.\n');           // staged, in scope
+    git(root, home, 'add', '--', '.aoforge/PROJECT.md');
     append(root, '.gitignore', 'dist/\n');                                // unstaged, in scope
     append(root, 'CLAUDE.md', '\nOut of scope edit.\n');                 // out of scope
     write(root, 'src/other.txt', 'staged but out of scope\n');
     git(root, home, 'add', '--', 'src/other.txt');
 
-    assert.deepEqual(dg.dirtyPaths(root, ['.planning', '.gitignore'], { env: gitEnv(home) }),
-      ['.gitignore', '.planning/PROJECT.md', '.planning/ROADMAP.md']);
+    assert.deepEqual(dg.dirtyPaths(root, ['.aoforge', '.gitignore'], { env: gitEnv(home) }),
+      ['.aoforge/PROJECT.md', '.aoforge/ROADMAP.md', '.gitignore']); // sorted: `.a` before `.g`
   });
 
   test('a clean tree gives [] and a non-repo gives []', () => {
     const { root, home } = makeDoctorProject();
-    assert.deepEqual(dg.dirtyPaths(root, ['.planning'], { env: gitEnv(home) }), []);
+    assert.deepEqual(dg.dirtyPaths(root, ['.aoforge'], { env: gitEnv(home) }), []);
     const plain = makeDoctorProject({ git: false });
-    assert.deepEqual(dg.dirtyPaths(plain.root, ['.planning'], { env: gitEnv(plain.home) }), []);
+    assert.deepEqual(dg.dirtyPaths(plain.root, ['.aoforge'], { env: gitEnv(plain.home) }), []);
   });
 });
 
@@ -106,7 +106,7 @@ describe('doctor-git: indexChangeGuard / worktreeGuard (test 3)', () => {
   test('clean repo → ok', () => {
     const { root, home } = makeDoctorProject();
     assert.deepEqual(dg.indexChangeGuard(root, { env: gitEnv(home) }), { ok: true });
-    assert.deepEqual(dg.worktreeGuard(root, ['.planning', '.gitignore'], { env: gitEnv(home) }), { ok: true });
+    assert.deepEqual(dg.worktreeGuard(root, ['.aoforge', '.gitignore'], { env: gitEnv(home) }), { ok: true });
   });
 
   test('something staged → refused with the exact staged paths', () => {
@@ -136,11 +136,11 @@ describe('doctor-git: indexChangeGuard / worktreeGuard (test 3)', () => {
 
   test('worktreeGuard refuses on a dirty path under its pathspecs and names it', () => {
     const { root, home } = makeDoctorProject();
-    append(root, '.planning/ROADMAP.md', '\nUser edit.\n');
-    const g = dg.worktreeGuard(root, ['.planning', 'CLAUDE.md', '.gitignore'], { env: gitEnv(home) });
+    append(root, '.aoforge/ROADMAP.md', '\nUser edit.\n');
+    const g = dg.worktreeGuard(root, ['.aoforge', 'CLAUDE.md', '.gitignore'], { env: gitEnv(home) });
     assert.equal(g.ok, false);
     assert.match(g.reason, /uncommitted changes/);
-    assert.match(g.reason, /\.planning\/ROADMAP\.md/);
+    assert.match(g.reason, /\.aoforge\/ROADMAP\.md/);
   });
 
   test('outside a git repo: the index guard refuses (n/a), the worktree guard lets fixes proceed', () => {
@@ -148,7 +148,7 @@ describe('doctor-git: indexChangeGuard / worktreeGuard (test 3)', () => {
     const idx = dg.indexChangeGuard(root, { env: gitEnv(home) });
     assert.equal(idx.ok, false);
     assert.match(idx.reason, /not a git repo/);
-    assert.equal(dg.worktreeGuard(root, ['.planning'], { env: gitEnv(home) }).ok, true);
+    assert.equal(dg.worktreeGuard(root, ['.aoforge'], { env: gitEnv(home) }).ok, true);
   });
 });
 
@@ -157,52 +157,52 @@ describe('doctor-git: exclude = the doctor\'s own earlier changes (test 3a)', ()
     const home = makeDoctorHome();
     const { root } = makeTrackedRuntimeStateProject({
       home,
-      tracked: ['.planning/.progress-guard.json'],
+      tracked: ['.aoforge/.progress-guard.json'],
       gitignore: 'node_modules/\n',
     });
     // What the legacy fix leaves behind: a staged removal and an edited .gitignore.
-    git(root, home, 'rm', '-q', '--cached', '--', '.planning/.progress-guard.json');
-    append(root, '.gitignore', '.planning/.progress-guard.json\n');
+    git(root, home, 'rm', '-q', '--cached', '--', '.aoforge/.progress-guard.json');
+    append(root, '.gitignore', '.aoforge/.progress-guard.json\n');
     return { root, home };
   }
 
   test('staged removal + modified .gitignore, both excluded → both guards ok', () => {
     const { root, home } = ownChangesFixture();
-    const exclude = new Set(['.planning/.progress-guard.json', '.gitignore']);
+    const exclude = new Set(['.aoforge/.progress-guard.json', '.gitignore']);
     assert.deepEqual(dg.indexChangeGuard(root, { env: gitEnv(home), exclude }), { ok: true });
-    assert.deepEqual(dg.worktreeGuard(root, ['.planning', 'CLAUDE.md', '.gitignore'], { env: gitEnv(home), exclude }),
+    assert.deepEqual(dg.worktreeGuard(root, ['.aoforge', 'CLAUDE.md', '.gitignore'], { env: gitEnv(home), exclude }),
       { ok: true });
   });
 
   test('without exclude the same state is refused', () => {
     const { root, home } = ownChangesFixture();
     assert.equal(dg.indexChangeGuard(root, { env: gitEnv(home) }).ok, false);
-    assert.equal(dg.worktreeGuard(root, ['.planning', '.gitignore'], { env: gitEnv(home) }).ok, false);
+    assert.equal(dg.worktreeGuard(root, ['.aoforge', '.gitignore'], { env: gitEnv(home) }).ok, false);
   });
 
   test('one extra foreign staged path → refused, naming only the foreign path', () => {
     const { root, home } = ownChangesFixture();
     write(root, 'src/foreign.txt', 'user work\n');
     git(root, home, 'add', '--', 'src/foreign.txt');
-    const exclude = new Set(['.planning/.progress-guard.json', '.gitignore']);
+    const exclude = new Set(['.aoforge/.progress-guard.json', '.gitignore']);
     const g = dg.indexChangeGuard(root, { env: gitEnv(home), exclude });
     assert.deepEqual(g, { ok: false, reason: 'staged changes present: src/foreign.txt' });
   });
 
   test('worktreeGuard names only the foreign dirty path', () => {
     const { root, home } = ownChangesFixture();
-    append(root, '.planning/ROADMAP.md', '\nUser edit.\n');
-    const exclude = new Set(['.planning/.progress-guard.json', '.gitignore']);
-    const g = dg.worktreeGuard(root, ['.planning', '.gitignore'], { env: gitEnv(home), exclude });
+    append(root, '.aoforge/ROADMAP.md', '\nUser edit.\n');
+    const exclude = new Set(['.aoforge/.progress-guard.json', '.gitignore']);
+    const g = dg.worktreeGuard(root, ['.aoforge', '.gitignore'], { env: gitEnv(home), exclude });
     assert.equal(g.ok, false);
-    assert.match(g.reason, /\.planning\/ROADMAP\.md/);
+    assert.match(g.reason, /\.aoforge\/ROADMAP\.md/);
     assert.doesNotMatch(g.reason, /progress-guard|\.gitignore/);
   });
 
   test('exclude may also be an array or a predicate', () => {
     const { root, home } = ownChangesFixture();
     assert.equal(dg.indexChangeGuard(root, {
-      env: gitEnv(home), exclude: ['.planning/.progress-guard.json', '.gitignore'],
+      env: gitEnv(home), exclude: ['.aoforge/.progress-guard.json', '.gitignore'],
     }).ok, true);
     assert.equal(dg.indexChangeGuard(root, {
       env: gitEnv(home), exclude: (rel) => rel === '.gitignore' || rel.endsWith('.progress-guard.json'),
@@ -213,31 +213,31 @@ describe('doctor-git: exclude = the doctor\'s own earlier changes (test 3a)', ()
 describe('doctor-git: lsFiles / rmCached', () => {
   test('lsFiles lists tracked or untracked matches of glob pathspecs at any depth', () => {
     const home = makeDoctorHome();
-    const { root } = makeTrackedRuntimeStateProject({ home, tracked: ['.planning/.autonomous-resume-10'] });
-    write(root, 'flutter/.planning/.autonomous-retry-agent1', 'x\n');
-    const specs = [':(glob)**/.planning/.autonomous-retry-*', ':(glob)**/.planning/.autonomous-resume-*'];
-    assert.deepEqual(dg.lsFiles(root, specs, { env: gitEnv(home) }), ['.planning/.autonomous-resume-10']);
+    const { root } = makeTrackedRuntimeStateProject({ home, tracked: ['.aoforge/.autonomous-resume-10'] });
+    write(root, 'flutter/.aoforge/.autonomous-retry-agent1', 'x\n');
+    const specs = [':(glob)**/.aoforge/.autonomous-retry-*', ':(glob)**/.aoforge/.autonomous-resume-*'];
+    assert.deepEqual(dg.lsFiles(root, specs, { env: gitEnv(home) }), ['.aoforge/.autonomous-resume-10']);
     assert.deepEqual(dg.lsFiles(root, specs, { env: gitEnv(home), others: true }),
-      ['flutter/.planning/.autonomous-retry-agent1']);
+      ['flutter/.aoforge/.autonomous-retry-agent1']);
   });
 
   test('rmCached drops index entries only; the working file stays', () => {
     const home = makeDoctorHome();
-    const { root } = makeTrackedRuntimeStateProject({ home, tracked: ['.planning/.autonomous-resume-10'] });
-    dg.rmCached(root, ['.planning/.autonomous-resume-10'], { env: gitEnv(home) });
-    assert.equal(git(root, home, 'ls-files', '--', '.planning/.autonomous-resume-10'), '');
-    assert.equal(fs.existsSync(path.join(root, '.planning/.autonomous-resume-10')), true);
-    assert.deepEqual(dg.stagedPaths(root, { env: gitEnv(home) }), ['.planning/.autonomous-resume-10']);
+    const { root } = makeTrackedRuntimeStateProject({ home, tracked: ['.aoforge/.autonomous-resume-10'] });
+    dg.rmCached(root, ['.aoforge/.autonomous-resume-10'], { env: gitEnv(home) });
+    assert.equal(git(root, home, 'ls-files', '--', '.aoforge/.autonomous-resume-10'), '');
+    assert.equal(fs.existsSync(path.join(root, '.aoforge/.autonomous-resume-10')), true);
+    assert.deepEqual(dg.stagedPaths(root, { env: gitEnv(home) }), ['.aoforge/.autonomous-resume-10']);
   });
 });
 
 describe('doctor-git: checkIgnored (69-02, test 17)', () => {
-  const MARKER = '.planning/.skill-active';
+  const MARKER = '.aoforge/.skill-active';
 
   test('a repository .gitignore rule is reported, and only the ignored paths are', () => {
     const { root, home } = makeDoctorProject();
     commitGitignore(root, home, `${MARKER}\n`);
-    const ignored = dg.checkIgnored(root, [MARKER, '.planning/STATE.md'], { env: gitEnv(home) });
+    const ignored = dg.checkIgnored(root, [MARKER, '.aoforge/STATE.md'], { env: gitEnv(home) });
     assert.ok(ignored instanceof Set);
     assert.deepEqual([...ignored], [MARKER]);
   });

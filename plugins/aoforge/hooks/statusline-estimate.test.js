@@ -25,6 +25,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const fixtures = require('../aoforge/bin/lib/__fixtures__/daemon-polish-fixtures.cjs');
+// This hook reads only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
+fixtures.setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
 
 const LIB_DIR = path.join(__dirname, '..', 'aoforge', 'bin', 'lib');
 const store = require(path.join(LIB_DIR, 'estimate-run-store.cjs'));
@@ -46,6 +48,9 @@ function world(t, { installLib = true } = {}) {
   if (installLib) {
     fs.copyFileSync(path.join(LIB_DIR, 'estimate-run-store.cjs'), path.join(libDir, 'estimate-run-store.cjs'));
     fs.copyFileSync(path.join(LIB_DIR, 'upgrade.cjs'), path.join(libDir, 'upgrade.cjs'));
+    // both resolve the planning directory through compat.cjs (TRD 72-05), which reads legacy-names.cjs
+    fs.copyFileSync(path.join(LIB_DIR, 'compat.cjs'), path.join(libDir, 'compat.cjs'));
+    fs.copyFileSync(path.join(LIB_DIR, 'legacy-names.cjs'), path.join(libDir, 'legacy-names.cjs'));
   }
   const env = { ...process.env, HOME: home, AOFORGE_ESTIMATE_STATE_DIR: stateDir };
   delete env.AOFORGE_HANDOFF_PID_FILE;

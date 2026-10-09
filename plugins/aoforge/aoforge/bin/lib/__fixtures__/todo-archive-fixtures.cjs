@@ -3,8 +3,8 @@
 // todo-archive-fixtures.cjs (TRD 63-02) — hand-built local-mode projects holding a todo archive in today's exact file
 // shapes, plus a transcript directory for `todo sync`. Literal values only: no generated data.
 //
-//   pending todo     .planning/todos/pending/<stem>.md      `---` frontmatter on line 1 (what `todo add` writes)
-//   completed todo   .planning/todos/completed/<stem>.md    `completed: <YYYY-MM-DD>` on the line BEFORE `---`
+//   pending todo     .aoforge/todos/pending/<stem>.md      `---` frontmatter on line 1 (what `todo add` writes)
+//   completed todo   .aoforge/todos/completed/<stem>.md    `completed: <YYYY-MM-DD>` on the line BEFORE `---`
 //                                                           (what `todo complete` prepends); `done/` is the old spelling
 // Transcript text comes from todo-transcript-fixtures.cjs (63-01); this file builds no transcript records.
 
@@ -12,6 +12,15 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { NAMES } = require('../legacy-names.cjs');
+
+// The planning-directory name the project builders write (TRD 72-05). The todo-sync hook resolves only the legacy name
+// until 72-06 moves it onto the resolver, so its tests call setPlanningDir(LEGACY.planningDir) once at load; 72-06
+// drops those calls. node --test runs each file in its own process, so the switch never leaks.
+let PLANNING = NAMES.planningDir;
+function setPlanningDir(name) {
+  PLANNING = name;
+}
 
 /** Today's `todo add` file text for a todo. */
 function todoFileText({ title, created = '2026-10-05T10:00:00.000Z', area = 'general', problem = 'P', solution = 'TBD' }) {
@@ -50,7 +59,7 @@ function git(dir, ...args) {
  */
 function makeTodoProject({ commitDocs = true, git: withGit = false, todos = [] } = {}) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'todo-archive-')));
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, PLANNING);
   fs.mkdirSync(planning, { recursive: true });
   fs.writeFileSync(path.join(planning, 'config.json'), `${JSON.stringify({ commit_docs: commitDocs }, null, 2)}\n`);
   fs.writeFileSync(path.join(planning, 'STATE.md'), '# Project State\n\nStub for the todo archive tests.\n');
@@ -103,4 +112,5 @@ function makeProjectsRoot(sessionId, text) {
   };
 }
 
-module.exports = { todoFileText, makeTodoProject, writeTranscript, makeProjectsRoot };
+module.exports = {
+  setPlanningDir, todoFileText, makeTodoProject, writeTranscript, makeProjectsRoot };

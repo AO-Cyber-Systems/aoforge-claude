@@ -428,8 +428,8 @@ describe('the repository read (test 12)', () => {
 
   test('no github.repo is an error before any gh call', () => {
     const fake = setup();
-    fs.writeFileSync(path.join(project.root, '.planning', 'config.json'), JSON.stringify({ github: { enabled: true } }));
-    fs.writeFileSync(path.join(project.root, '.planning', 'PROJECT.md'), '# Project\n');
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: true } }));
+    fs.writeFileSync(path.join(project.root, '.aoforge', 'PROJECT.md'), '# Project\n');
     const r = detect({});
     assert.equal(r.ok, false);
     assert.match(r.error, /github\.repo/);
@@ -546,7 +546,7 @@ function cacheFileFor(repo = 'o/r') {
 }
 
 function writeConfigTtl(minutes) {
-  const file = path.join(project.root, '.planning', 'config.json');
+  const file = path.join(project.root, '.aoforge', 'config.json');
   const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
   cfg.github.project_cache_ttl_minutes = minutes;
   fs.writeFileSync(file, JSON.stringify(cfg));
@@ -931,7 +931,7 @@ describe('hygiene (test 14)', () => {
 
   test('the module never writes into the project', () => {
     const fake = setup();
-    const files = () => fs.readdirSync(path.join(project.root, '.planning'), { recursive: true }).sort();
+    const files = () => fs.readdirSync(path.join(project.root, '.aoforge'), { recursive: true }).sort();
     const before = files();
     detect({ probeIssue: fake.seedIssue({ title: 'Objective 7' }), now: T0 });
     assert.deepEqual(files(), before);

@@ -7,7 +7,7 @@
 // its caller now). The stub carries `work:` (PROJECT.md `default_work`, else `feature`) and the
 // objective's name and goal from ROADMAP.md.
 //
-// Only NN-named dirs are walked: scratch dirs under .planning/objectives/ (for example
+// Only NN-named dirs are walked: scratch dirs under .aoforge/objectives/ (for example
 // `UI-VISUAL-EVAL-CALLOUT`) are not objectives and must never receive a stub.
 
 const { backfillAllObjectives } = require('../project-bootstrap.cjs');
@@ -15,7 +15,7 @@ const { backfillAllObjectives } = require('../project-bootstrap.cjs');
 const OBJECTIVE_DIR_RE = /^\d+(?:\.\d+)?-/;
 
 function objectiveIdOf(relPath) {
-  // '.planning/objectives/<id>/OBJECTIVE.md' -> '<id>'
+  // '.aoforge/objectives/<id>/OBJECTIVE.md' -> '<id>'
   return relPath.split('/').slice(-2, -1)[0];
 }
 

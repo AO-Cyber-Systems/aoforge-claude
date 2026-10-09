@@ -40,16 +40,16 @@ afterEach(() => {
 
 const STORE_CONFIG = { github: { enabled: true, store: true, repo: 'acme/demo' } };
 
-/** A temp project with `.planning/config.json` = `config` (null: no config file). */
+/** A temp project with `.aoforge/config.json` = `config` (null: no config file). */
 function makeProject(config = STORE_CONFIG) {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'df-drift-test-'));
-  fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
-  if (config !== null) fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
+  fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
+  if (config !== null) fs.writeFileSync(path.join(tmp, '.aoforge', 'config.json'), `${JSON.stringify(config, null, 2)}\n`);
   return tmp;
 }
 
 function put(root, rel, text) {
-  const abs = path.join(root, '.planning', ...rel.split('/'));
+  const abs = path.join(root, '.aoforge', ...rel.split('/'));
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, text);
   return abs;

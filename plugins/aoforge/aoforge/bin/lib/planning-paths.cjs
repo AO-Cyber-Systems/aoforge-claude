@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * planning-paths.cjs — the total classifier of `.planning/` paths (objective 48, D-02 and U-1).
+ * planning-paths.cjs — the total classifier of `.aoforge/` paths (objective 48, D-02 and U-1).
  *
- * Every path under `.planning/` is exactly one of four classes:
+ * Every path under `.aoforge/` is exactly one of four classes:
  *
  *   tracked-config  config.json, STACK.md. Tracked in git in both modes (U-1: the only two files store mode keeps tracked).
  *   cache           Verb-owned documents. Store mode: GitHub is the source of truth, the file is a gitignored cache, and the
@@ -25,7 +25,7 @@ const path = require('path');
 
 const CLASSES = Object.freeze(['tracked-config', 'cache', 'generated', 'runtime']);
 
-/** U-1: the only `.planning/` files store mode keeps tracked. */
+/** U-1: the only `.aoforge/` files store mode keeps tracked. */
 const TRACKED_CONFIG = Object.freeze(['config.json', 'STACK.md']);
 
 const RUNTIME_FILES = new Set(['state.json', 'STATE_ARCHIVE.md', 'SESSION_PICKUP.md']);
@@ -220,14 +220,14 @@ const RULES = [
 /** Every verb the class table names, deduplicated, in table order. 48-15 asserts each one exists in the aof-tools dispatch. */
 const VERB_TABLE = Object.freeze([...new Set(RULES.map((r) => r.verb).filter(Boolean))]);
 
-/** The rel's segments; throws TypeError for anything that is not a safe POSIX path relative to `.planning/`. */
+/** The rel's segments; throws TypeError for anything that is not a safe POSIX path relative to `.aoforge/`. */
 function segmentsOf(rel) {
   if (typeof rel !== 'string') throw new TypeError(`planning path must be a string, got ${rel === null ? 'null' : typeof rel}`);
   if (rel === '') throw new TypeError('planning path is empty');
   if (rel.includes('\0')) throw new TypeError('planning path contains NUL');
   if (rel.includes('\\')) throw new TypeError(`planning path must use "/" separators: ${rel}`);
   if (rel.startsWith('/') || path.isAbsolute(rel) || /^[A-Za-z]:/.test(rel)) {
-    throw new TypeError(`planning path must be relative to .planning/: ${rel}`);
+    throw new TypeError(`planning path must be relative to .aoforge/: ${rel}`);
   }
   const seg = rel.split('/');
   for (const s of seg) {
@@ -237,7 +237,7 @@ function segmentsOf(rel) {
 }
 
 /**
- * classify(rel) -> `{class, verb, hint, entity}` for a POSIX path relative to `.planning/` (no leading `./`).
+ * classify(rel) -> `{class, verb, hint, entity}` for a POSIX path relative to `.aoforge/` (no leading `./`).
  * Total: an unrecognised path is `runtime`. `verb`/`hint` are set for cache and generated paths, null otherwise; `entity`
  * is `{role:'todo'|'debug', id, state}` or `{role:'quick', id, part}` for entity paths, null otherwise.
  * Throws TypeError for an unsafe rel (`..`, absolute, NUL, backslash, empty segments).
@@ -286,9 +286,12 @@ function relToPlanning(abs, planningDir) {
   return rel.split(path.sep).join('/');
 }
 
-/** U-1: the store-mode `.gitignore` lines, a fresh array each call. */
-function gitignoreLines() {
-  return ['.planning/*', ...TRACKED_CONFIG.map((rel) => `!.planning/${rel}`)];
+/**
+ * U-1: the store-mode `.gitignore` lines for the planning directory `dir` (default `.aoforge`; a project still on the
+ * legacy directory passes its name, compat.planningRel(root)), a fresh array each call.
+ */
+function gitignoreLines(dir = '.aoforge') {
+  return [`${dir}/*`, ...TRACKED_CONFIG.map((rel) => `!${dir}/${rel}`)];
 }
 
 /**

@@ -8,7 +8,7 @@
  * TRD-reference rule is now bounded: no word character, `.` or `-` before it, and not followed by a digit or `-<digit>`.
  *
  * Spawns the real binary against temp projects under a fake HOME. `objective remove` cascade-renumbers everything above
- * the removed objective, so nothing here ever points at this repository's own `.planning/`.
+ * the removed objective, so nothing here ever points at this repository's own `.aoforge/`.
  */
 
 const { describe, test, afterEach } = require('node:test');
@@ -187,7 +187,7 @@ describe('objective remove --confirm: dates and metadata survive the renumber (T
           'See 03-01 for details.',
           'Read `03-01-c-TRD.md` first.',
           'Done (03-01) already.',
-          'Path: .planning/objectives/x/03-01-c-TRD.md',
+          'Path: .aoforge/objectives/x/03-01-c-TRD.md',
         ],
       },
       { num: 4, name: 'D', dependsOn: 3 },
@@ -210,7 +210,7 @@ describe('objective remove --confirm: dates and metadata survive the renumber (T
       'See 02-01 for details.',
       'Read `02-01-c-TRD.md` first.',
       'Done (02-01) already.',
-      'Path: .planning/objectives/x/02-01-c-TRD.md',
+      'Path: .aoforge/objectives/x/02-01-c-TRD.md',
     ]) {
       assert.ok(after.includes(line), `missing renumbered line: ${line}\n${after.join('\n')}`);
     }
@@ -301,6 +301,6 @@ describe('objective remove without --confirm (control)', () => {
     assert.equal(r.json.dry_run, true);
     assert.equal(r.json.mutated, false);
     assert.equal(p.read('ROADMAP.md'), roadmap);
-    assert.deepEqual(fs.readdirSync(path.join(p.root, '.planning', 'objectives')).sort(), ['01-a', '02-b']);
+    assert.deepEqual(fs.readdirSync(path.join(p.root, '.aoforge', 'objectives')).sort(), ['01-a', '02-b']);
   });
 });

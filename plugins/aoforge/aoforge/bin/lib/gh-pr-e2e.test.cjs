@@ -103,7 +103,7 @@ function syncRefs() {
 }
 
 /**
- * The hermetic env, a git clone (of a local bare origin) holding a store-shaped `.planning/` cache for objective 49, the
+ * The hermetic env, a git clone (of a local bare origin) holding a store-shaped `.aoforge/` cache for objective 49, the
  * fake GitHub on the clone's `main`, and the mapping: objective issue #100 and TRD issues #101-#103 (ninety-nine unrelated
  * issues come first, so the numbers are the ones a real repository would have and "unrelated issues are left alone" is
  * checkable). `wiki` adds a local wiki remote; `assignees` are the objective issue's assignees.
@@ -113,17 +113,17 @@ function setup({ store = true, wiki = false, fake: fakeOptions = {}, assignees =
   const g = makeGitRemote();
   const project = makeStoreProject({ store, hasWiki: wiki });
   const root = g.work;
-  fs.cpSync(path.join(project.root, '.planning'), path.join(root, '.planning'), { recursive: true });
+  fs.cpSync(path.join(project.root, '.aoforge'), path.join(root, '.aoforge'), { recursive: true });
   project.cleanup();
 
-  const objectives = path.join(root, '.planning', 'objectives');
+  const objectives = path.join(root, '.aoforge', 'objectives');
   fs.renameSync(path.join(objectives, STORE_FIXTURE.objectiveDir), path.join(objectives, OBJ_DIR));
   const dir = path.join(objectives, OBJ_DIR);
   for (const [from, to] of Object.values(TRDS)) fs.renameSync(path.join(dir, from), path.join(dir, to));
   fs.rmSync(path.join(dir, STORE_FIXTURE.summaryFile));
   fs.renameSync(path.join(dir, '07-CONTEXT.md'), path.join(dir, '49-CONTEXT.md'));
   fs.renameSync(path.join(dir, '07-RESEARCH.md'), path.join(dir, '49-RESEARCH.md'));
-  const roadmap = path.join(root, '.planning', 'ROADMAP.md');
+  const roadmap = path.join(root, '.aoforge', 'ROADMAP.md');
   fs.writeFileSync(roadmap, fs.readFileSync(roadmap, 'utf8').replace(/Objective 7\b/g, 'Objective 49').replace(/\b07-0(\d)-/g, '49-0$1-'));
 
   const c0 = g.git(root, ['rev-parse', 'HEAD']);
@@ -591,7 +591,7 @@ describe('49-14 store-off parity (github.enabled true, github.store false)', { s
     const summaryText = '# 49-01 summary\n\nDone.\n';
     const summary = verbs.summaryPost(S.root, { trd: '49-01', text: summaryText });
     assert.equal(summary.ok, true, JSON.stringify(summary));
-    const objDir = path.join(S.root, '.planning', 'objectives', OBJ_DIR);
+    const objDir = path.join(S.root, '.aoforge', 'objectives', OBJ_DIR);
     const summaries = fs.readdirSync(objDir).filter((f) => /SUMMARY\.md$/.test(f));
     assert.equal(summaries.length, 1, `one SUMMARY was written: ${summaries}`);
     assert.equal(fs.readFileSync(path.join(objDir, summaries[0]), 'utf8'), summaryText, 'today\'s bytes');

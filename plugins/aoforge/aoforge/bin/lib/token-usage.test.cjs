@@ -25,7 +25,7 @@ describe('57-01 executor token totals', () => {
     root = fx.makeProjectsRoot();
     repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'df-token-repo-')));
     for (const d of ['99-demo', '10-alpha', '10-beta']) {
-      fs.mkdirSync(path.join(repo, '.planning', 'objectives', d), { recursive: true });
+      fs.mkdirSync(path.join(repo, '.aoforge', 'objectives', d), { recursive: true });
     }
     key = fx.projectKeyFor(repo);
   });
@@ -113,7 +113,7 @@ describe('57-01 executor token totals', () => {
     });
   });
 
-  test('5: with no REPO_ROOT line, the first record cwd (equal or inside) or a <repo>/.planning/ path decides', () => {
+  test('5: with no REPO_ROOT line, the first record cwd (equal or inside) or a <repo>/.aoforge/ path decides', () => {
     const r = freshRoot();
     const tag = (id) => fx.executorPrompt('objective_tag', { id, objectiveDir: '99-demo' });
     writeExecutor(r, { session: 's', agentId: 'a-cwd', cwd: repo, prompt: tag('99-05') });
@@ -214,7 +214,7 @@ describe('57-01 executor token totals', () => {
     );
     assert.deepStrictEqual(
       tu.identifyExecutorTrd({
-        prompt: 'Read .planning/objectives/48-x/48-01-ledger-TRD.md and .planning/objectives/48-x/48-02-other-TRD.md first.',
+        prompt: 'Read .aoforge/objectives/48-x/48-01-ledger-TRD.md and .aoforge/objectives/48-x/48-02-other-TRD.md first.',
       }),
       { ambiguous: true },
     );
@@ -224,7 +224,7 @@ describe('57-01 executor token totals', () => {
     // directory evidence for another objective (a cited SUMMARY) is dropped; the id is normalised
     assert.deepStrictEqual(
       tu.identifyExecutorTrd({
-        prompt: 'PLAN_ID: 48-01\nRead .planning/objectives/47-prev/47-02-SUMMARY.md, then .planning/objectives/48-x/48-01-ledger-TRD.md',
+        prompt: 'PLAN_ID: 48-01\nRead .aoforge/objectives/47-prev/47-02-SUMMARY.md, then .aoforge/objectives/48-x/48-01-ledger-TRD.md',
       }),
       { id: '48-01', dirs: ['48-x'] },
     );

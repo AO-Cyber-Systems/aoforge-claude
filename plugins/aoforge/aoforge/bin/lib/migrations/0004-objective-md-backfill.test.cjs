@@ -15,7 +15,7 @@ const fx = require('../__fixtures__/upgrade-fixtures.cjs');
 const { extractFrontmatter } = require('../frontmatter.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0004-objective-md-backfill.cjs');
-const BETA_REL = '.planning/objectives/02-beta/OBJECTIVE.md';
+const BETA_REL = '.aoforge/objectives/02-beta/OBJECTIVE.md';
 
 const cleanup = [];
 afterEach(() => {
@@ -73,14 +73,14 @@ describe('migration 0004 objective-md-backfill', () => {
     assert.match(content, /^## Goal\n\nBeta goal$/m);
 
     // 01-alpha already had one and is untouched.
-    const alpha = fs.readFileSync(path.join(root, '.planning/objectives/01-alpha/OBJECTIVE.md'), 'utf-8');
+    const alpha = fs.readFileSync(path.join(root, '.aoforge/objectives/01-alpha/OBJECTIVE.md'), 'utf-8');
     assert.match(alpha, /^objective: 01-alpha$/m);
   });
 
   test('6. only a non-NN dir lacks OBJECTIVE.md -> detect false, and apply never touches it', () => {
     const m = m0004();
     const root = track(fx.makeV1Project({ missingObjectiveMd: false }));
-    const scratch = path.join(root, '.planning', 'objectives', 'UI-VISUAL-EVAL-CALLOUT');
+    const scratch = path.join(root, '.aoforge', 'objectives', 'UI-VISUAL-EVAL-CALLOUT');
     fs.mkdirSync(scratch, { recursive: true });
 
     const det = m.detect(ctxFor(root));

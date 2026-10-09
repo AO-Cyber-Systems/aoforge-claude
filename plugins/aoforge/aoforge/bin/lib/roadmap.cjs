@@ -9,6 +9,7 @@ const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.c
 const { reconcile } = require('./roadmap-reconcile.cjs');
 const { isStoreMode } = require('./planning-mode.cjs');
 const { objectiveNumPattern, boldLabelPattern, milestoneHeadingPattern } = require('./text-escape.cjs');
+const { planningRoot, planningRel } = require('./compat.cjs');
 
 // `**Goal:**` and `**Goal**:` (the v1.5 ROADMAP form) both read; one definition for every reader here.
 const GOAL_RE = new RegExp(boldLabelPattern('Goal') + '\\s*([^\\n]+)', 'i');
@@ -82,7 +83,7 @@ function pickMilestone(bullets) {
 
 function getMilestoneInfo(cwd) {
   try {
-    const roadmap = fs.readFileSync(path.join(cwd, '.planning', 'ROADMAP.md'), 'utf-8');
+    const roadmap = fs.readFileSync(path.join(planningRoot(cwd), 'ROADMAP.md'), 'utf-8');
     const picked = pickMilestone(parseMilestoneBullets(roadmap));
     if (picked) {
       return { version: `v${picked.digits}`, name: picked.name || 'milestone' };
@@ -102,7 +103,7 @@ function getMilestoneInfo(cwd) {
 
 function getRoadmapObjectiveInternal(cwd, objectiveNum) {
   if (!objectiveNum) return null;
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   if (!fs.existsSync(roadmapPath)) return null;
 
   try {
@@ -137,7 +138,7 @@ function getRoadmapObjectiveInternal(cwd, objectiveNum) {
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
 function cmdRoadmapGetObjective(cwd, objectiveNum, raw) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
 
   if (!fs.existsSync(roadmapPath)) {
     output({ found: false, error: 'ROADMAP.md not found' }, raw, '');
@@ -221,7 +222,7 @@ function cmdRoadmapGetObjective(cwd, objectiveNum, raw) {
 }
 
 function cmdRoadmapAnalyze(cwd, raw) {
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
 
   if (!fs.existsSync(roadmapPath)) {
     output({ error: 'ROADMAP.md not found', milestones: [], objectives: [], current_objective: null }, raw);
@@ -229,7 +230,7 @@ function cmdRoadmapAnalyze(cwd, raw) {
   }
 
   const content = fs.readFileSync(roadmapPath, 'utf-8');
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
 
   // Extract all objective headings: ## Objective N: Name or ### Objective N: Name
   const objectivePattern = /#{2,4}\s*Objective\s+(\d+(?:\.\d+)?)\s*:\s*([^\n]+)/gi;
@@ -357,7 +358,7 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
     return;
   }
 
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
 
   const objectiveInfo = findObjectiveInternal(cwd, objectiveNum);
   if (!objectiveInfo) {
@@ -501,10 +502,9 @@ function summaryOneLiner(text) {
 // `milestone complete` is a plan and an executor, the shape `objective remove` uses (computeRemovalPlan -> print or
 // execute). planMilestoneComplete reads and decides; applyMilestonePlan carries out the ops it is given and decides
 // nothing; `--dry-run` prints the plan instead of executing it. Paths in the plan are project-relative POSIX
-// (`.planning/milestones/v1.0-ROADMAP.md`), the form `scope.objectives[].dir` already uses.
-const MILESTONES_REL = '.planning/MILESTONES.md';
-const STATE_REL = '.planning/STATE.md';
-const MILESTONE_ARCHIVE_REL = '.planning/milestones';
+// (`.aoforge/milestones/v1.0-ROADMAP.md`), the form `scope.objectives[].dir` already uses; each names the project's
+// resolved planning directory (`.aoforge/`, or a legacy one): planMilestoneComplete and cmdMilestoneComplete resolve
+// MILESTONES_REL, STATE_REL and MILESTONE_ARCHIVE_REL per call.
 
 /**
  * `1.0` and `v1.0` name one milestone, so both spell it `v1.0`: its archive files, its MILESTONES.md heading and its
@@ -527,9 +527,12 @@ function canonicalMilestoneVersion(version) {
  *   `ops` are `{op: 'write', path, content, action}` (action: create | append | update) and `{op: 'move', from, to}`.
  */
 function planMilestoneComplete(cwd, requestedVersion, options) {
+  const MILESTONES_REL = planningRel(cwd, 'MILESTONES.md');
+  const STATE_REL = planningRel(cwd, 'STATE.md');
+  const MILESTONE_ARCHIVE_REL = planningRel(cwd, 'milestones');
   const version = canonicalMilestoneVersion(requestedVersion);
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
-  const reqPath = path.join(cwd, '.planning', 'REQUIREMENTS.md');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
+  const reqPath = path.join(planningRoot(cwd), 'REQUIREMENTS.md');
   const statePath = path.join(cwd, STATE_REL);
   const milestonesPath = path.join(cwd, MILESTONES_REL);
   const today = new Date().toISOString().split('T')[0];
@@ -583,7 +586,7 @@ function planMilestoneComplete(cwd, requestedVersion, options) {
 
   // Archive REQUIREMENTS.md
   if (fs.existsSync(reqPath)) {
-    const archiveHeader = `# Requirements Archive: ${version} ${milestoneName}\n\n**Archived:** ${today}\n**Status:** SHIPPED\n\nFor current requirements, see \`.planning/REQUIREMENTS.md\`.\n\n---\n\n`;
+    const archiveHeader = `# Requirements Archive: ${version} ${milestoneName}\n\n**Archived:** ${today}\n**Status:** SHIPPED\n\nFor current requirements, see \`${planningRel(cwd, 'REQUIREMENTS.md')}\`.\n\n---\n\n`;
     archiveOnce(`${MILESTONE_ARCHIVE_REL}/${version}-REQUIREMENTS.md`, archiveHeader + fs.readFileSync(reqPath, 'utf-8'));
   }
 
@@ -598,7 +601,7 @@ function planMilestoneComplete(cwd, requestedVersion, options) {
   };
 
   // Archive audit file if exists
-  const auditRel = `.planning/${version}-MILESTONE-AUDIT.md`;
+  const auditRel = planningRel(cwd, `${version}-MILESTONE-AUDIT.md`);
   if (fs.existsSync(path.join(cwd, auditRel))) {
     moveOnce(auditRel, `${MILESTONE_ARCHIVE_REL}/${version}-MILESTONE-AUDIT.md`);
   }
@@ -631,9 +634,9 @@ function planMilestoneComplete(cwd, requestedVersion, options) {
   }
 
   // Archive this milestone's objective directories if requested: the counted and the cancelled ones that live under
-  // .planning/objectives/ (an objective already archived by an earlier milestone stays where it is).
+  // .aoforge/objectives/ (an objective already archived by an earlier milestone stays where it is).
   if (options.archiveObjectives) {
-    const currentPrefix = '.planning/objectives/';
+    const currentPrefix = `${planningRel(cwd, 'objectives')}/`;
     const toArchive = scope.objectives.filter(o => o.dir && o.dir.startsWith(currentPrefix) && (o.status_hint === 'dir' || o.status_hint === 'cancelled'));
     for (const o of toArchive) {
       moveOnce(o.dir, `${MILESTONE_ARCHIVE_REL}/${version}-objectives/${path.basename(o.dir)}`);
@@ -722,6 +725,9 @@ function renderMilestonePlan(plan) {
 }
 
 function cmdMilestoneComplete(cwd, version, options, raw) {
+  const MILESTONES_REL = planningRel(cwd, 'MILESTONES.md');
+  const STATE_REL = planningRel(cwd, 'STATE.md');
+  const MILESTONE_ARCHIVE_REL = planningRel(cwd, 'milestones');
   if (!version) {
     error('version required for milestone complete (e.g., v1.0)');
   }
@@ -780,8 +786,8 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
 }
 
 function cmdProgressRender(cwd, format, raw) {
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
-  const roadmapPath = path.join(cwd, '.planning', 'ROADMAP.md');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
+  const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
   const milestone = getMilestoneInfo(cwd);
 
   const objectives = [];

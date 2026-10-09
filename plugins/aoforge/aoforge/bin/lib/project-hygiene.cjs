@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const orgaw = require('./org-awareness.cjs');
+const { planningRoot, planningDirName, planningRel, planningDirLabel } = require('./compat.cjs');
 
 // _runFs injection seam (mirrors dup-detect.cjs pattern)
 const realFs = {
@@ -66,7 +67,7 @@ function scanForMisfiled({ cwd = process.cwd() } = {}) {
     warnings: [],
   };
 
-  const projectMdPath = path.join(cwd, '.planning', 'PROJECT.md');
+  const projectMdPath = path.join(planningRoot(cwd), 'PROJECT.md');
   let projectCtx = {};
   if (fs.existsSync(projectMdPath)) {
     try {
@@ -83,14 +84,14 @@ function scanForMisfiled({ cwd = process.cwd() } = {}) {
     return result;
   }
 
-  const objectivesDir = path.join(cwd, '.planning', 'objectives');
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
   let dirs;
   try {
     dirs = fs.readdirSync(objectivesDir, { withFileTypes: true })
       .filter(e => e.isDirectory()).map(e => e.name).sort();
   } catch (e) {
     if (e.code === 'ENOENT') {
-      result.warnings.push('.planning/objectives/ not found');
+      result.warnings.push(`${planningRel(cwd, 'objectives')}/ not found`);
       return result;
     }
     throw e;
@@ -102,7 +103,7 @@ function scanForMisfiled({ cwd = process.cwd() } = {}) {
     if (!fs.existsSync(objMdPath)) {
       result.no_link.push({
         objective: dirName,
-        directory: path.join('.planning', 'objectives', dirName),
+        directory: path.join(planningDirName(cwd), 'objectives', dirName),
         reason: 'OBJECTIVE.md not found',
       });
       continue;
@@ -120,13 +121,13 @@ function scanForMisfiled({ cwd = process.cwd() } = {}) {
     if (flagged === 'no_link') {
       result.no_link.push({
         objective: dirName,
-        directory: path.join('.planning', 'objectives', dirName),
+        directory: path.join(planningDirName(cwd), 'objectives', dirName),
         reason: 'no parent_issue or github_issue in frontmatter (or only shorthand refs)',
       });
     } else if (flagged) {
       result.misfiled.push({
         objective: dirName,
-        directory: path.join('.planning', 'objectives', dirName),
+        directory: path.join(planningDirName(cwd), 'objectives', dirName),
         current_repo: result.project_repo,
         ...flagged,
       });
@@ -177,16 +178,16 @@ function moveObjective({ cwd = process.cwd(), objectiveId, targetRepoPath }) {
 
   const objInfo = findObjectiveInternal(cwd, objectiveId);
   if (!objInfo) {
-    result.error = `objective '${objectiveId}' not found in current repo's .planning/objectives/`;
+    result.error = `objective '${objectiveId}' not found in current repo's ${planningRel(cwd, 'objectives')}/`;
     return result;
   }
   const srcDir = path.join(cwd, objInfo.directory);
   result.source_path = objInfo.directory;
 
   const absTarget = path.resolve(cwd, targetRepoPath);
-  const targetPlanning = path.join(absTarget, '.planning', 'objectives');
+  const targetPlanning = path.join(planningRoot(absTarget), 'objectives');
   if (!_runFs.existsSync(targetPlanning)) {
-    result.error = `target repo at '${targetRepoPath}' (resolved: ${absTarget}) has no .planning/objectives/ — is it an aoforge project?`;
+    result.error = `target repo at '${targetRepoPath}' (resolved: ${absTarget}) has no ${planningDirLabel()} objectives directory — is it an aoforge project?`;
     return result;
   }
 
@@ -227,7 +228,7 @@ function moveObjective({ cwd = process.cwd(), objectiveId, targetRepoPath }) {
   result.ok = true;
   result.warnings.push('Remember to update ROADMAP.md in both repos to reflect the move');
   result.next_steps = [
-    `cd ${absTarget} && git add .planning/objectives/${path.basename(srcDir)} && git commit -m 'chore: receive objective ${objectiveId}'`,
+    `cd ${absTarget} && git add ${planningRel(absTarget, 'objectives', path.basename(srcDir))} && git commit -m 'chore: receive objective ${objectiveId}'`,
     `cd ${cwd} && git add -A && git commit -m 'chore: move objective ${objectiveId} to ${path.basename(absTarget)}'`,
   ];
   return result;
@@ -260,7 +261,7 @@ function cmdProjectHygieneMove(cwd, args, raw) {
 const SIX_MONTHS_MS = 1000 * 60 * 60 * 24 * 30 * 6;
 
 function _readProjectFm(repoDir) {
-  const projectMd = path.join(repoDir, '.planning', 'PROJECT.md');
+  const projectMd = path.join(planningRoot(repoDir), 'PROJECT.md');
   if (!_runFs.existsSync(projectMd)) return null;
   try {
     return extractFrontmatter(_runFs.readFileSync(projectMd, 'utf-8')) || {};
@@ -350,14 +351,14 @@ function applyArchive({ workspaceDir = process.cwd(), name }) {
   }
 
   const repoDir = path.join(workspaceDir, name);
-  const sourcePlanning = path.join(repoDir, '.planning');
+  const sourcePlanning = planningRoot(repoDir);
   if (!_runFs.existsSync(sourcePlanning)) {
-    result.error = `repo '${name}' has no .planning/ to archive`;
+    result.error = `repo '${name}' has no ${planningDirLabel()} to archive`;
     return result;
   }
 
   const archiveRoot = path.join(workspaceDir, 'archived-projects', name);
-  const targetPlanning = path.join(archiveRoot, '.planning');
+  const targetPlanning = path.join(archiveRoot, path.basename(sourcePlanning));
   if (_runFs.existsSync(targetPlanning)) {
     result.error = `archive destination already exists: ${targetPlanning}. Manual review required.`;
     return result;
@@ -388,7 +389,7 @@ function applyArchive({ workspaceDir = process.cwd(), name }) {
   result.ok = true;
   result.moved_from = sourcePlanning;
   result.moved_to = targetPlanning;
-  result.warnings.push('Repo workspace dir preserved; only .planning/ archived. Run gh_archive_command separately to archive on GitHub.');
+  result.warnings.push(`Repo workspace dir preserved; only ${path.basename(sourcePlanning)}/ archived. Run gh_archive_command separately to archive on GitHub.`);
   return result;
 }
 

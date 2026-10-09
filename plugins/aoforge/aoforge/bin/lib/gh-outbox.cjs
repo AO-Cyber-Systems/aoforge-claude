@@ -15,7 +15,7 @@
  *
  * Hook-safe on purpose: node builtins plus sync-state.cjs (for atomicWrite) only. The post-commit
  * and Stop hooks of objectives 49-50 will call a flush, so this module must stay cheap to load.
- * That is why repoKey is copied below instead of imported, and why `.planning/config.json` is read
+ * That is why repoKey is copied below instead of imported, and why `.aoforge/config.json` is read
  * directly instead of through gh-client / helpers.
  *
  * Failure policy: a journal that cannot be parsed is renamed to `<file>.corrupt-<ts>` and reported,
@@ -35,6 +35,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { atomicWrite } = require('./sync-state.cjs');
+const { planningRoot } = require('./compat.cjs');
 
 const JOURNAL_VERSION = 1;
 /** Done ops kept in the journal for `status`; older ones are pruned on write. */
@@ -163,7 +164,7 @@ function checkDerive(d) {
   return null;
 }
 
-/** A wiki-push page is a path relative to `.planning/`: no absolute paths, no `..`, no NUL. */
+/** A wiki-push page is a path relative to `.aoforge/`: no absolute paths, no `..`, no NUL. */
 function safeRelPath(p) {
   return isStr(p) && !p.startsWith('/') && !p.includes('\0') && !p.includes('\\') && !p.split('/').includes('..');
 }
@@ -323,7 +324,7 @@ const OP_KINDS = Object.freeze({
       const bad = unknownKey(p, ['pages', 'message'], 'payload');
       if (bad) return bad;
       if (!Array.isArray(p.pages) || p.pages.length === 0 || !p.pages.every(safeRelPath)) {
-        return 'payload.pages must be a non-empty array of paths relative to .planning/ (no absolute paths, no "..")';
+        return 'payload.pages must be a non-empty array of paths relative to .aoforge/ (no absolute paths, no "..")';
       }
       return isStr(p.message) ? null : 'payload.message must be a non-empty string';
     },
@@ -513,14 +514,14 @@ function journalPath(projectRoot, opts = {}) {
 
 function readGithubConfig(projectRoot) {
   try {
-    const cfg = JSON.parse(fs.readFileSync(path.join(projectRoot, '.planning', 'config.json'), 'utf8'));
+    const cfg = JSON.parse(fs.readFileSync(path.join(planningRoot(projectRoot), 'config.json'), 'utf8'));
     return cfg && isPlainObject(cfg.github) ? cfg.github : null;
   } catch {
     return null;
   }
 }
 
-/** `github.enabled === true` in `.planning/config.json`. Missing or invalid config is not enabled. */
+/** `github.enabled === true` in `.aoforge/config.json`. Missing or invalid config is not enabled. */
 function isEnabled(projectRoot) {
   const gh = readGithubConfig(projectRoot);
   return !!gh && gh.enabled === true;
@@ -668,7 +669,7 @@ function enqueue(projectRoot, ops, opts = {}) {
   const { now = Date.now() } = opts;
   if (!isEnabled(projectRoot)) {
     return {
-      ok: true, skipped: true, reason: 'github.enabled is not true in .planning/config.json',
+      ok: true, skipped: true, reason: 'github.enabled is not true in .aoforge/config.json',
       enqueued: [], coalesced: [],
     };
   }
@@ -1143,7 +1144,7 @@ function readCacheIndex(projectRoot, opts = {}) {
 }
 
 /**
- * Replace the whole index. Keys are paths relative to `.planning/` (no absolute paths, no `..`).
+ * Replace the whole index. Keys are paths relative to `.aoforge/` (no absolute paths, no `..`).
  * @returns {{ok:true}|{ok:false, error:string}}
  */
 function writeCacheIndex(projectRoot, index, opts = {}) {

@@ -134,13 +134,13 @@ describe('aof-tools ui metrics baseline', () => {
     assert.strictEqual(json.fix_per_feat, 1);
   });
 
-  test('defaults --since to 2026-06-01 and --paths to flutter/lib, writing to .planning/', () => {
+  test('defaults --since to 2026-06-01 and --paths to flutter/lib, writing to .aoforge/', () => {
     const r = spawnSync(process.execPath, [TOOLS_PATH, 'ui', 'metrics', 'baseline', '--raw'], {
       cwd: tmp,
       encoding: 'utf-8',
     });
     assert.strictEqual(r.status, 0, r.stderr);
-    const outFile = path.join(tmp, '.planning', 'ui-metrics-baseline.json');
+    const outFile = path.join(tmp, '.aoforge', 'ui-metrics-baseline.json');
     assert.strictEqual(fs.existsSync(outFile), true);
     const json = JSON.parse(fs.readFileSync(outFile, 'utf-8'));
     assert.strictEqual(json.since, '2026-06-01');
@@ -187,7 +187,7 @@ describe('aof-tools ui metrics baseline', () => {
     assert.strictEqual(r.status, 1);
     assert.match(r.stderr, /--paths requires a value/);
     assert.strictEqual(r.stdout, '');
-    assert.strictEqual(fs.existsSync(path.join(tmp, '.planning', 'ui-metrics-baseline.json')), false);
+    assert.strictEqual(fs.existsSync(path.join(tmp, '.aoforge', 'ui-metrics-baseline.json')), false);
   });
 
   // PR #81 review finding 3: `--paths ""` / `--paths ,` survives flagValue (a
@@ -205,7 +205,7 @@ describe('aof-tools ui metrics baseline', () => {
     assert.strictEqual(r.status, 1);
     assert.match(r.stderr, /--paths requires a value/);
     assert.strictEqual(r.stdout, '');
-    assert.strictEqual(fs.existsSync(path.join(tmp, '.planning', 'ui-metrics-baseline.json')), false);
+    assert.strictEqual(fs.existsSync(path.join(tmp, '.aoforge', 'ui-metrics-baseline.json')), false);
   });
 
   test('--paths , (only commas/blank entries) is a usage error identical to a missing value', () => {
