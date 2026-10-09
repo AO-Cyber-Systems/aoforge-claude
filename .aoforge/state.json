@@ -1,9 +1,9 @@
 {
-  "current_objective": "72",
-  "current_job": 27,
-  "total_jobs": 27,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "73",
+  "current_job": 1,
+  "total_jobs": 8,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1494,6 +1494,11 @@
     {
       "objective": "72",
       "summary": "72-27: INST-04 closed on the read-only eden-biz gh rebrand dry run (exit 0, ok:true, apply:false, 0 ops; eden-biz has no legacy labels or managed text); no --apply run anywhere, a live apply needs the repository owner's own approval",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-01: bash/zsh PTY dispatch runs from a private 0600 script sourced with one line; PTY stderr now arrives with stdout (stderr is empty), pipe mode and fish/powershell keep separate streams",
       "rationale": null
     }
   ],
