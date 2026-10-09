@@ -26,7 +26,7 @@ metrics:
 
 ## Progress
 - [x] Task 1: Discover the fleet and preview each repository — 52e92ced (read-only, recorded after 72-24 finished)
-- [ ] Task 2: Approval gate. User's literal reply (AskUserQuestion, relayed by the orchestrator): "Approve 1–16, hold 17 (Recommended)" — approves, by name and in order, dfip, quanta-local, torrentConsole, aocyber-deploy, trades, EdenDocs, ao-terminal, devflow, eden-press, qrCodeBuilder, aostudio, aoid, aoinference, aofamily, justin-donnaruma-us-go, navigators; github-enterprise-migration HELD; the 16 dirty repositories and the ambiguous items skipped with no action. Done: 1/16 (dfip). Next step: re-check quanta-local, then `aof-tools upgrade --apply --path /Users/justin/dev/quanta-local` and its commit
+- [ ] Task 2: Approval gate. User's literal reply (AskUserQuestion, relayed by the orchestrator): "Approve 1–16, hold 17 (Recommended)" — approves, by name and in order, dfip, quanta-local, torrentConsole, aocyber-deploy, trades, EdenDocs, ao-terminal, devflow, eden-press, qrCodeBuilder, aostudio, aoid, aoinference, aofamily, justin-donnaruma-us-go, navigators; github-enterprise-migration HELD; the 16 dirty repositories and the ambiguous items skipped with no action. Progress is the "Task 2 outcomes" table below. Next step: the first approved repository (in the order dfip ... navigators) without an outcomes row: re-check it, then `aof-tools upgrade --apply --path /Users/justin/dev/<repo>` and its commit
 - [ ] Task 3: Verify the upgraded repositories
 
 ## Preflight
@@ -88,6 +88,7 @@ Every row: re-checked against the preview first (same branch, same tracked dirt,
 | # | Repo | Re-check | Applied | Commit | Commit contents | `.aoforge/` / `.planning` gone | W066/W067 | Outcome |
 |---|---|---|---|---|---|---|---|---|
 | 1 | dfip | ok (main, 78c10ff) | 0012 (0006 held) | 12bf091 | 27 R100 + config.json R087 (stamp) + .gitignore (+`.aoforge/.skill-active`) | yes / yes | none (W001, W040, W065) | upgraded |
+| 2 | quanta-local | ok (main, 3b9e5d3) | 0001, 0012 | dd98daa | 182 R + config.json D/A (0001 reshape + stamp) + .gitignore (+`.aoforge/.dup-detect-log.jsonl`, `.aoforge/.stack.lock/`) | yes / yes | none (W065) | upgraded |
 
 ## Ambiguous (listed for the user, not swept)
 
