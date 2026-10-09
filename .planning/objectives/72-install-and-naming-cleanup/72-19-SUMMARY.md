@@ -11,7 +11,7 @@ requirements: [INST-05, INST-06]
 ## Progress
 - [x] Task 1: Approval gate: rename the GitHub repository to aoforge-claude: no commit (live GitHub op + local remote config only)
 - [x] Task 2: Approval gate: push feat/stack-profile-loader: no commit (live push only); PUSHED_SHA 02da68293312e1812270259fde88668f72a9c848
-- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. next step: a gap TRD fixes the CI-only `plugins/aoforge/hooks/hook-coexistence.test.js` sync-runtime failure (reproduce with the node:26 Docker recipe in `.github/known-test-failures.json` `$environment`) and the `milestone-complete.test.cjs:382` escaping alert; the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR; then a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
+- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. Gap fix (local only, see "Gap fix" below): the hook-coexistence race is fixed (this commit); the `milestone-complete.test.cjs:382` escaping fix is pending. next step: fix `entryLines` in `plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs:382` with the shared `text-escape.cjs` regex escape and commit it; then the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR by the user, a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
 
 ## Approvals (literal replies)
 
@@ -123,3 +123,34 @@ Per the TRD error path, nothing was fixed here: a fix needs a gap TRD and a new 
 - Auto-fix cycles used: 0 (the TRD forbids fixing here)
 - Must-haves verified: 4/5. Rename with a recorded reply, new name resolves and old redirects; origin on the new URL; push after its own reply with PUSHED_SHA == validated head; no force, tags, merge or tag. NOT met: "its checks are green before the TRD completes".
 - Gate failures: CI `test (npm test, gated)` (hook-coexistence sync-runtime, CI-only) and `CodeQL` (1 new test-code alert, 2 re-flagged dismissed alerts).
+
+## Gap fix (2026-10-09, local only)
+
+The user chose to fix locally, commit locally and push nothing. Main checkout /Users/justin/dev/devflow-claude, branch feat/stack-profile-loader, base 72bb78be (1 commit ahead of origin before the fix). No CodeQL alert was dismissed; the PR was not touched; nothing was pushed, merged or tagged. The two re-flagged alerts (handoff.cjs:54, ui-spec-cli.test.cjs:781) are path-change re-flags of alerts already dismissed on main and are not addressed here.
+
+### Fix 1: hook-coexistence `sync-runtime.js@SessionStart` ENOENT (CI test gate)
+
+**Root cause: a race with git 2.55's detached auto-maintenance, not a Linux/node difference.**
+
+- `ensureTemplate()` (`plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js`) runs `git commit` in a temp template repo, and the first `makeWorld()` then `fs.cpSync`s that template straight away. `git commit` starts `git maintenance run --auto --quiet --detach` (confirmed with `GIT_TRACE=1`). `maintenance_run_tasks` takes `.git/objects/maintenance.lock`, then `daemonize()`s.
+- git 2.55.0 is the first release whose `daemonize()` hands the tempfile to the child (`reassign_tempfile_ownership`; `setup.c` at v2.49.0 to v2.54.0 has 0 hits, v2.55.0 has 2). Before 2.55 the exiting parent removed the lock before `git commit` returned. From 2.55 on the daemon holds the lock past `git commit`'s exit: in a GIT_TRACE2_PERF trace the daemon's `exit` is logged after the `git commit` process's `exit`.
+- node 26's native `cpSync` (`CopyDirRecursive` in `src/node_file.cc` v26.11.1) lists `.git/objects`, sees `maintenance.lock` as a regular file, and the daemon removes it before `copy_file`. A failed `copy_file` is reported with the PARENT destination directory, so the error reads `ENOENT, No such file or directory '<world>/project/.git/objects'`. That is the CI message exactly.
+- Why only sync-runtime: it is the first registration in hooks.json, so its warm world (`getWarm` at `hook-coexistence.test.js:606`) is the first `makeWorld` in the process, run microseconds after the template's `git commit`. Every later copy runs after the lock is long gone. All sync-runtime cases (10-12, 13 x6, 14) await that one rejected warm-world promise, so one race failed all of them.
+- Why only CI: the CI runner has git 2.55.0 (`actions/checkout` log; node v26.11.1). macOS here has Apple Git 2.54.0 and the `node:26` image has git 2.47.3, so neither has the handoff. With a single file and no load the window is too short to hit; in the full suite under load it widens.
+- The same latent defect was in `plugins/aoforge/hooks/planning-writes.audit.test.js` (same template + `cpSync` pattern). It passed CI by timing only. [Rule 1: same bug, fixed in the same commit.]
+
+**Reproduction (Docker, before the fix).** `.github/known-test-failures.json`'s plain `node:26` recipe has git 2.47.3. With it the file passes 227/227, so it cannot reproduce this failure. A probe image was built instead: ubuntu:24.04 + ppa:git-core/ppa (git 2.55.0) + the node:26 binary (v26.11.1), which matches CI's versions. With the real fixture, each fresh process ran `makeWorld()` once under CPU contention (3 busy loops per CPU, process at nice 19). Result over 60 runs: 1 cpSync ENOENT, the same message as CI (`ENOENT, No such file or directory '/tmp/coexist-eMvXon/project/.git/objects'`), and 4 worlds that had a stale `maintenance.lock` copied into them. A minimal probe (`git commit` then `readdir .git/objects`) saw the lock right after commit in 9 of 30 loaded runs; with `maintenance.auto=false` it saw it in 0 of 30.
+
+**Fix.** Both templates set `git config maintenance.auto false` before they commit, so `git commit` starts no maintenance and nothing is left holding a lock. It is set in the repo config, so every copied world inherits it, and no hook's git call in a world leaves a daemon running behind the test (which could also race `disposeWorld`'s `rmSync`). The test file gets a new `world template` guard. It asserts `git config --local --get maintenance.auto` is `false` (`--local`, so a developer's global setting cannot make it pass) and that the template's `.git/objects` holds no `*.lock`.
+
+| Check | Environment | Result |
+|---|---|---|
+| guard test vs the PRE-fix fixture (`git checkout HEAD --` inside a container copy) | node 26.11.1, git 2.55.0 | FAIL as expected: `'(unset)' !== 'false'`, exit 1 (RED) |
+| fixture race driver, 60 loaded runs, fixed fixture | node 26.11.1, git 2.55.0 | `cpSync_ENOENT=0 stale_lock_copied=0` |
+| `node --test hook-coexistence.test.js planning-writes.audit.test.js` | node 26.11.1, git 2.55.0 (CI versions) | 289/289 pass, exit 0 |
+| same | `node:26` recipe image (node 26.11.1, git 2.47.3) | 289/289 pass, exit 0 |
+| same | macOS (node 24.13.1, Apple Git 2.54.0) | 289/289 pass, exit 0 |
+
+Note: one run of both files under the artificial 12-busy-loop load (suite at nice 19) took 414 s, and 24 tests failed on hook-spawn timeouts. None of them was an ENOENT. That load starves the whole suite, so the race fix was measured with the targeted driver above, not with that run.
+
+Files: `plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js`, `plugins/aoforge/hooks/planning-writes.audit.test.js`, `plugins/aoforge/hooks/hook-coexistence.test.js`. Commit: (this commit).

@@ -170,6 +170,11 @@ function ensureTemplate() {
   git('config', 'user.email', 'audit@test.invalid');
   git('config', 'user.name', 'Audit');
   git('config', 'commit.gpgsign', 'false');
+  // No auto maintenance: since git 2.55 the detached `git maintenance run --auto`
+  // that `git commit` starts still holds .git/objects/maintenance.lock after the
+  // commit returns, and makeWorld's cpSync can list it and then lose it (ENOENT).
+  // See coexistence-fixtures.js ensureTemplate.
+  git('config', 'maintenance.auto', 'false');
   git('add', '-A');
   git('commit', '-q', '-m', 'seed');
   templateBase = base;

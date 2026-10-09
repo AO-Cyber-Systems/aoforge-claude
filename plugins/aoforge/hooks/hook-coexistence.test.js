@@ -23,7 +23,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFile } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 
 const runner = require('./__fixtures__/hook-runner.js');
 const { STOP_FAMILY_EVENTS, stopFamilyProblems } = require('./__fixtures__/hook-output-schema.js');
@@ -860,6 +860,27 @@ function unparseableStateFiles(world) {
 }
 
 // ─── The tests ───────────────────────────────────────────────────────────────
+
+describe('world template', () => {
+  // TRD 72-19 gap fix: on git 2.55 a detached auto-maintenance child still held
+  // .git/objects/maintenance.lock while makeWorld copied the template, and the
+  // first world of the run failed with ENOENT (see ensureTemplate).
+  test('the template repo has auto maintenance off in its own config, and no lock file to copy', () => {
+    const root = path.join(fx.ensureTemplate(), 'project');
+    // --local, so a developer's global maintenance.auto cannot make this pass. Unset exits 1.
+    let value = '(unset)';
+    try {
+      value = execFileSync('git', ['config', '--local', '--get', 'maintenance.auto'], {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }).trim();
+    } catch { /* unset: value stays '(unset)' */ }
+    assert.equal(value, 'false', 'ensureTemplate must set maintenance.auto=false before it commits');
+    const locks = fs.readdirSync(path.join(root, '.git', 'objects')).filter((name) => name.endsWith('.lock'));
+    assert.deepEqual(locks, [], 'a lock file in the template is copied into, or lost from, every world');
+  });
+});
 
 describe('coexistence matrix', () => {
   const REGS = registrations();

@@ -78,6 +78,15 @@ function ensureTemplate() {
   git('config', 'user.email', 'coexist@test.invalid');
   git('config', 'user.name', 'Coexist');
   git('config', 'commit.gpgsign', 'false');
+  // No auto maintenance. `git commit` runs `git maintenance run --auto --detach`,
+  // and since git 2.55 the detached child keeps .git/objects/maintenance.lock
+  // after `git commit` has returned (daemonize() hands it the tempfile; before
+  // 2.55 the exiting parent removed it). The cpSync in makeWorld then lists the
+  // lock and loses it before copying it: "ENOENT ... project/.git/objects" on
+  // ubuntu-latest (git 2.55) under load, or a stale lock copied into the world.
+  // Off in the repo config, so every copied world inherits it too and no hook's
+  // git call leaves a daemon behind.
+  git('config', 'maintenance.auto', 'false');
   git('add', '-A');
   git('commit', '-q', '-m', 'seed');
   templateBase = base;
