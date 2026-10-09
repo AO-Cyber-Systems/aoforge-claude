@@ -62,7 +62,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
-**Status:** Objective 72 executed — 26/26 TRDs complete, ready for verification
+**Status:** Objective 72 executed — 27/27 TRDs complete, ready for verification
 **Progress:** [██████████] 100%
 
 ## Branch State (post-merge)
@@ -283,6 +283,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 ## Session Continuity
 
-Last session: 2026-10-09T16:20:52.755Z
+Last session: 2026-10-09T16:41:41.542Z
 Resume file: `None`
-Stopped at: Completed 72-26-checkout-move-and-rekey-TRD.md (PR #129 open; objective 72 ready for verification)
+Stopped at: Completed 72-27-gh-client-max-buffer-TRD.md

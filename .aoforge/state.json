@@ -1,7 +1,7 @@
 {
   "current_objective": "72",
-  "current_job": 26,
-  "total_jobs": 26,
+  "current_job": 27,
+  "total_jobs": 27,
   "progress_pct": 100,
   "status": "ready_for_verification",
   "last_activity": "2026-10-09",
@@ -1484,6 +1484,16 @@
     {
       "objective": "72",
       "summary": "72-26: on relayed user replies (push: approved; PR: approved) pushed 11e98cf4..abc18a9f and opened PR #129 into main; not merged; its unit gate fails only on E2E1 (mid-TRD roadmap self-test, todo filed)",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-27: gh-client spawn limits live only at the spawn site: every gh spawn gets maxBuffer 256 MiB, a --paginate call 300 s, any other 30 s; caller opts win and fake runners see opts untouched; ENOBUFS/ETIMEDOUT return a named cause and no stdout",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-27: INST-04 closed on the read-only eden-biz gh rebrand dry run (exit 0, ok:true, apply:false, 0 ops; eden-biz has no legacy labels or managed text); no --apply run anywhere, a live apply needs the repository owner's own approval",
       "rationale": null
     }
   ],

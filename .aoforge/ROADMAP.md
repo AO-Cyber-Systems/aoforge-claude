@@ -304,7 +304,7 @@ TRDs:
 - [x] 72-24-vanity-pr-and-pages-project-TRD.md — (W16) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
 - [x] 72-25-fleet-sweep-TRD.md — (W17) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
 - [x] 72-26-checkout-move-and-rekey-TRD.md — (W18) checkpoint: user moves checkout to `~/dev/aoforge-claude`; worktrees, memory and keyed state carried over; follow-up PR for the post-merge commits (push and PR gates)
-- [ ] 72-27-gh-client-max-buffer-TRD.md — (W19, gap closure) gh-client spawn runner gets a 256 MiB buffer and 300 s paginated timeout with named ENOBUFS/ETIMEDOUT causes (TDD); read-only `gh rebrand --dry-run` against eden-biz recorded; INST-04 ticked only on success; no `--apply`
+- [x] 72-27-gh-client-max-buffer-TRD.md — (W19, gap closure) gh-client spawn runner gets a 256 MiB buffer and 300 s paginated timeout with named ENOBUFS/ETIMEDOUT causes (TDD); read-only `gh rebrand --dry-run` against eden-biz recorded; INST-04 ticked only on success; no `--apply`
 
 ### Objective 73: Handoff gaps and result injection
 
@@ -357,7 +357,7 @@ TRDs:
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
-| 72. Install and naming cleanup | v1.6 | 26/26 | Complete | 2026-10-09 |
+| 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
