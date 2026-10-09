@@ -36,6 +36,8 @@
  * 12.  rewritePlanning: planningRoot forms, import injection and merge, an existing
  *      declaration left alone, residual tagging, prose, regex literals.
  * 13.  classifyToken.
+ * 14.  Ignore regions: lines between the rename-guard ignore markers are kept by both passes;
+ *      residual line numbers still count them (TRD 72-06).
  */
 
 const test = require('node:test');
@@ -775,4 +777,57 @@ test('13. classifyToken for the planning rules', () => {
   });
   assert.strictEqual(classifyToken('opts.planningDir', '', 'planning').action, 'preserve');
   assert.strictEqual(classifyToken('p.planning', '', 'planning').action, 'preserve');
+});
+
+// 14. Ignore regions (TRD 72-06): lines between the rename-guard ignore markers are never rewritten, by
+//     either pass, so CLAUDE.md's transition note can name the legacy spellings on purpose. The markers are
+//     built from parts, like the guard's, so this file holds no region of its own.
+const IGNORE_START = ['rename-guard', 'ignore-start'].join(':');
+const IGNORE_END = ['rename-guard', 'ignore-end'].join(':');
+
+test('14. lines inside an ignore region are kept, lines outside are rewritten (planning)', () => {
+  const text = [
+    'Read .planning/STATE.md first.',
+    `<!-- ${IGNORE_START} -->`,
+    '> The planning tree stays at `.planning/` until 72-21.',
+    `<!-- ${IGNORE_END} -->`,
+    'Then .planning/ROADMAP.md.',
+    '',
+  ].join('\n');
+  const r = processFile('CLAUDE.md', Buffer.from(text), 'planning');
+  assert.strictEqual(r.skipped, null);
+  assert.strictEqual(
+    r.text,
+    [
+      'Read .aoforge/STATE.md first.',
+      `<!-- ${IGNORE_START} -->`,
+      '> The planning tree stays at `.planning/` until 72-21.',
+      `<!-- ${IGNORE_END} -->`,
+      'Then .aoforge/ROADMAP.md.',
+      '',
+    ].join('\n'),
+  );
+  assert.strictEqual(r.count, 2);
+});
+
+test('14. an ignore region is honoured by the names pass too, and a file without one is unchanged in behaviour', () => {
+  const text = [`<!-- ${IGNORE_START} -->`, 'DevFlow 2.15.0 is live.', `<!-- ${IGNORE_END} -->`, 'DevFlow', ''].join('\n');
+  const r = processFile('README.md', Buffer.from(text), 'names');
+  assert.strictEqual(r.text, [`<!-- ${IGNORE_START} -->`, 'DevFlow 2.15.0 is live.', `<!-- ${IGNORE_END} -->`, 'AOForge', ''].join('\n'));
+  const plain = processFile('README.md', Buffer.from('DevFlow\n'), 'names');
+  assert.strictEqual(plain.text, 'AOForge\n');
+});
+
+test('14. residual line numbers count the lines of an ignore region', () => {
+  const src = [
+    `// ${IGNORE_START}`,
+    "const keep = '.planning/x';",
+    `// ${IGNORE_END}`,
+    "const d = '.planning/config.json';",
+    '',
+  ].join('\n');
+  const r = processFile('plugins/aoforge/aoforge/bin/lib/x.cjs', Buffer.from(src), 'planning');
+  assert.ok(r.text.includes("const keep = '.planning/x';"), r.text);
+  assert.ok(r.text.includes("const d = '.aoforge/config.json';"), r.text);
+  assert.deepStrictEqual(r.residuals.map((x) => x.line), [4]);
 });

@@ -18,12 +18,16 @@
 // 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path.
 // 5. Sensitivity: a sample text with one of each token yields three findings; the preserved
 //    product names (the ...ops product and the .cloud domain) yield none.
-// 5b. Planning-tree exemption: in a scratch git repo with tracked `.aoforge/x.md` and
-//    `.aoforge/x.md`, each containing the legacy product word, scanRepo yields zero findings for
+// 5b. Planning-tree exemption: in a scratch git repo with tracked `<new planning dir>/x.md` and
+//    `<legacy planning dir>/x.md`, each containing the legacy product word, scanRepo yields zero findings for
 //    both (the planning tree stays history after 72-21's move), while the same word in the
 //    tracked live user guide yields one. (`docs/x.md` is design history under the codemod's
 //    docs-history SKIP, so the live guide is the positive control.)
 // 6. Token patterns are built from LEGACY: this file's own source contains no legacy literal.
+// 8. Planning directory (TRD 72-06): the token set includes the legacy planning directory name
+//    (`planningDir`, built from LEGACY.planningDir), counted only where the codemod would call it a
+//    directory (not member access such as a config key); a sample line naming the legacy STATE.md
+//    yields one finding; the tree passes with ALLOW entries for .gitignore and the monorepo doctor.
 //
 // Runtime model: read-only against the repository (5b writes only to its own tmp dir). Repo
 // root is path.resolve(__dirname, '..', '..', '..', '..', '..'); a mirror install (no README.md
@@ -36,7 +40,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
-const { LEGACY } = require('./legacy-names.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 const { globToRegExp } = require('./doc-refs.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
@@ -79,6 +83,10 @@ const ALLOW = [
   {
     pattern: '.gitignore',
     reason: 'keeps the legacy ignore lines beside the new ones for one release (old runtime files)',
+  },
+  {
+    pattern: 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js',
+    reason: 'skips directories by name: its skip lists name the legacy planning and product directories beside the new ones',
   },
 ];
 
@@ -126,7 +134,13 @@ const TOKENS = [
   { id: 'product', re: new RegExp(esc(LEGACY.slug), 'gi') },
   { id: 'cli', re: new RegExp(esc(LEGACY.cli), 'gi') },
   { id: 'banner', re: new RegExp(esc(LEGACY.banner), 'g') },
+  // TRD 72-06: the legacy planning directory, not followed by an identifier character (a longer
+  // identifier is another word). Member access is filtered below with the codemod's occurrenceKind.
+  { id: 'planningDir', re: new RegExp(`${esc(LEGACY.planningDir)}(?![A-Za-z0-9_])`, 'g'), directoryOnly: true },
 ];
+
+/** Kinds of a planning-directory occurrence that name the directory (codemod occurrenceKind). */
+const DIRECTORY_KINDS = new Set(['path', 'regex']);
 
 /** Swap every span the codemod preserves (or leaves for a human) in `rel` for same-length filler. */
 function maskPreserved(text, rel) {
@@ -166,6 +180,7 @@ function scanText(text, rel = '') {
     if (ignored.has(i)) continue;
     for (const t of TOKENS) {
       for (const m of lines[i].matchAll(t.re)) {
+        if (t.directoryOnly && !DIRECTORY_KINDS.has(codemod().occurrenceKind(lines[i], m.index))) continue;
         out.push({ line: i + 1, token: wordAt(lines[i], m.index, m[0].length) });
       }
     }
@@ -337,7 +352,7 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
           assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
         };
         git('init', '-q');
-        const files = ['.aoforge/x.md', '.aoforge/x.md', 'docs/x.md', 'docs/USER-GUIDE.md'];
+        const files = [`${NAMES.planningDir}/x.md`, `${LEGACY.planningDir}/x.md`, 'docs/x.md', 'docs/USER-GUIDE.md'];
         for (const rel of files) {
           fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
           fs.writeFileSync(path.join(tmp, rel), `A ${LEGACY.product} note.\n`);
@@ -359,5 +374,30 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
     assert.equal(new RegExp(esc(LEGACY.slug), 'i').test(src), false, 'legacy product word in the guard source');
     assert.equal(src.toLowerCase().includes(LEGACY.cli.toLowerCase()), false, 'legacy CLI name in the guard source');
     assert.equal(src.includes(LEGACY.banner), false, 'legacy banner in the guard source');
+    assert.deepEqual(scanText(src, path.relative(REPO_ROOT, __filename)), [], 'legacy planning directory in the guard source');
+  });
+
+  describe('8: the legacy planning directory (TRD 72-06)', () => {
+    test('8a: the token set holds the planning directory token, built from LEGACY', () => {
+      const t = TOKENS.find((x) => x.id === 'planningDir');
+      assert.ok(t, 'a planningDir token');
+      assert.ok(t.re.source.startsWith(esc(LEGACY.planningDir)), t.re.source);
+    });
+
+    test('8b: a sample line naming the legacy STATE.md yields one finding', () => {
+      const found = scanText(`cat ${LEGACY.planningDir}/STATE.md\n`, 'README.md');
+      assert.deepEqual(found, [{ line: 1, token: `${LEGACY.planningDir}/STATE.md` }]);
+    });
+
+    test('8c: member access and longer identifiers are not the directory', () => {
+      const prop = LEGACY.planningDir.slice(1);
+      const text = [`cfg.${prop}.commit_docs`, `opts.${prop}Dir`, `${NAMES.planningDir}/STATE.md`].join('\n');
+      assert.deepEqual(scanText(text, 'x.cjs'), []);
+    });
+
+    test('8d: a regex naming the legacy directory is a finding', () => {
+      const found = scanText(`const RE = /\\${LEGACY.planningDir}\\//;\n`, 'x.cjs');
+      assert.equal(found.length, 1, JSON.stringify(found));
+    });
   });
 });

@@ -7,5 +7,5 @@ trd: "06"
 
 ## Progress
 - [x] Task 1: Fixture builder: main checkout plus worktree in each layout — 6afc9662
-- [x] Task 2: Hooks resolve both layouts — e8ab54ec (RED), (this commit) (GREEN)
-- [ ] Task 3: Prose pass and the guard's planning token — next step: add ignore-region support to scripts/aoforge-rename.cjs processFile with a test in scripts/aoforge-rename.legacy.test.cjs, then add the planningDir token + ALLOW entries to rename-guard.repo.test.cjs and run it (RED)
+- [x] Task 2: Hooks resolve both layouts — e8ab54ec (RED), e5f40291 (GREEN)
+- [ ] Task 3: Prose pass and the guard's planning token — RED (this commit); next step: commit the codemod ignore-region implementation with the prose pass (`node scripts/aoforge-rename.cjs --rules planning --only ... --write`), add `.aoforge/` lines to .gitignore, fix the remaining guard findings (docs/built-in-*.md, five bin tests), run the repo gates and the full suite
