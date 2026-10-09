@@ -582,7 +582,7 @@ function spawnDaemonInTerminal({ home, project, args = [], env = {} }) {
   // the second line of the dispatch frame. The frame's own start line quotes the
   // command text, so a prompt must be looked for after it, never before.
   d.afterFrame = () => {
-    const i = d.text.lastIndexOf('interrupts the command\r\n');
+    const i = d.text.lastIndexOf('Ctrl+C interrupts the command');
     return i < 0 ? '' : d.text.slice(i);
   };
   return d;
