@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 26,
   "progress_pct": 96,
   "status": "executing",
@@ -1354,6 +1354,11 @@
     {
       "objective": "72",
       "summary": "72-05: W066 legacy-planning-dir (lib/planning-layout.cjs) is reported by validate health Check 21 and both init advisories; migration 0010's store block follows the project's directory, its printed commit steps stay 72-08's",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-06: hooks require compat.cjs directly (after the alias line) and print the RESOLVED planning directory in messages and relative paths; the rename guard counts the legacy directory only where the codemod's occurrenceKind says path or regex; the codemod keeps rename-guard ignore regions in both passes",
       "rationale": null
     }
   ],
