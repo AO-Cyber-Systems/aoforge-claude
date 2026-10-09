@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 19,
+  "current_job": 20,
   "total_jobs": 26,
   "progress_pct": 99,
   "status": "executing",
@@ -1414,6 +1414,11 @@
     {
       "objective": "72",
       "summary": "72-19: validation of record for 3.0.0 is the green PR #128 CI at 11e98cf4, superseding 72-18's 02da6829 (gap-fix test commits only in between)",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-20: PR #128 merged with --match-head-commit 11e98cf4 (merge commit b4a9d870); v3.0.0 annotated tag and release published; 8582fce9 left out of the merge, reaches main via a later approved push and PR",
       "rationale": null
     }
   ],

@@ -270,6 +270,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-19: E2E1 roadmap drift resolved by ticking 72-19 in ROADMAP.md before the second push (user: Tick 72-19 now)
 - [Objective 72]: 72-19: CodeQL #161/#162, path-change re-flags of #95/#146 dismissed on main, dismissed with the same reasons (user: Dismiss both)
 - [Objective 72]: 72-19: validation of record for 3.0.0 is the green PR #128 CI at 11e98cf4, superseding 72-18's 02da6829 (gap-fix test commits only in between)
+- [Objective 72]: 72-20: PR #128 merged with --match-head-commit 11e98cf4 (merge commit b4a9d870); v3.0.0 annotated tag and release published; 8582fce9 left out of the merge, reaches main via a later approved push and PR
 
 ## Performance Metrics
 
@@ -449,4 +450,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P17 | 21min | 3 tasks | 15 files |
 | Objective 72 P18 | 9min | 3 tasks | 11 files |
 | Objective 72 P19 | 9h43m | 3 tasks | 5 files |
+| Objective 72 P20 | 7m | 3 tasks | 0 files |
 
