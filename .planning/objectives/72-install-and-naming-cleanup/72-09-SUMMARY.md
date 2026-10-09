@@ -69,6 +69,12 @@ verification:
 
 duration: 27min
 completed: 2026-10-09
+tokens_input: 22757943
+tokens_output: 121302
+tokens_cache_read: 22494253
+tokens_cache_write: 263456
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 09: CLAUDE.md blocks: old markers recognised, project blocks migrated, the global file changed only with approval Summary
@@ -79,7 +85,7 @@ completed: 2026-10-09
 - [x] Task 1: Fixture builder: legacy CLAUDE.md shapes; PRESERVE in legacy-names — 7ca9b197
 - [x] Task 2: legacy-rewrite, managed-block dual markers, migration 0014 — 120812b6 (RED), 883b1a46 (GREEN)
 - [x] Task 3: Global template v4 and diff-then-confirm for outside text — 088569df (RED), 781575c4 (GREEN)
-- [x] Deviation (Rule 2): 0014 keeps the legacy planning directory name while the project still uses it — 0ad8e898 (RED), (this commit) (GREEN)
+- [x] Deviation (Rule 2): 0014 keeps the legacy planning directory name while the project still uses it — 0ad8e898 (RED), 05373f10 (GREEN)
 
 ## What was built
 
@@ -193,7 +199,7 @@ None. The test command came from the stack profile and the TRD.
 - **Issue:** 0012 defers the `.planning` to `.aoforge` move on a dirty tree or mid-merge and writes nothing, but 0014 would still rewrite the block's planning path. The project's CLAUDE.md would then point at a directory that does not exist.
 - **Fix:** `rewriteLegacyNames(text, { planningDir })`. 0014 passes `!compat.isLegacyPlanning(root)` and applies again once the directory has moved. Tests 9d and 11d2 cover it.
 - **Files modified:** legacy-rewrite.cjs, migrations/0014-claude-md-rebrand.cjs and their tests
-- **Commits:** 0ad8e898 (RED), (the deviation GREEN commit, see Progress)
+- **Commits:** 0ad8e898 (RED), 05373f10 (GREEN)
 
 ### Additions beyond the test list (no behaviour removed)
 
@@ -207,3 +213,10 @@ None. The test command came from the stack profile and the TRD.
 - Auto-fix cycles used: 2 (regex-escape gate; the sync-runtime closure)
 - Must-haves verified: 5/5 truths, 3/3 artifacts, 2/2 key links (`rg -n blockTag managed-block.cjs` line 38; `rewriteLegacyNames` in global-upgrade.cjs planOutside)
 - Gate failures: none beyond the baseline (daemon/node-pty, E2E1)
+
+## Self-Check: PASSED
+
+- Files: the 7 created files and the 8 modified files listed in key-files exist in the worktree; `templates/global-claude-md.md` holds `template_version: "4"`.
+- Commits on `df/exec-72-09-claude-md-markers-and-global-block` since 412dcca3: 7ca9b197, 120812b6, 883b1a46, 088569df, 781575c4, 0ad8e898, 05373f10 (all FOUND); the worktree is clean.
+- Tests 1-12 plus 7b, 9b-9d, 10b and 11d2 pass. The existing managed-block, 0005, 0007, global-upgrade, upgrade-cli and sync-runtime suites pass. The final full suite is at baseline (10 daemon tests that need node-pty, plus E2E1).
+- The real `~/.claude/CLAUDE.md` was never read or written: every test uses a temp home with HOME fenced, and the manual check ran with HOME set to a scratchpad directory.
