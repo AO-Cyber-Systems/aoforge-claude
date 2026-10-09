@@ -167,7 +167,8 @@ describe('8: the pointer plugin manifests', () => {
     const h = readJson(PLUGIN_ROOT, 'hooks', 'hooks.json');
     assert.deepEqual(Object.keys(h.hooks), ['SessionStart']);
     const commands = h.hooks.SessionStart.flatMap((g) => g.hooks.map((x) => `${x.type} ${x.command}`));
-    assert.deepEqual(commands, ['command node ${CLAUDE_PLUGIN_ROOT}/hooks/pointer-notice.js']);
+    // quoted: a plugin root holding a space must not split the command (claude plugin validate warns)
+    assert.deepEqual(commands, ['command node "${CLAUDE_PLUGIN_ROOT}/hooks/pointer-notice.js"']);
   });
 
   test('8c: the plugin ships no agents, no runtime and no other hook', () => {

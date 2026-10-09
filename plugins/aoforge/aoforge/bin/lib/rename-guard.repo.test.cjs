@@ -60,9 +60,14 @@ function codemod() {
   return _codemod;
 }
 
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ─── ALLOW (on top of the codemod's SKIP) ──────────────────────────────────────────
 // Every entry: a reason of >= 20 chars, and a pattern that matches >= 1 tracked path (test 4).
 // A dead entry is a bug, so it fails the gate rather than sitting there silently.
+// An entry with `spans` (a /g RegExp, test 9) keeps its files in the scan set and masks only
+// those spans: for a file that must name the old plugin in a few places and cannot hold an
+// ignore region (JSON). Its spans must match in the file, or it is dead too.
 
 const ALLOW = [
   {
@@ -101,6 +106,20 @@ const ALLOW = [
   {
     pattern: 'scripts/gen-pointer-skills*',
     reason: 'generates the pointer plugin, which must use the legacy plugin name',
+  },
+  {
+    pattern: '.claude-plugin/marketplace.json',
+    spans: new RegExp(
+      `"(?:name|source)": "(?:\\./plugins/)?${esc(LEGACY.slug)}"` +
+        `|"description": "${esc(LEGACY.product)} is now ${esc(NAMES.product)}[^"\\n]*"`,
+      'g',
+    ),
+    reason: 'the marketplace entry of the pointer release keeps the legacy plugin name until the release after 3.0.0',
+  },
+  {
+    pattern: 'package.json',
+    spans: new RegExp(`'plugins/${esc(LEGACY.slug)}/\\*\\*/\\*\\.test\\.js'`, 'g'),
+    reason: 'npm test runs the tests of the pointer release, which live under the legacy plugin directory',
   },
 ];
 
@@ -141,8 +160,6 @@ function ignoredLines(lines) {
 }
 
 // ─── tokens (built from LEGACY, test 6) ───────────────────────────────────────────
-
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const TOKENS = [
   { id: 'product', re: new RegExp(esc(LEGACY.slug), 'gi') },
@@ -230,11 +247,28 @@ function trackedFiles(root) {
 
 const allowRes = (allow) => allow.map((a) => globToRegExp(a.pattern));
 
-/** `git ls-files` minus the codemod's SKIP minus `allow`. */
+/** `git ls-files` minus the codemod's SKIP minus the whole-file entries of `allow`. */
 function scanSet(root, { allow = ALLOW } = {}) {
   const { isSkipped } = codemod();
-  const res = allowRes(allow);
+  const res = allowRes(allow.filter((a) => !a.spans));
   return trackedFiles(root).filter((rel) => !isSkipped(rel) && !res.some((re) => re.test(rel)));
+}
+
+/**
+ * `text` with every span a span-scoped `allow` entry names for `rel` swapped for same-length
+ * filler; line breaks are kept, so line numbers stay true (test 9c).
+ */
+function maskAllowedSpans(text, rel, allow = ALLOW) {
+  for (const a of allow) {
+    if (!a.spans || !globToRegExp(a.pattern).test(rel)) continue;
+    text = text.replace(a.spans, (m) => m.replace(/[^\n]/g, '\u0000'));
+  }
+  return text;
+}
+
+/** Every legacy token in the content of one scanned file, after its span-scoped allowances. */
+function scanFile(text, rel, allow = ALLOW) {
+  return scanText(maskAllowedSpans(text, rel, allow), rel);
 }
 
 /** Text of a file, or null when it is binary or not valid UTF-8 (the codemod skips those too). */
@@ -247,12 +281,13 @@ function readText(root, rel) {
 
 /** Every finding across the scan set of `root`: [{ file, line, token }]. */
 function scanRepo(root, opts = {}) {
+  const allow = opts.allow || ALLOW;
   const findings = [];
-  for (const rel of scanSet(root, opts)) {
+  for (const rel of scanSet(root, { allow })) {
     for (const f of scanPath(rel)) findings.push({ file: rel, ...f });
     const text = readText(root, rel);
     if (text === null) continue;
-    for (const f of scanText(text, rel)) findings.push({ file: rel, ...f });
+    for (const f of scanFile(text, rel, allow)) findings.push({ file: rel, ...f });
   }
   return findings;
 }

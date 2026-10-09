@@ -2,7 +2,7 @@
 
 /**
  * A small, cited model of the JSON a Stop or SubagentStop hook may print
- * (objective 70, TRD 70-02, TOOL-08).
+ * (objective 70, TRD 70-02, TOOL-08), and of a SessionStart hook's (TRD 72-14).
  *
  * Claude Code validates the JSON a hook prints on exit 0 against a fixed schema, and
  * this file encodes that schema for the two "stop family" events so a test can pin a
@@ -24,6 +24,7 @@
  * inside `hookSpecificOutput` too.
  *
  *   stopFamilyProblems(event, json) -> string[]   (empty means the output is valid)
+ *   sessionStartProblems(json)      -> string[]   (SessionStart, TRD 72-14; see below)
  *
  * Not a test file: no `*.test.js` glob picks it up.
  */
@@ -127,9 +128,76 @@ function stopFamilyProblems(event, json) {
   return problems;
 }
 
+/**
+ * "SessionStart decision control" (TRD 72-14, same hooks reference, checked 2026-10-08):
+ *   "A SessionStart hook can add context for Claude, supply the first user message, set the
+ *   session title, watch files, and reload skills. Return the field for each one, in addition to
+ *   the JSON output fields available to all hooks":
+ *     additionalContext (string), initialUserMessage (string), sessionTitle (string),
+ *     watchPaths ("Array of absolute paths"), reloadSkills (boolean).
+ * The decision control table: "SessionStart, SubagentStart, PostModelSwitch | Context only | ...
+ * No blocking or decision control", so `decision` and `reason` are not SessionStart fields.
+ */
+const SESSION_START_FIELDS = {
+  additionalContext: 'string',
+  initialUserMessage: 'string',
+  sessionTitle: 'string',
+  watchPaths: 'array',
+  reloadSkills: 'boolean',
+};
+
+/**
+ * Check one SessionStart hook's parsed JSON output.
+ *
+ * @param {*} json the parsed stdout of the hook
+ * @returns {string[]} one message per problem; [] when the output is valid
+ */
+function sessionStartProblems(json) {
+  if (!isPlainObject(json)) return ['output is not a JSON object'];
+
+  const problems = [];
+  for (const key of Object.keys(json)) {
+    if (key in UNIVERSAL_FIELDS || key === 'hookSpecificOutput') continue;
+    problems.push(
+      key === 'decision' || key === 'reason'
+        ? `${key} is not a SessionStart field (no blocking or decision control)`
+        : `unknown top-level key "${key}"`
+    );
+  }
+  for (const [key, type] of Object.entries(UNIVERSAL_FIELDS)) {
+    if (key in json && typeof json[key] !== type) problems.push(`${key} must be a ${type}`);
+  }
+
+  if ('hookSpecificOutput' in json) {
+    const hso = json.hookSpecificOutput;
+    if (!isPlainObject(hso)) {
+      problems.push('hookSpecificOutput must be an object');
+    } else {
+      if (hso.hookEventName !== 'SessionStart') problems.push('hookSpecificOutput.hookEventName must be "SessionStart"');
+      for (const [key, value] of Object.entries(hso)) {
+        if (key === 'hookEventName') continue;
+        const type = SESSION_START_FIELDS[key];
+        if (!type) {
+          problems.push(`hookSpecificOutput.${key} is not a SessionStart field`);
+        } else if (type === 'array') {
+          if (!Array.isArray(value) || !value.every((v) => typeof v === 'string')) {
+            problems.push(`hookSpecificOutput.${key} must be an array of paths`);
+          }
+        } else if (typeof value !== type) {
+          problems.push(`hookSpecificOutput.${key} must be a ${type}`);
+        }
+      }
+    }
+  }
+
+  return problems;
+}
+
 module.exports = {
   STOP_FAMILY_EVENTS,
   UNIVERSAL_FIELDS,
   STOP_FIELDS,
+  SESSION_START_FIELDS,
   stopFamilyProblems,
+  sessionStartProblems,
 };
