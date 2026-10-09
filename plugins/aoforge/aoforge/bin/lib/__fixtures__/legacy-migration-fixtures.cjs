@@ -66,7 +66,7 @@ const LEGACY_STORE_BLOCK = [
 ].join('\n');
 
 // The line the user's skill marker gets in .git/info/exclude.
-const EXCLUDE_LINE = '.planning/.skill-active';
+const INFO_EXCLUDE_LINE = '.planning/.skill-active';
 
 const MIGRATIONS_APPLIED = ['0001', '0003', '0005', '0008', '0009'];
 
@@ -209,7 +209,7 @@ function legacyProject({ state = 'clean', store = false, stamp = '2.15.0' } = {}
       p.git(['config', 'tag.gpgsign', 'false']);
       const exclude = path.join(root, '.git', 'info', 'exclude');
       fs.mkdirSync(path.dirname(exclude), { recursive: true });
-      fs.writeFileSync(exclude, `# git ls-files --others --exclude-from=.git/info/exclude\n${EXCLUDE_LINE}\n`);
+      fs.writeFileSync(exclude, `# git ls-files --others --exclude-from=.git/info/exclude\n${INFO_EXCLUDE_LINE}\n`);
 
       p.git(['add', '-A']);
       p.git(['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init']);
@@ -257,7 +257,7 @@ module.exports = {
   STATES,
   GITIGNORE,
   LEGACY_STORE_BLOCK,
-  EXCLUDE_LINE,
+  INFO_EXCLUDE_LINE,
   MIGRATIONS_APPLIED,
   legacyConfig,
   legacyProject,

@@ -28,7 +28,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { NAMES, LEGACY } = require('../legacy-names.cjs');
-const { legacyProject, EXCLUDE_LINE } = require('../__fixtures__/legacy-migration-fixtures.cjs');
+const { legacyProject, INFO_EXCLUDE_LINE } = require('../__fixtures__/legacy-migration-fixtures.cjs');
 const { planningProject } = require('../__fixtures__/legacy-layout-fixtures.cjs');
 
 const M_PATH = path.join(__dirname, '0012-planning-dir-move.cjs');
@@ -182,7 +182,7 @@ describe('7. apply on a clean repository', () => {
 
       // .git/info/exclude likewise
       const ex = lines(fs.readFileSync(path.join(p.root, '.git', 'info', 'exclude'), 'utf-8'));
-      const ei = ex.indexOf(EXCLUDE_LINE);
+      const ei = ex.indexOf(INFO_EXCLUDE_LINE);
       assert.ok(ei >= 0, `legacy exclude line kept: ${ex.join('|')}`);
       assert.equal(ex[ei + 1], '.aoforge/.skill-active', ex.join('|'));
 

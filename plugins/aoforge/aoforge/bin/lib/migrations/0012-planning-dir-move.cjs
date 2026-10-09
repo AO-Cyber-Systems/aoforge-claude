@@ -39,6 +39,7 @@ const { NAMES, LEGACY, SHIM_REMOVAL } = require('../legacy-names.cjs');
 const compat = require('../compat.cjs');
 const upgrade = require('../upgrade.cjs');
 const { busyOperation } = require('../git-busy.cjs');
+const { escapeRegExp } = require('../text-escape.cjs');
 
 // Destructured so a dotted access never spells the legacy directory (the rename guard reads source text).
 const { planningDir: NEW_DIR } = NAMES;
@@ -76,10 +77,6 @@ function isWorkTree(ctx) {
 
 function lazy0010() {
   return require('./0010-store-gitignore.cjs');
-}
-
-function escapeRegExp(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 // A path segment naming the legacy directory: at the start of the pattern or after a `/`, followed by `/` or the end.
@@ -279,7 +276,7 @@ function apply(ctx) {
   }
   const inGit = isWorkTree(ctx);
   const wait = deferral(ctx, inGit);
-  if (wait) return { changed: [], deferred: wait.code, notes: `deferred (${wait.code}): ${wait.notes}` };
+  if (wait) return { changed: [], deferred: wait.code, notes: wait.notes };
 
   // Plan every write first (a malformed 0010 block throws here, before anything is touched).
   const gitignorePath = path.join(root, GITIGNORE_REL);
