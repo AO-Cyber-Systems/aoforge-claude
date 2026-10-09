@@ -277,6 +277,7 @@ const PROBES = {
   'gh orphans': ['gh', 'orphans', '1'],
   'gh pr': ['gh', 'pr', 'status', '1'],
   'gh setup': ['gh', 'setup'],
+  'gh rebrand': ['gh', 'rebrand'],
   'stack resolve': ['stack', 'resolve'],
   'stack context': ['stack', 'context', 'executor'],
   'stack validate': ['stack', 'validate'],

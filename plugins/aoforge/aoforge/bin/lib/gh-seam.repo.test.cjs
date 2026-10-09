@@ -66,6 +66,10 @@ const GUARDED = [
   'gh-setup.cjs',
   // objective 50 (TRD 50-11): the `gh setup` command. It calls applySetup and nothing else: it neither spawns nor writes.
   'gh-setup-cli.cjs',
+  // objective 72 (TRD 72-16): `gh rebrand`. Its apply is a direct writer (label, issue, comment and ruleset requests
+  // through gh-client.ghWrite, like the setup apply), so it is guarded but not in NO_DIRECT_WRITE. It spawns neither gh
+  // nor git: wiki pushes and the local `git mv` go through gh-wiki's git seam.
+  'gh-rebrand.cjs',
   // objective 51 (TRD 51-03): the backfill core. Pure: it reads local files and the journal, returns ops, and never
   // spawns gh or git, enqueues, flushes or writes to GitHub.
   'gh-backfill.cjs',

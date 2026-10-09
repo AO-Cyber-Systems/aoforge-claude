@@ -54,7 +54,7 @@ function planFor({ snap = {}, client = {}, local = null, mutate = null } = {}) {
   const snapshot = fx.legacyRepoSnapshot(snap);
   if (mutate) mutate(snapshot);
   const stub = fx.stubClient(snapshot, client);
-  const read = rebrand.snapshotRepo(stub, fx.REPO);
+  const read = rebrand.snapshotRepo(stub, snapshot.repo);
   assert.equal(read.ok, true, read.error);
   const localSnap = local ? rebrand.snapshotLocal(local.root, { version: VERSION }) : null;
   return { stub, read, plan: rebrand.planRebrand(read, localSnap) };
