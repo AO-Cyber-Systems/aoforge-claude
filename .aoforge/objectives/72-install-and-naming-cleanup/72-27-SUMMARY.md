@@ -10,8 +10,8 @@ requirements: [INST-04]
 
 ## Progress
 - [x] Task 1: Hand-built fixtures: a delaying gh shim entry and a sized, slurped issues answer — f9d41715 (RED), 46f5e23e (GREEN)
-- [x] Task 2: gh-client spawn runner: 256 MiB buffer, 300 s paginated timeout, named ENOBUFS/ETIMEDOUT causes — 3077a1b8 (RED), (this commit) (GREEN)
-- [ ] Task 3: Prove it on eden-biz (read-only dry run), record the plan, then CHANGELOG, USER-GUIDE and the tracker — next step: snapshot `git -C /Users/justin/dev/eden-biz status --porcelain` to the scratchpad, then run `node /Users/justin/dev/aoforge-claude/plugins/aoforge/aoforge/bin/aof-tools.cjs --cwd /Users/justin/dev/eden-biz/go gh rebrand --dry-run --raw` into a scratch JSON (never --apply)
+- [x] Task 2: gh-client spawn runner: 256 MiB buffer, 300 s paginated timeout, named ENOBUFS/ETIMEDOUT causes — 3077a1b8 (RED), 539b4386 (GREEN)
+- [ ] Task 3: Prove it on eden-biz (read-only dry run), record the plan, then CHANGELOG, USER-GUIDE and the tracker — next step: dry run passed (exit 0, ok:true, apply:false, 0 ops, porcelain unchanged) and the tracker commit is this commit; add the `### Fixed` entry under `## [Unreleased]` in CHANGELOG.md and the "or a single list read larger than 256 MiB or slower than 5 minutes" clause to the USER-GUIDE.md Not covered bullet (line 1568), then commit both
 
 ## Estimate
 

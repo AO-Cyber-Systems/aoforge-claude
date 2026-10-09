@@ -1,3 +1,4 @@
+completed: 2026-10-09
 ---
 title: give gh-client a maxBuffer so gh rebrand can read large repositories
 area: github
