@@ -4,18 +4,49 @@ trd: "24"
 subsystem: install
 tags: [install, vanity, cloudflare-pages, approval-gates]
 requirements: [INST-06]
+requires:
+  - objective: 72
+    provides: "72-19/72-20: the GitHub repository renamed to AO-Cyber-Systems/aoforge-claude and 3.0.0 merged to main (docs.yml deploys to aoforge-docs); 72-23: global CLAUDE.md and marketplace decisions"
+provides:
+  - "Vanity mapping change prepared and verified (mapping commit plus seed-contract patch, 155/155 with both). Its durable copy is todo 2026-10-09-add-aoforge-claude-to-the-vanity-mapping-once-git-aocyber-ai-is-configured. Not pushed: deferred by the user"
+  - "Cloudflare Pages facts for OPS-03: aoforge-docs does not exist; devflow-docs (devflow.cloud) is in the AOCyber Systems account; CI has hit 8000007 since 2026-09-27. Todo 2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main"
+affects: [72-25, 72-26, 74]
+tech-stack:
+  added: []
+  patterns: []
+key-files:
+  created:
+    - .aoforge/todos/pending/2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main.md
+    - .aoforge/todos/pending/2026-10-09-add-aoforge-claude-to-the-vanity-mapping-once-git-aocyber-ai-is-configured.md
+  modified:
+    - CLAUDE.md
+decisions:
+  - "Vanity PR (Gate A) deferred by the user until the rename is completely done: \"Defer that until we are completely done - that vanity URL is not configured yet.\" This replaces the earlier \"approved with seed update (Recommended)\"; nothing pushed, no PR"
+  - "aoforge-docs Pages project and docs deploy (Gates B, B2) deferred by the user to objective 74 (OPS-03): \"Lets put off the docs runs\". This replaces the earlier \"done (dashboard)\"; nothing created or run"
+  - "The vanity seed test pins the key set (VAN-07), so the mapping change ships with a seed-contract patch: the fixture row and MIRRORED become aoforge-claude, and devflow-claude becomes a kept EXTRA_KEYS rename key"
+requirements-completed: []
 metrics:
   started: 2026-10-09T14:06:12Z
+  completed: 2026-10-09T15:15:15Z
+  duration: "about 15 min of executor time, plus the approval waits"
+  tasks: 3
+  files: 3
+tokens_input: 15177313
+tokens_output: 80349
+tokens_cache_read: 14672534
+tokens_cache_write: 504567
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 24: Draft the vanity-mapping PR and stand up the `aoforge-docs` Pages project (approval gates) Summary
 
-**Checkpoint: Task 1 is done in a scratch clone (one local commit, nothing pushed). Tasks 2 and 3 wait at their approval gates.**
+**Complete with deferrals: the vanity-mapping change was prepared and verified in a scratch clone (155/155 with its seed-contract patch). The user then deferred both live steps, so no PR was opened and no Pages project was created. The vanity PR waits until the rename is completely done and git.aocyber.ai is configured; the `aoforge-docs` project and the docs deploy move to objective 74 (OPS-03). Each has a todo carrying everything needed to resume. INST-06 stays Pending.**
 
 ## Progress
 - [x] Task 1: Prepare the vanity-mapping change in a scratch clone (scratch commit 980c7c0, outside this repo) — cc0e27a1
-- [ ] Task 2: Approval gate A: push the branch and open a DRAFT PR in AOCyberAI-Ops/vanity — next step: the reply is "approved with seed update (Recommended)", but gh is not logged in to aocyber.ghe.com, so nothing ran. Once `gh auth status --hostname aocyber.ghe.com` exits 0, run Gate A steps 1-6 below once each (the seed option)
-- [x] Task 3: Approval gate B: the aoforge-docs Pages project and one docs deploy. **DEFERRED by the user to objective 74 (OPS-03)**: reply "Lets put off the docs runs". Nothing was run for Gate B or Gate B2. Todo `2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main` filed — (this commit)
+- [x] Task 2: Approval gate A: push the branch and open a DRAFT PR in AOCyberAI-Ops/vanity. **DEFERRED by the user** ("Defer that until we are completely done - that vanity URL is not configured yet."). Nothing pushed, no PR. Todo `2026-10-09-add-aoforge-claude-to-the-vanity-mapping-once-git-aocyber-ai-is-configured` filed with both patches — final docs commit
+- [x] Task 3: Approval gate B: the aoforge-docs Pages project and one docs deploy. **DEFERRED by the user to objective 74 (OPS-03)**: reply "Lets put off the docs runs". Nothing was run for Gate B or Gate B2. Todo `2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main` filed — d04c698d
 
 ## Task 1: the vanity-mapping change (2026-10-09T14:06-14:10Z)
 
@@ -117,14 +148,15 @@ So **devflow-docs is in the AOCyber Systems account**, yet CI's deploy got `Proj
 
 | Gate | Reply | Run |
 |---|---|---|
-| A. Task 2, push and draft PR | "approved with seed update (Recommended)" (user's AskUserQuestion reply, relayed by the orchestrator) | nothing yet. `gh auth status --hostname aocyber.ghe.com` at 2026-10-09T14:1xZ: exit 1, `You are not logged into any accounts on aocyber.ghe.com`. The orchestrator's instruction was to stop if the user is not logged in, so no fetch, apply, push or PR was run |
+| A, final | "Defer that until we are completely done - that vanity URL is not configured yet." (user's reply, relayed by the orchestrator) | **Gate A DEFERRED.** It replaces the reply below; nothing was fetched, pushed or opened. Todo filed with both patches. The user's reason is that git.aocyber.ai is not configured yet. For the record, on 2026-10-09 the hostname answered 302 for `devflow-claude` and `canary`, with mapping digest `eb89ef18b775` (v0.2.0) |
+| A. Task 2, push and draft PR (superseded) | "approved with seed update (Recommended)" (user's AskUserQuestion reply, relayed by the orchestrator) | nothing yet. `gh auth status --hostname aocyber.ghe.com` at 2026-10-09T14:1xZ: exit 1, `You are not logged into any accounts on aocyber.ghe.com`. The orchestrator's instruction was to stop if the user is not logged in, so no fetch, apply, push or PR was run |
 | B. Task 3, Pages project | "done (dashboard)" (relayed) | verify only, read-only: `curl -sS -I https://aoforge-docs.pages.dev/` gives `Could not resolve host`. `dig +short aoforge-docs.pages.dev @1.1.1.1` is empty. The authoritative server `dig aoforge-docs.pages.dev @adi.ns.cloudflare.com` returns only the `pages.dev` SOA (NXDOMAIN, negative TTL 60s), while `devflow-docs.pages.dev` is delegated (NS gerardo/veda). **Not confirmed**: either the project is not created yet, or it exists without a first deployment or under a suffixed subdomain. wrangler is logged out and the CI token is a secret, so the Cloudflare API was not queried |
 | B, superseded | "Lets put off the docs runs" (user's reply, relayed by the orchestrator) | **Gate B DEFERRED to objective 74 (OPS-03).** The earlier "done (dashboard)" is withdrawn; no project was created. Nothing was run |
 | B2. One docs deploy | "Lets put off the docs runs" | **DEFERRED to objective 74 (OPS-03).** `gh workflow run docs.yml` was not run |
 
-## Pending gates (exact commands presented, nothing run)
+## Gates as offered (all deferred; nothing was run)
 
-**Gate A (Task 2).** Prerequisite (the user, since it takes a credential): `gh auth login --hostname aocyber.ghe.com`, then `gh auth setup-git --hostname aocyber.ghe.com`. Replies: `approved with seed update` (recommended), `approved` (mapping only, CI expected red), `done` (the user did it; verify only), `blocked` (TRD error_recovery: todo, skip Task 2), anything else holds. Commands, in order, one per call, each run once:
+**Gate A (Task 2): DEFERRED until the rename is complete. Kept as the record of what was offered; the todo carries the updated recipe.** Prerequisite (the user, since it takes a credential): `gh auth login --hostname aocyber.ghe.com`, then `gh auth setup-git --hostname aocyber.ghe.com`. Replies: `approved with seed update` (recommended), `approved` (mapping only, CI expected red), `done` (the user did it; verify only), `blocked` (TRD error_recovery: todo, skip Task 2), anything else holds. Commands, in order, one per call, each run once:
 1. `git -C <scratch>/vanity fetch origin`
 2. `git -C <scratch>/vanity rev-parse origin/main`: must print a34dfa2d…; if it moved, stop and report (no rebase without a fresh look)
 3. (seed option only) `git -C <scratch>/vanity apply <scratch>/vanity-seed-contract.patch`, `git -C <scratch>/vanity add test/fixtures/active-repos.tsv test/node/modules-seed.test.ts`, `AOFORGE_ALLOW_RAW_COMMIT=1 git -C <scratch>/vanity commit -m "test(mapping): seed contract treats aoforge-claude as the renamed devflow-claude"`, `npm --prefix <scratch>/vanity test` (must be 155/155)
@@ -133,3 +165,88 @@ So **devflow-docs is in the AOCyber Systems account**, yet CI's deploy got `Proj
 6. Verify: `gh pr view add-aoforge-claude --repo aocyber.ghe.com/AOCyberAI-Ops/vanity --json isDraft,state,url`
 
 **Gate B (Task 3): DEFERRED to objective 74 (OPS-03); kept here only as the record of what was offered.** wrangler is not logged in, so the default path is the user's dashboard. Replies: `done` (the user created aoforge-docs in the account CI's `CLOUDFLARE_ACCOUNT_ID` names; I verify with `curl https://aoforge-docs.pages.dev/` and ask Gate B2 for the deploy), `approved` (only after the user runs `npx wrangler login` themselves: I run `npx --yes wrangler@4 whoami`, then `npx --yes wrangler@4 pages project create aoforge-docs --production-branch main` once, then ask Gate B2), anything else holds. Gate B2 (its own reply): `gh workflow run docs.yml --repo AO-Cyber-Systems/aoforge-claude --ref main`, then `gh run list --repo AO-Cyber-Systems/aoforge-claude --workflow docs.yml --limit 1 --json conclusion,status,url`.
+
+## Deferred-work todos
+
+| Todo | Carries |
+|---|---|
+| `.aoforge/todos/pending/2026-10-09-add-aoforge-claude-to-the-vanity-mapping-once-git-aocyber-ai-is-configured.md` | The durable copy of the scratch work, because the scratchpad is session-only. It holds patch 1 (`git format-patch -1 980c7c0`, byte-identical apart from format-patch's trailing blank line) and patch 2 (`vanity-seed-contract.patch`, byte-identical by `cmp`); both were re-extracted from the filed todo and checked with `git apply --check`. It also notes that the repo is on aocyber.ghe.com, gives the login prerequisite, the PR body outline and the steps, and says never merge |
+| `.aoforge/todos/pending/2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main.md` | The Cloudflare account facts, the 8000007 history, the unconfirmed secret/account lead, and the four steps: fix the secret, create aoforge-docs, run one approved deploy, move devflow.cloud |
+
+## Must-haves
+
+| # | Truth | Evidence | Status |
+|---|---|---|---|
+| 1 | A scratch-clone branch adds `aoforge-claude` in the file's format (public, `AO-Cyber-Systems/aoforge-claude`, current host), keeps `devflow-claude`, and passes the repo's own tests | 980c7c0 adds exactly that entry and keeps `devflow-claude`. Mapping alone: 154/155 (seed case 7). With the drafted seed patch: 155/155, typecheck, Go probe and dry-run bundle all pass. The patch was not committed because the user deferred the gate before applying it | PARTIAL: the entry is right; passing the tests needs the patch, which is preserved in the todo |
+| 2 | Pushed and a DRAFT PR opened only after explicit approval, never merged; if the repo is inaccessible, recorded with a todo | The user deferred the gate ("Defer that until we are completely done ..."). Nothing pushed (`add-aoforge-claude` has no upstream), no PR. The repo is on aocyber.ghe.com, where gh/git had no login. Blocker recorded and todo filed | MET by the TRD's own alternative (recorded and todo instead of a PR) |
+| 3 | The Pages project `aoforge-docs` exists, and the deploy result is recorded after an approved docs run | The user deferred both to objective 74 (OPS-03). aoforge-docs does not exist (orchestrator's read-only API check, and authoritative DNS shows nothing). No run was triggered. Last main run 37937471480: failure, 8000007 | **NOT MET**: deferred by the user; todo filed |
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Prepare the vanity change | `git -C <scratch>/vanity diff HEAD~1 -- modules.yaml` (exactly one added entry and its comment) | 0 | PASS |
+| 2: Gate A, draft PR | `gh auth status --hostname aocyber.ghe.com` (not logged in), then the user's deferral; `git -C <scratch>/vanity rev-parse --abbrev-ref add-aoforge-claude@{upstream}` gives `no upstream configured` (never pushed) | 1 / 128 | DEFERRED by the user |
+| 3: Gate B and B2, Pages and deploy | `dig aoforge-docs.pages.dev @adi.ns.cloudflare.com` (no record), then the user's deferral to OPS-03 | 0 | DEFERRED by the user |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| Vanity repo tests (scratch, mapping + seed patch) | `npm --prefix <scratch>/vanity test`, `run typecheck`, `go -C <scratch>/vanity test ./probe/...`, `run check:deploy` | 0 | PASS: 155/155 |
+| Vanity repo tests (scratch, mapping only) | `npm --prefix <scratch>/vanity test` | 1 | FAIL as expected: seed case 7. Recorded, which is why the seed patch exists |
+| CLAUDE.md guards (after the "Where we left off" edit) | `node --test rename-guard.repo.test.cjs doc-refs.repo.test.cjs dispatch-completeness.test.cjs` | 0 | PASS: 45/45 |
+| stack task gates (test/lint/build) in this repo | not run | n/a | not_available: no source file changed; only CLAUDE.md prose, todos and this SUMMARY |
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking] The vanity repo is on aocyber.ghe.com, not github.com**
+- **Found during:** Task 1, when `gh repo view AOCyberAI-Ops/vanity` failed.
+- **Fix:** I found the local clone `/Users/justin/dev/vanity` (origin `https://aocyber.ghe.com/AOCyberAI-Ops/vanity.git`) and cloned the scratch copy from it, because there was no login for the real remote. I confirmed the copy is current with what is deployed: main's digest `eb89ef18b775` equals the live `x-vanity-mapping`. I then set the scratch clone's `origin` to the GHE.com URL. I did not file the TRD's error_recovery todo at that point, because the repo exists. The user's later deferral made the todo the outcome anyway.
+
+**2. [Rule 4-style, surfaced, not applied] The seed test pins the key set**
+- **Found during:** Task 1.
+- **Issue:** `modules-seed.test.ts` case 7 fails with any new key. Fixing it touches the VAN-07 test contract, which is beyond "change only the entries the TRD names".
+- **Handling:** The fix was drafted as a patch and not committed. The user chose it at Gate A ("approved with seed update") before deferring the whole gate.
+
+**3. [Recovery] Mapping format differs from the doc**
+- The file uses YAML flow mappings. As the TRD's recovery says, I followed the file, and both PR bodies say so.
+
+**4. [Rule 2 - 72-22 hand-off] Project CLAUDE.md "Where we left off" updated**
+- "72-23 of 26" became "72-24 of 26", and the 72-24 bullet now records the deferrals and both todo names. No legacy spelling was added; the rename guard passes 45/45.
+
+**5. [Correction] A pre-check inference was wrong**
+- I had first inferred that devflow-docs was outside the CI secret's account. The orchestrator's read-only Cloudflare check placed devflow-docs in "AOCyber Systems" (id truncated here because the repo is public). The SUMMARY now records the secret or account mismatch as an unconfirmed lead.
+
+**6. [Dispatch] No explicit WAVE_BASE**
+- The preflight used the objective branch tip `feat/stack-profile-loader` (06494e55).
+
+Nothing was pushed anywhere. No Cloudflare write was made and no workflow was triggered. The user's vanity clone `/Users/justin/dev/vanity` was read only.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 1 met (truth 2, through its recorded-and-todo alternative), 1 partial (truth 1), 1 not met (truth 3, deferred by the user)
+- Gate failures: none in this repo. The vanity mapping-only test failure is recorded above and resolved by the preserved seed patch
+- Success criteria ("the vanity mapping change awaits the user's review, and the docs site has its AOForge Pages project"): **not met**. Both were deferred by the user. The TRD gives no deferral path for the Pages project, so this TRD is closed as **complete with deferrals**, not as passed
+- INST-06 stays **Pending**. `requirements mark-complete` is not run
+
+## Hand-offs
+
+- **The vanity PR (after the rename is complete and git.aocyber.ai is configured):** follow the todo. The scratch clone `<scratch>/vanity` (branch `add-aoforge-claude` at 980c7c0, no upstream) disappears with the session; the todo is the only durable copy.
+- **The migration project:** its inventory (`inventory/AO-Cyber-Systems.repos.json`) and PLAN.md still list the pre-rename repo name among the 11 mirrors. Its own state still says the vanity repo is on GHE.com, which it abandoned on 2026-10-06.
+- **Objective 74 (OPS-03):** start from the docs todo: check which account the org `CLOUDFLARE_ACCOUNT_ID` names before creating aoforge-docs.
+- **72-25 and 72-26:** CLAUDE.md now reads 72-24 of 26. Update it as each step lands.
+
+## Self-Check: COMPLETE WITH DEFERRALS (not PASSED)
+
+The TRD's own success criteria do not count a user-deferred gate as met: the Pages project does not exist, and the vanity PR is not awaiting review. So this is not a PASSED verdict. Every claim in this SUMMARY was checked:
+
+- FOUND: commits cc0e27a1, 19ffaaa1 and d04c698d on `feat/stack-profile-loader` (`git log --oneline -n 4`)
+- FOUND: both todo files under `.aoforge/todos/pending/` (8674 and 2151 bytes)
+- FOUND: the todo's patches re-extracted and verified. The seed patch is byte-identical (`cmp`) and applies (`git apply --check`); the mapping patch reverse-applies on 980c7c0 (`git apply --check -R`)
+- FOUND: scratch commit 980c7c0 on `add-aoforge-claude`, no upstream (never pushed)
+- FOUND: the CLAUDE.md edit passes the rename, doc-refs and dispatch guards (45/45)
+- NOT DONE (user-deferred): vanity draft PR; aoforge-docs Pages project; docs deploy

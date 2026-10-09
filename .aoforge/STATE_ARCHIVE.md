@@ -276,6 +276,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-22: active planning docs follow a live-vs-history rule: present and future text uses AOForge names; completed requirements and objectives, archives, dated decisions and quick-task rows keep their DevFlow wording; the devflowops platform product keeps its name
 - [Objective 72]: 72-22: CLAUDE.md lost its transition note and its rename-guard ignore-region allowance, so it is now guarded line for line; PROJECT.md github_repo names AO-Cyber-Systems/aoforge-claude
 - [Objective 72]: 72-23: global CLAUDE.md outside-block rewrite approved and applied once with upgrade --global --confirm (only the two TDD & Quality lines; backup global-2026-10-09T14-03-31-298Z); aocyber marketplace re-point skipped, entry keeps its redirecting source
+- [Objective 72]: 72-24: vanity PR deferred by the user until the rename is complete and git.aocyber.ai is configured; mapping plus seed-contract patches preserved in a todo
+- [Objective 72]: 72-24: aoforge-docs Pages project and docs deploy deferred by the user to objective 74 (OPS-03); devflow-docs is in the AOCyber Systems account, so the org CLOUDFLARE_ACCOUNT_ID or token is the unconfirmed lead
 
 ## Performance Metrics
 
@@ -459,4 +461,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P21 | 10 min | 3 tasks | 1 files |
 | Objective 72 P22 | 9 min | 2 tasks | 6 files |
 | Objective 72 P23 | 4 min | 3 tasks | 2 files |
+| Objective 72 P24 | 15 min | 3 tasks | 3 files |
 
