@@ -16,10 +16,10 @@ Find current objective directory from most recently modified files:
 
 ```bash
 # Find most recent objective directory with work
-ls -lt .planning/objectives/*/JOB.md 2>/dev/null | head -1 | grep -oP 'objectives/\K[^/]+'
+ls -lt .aoforge/objectives/*/JOB.md 2>/dev/null | head -1 | grep -oP 'objectives/\K[^/]+'
 ```
 
-If no active objective is detected, list the objective directories under `.planning/objectives/`, most recently
+If no active objective is detected, list the objective directories under `.aoforge/objectives/`, most recently
 modified first, and ask which one the pause is for:
 
 ```
@@ -57,7 +57,7 @@ Ask user for clarifications if needed via conversational questions.
 </step>
 
 <step name="write">
-**Write handoff to `.planning/objectives/XX-name/.continue-here.md`:**
+**Write handoff to `.aoforge/objectives/XX-name/.continue-here.md`:**
 
 ```markdown
 ---
@@ -115,13 +115,13 @@ timestamp=$(node ~/.claude/aoforge/bin/aof-tools.cjs current-timestamp full --ra
 
 <step name="commit">
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "wip: [phase-name] paused at task [X]/[Y]" --files .planning/objectives/*/.continue-here.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "wip: [phase-name] paused at task [X]/[Y]" --files .aoforge/objectives/*/.continue-here.md
 ```
 </step>
 
 <step name="confirm">
 ```
-✓ Handoff created: .planning/objectives/[XX-name]/.continue-here.md
+✓ Handoff created: .aoforge/objectives/[XX-name]/.continue-here.md
 
 Current state:
 

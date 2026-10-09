@@ -27,7 +27,7 @@ disallowed-tools:
 Turn the repository at [path] (default: the current directory) into an AOForge project, unattended:
 map the code, infer PROJECT.md and STACK.md, scaffold config/STATE/ROADMAP (no invented objectives),
 add the CLAUDE.md block, stamp the version, and make ONE recorded change on an `aoforge/adopt`
-branch. Never pushes. Never asks: uncertain inferences go to `.planning/ADOPT-REPORT.md` under
+branch. Never pushes. Never asks: uncertain inferences go to `.aoforge/ADOPT-REPORT.md` under
 "Needs review". Already an AOForge project → upgrade. No source code yet → /aoforge:new-project.
 Dirty tree, rebase/merge in progress, detached HEAD, or not a git repo → stops with the reason,
 changes nothing.

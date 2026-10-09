@@ -18,7 +18,7 @@ allowed-tools:
 <objective>
 Project status, health checks, and work continuity. Routes by first argument:
 - (no arg) — Show progress + route to next action
-- `check` or `--check` — Validate `.planning/` integrity, fix issues
+- `check` or `--check` — Validate `.aoforge/` integrity, fix issues
 - `pause` or `--pause` — Save context to `.continue-here.md` for later resumption
 - `resume` or `--resume` — Restore project context, pick up where you left off
 
@@ -31,7 +31,7 @@ Both flag and bare forms are accepted interchangeably:
 | Bare form | Flag form | Behavior |
 |---|---|---|
 | (no arg) | — | Show progress + intelligently route to next action |
-| `check` | `--check` | Validate `.planning/` integrity; fix issues. Accepts `--repair`, `--migrate`, `--dry-run`. |
+| `check` | `--check` | Validate `.aoforge/` integrity; fix issues. Accepts `--repair`, `--migrate`, `--dry-run`. |
 | `pause` | `--pause` | Save current context to `.continue-here.md` for later resumption |
 | `resume` | `--resume` | Restore project context and pick up where you left off |
 
@@ -48,7 +48,7 @@ Use when the user asks: "where are we?", "what's the status?", "show progress", 
 <context>
 Subcommand: $ARGUMENTS
 
-@.planning/STATE.md
+@.aoforge/STATE.md
 </context>
 
 <process>

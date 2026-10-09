@@ -1,6 +1,6 @@
 # Code Patterns Template
 
-Template for `.planning/codebase/PATTERNS.md` - captures representative real code from the codebase.
+Template for `.aoforge/codebase/PATTERNS.md` - captures representative real code from the codebase.
 
 **Purpose:** Show the cleanest examples of how this codebase actually does things (services, tests, error handling, routes, components). Executors mimic these patterns.
 

@@ -11,8 +11,8 @@ Check progress across all active workstreams. Reads each worktree's STATE.md and
 
 **Read these files NOW:**
 
-1. `.planning/workstreams.json`
-2. `.planning/STATE.md`
+1. `.aoforge/workstreams.json`
+2. `.aoforge/STATE.md`
 
 </required_reading>
 
@@ -23,7 +23,7 @@ Check progress across all active workstreams. Reads each worktree's STATE.md and
 Read workstreams data:
 
 ```bash
-cat .planning/workstreams.json 2>/dev/null
+cat .aoforge/workstreams.json 2>/dev/null
 ```
 
 If not found: "No active workstreams. Use `/aoforge:workstreams setup` to create them."
@@ -38,7 +38,7 @@ For each workstream in `workstreams`:
 
 1. **Read worktree STATE.md:**
 ```bash
-cat {worktree_path}/.planning/STATE.md 2>/dev/null
+cat {worktree_path}/.aoforge/STATE.md 2>/dev/null
 ```
 
 Parse: current objective, job progress, status.
@@ -52,8 +52,8 @@ Extract: last commit date, commit count since base.
 
 3. **Check plan completion on disk:**
 ```bash
-ls {worktree_path}/.planning/objectives/*-JOB.md 2>/dev/null | wc -l
-ls {worktree_path}/.planning/objectives/*-SUMMARY.md 2>/dev/null | wc -l
+ls {worktree_path}/.aoforge/objectives/*-JOB.md 2>/dev/null | wc -l
+ls {worktree_path}/.aoforge/objectives/*-SUMMARY.md 2>/dev/null | wc -l
 ```
 
 4. **Determine status:**

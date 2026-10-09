@@ -25,15 +25,15 @@ summary and no atomic commits.
 
 Four ways through it:
 
-1. **Run a skill.** Skills write `.planning/.skill-active` via
+1. **Run a skill.** Skills write `.aoforge/.skill-active` via
    `aof-tools skill-active --start`, and the gate allows edits while that marker is
    live. Markers carry an `expires_at`, 8 hours by default.
 2. **Use an override phrase** in your prompt: `skip aoforge`, `just edit`,
    `bypass aoforge`, `force edit`. The `route-intent` hook writes
-   `.planning/.edit-override`, which this gate consumes — single-turn and
+   `.aoforge/.edit-override`, which this gate consumes — single-turn and
    TTL-bounded.
 3. **Set the env escape:** `AOFORGE_SKIP_EDIT_GATE=1`.
-4. **Lower the severity per-project** in `.planning/config.json`:
+4. **Lower the severity per-project** in `.aoforge/config.json`:
 
 ```json
 { "gates": { "editGate": "strict" } }   // strict (default) | warn | off
@@ -41,7 +41,7 @@ Four ways through it:
 
 Two refinements worth knowing, because both were bugs once:
 
-- The marker is resolved from **both** the local `.planning/` and the main
+- The marker is resolved from **both** the local `.aoforge/` and the main
   checkout's, so worktree-isolated agents are not denied by a gitignored marker
   they could never see.
 - Targets **outside the project root** — the session scratchpad, `/private/tmp` —

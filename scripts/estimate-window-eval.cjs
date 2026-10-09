@@ -2,7 +2,7 @@
 'use strict';
 
 // Pre-59 evaluation tool for objective 64 (EST-08, TRD 64-07). It reads a snapshot directory (the repository's
-// `.planning` as it stood before objective 59's first commit, extracted with `git archive`), builds calibrations IN
+// planning directory as it stood before objective 59's first commit, extracted with `git archive`), builds calibrations IN
 // MEMORY, and writes nothing outside the temporary cut directories it removes in a `finally`. It never touches
 // ~/.claude: it does not call `writeCalibration` or `defaultCalibrationPath`, and its CLI refuses any path under
 // ~/.claude.

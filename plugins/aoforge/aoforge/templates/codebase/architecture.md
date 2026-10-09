@@ -1,6 +1,6 @@
 # Architecture Template
 
-Template for `.planning/codebase/ARCHITECTURE.md` - captures conceptual code organization.
+Template for `.aoforge/codebase/ARCHITECTURE.md` - captures conceptual code organization.
 
 **Purpose:** Document how the code is organized at a conceptual level. Complements STRUCTURE.md (which shows physical file locations).
 
@@ -155,7 +155,7 @@ Template for `.planning/codebase/ARCHITECTURE.md` - captures conceptual code org
 7. Process exits with status code
 
 **State Management:**
-- File-based: All state lives in `.planning/` directory
+- File-based: All state lives in `.aoforge/` directory
 - No persistent in-memory state
 - Each command execution is independent
 

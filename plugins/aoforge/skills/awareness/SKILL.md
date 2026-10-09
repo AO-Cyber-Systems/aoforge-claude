@@ -12,10 +12,10 @@ allowed-tools:
 <objective>
 Render two awareness views side-by-side:
 
-1. **Peer (this repo, git-branch-based)** — branches in `origin/*` with active `.planning/STATE.md` showing teammate's current objective + TRD + last commit.
+1. **Peer (this repo, git-branch-based)** — branches in `origin/*` with active `.aoforge/STATE.md` showing teammate's current objective + TRD + last commit.
 2. **Org (Product Roadmap project)** — items grouped by Product × Quarter, with each item's direct sub-issues (or task-list bullets when no native sub-issues exist).
 
-Both views are pull-only (no daemon). Cache lives outside the repo at `~/.claude/aoforge/state/awareness/<repo-key>.json` (override: `$AOFORGE_AWARENESS_DIR`) with 10-minute TTL per section. Nothing is written under `.planning/`.
+Both views are pull-only (no daemon). Cache lives outside the repo at `~/.claude/aoforge/state/awareness/<repo-key>.json` (override: `$AOFORGE_AWARENESS_DIR`) with 10-minute TTL per section. Nothing is written under `.aoforge/`.
 
 Limitations (locked):
 - **Stale = invisible (peer side)**: branches not pushed in 30 days don't show. Push for visibility.
@@ -24,7 +24,7 @@ Limitations (locked):
 </objective>
 
 <execution_context>
-@.planning/STATE.md
+@.aoforge/STATE.md
 </execution_context>
 
 <process>
@@ -49,7 +49,7 @@ If org-side gh auth fails:
 </process>
 
 <context>
-The cache file `~/.claude/aoforge/state/awareness/<repo-key>.json` lives outside the repo (TRD 45-01), so it can't be committed by accident and Claude Code's file watcher never attaches it to tool results. A leftover in-tree `.planning/.awareness-cache.json` from an older AOForge is dead state: nothing reads it, and it can be deleted.
+The cache file `~/.claude/aoforge/state/awareness/<repo-key>.json` lives outside the repo (TRD 45-01), so it can't be committed by accident and Claude Code's file watcher never attaches it to tool results. A leftover in-tree `.aoforge/.awareness-cache.json` from an older AOForge is dead state: nothing reads it, and it can be deleted.
 
 Subcommand options:
 - `aof-tools awareness scan-peer [--no-fetch]` — Walk origin/*, emit JSON. Used directly by tests + the SessionStart cache populator hook.

@@ -1,6 +1,6 @@
 # Stack Research Template
 
-Template for `.planning/research/STACK.md` — recommended technologies for the project domain.
+Template for `.aoforge/research/STACK.md` — recommended technologies for the project domain.
 
 <template>
 

@@ -36,7 +36,7 @@ aof-tools gh status     # is the integration reachable?
 
 | Trigger | Action | Manual equivalent |
 |---|---|---|
-| End of `/aoforge:new-project` | One milestone per roadmap version, one issue per objective; numbers persisted to `.planning/.gh-mapping.json` | `aof-tools gh sync-objectives` |
+| End of `/aoforge:new-project` | One milestone per roadmap version, one issue per objective; numbers persisted to `.aoforge/.gh-mapping.json` | `aof-tools gh sync-objectives` |
 | Verifier finds gaps | Posts the `gaps:` block from `VERIFICATION.md` as an issue comment | `aof-tools gh comment <obj> @file:path` |
 | Verification passes | Closes the issue with a link to the verification report | `aof-tools gh close-issue <obj>` |
 | Tag push `vX.Y.Z` | Release notes generated from `SUMMARY.md` files since the previous tag | `aof-tools gh sync-release vX.Y.Z` |
@@ -52,7 +52,7 @@ aof-tools gh pull <objectiveId>       # detect drift from GitHub; --apply to rec
 
 ## The mapping file
 
-`.planning/.gh-mapping.json` is the source of truth for objective-to-issue
+`.aoforge/.gh-mapping.json` is the source of truth for objective-to-issue
 correspondence:
 
 ```json
@@ -67,7 +67,7 @@ edited, not duplicated — but only because this file survives.
 
 ## What does not sync
 
-- **Issues created on GitHub do not flow back into `.planning/`.** That would
+- **Issues created on GitHub do not flow back into `.aoforge/`.** That would
   break "planning files are truth". File issues normally; they become input to
   `/aoforge:plan-objective`.
 - **Per-task commits are not posted to issues** — too noisy. Use

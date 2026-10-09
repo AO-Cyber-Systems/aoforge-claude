@@ -43,7 +43,7 @@ executor, one `SUMMARY.md`, several atomic commits.
 **Kind** — what sort of software the project is: `api`, `app`, `library`,
 `ui-lib`, `cli`, `plugin`. Declared once on `PROJECT.md`.
 
-**Marker** — a dotfile in `.planning/` that coordinates hooks. `.skill-active` and
+**Marker** — a dotfile in `.aoforge/` that coordinates hooks. `.skill-active` and
 `.edit-override` are the two that matter.
 
 **Milestone** — a set of objectives delivering a version's requirements. Audited

@@ -77,7 +77,7 @@ supplied it. Two parallel maps come back:
 
 | Value | Meaning |
 |---|---|
-| `project_table` | `.planning/defaults-table.md` |
+| `project_table` | `.aoforge/defaults-table.md` |
 | `org_table` | `~/.claude/aoforge/defaults-table.md` |
 | `bundled_table` | the plugin's own reference copy |
 
@@ -96,7 +96,7 @@ you actually want to change.
 aof-tools defaults-table init --scope=org      # → ~/.claude/aoforge/defaults-table.md
 
 # Just this project
-aof-tools defaults-table init --scope=project  # → .planning/defaults-table.md
+aof-tools defaults-table init --scope=project  # → .aoforge/defaults-table.md
 ```
 
 Omitted cells fall through to the next tier.
@@ -105,5 +105,5 @@ Omitted cells fall through to the next tier.
 
 Projects created before the intent model have no `kind` and no `work`. Run
 `/aoforge:status check`; if it reports missing intent frontmatter it offers a
-migration, which always backs up to `.planning/.migrate-backup-{timestamp}/`
+migration, which always backs up to `.aoforge/.migrate-backup-{timestamp}/`
 first.

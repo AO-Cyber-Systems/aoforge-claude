@@ -1,6 +1,6 @@
 # Structure Template
 
-Template for `.planning/codebase/STRUCTURE.md` - captures physical file organization.
+Template for `.aoforge/codebase/STRUCTURE.md` - captures physical file organization.
 
 **Purpose:** Document where things physically live in the codebase. Answers "where do I put X?"
 
@@ -158,7 +158,7 @@ aoforge/
 - Subdirectories: None
 
 **aoforge/templates/**
-- Purpose: Document templates for .planning/ files
+- Purpose: Document templates for .aoforge/ files
 - Contains: Template definitions with frontmatter
 - Key files: project.md, roadmap.md, plan.md, summary.md
 - Subdirectories: codebase/ (new - for stack/architecture/structure templates)

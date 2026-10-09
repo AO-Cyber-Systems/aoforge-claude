@@ -190,8 +190,8 @@ An `aof-tools` command that writes (the ones `aof-tools --help` marks with `*`) 
 | `/aoforge:settings` | Configure workflow toggles and model profile | Change model, toggle agents |
 | `/aoforge:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/aoforge:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
-| `/aoforge:status check [--migrate]` | Validate `.planning/` integrity and fix issues; `--migrate` upgrades the project in place (runs `aof-tools upgrade`) | Planning files feel stale or corrupt, after an AOForge update, or when `validate health` reports W040 (`aof-tools validate requirements [--objective <N>]` runs the W065 requirements check alone; see [Health checks](#health-checks-for-the-skill-marker-and-requirements-e006-w064-w065)) |
-| `/aoforge:doctor [--fix] [--global] [path]` | Diagnose the AOForge environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale or git-tracked skill markers (check 23) and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33)); read-only unless `--fix`, which applies only safe, reversible repairs | AOForge behaves oddly, after a plugin update, or a repo shows `.planning` runtime files changing |
+| `/aoforge:status check [--migrate]` | Validate `.aoforge/` integrity and fix issues; `--migrate` upgrades the project in place (runs `aof-tools upgrade`) | Planning files feel stale or corrupt, after an AOForge update, or when `validate health` reports W040 (`aof-tools validate requirements [--objective <N>]` runs the W065 requirements check alone; see [Health checks](#health-checks-for-the-skill-marker-and-requirements-e006-w064-w065)) |
+| `/aoforge:doctor [--fix] [--global] [path]` | Diagnose the AOForge environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale or git-tracked skill markers (check 23) and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33)); read-only unless `--fix`, which applies only safe, reversible repairs | AOForge behaves oddly, after a plugin update, or a repo shows `.aoforge` runtime files changing |
 
 ### Adopting an Existing Repo (`/aoforge:adopt`)
 
@@ -200,14 +200,14 @@ never asks a question. The target is the current directory, or `[path]` if given
 
 **What it does:** maps the codebase (`map-codebase` in non-interactive mode), infers `PROJECT.md`
 (What This Is, Core Value, validated requirements, `kind` + `default_work` with confidence) and
-`STACK.md` from the code, scaffolds `.planning/` (config, STATE, `state.json`, an empty-current-
+`STACK.md` from the code, scaffolds `.aoforge/` (config, STATE, `state.json`, an empty-current-
 milestone ROADMAP), adds the versioned CLAUDE.md managed block, stamps the version, and writes
-`.planning/ADOPT-REPORT.md` listing every low-confidence inference for you to review. Everything
+`.aoforge/ADOPT-REPORT.md` listing every low-confidence inference for you to review. Everything
 lands as **one signed commit on a new `aoforge/adopt` branch, which is never pushed**. Re-running
 `/aoforge:adopt` on a half-finished adopt resumes rather than duplicating.
 
 **Routing by repo state**, decided before anything is written:
-- Already an AOForge project (`.planning/` present) -> routed to `upgrade` (see below); never
+- Already an AOForge project (`.aoforge/` present) -> routed to `upgrade` (see below); never
   re-scaffolded.
 - Empty or greenfield repo -> reports that and points you at `/aoforge:new-project`.
 - Existing codebase -> the adopt pipeline described above.
@@ -238,20 +238,20 @@ node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm   # adopt th
 
   | Id | Migration | Safety |
   |---|---|---|
-  | 0001 | Normalise `.planning/config.json` to the nested template shape | auto |
+  | 0001 | Normalise `.aoforge/config.json` to the nested template shape | auto |
   | 0002 | Rename legacy `*-JOB.md` to `*-TRD.md` | auto |
-  | 0003 | Seed `.planning/state.json` from STATE.md | auto |
+  | 0003 | Seed `.aoforge/state.json` from STATE.md | auto |
   | 0004 | Backfill `OBJECTIVE.md` for NN-named objective dirs | auto |
   | 0005 | Refresh an existing CLAUDE.md AOForge block (never adds one) | auto |
   | 0006 | Set PROJECT.md `kind` / `default_work` | confirm |
   | 0007 | Rewrite stale AOForge command references in the CLAUDE.md AOForge block and STATE.md | auto |
-  | 0008 | Gitignore and untrack runtime state (`.planning/.progress-guard.json`, `.awareness-cache.json`, nested `**/.planning/` too); the working copies stay | auto |
-  | 0009 | Convert `.planning/.gh-mapping.json` to v3 and key `.gh-sync-state.json` by objective id | auto |
+  | 0008 | Gitignore and untrack runtime state (`.aoforge/.progress-guard.json`, `.awareness-cache.json`, nested `**/.aoforge/` too); the working copies stay | auto |
+  | 0009 | Convert `.aoforge/.gh-mapping.json` to v3 and key `.gh-sync-state.json` by objective id | auto |
   | 0010 | Gitignore and untrack the planning cache (store mode only); skips while a GitHub backfill is still pending | confirm |
   | 0011 | Backfill the planning history onto GitHub and turn store mode on, then hand off to 0010; resumable (see **Migrating an existing project**) | confirm |
 
   `confirm` migrations run only when you name them with `--only <id>` or pass `--apply --confirm`. `--confirm` selects every applicable confirm migration, including ones `--only` does not name; `--only <id>` alone runs just that one.
-- **Stamp.** `.planning/config.json` records `aoforge{version, migrations_applied, upgraded_at}`. `validate health` reports **W040** when the project is behind.
+- **Stamp.** `.aoforge/config.json` records `aoforge{version, migrations_applied, upgraded_at}`. `validate health` reports **W040** when the project is behind.
 - **Backups** go outside the repo, to `~/.claude/aoforge/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
 - **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/aoforge/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- AOFORGE:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. A block refreshes only when the template version rises: version 3 adds the `/aoforge:doctor` routing line (and carries the `/aoforge:gh-sync` line), so an existing block picks up both at the next global upgrade. If you already have a hand-written AOForge section, you get a notice and nothing changes until you run `upgrade --global --confirm`.
 - **Backup pruning.** AOForge installs no scheduler of its own -- pruning runs from the `upgrade-project.js` SessionStart path, throttled to once per 24 hours by a last-prune timestamp. The default policy keeps backups younger than 14 days, and always keeps the newest 5 per repo. It's configurable in `~/.claude/aoforge/global-config.json`: `backups.retain_days` and `backups.keep_min`. Run it by hand (or preview it) with `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --prune [--dry-run]`; register a repo for pruning without a full upgrade with `upgrade --register`. Both `/aoforge:adopt` and `/aoforge:new-project` register the repo automatically. Skip pruning entirely with `AOFORGE_SKIP_PRUNE=1`. If you want an OS-level schedule instead of the once-per-session throttle, add your own cron line, e.g. `0 3 * * * node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --prune` -- this is opt-in and entirely user-owned; AOForge never installs it for you.
@@ -260,7 +260,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm   # adopt th
 
 `validate health` and `/aoforge:doctor` look at two things that go wrong quietly. Both need an installed plugin carrying objective 69.
 
-**Skill-active marker (E006, W064).** `.planning/.skill-active` is the marker a running skill leaves so the edit gate lets it write source. Two failures keep the gate open when no skill is running, and `validate health` (Check 19) and `/aoforge:doctor` (check 23, `skill-markers`) report both:
+**Skill-active marker (E006, W064).** `.aoforge/.skill-active` is the marker a running skill leaves so the edit gate lets it write source. Two failures keep the gate open when no skill is running, and `validate health` (Check 19) and `/aoforge:doctor` (check 23, `skill-markers`) report both:
 
 - **Tracked (E006, an error).** git has the marker in its index. Once committed, it holds the gate open in every clone and checkout, permanently.
 - **Stale (W064, a warning).** The marker is untracked but left behind by a skill that crashed or lost its context. It counts as stale when `expires_at` has passed, when the file is unparseable (empty, truncated, or not a JSON object), or when it has no `expires_at` and is older than the 8-hour TTL (measured from `started_at`, else the file's modification time). Staleness fails closed: an unparseable marker is stale, never live. The process id inside the marker is never used, because it belongs to the short-lived aof-tools process that wrote the file and is always dead.
@@ -276,17 +276,17 @@ A tracked marker that is also stale is one E006 finding that mentions the stalen
 | tracked, stale | `git rm --cached`, then removes the file |
 | tracked, missing from the working tree | `git rm --cached` |
 | tracked, live, ignored by the repository | `git rm --cached`, keeps the file |
-| tracked, live, not ignored | nothing; the fix says to add `.planning/.skill-active` to `.gitignore` first |
+| tracked, live, not ignored | nothing; the fix says to add `.aoforge/.skill-active` to `.gitignore` first |
 
 The last row is refused because untracking would leave the file one `git add -A` from being tracked again, and the repair never edits `.gitignore`. Any change to the index is also refused while an unrelated change is staged or `.gitignore` has uncommitted changes: `aof-tools commit` refuses when anything outside `--files` is staged, so the repair would otherwise end up swept into your work. Doctor names what is in the way, for example `commit or unstage your changes (staged changes present: notes.txt), then re-run doctor --fix`. Neither command commits. After an untrack, commit the removal:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack .planning/.skill-active" --files .planning/.skill-active
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack .aoforge/.skill-active" --files .aoforge/.skill-active
 ```
 
 Doctor check 23 owns both codes. Check 22 (`validate-health`) defers E006 and W064 to it and counts only its own repairable issues, so a marker shows once.
 
-**Requirements agreement (W065).** An objective's `VERIFICATION.md` says which requirements it satisfied, and each SUMMARY lists the ones its TRD completed in `requirements-completed`. W065 (`validate health`, Check 20) is raised for a requirement the VERIFICATION marks SATISFIED that no SUMMARY of that objective lists, so the traceability the audit reads is not missing a link. A requirement marked NOT SATISFIED, PARTIALLY SATISFIED, BLOCKED or NEEDS HUMAN is not counted as satisfied. Only IDs that a REQUIREMENTS document defines are checked (the checkbox lines of `.planning/REQUIREMENTS.md` or of a `.planning/milestones/*-REQUIREMENTS.md` archive). Older VERIFICATION files use other ID families, such as `SC-1` or `AC-1` for their own success criteria, and flagging those would only be noise; they are listed as skipped.
+**Requirements agreement (W065).** An objective's `VERIFICATION.md` says which requirements it satisfied, and each SUMMARY lists the ones its TRD completed in `requirements-completed`. W065 (`validate health`, Check 20) is raised for a requirement the VERIFICATION marks SATISFIED that no SUMMARY of that objective lists, so the traceability the audit reads is not missing a link. A requirement marked NOT SATISFIED, PARTIALLY SATISFIED, BLOCKED or NEEDS HUMAN is not counted as satisfied. Only IDs that a REQUIREMENTS document defines are checked (the checkbox lines of `.aoforge/REQUIREMENTS.md` or of a `.aoforge/milestones/*-REQUIREMENTS.md` archive). Older VERIFICATION files use other ID families, such as `SC-1` or `AC-1` for their own success criteria, and flagging those would only be noise; they are listed as skipped.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs validate requirements [--objective <N>]
@@ -311,7 +311,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs calibrate --minutes <task_sum|trd_level
 node ~/.claude/aoforge/bin/aof-tools.cjs calibrate --through <N>               # ignore objectives numbered above N
 ```
 
-- **`tokens`.** Reads the executor transcripts under `~/.claude/projects` (`--root` to point elsewhere, `--repo` for another repository) and sums usage once per API message, so a message split across several transcript lines is not counted twice. `tokens stamp` adds `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `token_model` and `tokens_source: "live"` to the SUMMARY draft you name. Executors run it before `summary post`, so a new SUMMARY carries token data from the start, and the SubagentStop gate sends an executor back once if its final SUMMARY has no token fields. It never writes under `.planning/` and exits 0 with `stamped: false` when no transcript is found.
+- **`tokens`.** Reads the executor transcripts under `~/.claude/projects` (`--root` to point elsewhere, `--repo` for another repository) and sums usage once per API message, so a message split across several transcript lines is not counted twice. `tokens stamp` adds `tokens_input`, `tokens_output`, `tokens_cache_read`, `tokens_cache_write`, `token_model` and `tokens_source: "live"` to the SUMMARY draft you name. Executors run it before `summary post`, so a new SUMMARY carries token data from the start, and the SubagentStop gate sends an executor back once if its final SUMMARY has no token fields. It never writes under `.aoforge/` and exits 0 with `stamped: false` when no transcript is found.
 - **`tokens backfill`.** Covers every SUMMARY of the checkout holding the current directory. It is a dry run unless `--write`, and `--write` goes through `summary post`, so the only change is added `tokens_*` and `token_model` frontmatter lines (`tokens_source: "backfill"`). A second `--write` writes nothing. `--force` restamps a SUMMARY that already has token values; a live stamp is otherwise left as written. Expect many SUMMARYs to stay unrecovered: Claude Code deletes old transcripts, and an older SUMMARY may carry no TRD key. The report counts them by reason (`no_transcript`, `unkeyed`) and exits 0, since unrecoverable history is the normal outcome. Exit 1 means a usage error or a failed write.
 - **`tokens coverage`.** Measures how many SUMMARYs were stamped when they were written, which is what a later estimate can trust. It is read-only and writes nothing. The scope is the current milestone, `--milestone <v>` for another, or `--objective <N>` for one objective (not both). Every TRD SUMMARY falls in exactly one class: `live` (`tokens_source: "live"`), `backfill`, `unlabeled` (token fields without a source), `missing` (no token fields, whether or not it has a `## Self-Check`) or `in progress` (a `## Progress` checkpoint with no Self-Check, listed but not counted). The denominator is the counted SUMMARYs, so coverage is `live / (live + backfill + unlabeled + missing)`. It prints that as an exact fraction and a decimal floored at 6 places (37/39 prints `0.948717`), and checks the 95% target with integers (`live * 100 >= 95 * counted`), never with a rounded float. Each missing SUMMARY carries a reason: `stamp_skipped` when an executor transcript of that TRD exists, so the stamp could have been made and was not, otherwise `no_transcript` (a TRD run inline has no executor transcript and can never be forward-stamped). A report exits 0 whatever the coverage; exit 1 means a usage error, an unknown milestone, a missing `ROADMAP.md` or an objective with no directory. The objective report from `/aoforge:execute-objective` prints it as a `**Token stamp:**` line, and the orchestrator never runs `tokens backfill --write` to raise the number. Needs an installed plugin carrying objective 66.
 - **`calibrate`.** Builds per-task-class p50 and P90 for minutes, files, tokens and dollars, plus TRD-level figures, the checkpoint and gap-closure probabilities and the agent overhead (the planner, job-checker, verifier, objective-researcher, integration-checker and roadmapper spawns, read from the subagent transcripts), and writes them to `~/.claude/aoforge/calibration.json`. The file is the artifact; stdout is one summary line (`changed`, `unchanged` or `dry run`, then TRD, task and token-sample counts and a count per class). The output is deterministic: a rerun on unchanged inputs is byte-identical and reports `unchanged`. It refuses to write, and exits 1, when no AOForge project is found, so a mistyped path cannot overwrite a good file with zeros. Calibration version 3 (objective 67) adds a `method` block that records how the build was asked to make minutes, and puts it in `inputs_digest`; see the next two bullets.
@@ -353,12 +353,12 @@ Objective 58 estimate: 2h 19m median (P90 5h 42m) wall · $32.69 (P90 $48.34) ·
 - **Where estimates appear.** The planner's PLANNING COMPLETE return and plan-objective's OBJECTIVE PLANNED view carry the `objective --table` output. `/aoforge:build` prints the one-line estimate in its build plan and the actual-vs-estimate line when it finishes. Execute-objective's wave reports show each wave's estimate when it starts and its actual and verdict when it ends. The status line shows time remaining while a run is live. All of these are fail-soft: a missing calibration never blocks planning or execution.
 - **Run state.** `start`, `wave --start|--done` and `finish` are the only writers of the run state, one small JSON file per project, `~/.claude/aoforge/state/estimates/<repo-key>.json` (override the directory with `AOFORGE_ESTIMATE_STATE_DIR`). It is never written inside the repository. A run for another objective, a finished one, or one idle for more than 12 hours is not live: `wave --start` begins a new run, and `wave --done` and `finish` say `actual unknown (no run state)`. `wave --done` and `finish` are idempotent: a second call reprints the stored line and writes nothing. The verdict is `at or under median`, `within P90` or `over P90`. A new run records the execution and total estimates and the identity of the calibration it used. `finish`, and a `start` or `wave --start` that replaces a finished run, archive that run to `<state dir>/history/<repo-key>/<objective>-<started_at>.json`, so a later run does not destroy an earlier run's estimate; an unfinished run that is replaced is not archived. The history is what `estimate backtest` reads, and it is outside the repository like the run state.
 - **Status line.** While a run is live the status line adds `⏱ 58 W7/7 ~20m left` (the objective, the current wave of the total, and the remaining median), or `⏱ 58 W7/7 over P90` once the wave has outrun its P90. Nothing is computed per render: it reads the one cached file. After `finish` the segment is gone.
-- **What is assumed.** The correlation of 0.5 is an assumption, not a measurement. A first in-sample backtest of objectives 55 to 57 (the calibration already contains them, so it is optimistic) put the cost medians within 6% of actual and the minutes medians 1.5x to 2.8x above it, and every actual fell under its P90. Objective 64 then tested it out of sample on objectives 59 to 63 (41 TRDs, reconstructed from the calibration built before 59 started), and **EST-08 is not met**: the estimate of agent minutes runs about 1.5 times high (median ratio 1.51, 2 of 5 objectives within ±30%), while cost is close (median ratio 0.86, 4 of 5 within ±30%). The P90 met its 80% target for both: agent minutes covered 5 of 5 objectives and 40 of 41 TRDs, cost 4 of 5 and 34 of 41 (the cost P90 is narrow for `prompt_tdd`, `test` and `prompt` tasks). Read the minutes median as an upper estimate; the bias sits mostly in the `code_tdd`, `prompt_tdd` and `other` classes. The report is `.planning/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md`, and the recalibration of minutes is a pending todo. Recheck with `estimate backtest` on the next five objectives, whose run history now records the estimate before they execute. **Default changed but EST-08 not met:** objective 64 then re-validated the minutes estimate with a recency window. A window of 10 objectives was chosen on history from before objective 59 (weak support: the sweep over window sizes was not monotone, and only 10 beat all history) and scored once out of sample on 59 to 63, each objective estimated from its own leave-future-out calibration. The agent-minutes median ratio fell from 1.348 to 1.238 and agent-minutes SC2 passes, but 2 of 5 objectives are in band under both methods, the cost median moved from 0.839 to 0.797 (further below 1), and cost SC3 is unchanged at 32 of 41 TRDs (78%, target 80%), so EST-08 is still not met. The pre-registered ship rule made the window the default of `calibrate` and the live `calibration.json` was regenerated with it. Treat that as a small move on five objectives, not as a fix: only the next five objectives, estimated from the calibration that exists before each starts, can confirm it. The installed 2.14.0 runtime has `--window` and `estimate backtest`; `--minutes`, `--through` and the version 3 calibration need a release that carries objective 67 and a runtime re-sync.
+- **What is assumed.** The correlation of 0.5 is an assumption, not a measurement. A first in-sample backtest of objectives 55 to 57 (the calibration already contains them, so it is optimistic) put the cost medians within 6% of actual and the minutes medians 1.5x to 2.8x above it, and every actual fell under its P90. Objective 64 then tested it out of sample on objectives 59 to 63 (41 TRDs, reconstructed from the calibration built before 59 started), and **EST-08 is not met**: the estimate of agent minutes runs about 1.5 times high (median ratio 1.51, 2 of 5 objectives within ±30%), while cost is close (median ratio 0.86, 4 of 5 within ±30%). The P90 met its 80% target for both: agent minutes covered 5 of 5 objectives and 40 of 41 TRDs, cost 4 of 5 and 34 of 41 (the cost P90 is narrow for `prompt_tdd`, `test` and `prompt` tasks). Read the minutes median as an upper estimate; the bias sits mostly in the `code_tdd`, `prompt_tdd` and `other` classes. The report is `.aoforge/objectives/64-estimate-accuracy-validation/64-ACCURACY-REPORT.md`, and the recalibration of minutes is a pending todo. Recheck with `estimate backtest` on the next five objectives, whose run history now records the estimate before they execute. **Default changed but EST-08 not met:** objective 64 then re-validated the minutes estimate with a recency window. A window of 10 objectives was chosen on history from before objective 59 (weak support: the sweep over window sizes was not monotone, and only 10 beat all history) and scored once out of sample on 59 to 63, each objective estimated from its own leave-future-out calibration. The agent-minutes median ratio fell from 1.348 to 1.238 and agent-minutes SC2 passes, but 2 of 5 objectives are in band under both methods, the cost median moved from 0.839 to 0.797 (further below 1), and cost SC3 is unchanged at 32 of 41 TRDs (78%, target 80%), so EST-08 is still not met. The pre-registered ship rule made the window the default of `calibrate` and the live `calibration.json` was regenerated with it. Treat that as a small move on five objectives, not as a fix: only the next five objectives, estimated from the calibration that exists before each starts, can confirm it. The installed 2.14.0 runtime has `--window` and `estimate backtest`; `--minutes`, `--through` and the version 3 calibration need a release that carries objective 67 and a runtime re-sync.
 - **Objective 67 (EST-10).** The minutes estimate summed per-task class distributions, which is where objective 64 found the upward bias. DECISION-003 froze a different method before any scoring: a TRD's minutes come from the TRD-level distribution (`--minutes trd_level`), over a 10-objective window and a cutoff, with `task_sum` as the fallback. `67-VALIDATION.md` scored both methods once, on leave-future-out calibrations of objectives 46 to 66 (each cut `--through` the objective before it, window 10), after two positive controls reproduced objective 64's published results. On that set the scorer's EST-08 verdict is `met` for both methods, so the pre-registered ship rule returned `ship_default: true` ("the new method meets EST-08") and `trd_level` is the selected method and the `calibrate` default. The rule did not fire on an improvement of the centre: the agent-minutes median ratio is 1.021 for `task_sum` and 1.051 for `trd_level`. What changes is the spread: agent minutes in band for 7 of 13 compared objectives against 5 of 13, and the P90 covering 160 of 165 TRDs against 152 of 165. The limits: it is a leave-future-out reconstruction with today's code; the method family was suggested by data from objectives up to 63, which are in the set, so it is not blind to them; and 8 of the 21 objectives have incomplete minutes and are excluded from the minutes score. EST-11, on objectives 68 to 72, is the prospective test, and nothing was tuned to pass it. The EST-11 calibration is built once by the installed runtime with `--through 66` (objective 67) and must not be rebuilt until objective 75 has scored 68 to 72; 75 compares each run state's `calibration.inputs_digest` with it.
 
 ### Parallel wave merges (`aof-tools merge-driver`)
 
-Executors in one wave each write `.planning/state.json` and `.planning/STATE_ARCHIVE.md` on their own branch, so the merges back would conflict on both. `/aoforge:execute-objective` installs a merge driver once per run, before the first parallel wave's worktrees, so they merge without a conflict.
+Executors in one wave each write `.aoforge/state.json` and `.aoforge/STATE_ARCHIVE.md` on their own branch, so the merges back would conflict on both. `/aoforge:execute-objective` installs a merge driver once per run, before the first parallel wave's worktrees, so they merge without a conflict.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs merge-driver install            # run from the MAIN checkout
@@ -369,11 +369,11 @@ node ~/.claude/aoforge/bin/aof-tools.cjs merge-driver uninstall          # the u
 - **Where it runs.** Install from the main checkout, where wave merges run, and never inside an executor worktree. The registration is per clone: a block in the common `info/attributes` plus a `merge.aoforge-state-json` section in the repo's git config. Nothing is committed, so a fresh clone has no driver until `install` runs there. `install` is idempotent, `uninstall` is idempotent and removes only that block and section, and `install --check` reports `installed: false` afterwards.
 - **What each file does on merge.** `state.json` is merged as JSON. `decisions`, `blockers` and `session_log` keep both sides' additions (ours first, then theirs) and drop an entry one side removed, `metrics` counters sum both deltas (two parallel `+1` jobs make `+2`), a number changed on both sides takes the larger, an ISO date the later, and any other key changed on both sides keeps ours with a note. `STATE_ARCHIVE.md` merges by union, so both sides' new rows are kept. STATE.md, ROADMAP.md and REQUIREMENTS.md still conflict; the wave merge takes ours for those and regenerates them afterwards with `state advance-job --objective N`, `state update-progress` and `roadmap update-job-progress N`, in one commit.
 - **Fail-safe.** The recorded driver is a shell wrapper that runs aof-tools only if the binary exists and otherwise falls back to `git merge-file`. A missing binary therefore gives an ordinary text conflict with markers, never an aborted merge. The wrapper points at the main checkout's `plugins/aoforge/aoforge/bin/aof-tools.cjs` or at the `~/.claude/aoforge` mirror's, depending on which copy ran `install`, and never at a worktree copy that a later `git worktree remove` would strand. After a plugin update, the next run of `execute-objective` re-points the driver at the mirror (`changed: true` once).
-- **If a merge stops anyway** (the driver was not installed, or the runtime predates it): `node ~/.claude/aoforge/bin/aof-tools.cjs merge-driver resolve .planning/state.json` (or `.planning/STATE_ARCHIVE.md`) resolves the stopped file from the index stages by the same rules and stages the result, then finish the merge with `git commit --no-edit`. It refuses any other path.
+- **If a merge stops anyway** (the driver was not installed, or the runtime predates it): `node ~/.claude/aoforge/bin/aof-tools.cjs merge-driver resolve .aoforge/state.json` (or `.aoforge/STATE_ARCHIVE.md`) resolves the stopped file from the index stages by the same rules and stages the result, then finish the merge with `git commit --no-edit`. It refuses any other path.
 - **Position after a wave.** `state advance-job --objective N` reads objective N's TRDs and SUMMARYs from disk and writes `Executing objective N — D/T TRDs complete` (`ready for verification` only when D equals T), so it is the same answer however the merges went and is safe to run again. Without `--objective`, a project with no usable position (state.json at 0/0, or no counters) writes nothing and reports `reason: no_position`.
 - **The executor's checkout.** The dispatch names each executor's `CHECKOUT`. Every Bash call starts in the session's directory, not the worktree, so the preflight is `aof-tools --cwd <CHECKOUT> exec-context check --repo <REPO_ROOT> --base <WAVE_BASE> --id <plan_id>`, and `exec-context worktree` prints that command as `preflight`. A check that runs elsewhere while a worktree exists for `--id` fails `WRONG CHECKOUT`, takes no claim and prints the `--cwd` command to run.
 - **`milestone complete`.** It counts, lists and archives only the objectives the milestone's ROADMAP bullet names, and reports `objective_numbers`, `cancelled` (in-range objectives whose OBJECTIVE.md says `status: cancelled`), `absent` (numbers in the bullet's range with neither a directory nor a ROADMAP section) and `scope_source` (`milestone bullet`, `roadmap sections` or `objective directories`). `state_updated` is true only when STATE.md changed, and `objective remove` and `objective complete` report `roadmap_updated` the same way, so a repeated `objective complete` reports `false`.
-- **`milestone complete --dry-run` and re-runs.** `milestone complete <version> --dry-run` prints the plan to stderr (`DRY RUN — nothing has been modified.`, then what it would write, move and keep) and returns `dry_run: true`, `would_write`, `would_move`, `would_keep` and the exact `milestone_entry`; nothing is written, not even `.planning/milestones/`. In store mode it previews the GitHub milestone close and the archive publish (`would_close`, `would_publish`) without calling GitHub, so it works offline. A real run reports `written`, `moved`, `kept` (each with a reason), `milestones_reason` and `warnings`, and it executes the same plan the dry run printed. Running it again for the same version is safe: an existing archive file is kept (`exists`), an existing MILESTONES.md entry is kept byte for byte (`milestones_reason: entry_exists`, which also covers an entry written by `milestone put` or a legacy `## 1.0` heading), and an audit file or objective directory whose destination already exists stays where it is (`destination_exists`, with a warning). `1.0` and `v1.0` name one version; `v1.0.1` is another. `milestones_updated` means the MILESTONES.md bytes changed.
+- **`milestone complete --dry-run` and re-runs.** `milestone complete <version> --dry-run` prints the plan to stderr (`DRY RUN — nothing has been modified.`, then what it would write, move and keep) and returns `dry_run: true`, `would_write`, `would_move`, `would_keep` and the exact `milestone_entry`; nothing is written, not even `.aoforge/milestones/`. In store mode it previews the GitHub milestone close and the archive publish (`would_close`, `would_publish`) without calling GitHub, so it works offline. A real run reports `written`, `moved`, `kept` (each with a reason), `milestones_reason` and `warnings`, and it executes the same plan the dry run printed. Running it again for the same version is safe: an existing archive file is kept (`exists`), an existing MILESTONES.md entry is kept byte for byte (`milestones_reason: entry_exists`, which also covers an entry written by `milestone put` or a legacy `## 1.0` heading), and an audit file or objective directory whose destination already exists stays where it is (`destination_exists`, with a warning). `1.0` and `v1.0` name one version; `v1.0.1` is another. `milestones_updated` means the MILESTONES.md bytes changed.
 - **`objective remove` and `objective complete`.** `objective remove --confirm` renumbers later objectives in ROADMAP.md with a bounded rule that matches TRD references (`18-01`, `18-01-slug-TRD.md`, `(18-01)`) but not dates (`2026-03-15`, `03-15-2026`), versions (`v1.18-01`) or ticket ids (`AUTH-18-01`), so a removal leaves every date, status and `Shipped:` line as it was. Prose ranges (`Objectives 65-75`) and the milestone bullets are not renumbered; see Known issues. `objective complete <N>` takes the next objective from the objective directories and the `### Objective M:` sections of ROADMAP.md, in number order, so an objective that is planned only in the roadmap makes `is_last_objective` `false` and moves a legacy STATE.md to `Ready to plan`.
 
 ### Telemetry (`aof-tools telemetry`)
@@ -386,7 +386,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs telemetry --scan                       
 node ~/.claude/aoforge/bin/aof-tools.cjs telemetry --scan --limit 20 --since 2026-09-01 --root <projects dir>
 ```
 
-- **`--scan`.** Reads Claude Code session transcripts (by default the newest 150 under `~/.claude/projects`; `--limit 0` reads all of them) and fills the `blocks` object: the total number of blocking events, how many are AOForge-owned, the share of sessions with a block and the top categories. A `scan` object records the `root`, `limit`, `since` and `files_scanned` that were used, and the advisories gain a line about the blocks. It reads transcripts, not `.planning/`, so it works outside an AOForge project too. With `--raw` the output is text and starts with `scan: <n> transcripts, <n> blocks (<n> AOForge-owned)`; without it, JSON.
+- **`--scan`.** Reads Claude Code session transcripts (by default the newest 150 under `~/.claude/projects`; `--limit 0` reads all of them) and fills the `blocks` object: the total number of blocking events, how many are AOForge-owned, the share of sessions with a block and the top categories. A `scan` object records the `root`, `limit`, `since` and `files_scanned` that were used, and the advisories gain a line about the blocks. It reads transcripts, not `.aoforge/`, so it works outside an AOForge project too. With `--raw` the output is text and starts with `scan: <n> transcripts, <n> blocks (<n> AOForge-owned)`; without it, JSON.
 - **Flags that need `--scan`.** `--limit`, `--since YYYY-MM-DD` and `--root` only mean something to the scan, so without it they exit 1 with `--limit, --since and --root need --scan`. Every other unknown flag exits 1 as well (`unknown flag: --scna`). Before objective 61, `telemetry` silently ignored `--scan` and every other flag, so a typo looked like a clean result.
 - **Needs an installed plugin carrying objective 61.** An older one ignores the flags.
 
@@ -415,7 +415,7 @@ AOForge's own prompts use Claude Code's built-ins instead of ad hoc text (object
 
 ### Todos and the session task list
 
-`/aoforge:todo` keeps a todo in two places (objective 63). While you work, the session task list holds it as a `Todo: <title>` item (visible with Ctrl+T), made with TaskCreate, TaskUpdate and TaskList, or with TodoWrite on a session where `CLAUDE_CODE_ENABLE_TASKS=0` brings it back. The todo file under `.planning/todos/` (or the `aoforge:todo` GitHub issue in store mode) is the durable archive that outlives the session. Both forms are written by the skill and read back by one merge, so you work with whichever is in front of you.
+`/aoforge:todo` keeps a todo in two places (objective 63). While you work, the session task list holds it as a `Todo: <title>` item (visible with Ctrl+T), made with TaskCreate, TaskUpdate and TaskList, or with TodoWrite on a session where `CLAUDE_CODE_ENABLE_TASKS=0` brings it back. The todo file under `.aoforge/todos/` (or the `aoforge:todo` GitHub issue in store mode) is the durable archive that outlives the session. Both forms are written by the skill and read back by one merge, so you work with whichever is in front of you.
 
 - **With the task tools.** `/aoforge:todo add <x>` adds the session item first and the archive todo second, so a turn cut off between the two is recovered by the sync. `/aoforge:todo list` merges the session into the archive first, commits the files that merge changed, shows `(in progress this session)` beside a todo the task list has started and lists session todos not archived yet. "Work on it now" sets the session task in progress and leaves the archive todo pending: finishing the task (TaskUpdate to `completed`) is what completes the archive todo, at the next Stop or the next `list`.
 - **Without them.** The task tools are on by default only on older models; see "Turning the task tools on" in [Progress, plan mode and questions](#progress-plan-mode-and-questions) for `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`. With neither tool, `add` and `list` behave as they did before objective 63, and "Work on it now" completes the archive todo at once.
@@ -432,13 +432,13 @@ AOForge's own prompts use Claude Code's built-ins instead of ad hoc text (object
 |---------|---------|-------------|
 | `/aoforge:gh-sync [migrate\|status\|flush\|pull\|setup\|release <tag>\|<objective>\|--all]` | Operate the GitHub store: migrate a project onto it, status, flush the outbox, rebuild the cache, set the repository up, release notes. With the store off, mirror objectives to issues | To move a project onto GitHub, or when GitHub drifts |
 | `/aoforge:workstreams [analyze\|provision\|reconcile]` | Parallel git worktrees for independent objectives | Multi-objective parallelism across worktrees |
-| `aof-tools stack init\|validate\|resolve\|context\|command\|verify` | Declare and check the project stack profile (`.planning/STACK.md`); `verify --run` runs safe gates, and service-backed gates are skipped `env_required` unless `--allow-services` | After map-codebase, or when CI commands change |
+| `aof-tools stack init\|validate\|resolve\|context\|command\|verify` | Declare and check the project stack profile (`.aoforge/STACK.md`); `verify --run` runs safe gates, and service-backed gates are skipped `env_required` unless `--allow-services` | After map-codebase, or when CI commands change |
 
 ---
 
 ## Configuration Reference
 
-AOForge stores project settings in `.planning/config.json`. Configure during `/aoforge:new-project` or update later with `/aoforge:settings`.
+AOForge stores project settings in `.aoforge/config.json`. Configure during `/aoforge:new-project` or update later with `/aoforge:settings`.
 
 ### Full config.json Schema
 
@@ -511,10 +511,10 @@ AOForge stores project settings in `.planning/config.json`. Configure during `/a
 
 | Setting | Options | Default | What it Controls |
 |---------|---------|---------|------------------|
-| `planning.commit_docs` | `true`, `false` | `true` | Whether `.planning/` files are committed to git |
-| `planning.search_gitignored` | `true`, `false` | `false` | Add `--no-ignore` to broad searches to include `.planning/` |
+| `planning.commit_docs` | `true`, `false` | `true` | Whether `.aoforge/` files are committed to git |
+| `planning.search_gitignored` | `true`, `false` | `false` | Add `--no-ignore` to broad searches to include `.aoforge/` |
 
-> **Note:** If `.planning/` is in `.gitignore`, `commit_docs` is automatically `false` regardless of the config value.
+> **Note:** If `.aoforge/` is in `.gitignore`, `commit_docs` is automatically `false` regardless of the config value.
 
 ### Workflow Toggles
 
@@ -719,7 +719,7 @@ claude --dangerously-skip-permissions
 
 ### "Project already initialized"
 
-You ran `/aoforge:new-project` but `.planning/PROJECT.md` already exists. This is a safety check. If you want to start over, delete the `.planning/` directory first.
+You ran `/aoforge:new-project` but `.aoforge/PROJECT.md` already exists. This is a safety check. If you want to start over, delete the `.aoforge/` directory first.
 
 ### Context Degradation During Long Sessions
 
@@ -747,7 +747,7 @@ Switch to budget profile: `/aoforge:set-profile budget`. Disable research and pl
 
 ### Working on a Sensitive/Private Project
 
-Set `commit_docs: false` during `/aoforge:new-project` or via `/aoforge:settings`. Add `.planning/` to your `.gitignore`. Planning artifacts stay local and never touch git.
+Set `commit_docs: false` during `/aoforge:new-project` or via `/aoforge:settings`. Add `.aoforge/` to your `.gitignore`. Planning artifacts stay local and never touch git.
 
 ### Updating AOForge
 
@@ -781,7 +781,7 @@ A known workaround exists for a Claude Code classification bug. AOForge's orches
 For reference, here is what AOForge creates in your project:
 
 ```
-.planning/
+.aoforge/
   PROJECT.md              # Project vision and context (always loaded)
   REQUIREMENTS.md         # Scoped v1/v2 requirements with IDs
   ROADMAP.md              # Objective breakdown with status tracking
@@ -804,7 +804,7 @@ For reference, here is what AOForge creates in your project:
       VERIFICATION.md     # Post-execution verification results
 ```
 
-In store mode (`github.store: true`) GitHub holds these files. Git tracks only `config.json` and `STACK.md`; the rest of `.planning/` is a cache that `gh pull --all` rebuilds, plus runtime files and the wiki clone in `.planning/wiki/`. See **GitHub integration**.
+In store mode (`github.store: true`) GitHub holds these files. Git tracks only `config.json` and `STACK.md`; the rest of `.aoforge/` is a cache that `gh pull --all` rebuilds, plus runtime files and the wiki clone in `.aoforge/wiki/`. See **GitHub integration**.
 
 ---
 
@@ -814,17 +814,17 @@ AOForge installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 
 | Hook | Event | What it does | Escape hatch |
 |---|---|---|---|
-| `route-intent.js` | UserPromptSubmit | Detects AOForge projects (`.planning/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-AOForge repos and explicit `/aoforge:` invocations |
+| `route-intent.js` | UserPromptSubmit | Detects AOForge projects (`.aoforge/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-AOForge repos and explicit `/aoforge:` invocations |
 | `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in AOForge projects; demands `aof-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `AOFORGE_ALLOW_RAW_COMMIT=1 git commit …`, or `AOFORGE_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
-| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.planning/.skill-active` marker exists (executor writes this), the editing agent is an AOForge agent (`agent_type` `aoforge:<name>`), user prompt contains an override phrase (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`), or env var is set. Always permits `.planning/**` and `*.md` paths. (Prior `AOFORGE_STRICT_EDITS=1` behavior is now the default.) | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
-| `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.planning/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
+| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.aoforge/.skill-active` marker exists (executor writes this), the editing agent is an AOForge agent (`agent_type` `aoforge:<name>`), user prompt contains an override phrase (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`), or env var is set. Always permits `.aoforge/**` and `*.md` paths. (Prior `AOFORGE_STRICT_EDITS=1` behavior is now the default.) | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
+| `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.aoforge/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
 | `changelog-on-tag.js` | PreToolUse (Bash) | Blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` has no `## [X.Y.Z]` heading. Tells you to run `aof-tools changelog update --version vX.Y.Z` first. | `AOFORGE_SKIP_CHANGELOG_GATE=1` |
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. In autonomous mode it also blocks an `aoforge:executor` stop once per agent, so the executor commits its work before it ends; other agent types are never blocked. | n/a (one block per agent) |
 | `gate-executor-stop.js` | SubagentStop | Blocks an `aoforge:executor` once when it stops naturally and its TRD has no SUMMARY.md yet, telling it to finish or write the `## Progress` checkpoint, or when its final SUMMARY (with `## Self-Check`) has no `tokens_input`/`tokens_output`, telling it to stamp and re-post. Never blocks twice in a row; fails open. The token branch needs an installed plugin carrying objective 66. | `AOFORGE_SKIP_EXECUTOR_STOP_GATE=1` |
 | `gate-skill-requires.js` | UserPromptExpansion, PreToolUse (Skill) | Refuses to start a `/aoforge:<skill>` whose `SKILL.md` declares `requires:` a tool that is not on PATH (today `/aoforge:gh-sync`, which needs `gh`). A typed command is blocked and a Skill tool call is denied, each with the install hint and a pointer to `/aoforge:doctor`. Fails open. Needs an installed plugin carrying objective 61. See [Skills that need a tool](#skills-that-need-a-tool-requires). | `AOFORGE_SKIP_SKILL_REQUIRES=1` in the environment Claude Code was launched from |
 | `auto-continue.js` | Stop | While an AOForge skill is active and nothing runs in the background, blocks once when Claude ends its turn right after announcing its own next step ("Writing the predicate.") instead of taking it. Questions and `/aoforge:` hand-offs never trigger it. | `AOFORGE_SKIP_AUTOCONTINUE=1` |
-| `todo-sync.js` | Stop | Merges the session's `/aoforge:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `aof-tools todo sync`: `.planning/todos/` in local mode, a queued `aoforge:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message, never commits, never blocks, keeps no state and fails open. Needs an installed plugin carrying objective 63. See [Todos and the session task list](#todos-and-the-session-task-list). | `AOFORGE_SKIP_TODO_SYNC=1` |
+| `todo-sync.js` | Stop | Merges the session's `/aoforge:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `aof-tools todo sync`: `.aoforge/todos/` in local mode, a queued `aoforge:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message, never commits, never blocks, keeps no state and fails open. Needs an installed plugin carrying objective 63. See [Todos and the session task list](#todos-and-the-session-task-list). | `AOFORGE_SKIP_TODO_SYNC=1` |
 | `check-update.js` | SessionStart | Background npm registry check for newer AOForge versions. | n/a |
 | `upgrade-project.js` | SessionStart | Upgrades a behind AOForge project in place: applies the `auto` migrations with the bundled aof-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits (the runtime-state files migration 0008 untracks don't count), or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-aof-tools-upgrade)) as the first step, AOForge project or not, then starts a detached background transcript export at most once per 24h (see [Automatic transcript export](#automatic-transcript-export)). Notices are emitted once, on the next prompt, by `route-results.js`. | `AOFORGE_SKIP_UPGRADE=1` (upgrade only), `AOFORGE_SKIP_PRUNE=1` (prune only), `AOFORGE_SKIP_TRANSCRIPT_EXPORT=1` (export only) |
 | `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator and, while an objective builds, estimated time remaining (`⏱ 58 W7/7 ~20m left`) from the estimate run state. | n/a |
@@ -855,18 +855,18 @@ A relative target is resolved against the session's working directory, following
 **What it never gates.**
 
 - A command that only mentions a write: a heredoc body, a quoted argument, a comment (`grep -n "> src/a.js" README.md`, `echo "x > y"`).
-- Anything under `.planning/`, and any `*.md` file.
+- Anything under `.aoforge/`, and any `*.md` file.
 - A file git does not track (untracked or ignored). Git is asked once per command, and only when a candidate inside the project exists.
 - A path outside the project: `/tmp`, the session scratchpad, another repository.
 - A target that cannot be resolved statically (`$VAR`, backticks, `cd -`, an unknown working directory).
-- A directory with no `.planning/` above it (not an AOForge project).
+- A directory with no `.aoforge/` above it (not an AOForge project).
 
 **Escapes.** They are the Edit gate's own, because the hook calls the same functions:
 
-- a live `.planning/.skill-active` marker, in this project's `.planning/` or the main checkout's
+- a live `.aoforge/.skill-active` marker, in this project's `.aoforge/` or the main checkout's
 - an `aoforge:*` agent
 - an override phrase in your prompt (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`). It is a one-shot marker, and the Bash hook consumes it only when a write would otherwise be gated, so an `ls` never spends it
-- `gates.editGate: off` or `gates.bashEditGate: off` in `.planning/config.json`
+- `gates.editGate: off` or `gates.bashEditGate: off` in `.aoforge/config.json`
 - `AOFORGE_SKIP_EDIT_GATE=1`, **only in the environment Claude Code was launched from**:
 
 ```bash
@@ -890,7 +890,7 @@ A hook runs in Claude Code's own process, so it never sees a variable set inside
 | `warn` | `off` | allowed |
 | `off` | any | allowed |
 
-To opt in to denying, set `"gates": { "bashEditGate": "strict" }` in `.planning/config.json`.
+To opt in to denying, set `"gates": { "bashEditGate": "strict" }` in `.aoforge/config.json`.
 
 **The default and how it was decided.** The shipped default is `warn`, the constant `BASH_EDIT_GATE_DEFAULT` in `plugins/aoforge/aoforge/bin/lib/bash-write-gate.cjs`. The rule is code, not judgment: `strict` is recommended only when the false-positive rate is at most 2% (`FP_THRESHOLD = 0.02`, `recommendDefault`), otherwise `warn`. The rate was measured on 2026-10-06 by replaying the hook's own decision over every retained Claude Code transcript (`aof-tools session-audit --limit 0`), with git history at each call's timestamp deciding whether a file was tracked:
 
@@ -965,16 +965,16 @@ requires:
 
 ## GitHub integration
 
-AOForge works with GitHub in one of two modes, chosen by `github.store` in `.planning/config.json`:
+AOForge works with GitHub in one of two modes, chosen by `github.store` in `.aoforge/config.json`:
 
-- **Store mode** (`github.store: true`): GitHub is the system of record. Issues, TRD sub-issues, comments and wiki pages hold the planning state; `.planning/` is a cache that `gh pull --all` rebuilds, and every planning verb queues its GitHub write. An existing project moves onto it with migration 0011 (see **Migrating an existing project**).
+- **Store mode** (`github.store: true`): GitHub is the system of record. Issues, TRD sub-issues, comments and wiki pages hold the planning state; `.aoforge/` is a cache that `gh pull --all` rebuilds, and every planning verb queues its GitHub write. An existing project moves onto it with migration 0011 (see **Migrating an existing project**).
 - **Mirror mode** (store off, the default): AOForge pushes objectives to GitHub issues, milestones and releases one way, and skills and agents read the planning files (see **Mirror mode (store off)**).
 
 Both modes need `github.enabled: true` and `github.repo`. With `github.enabled` false every GitHub command reports `skipped` and exits 0 without calling `gh`. With it true, a command that cannot reach GitHub (no `gh`, expired auth, a failed call) exits 1 and says why. The workflow steps that run a sync after planning and after execution show that failure as a warning and carry on, so your workflow is never blocked.
 
 ### GitHub is the system of record (store mode)
 
-In store mode GitHub holds the whole planning hierarchy. It is on only when `github.store` is exactly `true`. Skills and agents publish planning files through aof-tools verbs, each verb queues its GitHub write in the outbox, and `.planning/` is a cache you can rebuild from GitHub (see **The planning write path**). Each objective runs on one linked branch and one pull request (see **One branch and one pull request per objective**), and the repository enforces the model (see **Enforcement and setup**). With the store off, every planning verb writes the same `.planning/` file it always did and **Mirror mode (store off)** applies.
+In store mode GitHub holds the whole planning hierarchy. It is on only when `github.store` is exactly `true`. Skills and agents publish planning files through aof-tools verbs, each verb queues its GitHub write in the outbox, and `.aoforge/` is a cache you can rebuild from GitHub (see **The planning write path**). Each objective runs on one linked branch and one pull request (see **One branch and one pull request per objective**), and the repository enforces the model (see **Enforcement and setup**). With the store off, every planning verb writes the same `.aoforge/` file it always did and **Mirror mode (store off)** applies.
 
 #### Migrating an existing project
 
@@ -1015,8 +1015,8 @@ In order, the apply:
 
 1. checks the local state and refuses on every blocker at once, each with its fix: not a git work tree; a merge, rebase, cherry-pick or revert in progress; a halted, blocked or unreadable outbox journal; legacy-named TRDs (`NN-MM-TRD-<slug>.md`, with the rename); TRDs over 60,000 characters;
 2. checks GitHub, reading only: `gh` authenticated with the `repo` scope, a token that can write, and a wiki that is enabled and has a first page;
-3. backs up `.planning/config.json` and sets `github.store: true`. The notes name the backup; to roll back, set `github.store` to false;
-4. queues the whole backfill once, history closes included. A re-run while ops are still queued skips this step, so nothing is imported twice, and on such a resume a lost `.planning/.gh-mapping.json` is rebuilt from the `aoforge:id` markers on GitHub;
+3. backs up `.aoforge/config.json` and sets `github.store: true`. The notes name the backup; to roll back, set `github.store` to false;
+4. queues the whole backfill once, history closes included. A re-run while ops are still queued skips this step, so nothing is imported twice, and on such a resume a lost `.aoforge/.gh-mapping.json` is rebuilt from the `aoforge:id` markers on GitHub;
 5. drains the outbox within the budgets;
 6. verifies GitHub with `gh pull --all` and the orphan report: every TRD file has an issue linked under its objective, and every TRD issue has a file;
 7. runs migration 0010, which gitignores and untracks the cache, and records both 0010 and 0011 in the stamp.
@@ -1039,13 +1039,13 @@ A message that starts `the outbox halted at op <seq>` means someone edited an AO
 ```
 commit on a new branch with the logged escape (gate gh; store mode refuses the default branch and unlinked branches), then merge it through a pull request:
   git switch -c aoforge-store-cache
-  AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="store migration" node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
+  AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="store migration" node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .aoforge/
   git push -u origin aoforge-store-cache
   gh pr create --head aoforge-store-cache --fill
-  or, on an objective's linked branch (`aof-tools gh pr start <objective>`), commit there with: node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
+  or, on an objective's linked branch (`aof-tools gh pr start <objective>`), commit there with: node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .aoforge/
 ```
 
-Store mode refuses `aof-tools commit` on the default branch and on a branch that no objective pull request names, so the first route takes the logged escape (gate `gh` in `.planning/.override-log.jsonl`; `aof-tools override --list` shows it). The last line is the other route: on a branch that `gh pr start` linked to an objective, the bare command is accepted and needs no escape. Each line runs as printed. `/aoforge:gh-sync migrate` shows the steps and runs them only when you ask.
+Store mode refuses `aof-tools commit` on the default branch and on a branch that no objective pull request names, so the first route takes the logged escape (gate `gh` in `.aoforge/.override-log.jsonl`; `aof-tools override --list` shows it). The last line is the other route: on a branch that `gh pr start` linked to an objective, the bare command is accepted and needs no escape. Each line runs as printed. `/aoforge:gh-sync migrate` shows the steps and runs them only when you ask.
 
 **6. Then `gh setup`.** It is not part of the migration. Merge the migration's pull request first. Then run `gh setup` (a dry run) and `gh setup --apply`, merge its workflow pull request with the repository-admin bypass the setup ruleset grants (`gh pr merge <number> --admin --squash`; the required checks exist only once the workflow is on the default branch), and only then require the checks. See **Enforcement and setup**.
 
@@ -1053,7 +1053,7 @@ Store mode refuses `aof-tools commit` on the default branch and on a branch that
 
 **Known behaviour.**
 
-- A project that enables GitHub for mirror mode keeps 0011 as a pending confirm migration: `validate health` reports W040 ("1 need confirmation") and `doctor` check 21 names 0011. Nothing applies 0011 without your confirmation. To keep mirror mode and stop the prompt, record the opt-out in the tracked config and commit `.planning/config.json`:
+- A project that enables GitHub for mirror mode keeps 0011 as a pending confirm migration: `validate health` reports W040 ("1 need confirmation") and `doctor` check 21 names 0011. Nothing applies 0011 without your confirmation. To keep mirror mode and stop the prompt, record the opt-out in the tracked config and commit `.aoforge/config.json`:
 
   ```bash
   node ~/.claude/aoforge/bin/aof-tools.cjs config-set github.mirror_only true
@@ -1063,7 +1063,7 @@ Store mode refuses `aof-tools commit` on the default branch and on a branch that
 - `--confirm` selects every applicable confirm migration, not only the one `--only` names: 0006 on a project with no `kind`, and 0010 on a store-mode project. `--only 0011` without `--confirm` runs 0011 alone. On a halted journal, `--only 0011 --confirm` therefore fails on 0010 first ("outbox: halted (remote-edit)"), and 0010's message points at `planning import` and `gh outbox flush`. The fix is the `gh outbox resolve` step above; nothing was written.
 - While a backfill drains, `doctor` check 24 reports `ok` with "nothing to untrack: GitHub backfill in progress". The untrack waits for the drain and the hand-off to 0010.
 - The backfill is tested against a model of GitHub and, through the CLI, against a `gh` shim, not against a live repository. Run your first real backfill against a throwaway repository (a manual UAT step, not part of CI) before you migrate a repository you care about.
-- A store project created from scratch, with nothing to import, gets `.planning/state.json` and its version stamp from `aof-tools upgrade --apply`, which the SessionStart hook also runs when a session opens in a project that is behind. The 2026-10-05 live run confirmed it: `upgrade --apply` seeded `state.json`, stamped the project, and `validate health` then reported no W009 and no W040. There is no one-command store bootstrap in `new-project`. That is deferred on purpose: it would be a new feature rather than a fix for a defect the smoke found, and the hook plus `upgrade --apply` already covers it.
+- A store project created from scratch, with nothing to import, gets `.aoforge/state.json` and its version stamp from `aof-tools upgrade --apply`, which the SessionStart hook also runs when a session opens in a project that is behind. The 2026-10-05 live run confirmed it: `upgrade --apply` seeded `state.json`, stamped the project, and `validate health` then reported no W009 and no W040. There is no one-command store bootstrap in `new-project`. That is deferred on purpose: it would be a new feature rather than a fix for a defect the smoke found, and the hook plus `upgrade --apply` already covers it.
 
 #### What the store holds
 
@@ -1118,7 +1118,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs gh trd fold <trd> [--force]
 
 #### Rebuilding the cache: `gh pull --all`
 
-`aof-tools gh pull --all [--force]` reads the issues, comments and pages and lays them out as `.planning/` files, byte for byte. It writes only what changed (a second run writes nothing) and never deletes anything. It will not overwrite a file you edited locally since the last sync; that file is reported as `local_modified` and `--force` takes GitHub's version. A ROADMAP.md or STATE.md without the generated header is hand-maintained: it is reported and never overwritten, even with `--force`. Exit 0 means the cache matches GitHub, 1 an error, and 2 that the cache was rebuilt but something needs your attention (a locally modified file, a hand-maintained ROADMAP.md, a local file GitHub does not have, an item that could not be read or placed).
+`aof-tools gh pull --all [--force]` reads the issues, comments and pages and lays them out as `.aoforge/` files, byte for byte. It writes only what changed (a second run writes nothing) and never deletes anything. It will not overwrite a file you edited locally since the last sync; that file is reported as `local_modified` and `--force` takes GitHub's version. A ROADMAP.md or STATE.md without the generated header is hand-maintained: it is reported and never overwritten, even with `--force`. Exit 0 means the cache matches GitHub, 1 an error, and 2 that the cache was rebuilt but something needs your attention (a locally modified file, a hand-maintained ROADMAP.md, a local file GitHub does not have, an item that could not be read or placed).
 
 #### Degraded mode
 
@@ -1133,9 +1133,9 @@ Every planning file has one aof-tools verb that writes it. Skills and agents cal
 
 **Drafts stay current.** Each draft has a base record beside it (`<draft>.base.json`, the sha256 of the live text it was seeded from). If the live file changes after you seeded the draft, because another verb published it, `planning draft <rel>` rewrites the draft from the live file, keeps the draft it replaced at `<draft>.stale` so none of your edits are lost, and says so on stderr (`planning draft: reseeded ... Your previous draft is at ....stale`). Stdout is still only the path, and `--raw` adds `seeded`, `reseeded` and `stale_copy`. `doc put --from <draft>` checks the same record first. A stale draft is refused with exit 1 (`doc put: refused (stale draft). Nothing was written.`) before anything is written, and the error names the fix, `aof-tools planning draft <rel>`: reseed, re-apply your edits from the `.stale` copy, and run `doc put` again. In store mode a refused draft queues no GitHub write. Publishing the same unchanged draft a second time is not refused. The check has limits: only `doc put` makes it; standard input (`--from -`) and a file outside the drafts tree that has no base record are not checked; and a draft made before objective 69 has no base record, so it is judged by modification time (older than the live file means stale), which cannot catch a legacy draft you edited after the live file changed.
 
-**Store off (the default).** Each verb writes the same `.planning/` file, byte for byte, that the old flow wrote, makes no `gh` calls, and `.planning/` stays tracked in git. Nothing changes for a project that never sets `github.store`.
+**Store off (the default).** Each verb writes the same `.aoforge/` file, byte for byte, that the old flow wrote, makes no `gh` calls, and `.aoforge/` stays tracked in git. Nothing changes for a project that never sets `github.store`.
 
-**Turning it on.** Use migration 0011 (see **Migrating an existing project**); it also handles a project with nothing to import. The manual route below still works, but it skips the preflight, the live-write budget bookkeeping and the verification that 0011 runs. Set both keys in `.planning/config.json`, then run the first-run steps once from the main checkout:
+**Turning it on.** Use migration 0011 (see **Migrating an existing project**); it also handles a project with nothing to import. The manual route below still works, but it skips the preflight, the live-write budget bookkeeping and the verification that 0011 runs. Set both keys in `.aoforge/config.json`, then run the first-run steps once from the main checkout:
 
 ```json
 { "github": { "enabled": true, "store": true } }
@@ -1152,14 +1152,14 @@ node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --apply --only 0010 --confirm
 
 `planning import` reports, rather than skips, TRDs over the 60,000-character budget, decisions with no TRD and legacy-named TRDs (`NN-MM-TRD-<slug>.md`); rename or split those first. Running it twice queues nothing new, and a real import also queues the history closes described under **Migrating an existing project**. Migration 0010 refuses until the outbox is drained and every cache file is on GitHub, and lists each blocker; while the outbox holds only pending ops, 0010 skips instead, with a reason that names `--only 0011`. `--confirm` also runs any other pending confirm migration (for example 0006 on a project without `kind`); `--only 0010` without `--confirm` runs 0010 alone.
 
-**What git tracks afterwards.** Migration 0010 writes a `.gitignore` block (`.planning/*`, `!.planning/config.json`, `!.planning/STACK.md`) and untracks everything else from the index; the files stay on disk as the cache. The wiki clone at `.planning/wiki/` is excluded from its checks. Since objective 50, store mode refuses `aof-tools commit` on the default branch (`default_branch`; see **Enforcement and setup**), so the migration prints the store-mode commit steps instead of a bare `aof-tools commit` line: a new `aoforge-store-cache` branch, the commit with `AOFORGE_SKIP_GH_GATE=1` and a reason (logged), a push, a pull request, and a last line for an objective's linked branch (`aof-tools gh pr start <objective>`), where the bare command is accepted (shown in step 5 of **Migrating an existing project**). Every commit follow-up AOForge prints comes from the same builder, so in store mode `doctor` check 20 (branch `aoforge-untrack-runtime-state`), `doctor` check 21 (branch `aoforge-upgrade`) and `gh setup --apply` (branch `aoforge-setup`) print the same form. In local mode doctor 20 and 21 still print `commit with: <aof-tools commit ...>`. `aof-tools doctor` warns (check 24) while a store-mode project still tracks its cache.
+**What git tracks afterwards.** Migration 0010 writes a `.gitignore` block (`.aoforge/*`, `!.aoforge/config.json`, `!.aoforge/STACK.md`) and untracks everything else from the index; the files stay on disk as the cache. The wiki clone at `.aoforge/wiki/` is excluded from its checks. Since objective 50, store mode refuses `aof-tools commit` on the default branch (`default_branch`; see **Enforcement and setup**), so the migration prints the store-mode commit steps instead of a bare `aof-tools commit` line: a new `aoforge-store-cache` branch, the commit with `AOFORGE_SKIP_GH_GATE=1` and a reason (logged), a push, a pull request, and a last line for an objective's linked branch (`aof-tools gh pr start <objective>`), where the bare command is accepted (shown in step 5 of **Migrating an existing project**). Every commit follow-up AOForge prints comes from the same builder, so in store mode `doctor` check 20 (branch `aoforge-untrack-runtime-state`), `doctor` check 21 (branch `aoforge-upgrade`) and `gh setup --apply` (branch `aoforge-setup`) print the same form. In local mode doctor 20 and 21 still print `commit with: <aof-tools commit ...>`. `aof-tools doctor` warns (check 24) while a store-mode project still tracks its cache.
 
 **The verbs.**
 
 | Verb | Writes |
 |---|---|
 | `plan put-trd <obj> <file> --from <f> [--no-push]` / `plan push <obj>` | a TRD; refused over 60,000 encoded characters or once frozen. Batch with `--no-push`, then one `push` |
-| `summary checkpoint <trd> --from <f>` | progress after each task. Store mode writes runtime `.planning/.trd-progress/<trd>.md` and never reaches GitHub |
+| `summary checkpoint <trd> --from <f>` | progress after each task. Store mode writes runtime `.aoforge/.trd-progress/<trd>.md` and never reaches GitHub |
 | `summary post <trd> --from <f>` | the final SUMMARY, the one GitHub write per TRD |
 | `verification post <obj> --from <f>` | VERIFICATION.md |
 | `doc put <rel> --from <f>` | OBJECTIVE/CONTEXT/RESEARCH/UAT pages, PROJECT.md, REQUIREMENTS.md, `research/`, `codebase/` |
@@ -1172,14 +1172,14 @@ node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --apply --only 0010 --confirm
 
 `summary checkpoint` and `summary post` write the checkout that runs them in local mode, so an executor worktree commits its own SUMMARY with its task commits and it arrives through the wave merge, with no untracked copy left in the main checkout. In store mode they write the main checkout's cache, because the cache, ledger and outbox live there. In store mode STATE.md, ROADMAP.md and MILESTONES.md are generated: STATE.md mutators record into the per-clone `state.json`, and `gh pull --all` regenerates the views. `/aoforge:micro` follows the same rule: `aof-tools micro commit` appends a Quick Tasks row to STATE.md and commits it separately in local mode only. In store mode it makes one commit, the source change, leaves STATE.md alone and reports `state_row: "skipped_store_mode"`, so it raises no W055. It commits through `aof-tools commit`, so store mode refuses it on the default branch, an unlinked branch or a detached HEAD with the same gate message as any other commit (exit 1, nothing committed, the micro marker kept). Switch to the objective's linked branch and run it again, or take the logged `AOFORGE_SKIP_GH_GATE=1` escape.
 
-**An objective the verbs do not know.** `objective put`, `plan put-trd`, `verification post` and the other verbs that take an objective id never create an objective. For an id with no ROADMAP entry and no directory under `.planning/objectives`, they exit 1 with `objective 9 is not known (no ROADMAP entry or directory under .planning/objectives); register a new objective with aof-tools objective add "<description>", then run this again`, and write and queue nothing. `objective add` owns the number, the slug and the directory. In store mode it also creates the objective's issue, titled after the description (`[Objective 2] Goodbye CLI`) with a footer that says the issue is the source of truth and `.planning/` a local cache.
+**An objective the verbs do not know.** `objective put`, `plan put-trd`, `verification post` and the other verbs that take an objective id never create an objective. For an id with no ROADMAP entry and no directory under `.aoforge/objectives`, they exit 1 with `objective 9 is not known (no ROADMAP entry or directory under .aoforge/objectives); register a new objective with aof-tools objective add "<description>", then run this again`, and write and queue nothing. `objective add` owns the number, the slug and the directory. In store mode it also creates the objective's issue, titled after the description (`[Objective 2] Goodbye CLI`) with a footer that says the issue is the source of truth and `.aoforge/` a local cache.
 
-**Decisions answered before objective 52.** A multi-line `decision answer` written before objective 52 left a mangled `resolution` in `.planning/decisions/resolved/DECISION-NNN.md` that reads back as its first line. `aof-tools doctor` check 33 (`decision-resolution`) finds these, and `doctor --fix` repairs each one whose full answer is recoverable from the file: it backs up first, rewrites the answer as a `|-` block scalar, and writes only after the rebuilt file re-parses to the recovered answer. A decision whose answer already reads back whole is left alone. Fix by hand only the files the check reports as unrecoverable: write the answer as `resolution: |-` followed by its lines, each indented two spaces. In store mode the check is report-only; fix the decision's GitHub copy by hand, then run `gh pull --all`. Repair these before a backfill so 0011 carries the whole answer to GitHub.
+**Decisions answered before objective 52.** A multi-line `decision answer` written before objective 52 left a mangled `resolution` in `.aoforge/decisions/resolved/DECISION-NNN.md` that reads back as its first line. `aof-tools doctor` check 33 (`decision-resolution`) finds these, and `doctor --fix` repairs each one whose full answer is recoverable from the file: it backs up first, rewrites the answer as a `|-` block scalar, and writes only after the rebuilt file re-parses to the recovered answer. A decision whose answer already reads back whole is left alone. Fix by hand only the files the check reports as unrecoverable: write the answer as `resolution: |-` followed by its lines, each indented two spaces. In store mode the check is report-only; fix the decision's GitHub copy by hand, then run `gh pull --all`. Repair these before a backfill so 0011 carries the whole answer to GitHub.
 
-**Reading the gate message.** In store mode the edit gate denies an Edit or Write of a cached or generated `.planning/` file for everyone, including skills and AOForge agents:
+**Reading the gate message.** In store mode the edit gate denies an Edit or Write of a cached or generated `.aoforge/` file for everyone, including skills and AOForge agents:
 
 ```
-.planning/objectives/48-x/48-01-foo-TRD.md is a read-only cache of GitHub in store mode (github.store: true). Change it with: `aof-tools plan put-trd 48 48-01-foo-TRD.md --from <draft>`. Direct edits are overwritten by gh pull --all and flagged by validate (W055).
+.aoforge/objectives/48-x/48-01-foo-TRD.md is a read-only cache of GitHub in store mode (github.store: true). Change it with: `aof-tools plan put-trd 48 48-01-foo-TRD.md --from <draft>`. Direct edits are overwritten by gh pull --all and flagged by validate (W055).
 ```
 
 Run the named verb with a draft instead. `config.json`, `STACK.md` and runtime files (`.trd-progress/`, `.skill-active` and the like) are always editable. The deny takes effect only once the installed AOForge plugin is at or above the release that carries objective 48; `aof-tools doctor` reports a stale plugin cache (check 11).
@@ -1255,9 +1255,9 @@ Refusing to commit on main, the default branch. To get a linked branch, run `aof
 
 The `reason` is `default_branch`, `unlinked_branch` (a branch that no unmerged objective PR names, which includes the old branch of a merged objective) or `detached_head`. Nothing is staged and HEAD does not move. A branch counts as linked when the mapping's `prs` entry for an objective names it and that PR is not merged; that is a local fact, so the gate works offline. A `df/exec-*` executor branch is allowed when the main checkout is on a linked branch, and a merge or rebase in progress is never refused. What to do: run `gh pr start <objective>` and commit on the branch it creates. `/aoforge:execute-objective` already does this. A commit on a linked branch whose message has no recognised scope ends with `Refs #<objective issue>`.
 
-**The escape.** Put `AOFORGE_SKIP_GH_GATE=1` in front of the command, for example `AOFORGE_SKIP_GH_GATE=1 aof-tools commit "chore: ..." --files <paths>`, and a refused commit lands anyway. The value must be exactly `1`. The result carries `gate_escaped: true`. Once the commit has landed, a `gate: gh` entry is appended to `.planning/.override-log.jsonl` in the main checkout (also when you commit from an executor worktree), and `aof-tools override --list` shows it. Set `AOFORGE_SKIP_GH_GATE_REASON="<why>"` to record the reason. A refused or empty commit logs nothing. The gate guards `aof-tools commit` only. Every refusal names both remedies, `gh pr start` and this escape. With `--raw`, a refusal prints only the reason code on stdout and exits 1, and the full message goes to stderr.
+**The escape.** Put `AOFORGE_SKIP_GH_GATE=1` in front of the command, for example `AOFORGE_SKIP_GH_GATE=1 aof-tools commit "chore: ..." --files <paths>`, and a refused commit lands anyway. The value must be exactly `1`. The result carries `gate_escaped: true`. Once the commit has landed, a `gate: gh` entry is appended to `.aoforge/.override-log.jsonl` in the main checkout (also when you commit from an executor worktree), and `aof-tools override --list` shows it. Set `AOFORGE_SKIP_GH_GATE_REASON="<why>"` to record the reason. A refused or empty commit logs nothing. The gate guards `aof-tools commit` only. Every refusal names both remedies, `gh pr start` and this escape. With `--raw`, a refusal prints only the reason code on stdout and exits 1, and the full message goes to stderr.
 
-**Queued writes are flushed for you.** In store mode the `gh-flush` hook runs after an `aof-tools commit` and at Stop. It sends queued GitHub writes, and says so when writes are still queued (offline, rate limited), when the outbox is halted for a human, or, at Stop, when a cache file was changed outside a verb (W055). It never blocks and never writes under `.planning/`. `AOFORGE_SKIP_GH_FLUSH_HOOK=1` turns it off.
+**Queued writes are flushed for you.** In store mode the `gh-flush` hook runs after an `aof-tools commit` and at Stop. It sends queued GitHub writes, and says so when writes are still queued (offline, rate limited), when the outbox is halted for a human, or, at Stop, when a cache file was changed outside a verb (W055). It never blocks and never writes under `.aoforge/`. `AOFORGE_SKIP_GH_FLUSH_HOOK=1` turns it off.
 
 **`gh setup`.** One command configures a repository. It is a dry-run until you pass `--apply`, and it needs `github.enabled` and `github.repo` (not store mode):
 
@@ -1303,7 +1303,7 @@ In store mode `aof-tools commit` refuses an unlinked branch, so the commit line 
 - the `aoforge-ref:` input, always;
 - the `uses:` ref, only when its path is AOForge's own reusable workflow (`AO-Cyber-Systems/aoforge-claude/.github/workflows/aoforge-checks.yml`).
 
-What they never warn about: a branch, a tag that is not a release, a commit SHA, a fork's own ref, a workflow without the `# aoforge:managed` header (it is yours), and an absent file. A pin newer than the plugin is reported as ahead, not stale. The W062 message names the oldest stale ref and the field that pins it, and its fix is `node ~/.claude/aoforge/bin/aof-tools.cjs gh setup --apply`, then committing the written file and merging the workflow pull request as above. If `github.checks_workflow` in `.planning/config.json` names an `@ref`, update that first: setup re-renders the configured ref, and so would write the stale pin again. Doctor check 22 defers W062 to check 26, so the problem shows once. W062 is never repaired automatically. This needs an installed plugin carrying objective 61.
+What they never warn about: a branch, a tag that is not a release, a commit SHA, a fork's own ref, a workflow without the `# aoforge:managed` header (it is yours), and an absent file. A pin newer than the plugin is reported as ahead, not stale. The W062 message names the oldest stale ref and the field that pins it, and its fix is `node ~/.claude/aoforge/bin/aof-tools.cjs gh setup --apply`, then committing the written file and merging the workflow pull request as above. If `github.checks_workflow` in `.aoforge/config.json` names an `@ref`, update that first: setup re-renders the configured ref, and so would write the stale pin again. Doctor check 22 defers W062 to check 26, so the problem shows once. W062 is never repaired automatically. This needs an installed plugin carrying objective 61.
 
 **The App (optional).** The checks run on the workflow's own token by default. To run them as a GitHub App, create the App and install it on the repository, then set the repository or organization variable `AOFORGE_APP_CLIENT_ID` and the secret `AOFORGE_APP_PRIVATE_KEY`. The workflow mints a token scoped to the one repository (and a read-only one to check out AOForge). Set `github.app_id` to the App's numeric id and rerun `gh setup --apply` only once those are set: the ruleset then accepts the two checks only from that App, and a status posted by the workflow token would not satisfy it.
 
@@ -1312,7 +1312,7 @@ What they never warn about: a branch, a tag that is not a release, a commit SHA,
 | Context | Passes when |
 |---|---|
 | `aoforge/linked-issue` | the PR targets the default branch and carries at least one closing reference (`Closes`, `Fixes` or `Resolves #N`, any tense, also `owner/repo#N` for this repository and issue URLs) to an issue that exists and is not itself a pull request. Fenced code and HTML comments are ignored, a reference to another repository does not count, and `Refs #N` in commits is noted but never required |
-| `aoforge/planning-consistency` | store mode is off or the PR is not an AOForge objective PR (it carries no `aoforge:pr` marker), which pass with the reason stated; otherwise the PR targets the default branch and closes the objective issue and every TRD issue linked under it, and none of those was closed as not planned. It reads the GitHub issue graph, never `.planning/`, which is an untracked cache |
+| `aoforge/planning-consistency` | store mode is off or the PR is not an AOForge objective PR (it carries no `aoforge:pr` marker), which pass with the reason stated; otherwise the PR targets the default branch and closes the objective issue and every TRD issue linked under it, and none of those was closed as not planned. It reads the GitHub issue graph, never `.aoforge/`, which is an untracked cache |
 
 A failing check names each problem on its own line in the status description and the workflow log, and an internal error posts an `error` status rather than leaving the check pending. After a merged PR into the default branch, the workflow's `reconcile` job closes any issue the PR should have closed and left open and adds one comment; it does nothing for an unmerged PR or another base branch.
 
@@ -1329,7 +1329,7 @@ For maintainers. Under `plugins/aoforge/aoforge/bin/lib/`:
 - enforcement and setup (objective 50): `gh-gate.cjs`, `gh-check.cjs`, `gh-check-cli.cjs`, `gh-health.cjs`, `gh-setup.cjs`, `gh-setup-cli.cjs`;
 - migration (objective 51): `gh-backfill.cjs` (history closes, the estimate, resume detection) and `migrations/0011-github-store-backfill.cjs`.
 
-State outside the repository: the outbox journal per repository in `~/.claude/aoforge/state/outbox/` (`AOFORGE_OUTBOX_DIR`), Project fields and the capability cache under `~/.claude/aoforge/state/gh-project/` (`AOFORGE_GH_CACHE_DIR`). The wiki clone is `.planning/wiki/` (remote from `github.wiki.remote` or `AOFORGE_WIKI_REMOTE`).
+State outside the repository: the outbox journal per repository in `~/.claude/aoforge/state/outbox/` (`AOFORGE_OUTBOX_DIR`), Project fields and the capability cache under `~/.claude/aoforge/state/gh-project/` (`AOFORGE_GH_CACHE_DIR`). The wiki clone is `.aoforge/wiki/` (remote from `github.wiki.remote` or `AOFORGE_WIKI_REMOTE`).
 
 ### Mirror mode (store off)
 
@@ -1337,7 +1337,7 @@ With `github.store` off (the default), AOForge mirrors objectives to GitHub one 
 
 #### Enable
 
-In `.planning/config.json`:
+In `.aoforge/config.json`:
 
 ```json
 {
@@ -1360,7 +1360,7 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 
 | Trigger | Action | Manual command |
 |---|---|---|
-| End of `/aoforge:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.planning/.gh-mapping.json` | `aof-tools gh sync --all` |
+| End of `/aoforge:new-project` (after roadmap creation) | Creates one milestone per roadmap version + one issue per objective, persists numbers to `.aoforge/.gh-mapping.json` | `aof-tools gh sync --all` |
 | End of `/aoforge:execute-objective` | Pushes that objective: creates its issue on the first sync, updates the managed body sections, the sticky state comment and the Project fields, and writes `github_issue` to its OBJECTIVE.md. A failure prints a warning and the retry command | `aof-tools gh sync <objective>` |
 | Verifier finds gaps (`status: gaps_found`) | Posts the VERIFICATION.md `gaps:` block as an issue comment (`--kind verification`) | `aof-tools gh comment <objective> @file:path --kind verification` |
 | Verifier final pass passes | Closes the issue with link to verification report. In store mode nothing closes here: the issue closes when the objective PR merges | `aof-tools gh close-issue <objective>` |
@@ -1368,7 +1368,7 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 | Read back | Compares the issue with the local state and reports drift; `--apply` writes the differences | `aof-tools gh pull <objective> [--apply]` |
 | Resolve the issue chain | Prints the objective's issue and its parent issue chain as JSON | `aof-tools gh resolve <objective>` |
 | Migrate onto the store | Backfills the planning history and turns store mode on (see **Migrating an existing project**) | `aof-tools upgrade --apply --only 0011 --confirm` |
-| Rebuild the cache (store mode) | Rebuilds `.planning/` from GitHub: TRDs, SUMMARY and VERIFICATION, pages, a generated ROADMAP.md and STATE.md | `aof-tools gh pull --all [--force]` |
+| Rebuild the cache (store mode) | Rebuilds `.aoforge/` from GitHub: TRDs, SUMMARY and VERIFICATION, pages, a generated ROADMAP.md and STATE.md | `aof-tools gh pull --all [--force]` |
 | Queued writes (store mode) | Shows or drains the outbox of pending GitHub writes | `aof-tools gh outbox status`, `aof-tools gh outbox flush [--no-wait]` |
 | Objective branch and PR (store mode) | One linked branch and one draft PR per objective, from execute start to merge | `aof-tools gh pr start\|sync\|status\|merge\|reconcile <objective>` |
 | TRD spec and scope (store mode) | Prints a TRD's effective spec, freezes it, adds a scope change or folds scope comments into the body | `aof-tools gh trd spec\|freeze\|fold\|scope <trd>` |
@@ -1391,7 +1391,7 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 
 #### Mapping file
 
-`.planning/.gh-mapping.json` records which objective maps to which GitHub issue. It is version 3, keyed by the canonical objective id (`46`, `2.1`; leading zeros stripped):
+`.aoforge/.gh-mapping.json` records which objective maps to which GitHub issue. It is version 3, keyed by the canonical objective id (`46`, `2.1`; leading zeros stripped):
 
 ```json
 {
@@ -1406,13 +1406,13 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 }
 ```
 
-In mirror mode, commit it; in store mode it is cache, untracked by migration 0010. Re-running `gh sync --all` is idempotent — existing issues are edited, not duplicated. Older mapping shapes are converted by upgrade migration 0009, which also re-keys `.planning/.gh-sync-state.json` by objective id (`aof-tools upgrade`, applied automatically on session start).
+In mirror mode, commit it; in store mode it is cache, untracked by migration 0010. Re-running `gh sync --all` is idempotent — existing issues are edited, not duplicated. Older mapping shapes are converted by upgrade migration 0009, which also re-keys `.aoforge/.gh-sync-state.json` by objective id (`aof-tools upgrade`, applied automatically on session start).
 
 If the mapping file is lost, re-run `gh sync --all`: the `aoforge:id` markers on GitHub lead back to the same issues and no duplicates are created.
 
 ### What does NOT sync
 
-- In mirror mode, issues created in GitHub do not flow back to `.planning/`: the mirror is one way. File issues normally; they become input to `/aoforge:plan-objective`. With store mode, `gh pull --all` is the way back, under the overwrite rules above.
+- In mirror mode, issues created in GitHub do not flow back to `.aoforge/`: the mirror is one way. File issues normally; they become input to `/aoforge:plan-objective`. With store mode, `gh pull --all` is the way back, under the overwrite rules above.
 - Per-task commits are not re-posted to issues (too noisy). Use `gh comment` manually if you want an update mid-execution.
 - Project v2 boards are only updated for issues AOForge syncs (status and similar fields, when a project is configured). AOForge does not create boards, fields or options.
 
@@ -1442,12 +1442,12 @@ These exit 1 with the reason and the fix:
 **Known issues.**
 
 - After a backfill, `gh pull --all` can list objective 1's `OBJECTIVE.md` as an orphan even though its issue exists. It is an attention item (exit 2), not a gap; 0011's verification does not refuse on it.
-- Fixed in objective 59: the `.planning/state.json` and `.planning/STATE_ARCHIVE.md` conflicts between parallel executors' branches no longer need a hand merge. The merge driver and `merge-driver resolve` cover both files; see **Parallel wave merges** under the Command Reference.
+- Fixed in objective 59: the `.aoforge/state.json` and `.aoforge/STATE_ARCHIVE.md` conflicts between parallel executors' branches no longer need a hand merge. The merge driver and `merge-driver resolve` cover both files; see **Parallel wave merges** under the Command Reference.
 - `objective remove` renumbers the objective entries and TRD references in ROADMAP.md, but not prose ranges (`Objectives 65-75`, `27–41 (15 objectives)`) or the milestone bullets, so after a removal those can name different objectives than before. That was left out of scope when the pass was fixed to leave dates alone. Run it on a ROADMAP.md you have committed, read the diff, and fix the ranges by hand.
 - `git switch -c aoforge-setup`, the first step `gh setup --apply` prints, fails when an earlier run left a local `aoforge-setup` branch. That is covered under **Opening the workflow pull request**; changing the printed steps to cope with it is open.
 - On a draft pull request with unpushed commits, `gh pr merge` refuses with `PR is still a draft; run verification first`, and only `verification post` then names `gh pr sync`. The draft check runs first on purpose (a test pins the order), so the remedy takes two steps. Naming `gh pr sync` in the draft refusal is open.
 - A store-mode objective issue and its pull request are titled after the objective's name (`[Objective 2] Goodbye CLI` and `Objective 2: Goodbye CLI`), taken from the ROADMAP name, then the `OBJECTIVE.md` heading, then the slug. The title is set only when the issue or pull request is created, so one created before this fix keeps its slug title, and a title you edit by hand is never overwritten by a sync. The store footer change makes the next sync of an existing objective send one body update.
-- `hooks/gate-edits.js` still treats an unparseable `.planning/.skill-active` as live (it fails open) and never expires a marker that has no `expires_at`. `validate health` and `doctor` report and remove such markers (E006, W064; see **Health checks for the skill marker and requirements**), but until one of them runs, the gate stays open for them. Only the project's own `.planning/.skill-active` is checked: a nested `**/.planning/.skill-active` copy is not.
+- `hooks/gate-edits.js` still treats an unparseable `.aoforge/.skill-active` as live (it fails open) and never expires a marker that has no `expires_at`. `validate health` and `doctor` report and remove such markers (E006, W064; see **Health checks for the skill marker and requirements**), but until one of them runs, the gate stays open for them. Only the project's own `.aoforge/.skill-active` is checked: a nested `**/.aoforge/.skill-active` copy is not.
 - W065 checks only requirement IDs that a REQUIREMENTS document defines. A satisfied ID outside any such document (the objectives that predate v1.5 use their own ID families in VERIFICATION) is not checked, and `validate requirements` lists it as skipped.
 
 ---
@@ -1483,7 +1483,7 @@ what it finds as advisories — nothing here is auto-repaired.
 - **W051** — `STACK.md`'s `provenance.reviewed` date is missing or older than the staleness
   threshold.
 - **W052** — `STACK.md`'s declared `languages` disagree with what's actually detected in the repo.
-- **W053** — a `.planning/codebase/*.md` map is more commits behind `HEAD` than the threshold.
+- **W053** — a `.aoforge/codebase/*.md` map is more commits behind `HEAD` than the threshold.
 
 They show up in three places: `validate health` (Check 14), `/aoforge:status` (via
 `aof-tools validate docs --raw`, in a `## Documentation` section when there's something to say),
@@ -1494,7 +1494,7 @@ fixed for you: migration `0007-doc-refs-fix` runs automatically at session start
 names inside your project's CLAUDE.md AOFORGE block and STATE.md (outside `## Session Log`).
 Historical records and removed-command references are never touched.
 
-The staleness thresholds are overridable per project in `.planning/config.json`:
+The staleness thresholds are overridable per project in `.aoforge/config.json`:
 
 ```json
 {

@@ -22,7 +22,7 @@ Your job: Create a unified research summary that informs roadmap creation. Extra
 - Identify confidence levels and gaps
 - Return the complete SUMMARY.md content between `--- BEGIN SUMMARY.md ---` / `--- END SUMMARY.md ---` markers
 
-**You write no files and make no commits.** The orchestrator publishes your summary verbatim as `research/SUMMARY.md` with `aof-tools doc put` and commits all of `.planning/research/` in one commit (the researchers publish theirs with `doc put` and don't commit either). Bash is for reading only — `cat`, `wc`, `ls`.
+**You write no files and make no commits.** The orchestrator publishes your summary verbatim as `research/SUMMARY.md` with `aof-tools doc put` and commits all of `.aoforge/research/` in one commit (the researchers publish theirs with `doc put` and don't commit either). Bash is for reading only — `cat`, `wc`, `ls`.
 </role>
 
 <downstream_consumer>
@@ -46,10 +46,10 @@ Your SUMMARY.md is consumed by the roadmapper agent which uses it to:
 Read all 4 research files:
 
 ```bash
-cat .planning/research/STACK.md
-cat .planning/research/FEATURES.md
-cat .planning/research/ARCHITECTURE.md
-cat .planning/research/PITFALLS.md
+cat .aoforge/research/STACK.md
+cat .aoforge/research/FEATURES.md
+cat .aoforge/research/ARCHITECTURE.md
+cat .aoforge/research/PITFALLS.md
 ```
 
 Parse each file to extract:
@@ -122,7 +122,7 @@ Identify gaps that couldn't be resolved and need attention during planning.
 Use template: ~/.claude/aoforge/templates/research-project/SUMMARY.md (Read it).
 
 Compose the complete file body — every template section filled, no placeholders, no
-`// ...`-style elisions. This text becomes `.planning/research/SUMMARY.md` byte for byte: the
+`// ...`-style elisions. This text becomes `.aoforge/research/SUMMARY.md` byte for byte: the
 orchestrator writes it verbatim and does not summarise or reword it. Do not create the file
 yourself, and do not commit.
 
@@ -162,12 +162,12 @@ own line, with the complete file body between them:
 --- END SUMMARY.md ---
 
 **Files synthesized:**
-- .planning/research/STACK.md
-- .planning/research/FEATURES.md
-- .planning/research/ARCHITECTURE.md
-- .planning/research/PITFALLS.md
+- .aoforge/research/STACK.md
+- .aoforge/research/FEATURES.md
+- .aoforge/research/ARCHITECTURE.md
+- .aoforge/research/PITFALLS.md
 
-**Output:** SUMMARY.md content above (the orchestrator publishes it with `aof-tools doc put research/SUMMARY.md` and commits `.planning/research/`)
+**Output:** SUMMARY.md content above (the orchestrator publishes it with `aof-tools doc put research/SUMMARY.md` and commits `.aoforge/research/`)
 
 ### Executive Summary
 
@@ -193,7 +193,7 @@ Gaps: [list any gaps]
 
 ### Ready for Requirements
 
-SUMMARY.md content returned between the markers. The orchestrator publishes it (`aof-tools doc put research/SUMMARY.md`), commits `.planning/research/`, then proceeds to requirements definition.
+SUMMARY.md content returned between the markers. The orchestrator publishes it (`aof-tools doc put research/SUMMARY.md`), commits `.aoforge/research/`, then proceeds to requirements definition.
 ```
 
 ## Synthesis Blocked

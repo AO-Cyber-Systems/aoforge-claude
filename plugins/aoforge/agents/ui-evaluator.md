@@ -31,11 +31,11 @@ This is the load-bearing contract verifier Step 8c and the ui-eval workflow shar
 <step name="load_manifest" priority="first">
 Resolve the objective dir and locate the ui_eval manifest. The engine (`aof-tools verify flutter-ui-eval`, via `resolveUIEvalTarget` in `bin/lib/flutter-ui-eval-resolve.cjs`) owns this lookup — do not re-implement it in prose. Its order (W0-3, spec §12.2):
 1. **Tier 1** — an explicit manifest path passed directly in the prompt that names an existing file.
-2. **Tier 2** — `<objective_dir>/evidence/ui_eval/manifest.json` (i.e. `.planning/objectives/<obj>/evidence/ui_eval/manifest.json`). **JSON, never YAML** — the engine cannot parse YAML; a `manifest.yaml` here (or an explicit-path `.yaml`) resolves to `invalid`, not `absent`.
+2. **Tier 2** — `<objective_dir>/evidence/ui_eval/manifest.json` (i.e. `.aoforge/objectives/<obj>/evidence/ui_eval/manifest.json`). **JSON, never YAML** — the engine cannot parse YAML; a `manifest.yaml` here (or an explicit-path `.yaml`) resolves to `invalid`, not `absent`.
 3. **Tier 3** — `ui_eval/manifests/*.manifest.json` (and `flutter/ui_eval/manifests/*.manifest.json`) at the repo root **never resolves**: a repo-root manifest is not scoped to this objective. Any match is reported as `resolution: 'absent', reason: 'unscoped-candidates', candidates: [...]`.
 
 ```bash
-mkdir -p .planning/objectives/$OBJECTIVE_DIR/evidence/ui_eval/
+mkdir -p .aoforge/objectives/$OBJECTIVE_DIR/evidence/ui_eval/
 node ~/.claude/aoforge/bin/aof-tools.cjs verify flutter-ui-eval <manifest-path-or-objective-id> --raw
 ```
 
@@ -93,7 +93,7 @@ Apply the verdict→action mapping when describing each state in the rollup:
 
 **Verdict:** {pass | pass-with-reviews | fail | SKIPPED}
 **Counts:** {pass}/{review}/{fail} of {total} states
-**Report:** .planning/objectives/{obj}/evidence/ui_eval/ui-eval-report.json
+**Report:** .aoforge/objectives/{obj}/evidence/ui_eval/ui-eval-report.json
 
 {If fail:} {N} defect(s) → gaps; see report.
 {If pass-with-reviews:} {N} review(s) stay on human-verify.

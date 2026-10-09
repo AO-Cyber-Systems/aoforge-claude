@@ -1,6 +1,6 @@
 # State Archive Template
 
-Template for `.planning/STATE_ARCHIVE.md` — append-only log of decisions and performance metrics.
+Template for `.aoforge/STATE_ARCHIVE.md` — append-only log of decisions and performance metrics.
 
 ---
 

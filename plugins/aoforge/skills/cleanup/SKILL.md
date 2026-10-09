@@ -8,9 +8,9 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Archive objective directories from completed milestones into `.planning/milestones/v{X.Y}-objectives/`.
+Archive objective directories from completed milestones into `.aoforge/milestones/v{X.Y}-objectives/`.
 
-Use when `.planning/objectives/` has accumulated directories from past milestones.
+Use when `.aoforge/objectives/` has accumulated directories from past milestones.
 </objective>
 
 <execution_context>

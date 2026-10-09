@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Validate `.planning/` directory integrity and report actionable issues. Checks for missing files, invalid configurations, inconsistent state, and orphaned jobs. Optionally repairs auto-fixable issues.
+Validate `.aoforge/` directory integrity and report actionable issues. Checks for missing files, invalid configurations, inconsistent state, and orphaned jobs. Optionally repairs auto-fixable issues.
 </purpose>
 
 <required_reading>
@@ -238,7 +238,7 @@ This project is behind AOForge. Run: /aoforge:status check --migrate
        plan, asks for approval, applies, drains and prints the commit steps.
      - **Not now:** leave it pending.
      - **Keep mirror mode:** record the decision in the tracked config, then include
-       `.planning/config.json` in step 5's commit:
+       `.aoforge/config.json` in step 5's commit:
 
        ```bash
        node ~/.claude/aoforge/bin/aof-tools.cjs config-set github.mirror_only true
@@ -324,7 +324,7 @@ On "Preview draft", show the output of `node ~/.claude/aoforge/bin/aof-tools.cjs
 then ask again with header "Stack", options "Write it (Recommended)" (run `stack init --write`) and
 "Skip" (write nothing). For W030/W031/E030,
 show `node ~/.claude/aoforge/bin/aof-tools.cjs stack validate` output and let the user
-edit `.planning/STACK.md`. If `stack` is an unknown command (older mirror), say so and
+edit `.aoforge/STACK.md`. If `stack` is an unknown command (older mirror), say so and
 skip.
 </step>
 
@@ -346,7 +346,7 @@ Report final status.
 
 | Code | Severity | Description | Repairable |
 |------|----------|-------------|------------|
-| E001 | error | .planning/ directory not found | No |
+| E001 | error | .aoforge/ directory not found | No |
 | E002 | error | PROJECT.md not found | No |
 | E003 | error | ROADMAP.md not found | No |
 | E004 | error | STATE.md not found | Yes |
@@ -362,11 +362,11 @@ Report final status.
 | E020 | error | mirror behind installed plugin (~/.claude/aoforge stale) | No |
 | W021 | warning | installed plugin behind origin/main | No |
 | I022 | info | mirror ahead of installed plugin (dev checkout) | No |
-| E030 | error | Check 12: `.planning/STACK.md` invalid (schema, parse, cycle, depth, unknown section, missing component) | No |
-| W030 | warning | Check 12: `extends` in `.planning/STACK.md` cannot be resolved | No |
+| E030 | error | Check 12: `.aoforge/STACK.md` invalid (schema, parse, cycle, depth, unknown section, missing component) | No |
+| W030 | warning | Check 12: `extends` in `.aoforge/STACK.md` cannot be resolved | No |
 | W031 | warning | Check 12: a loop/gates/generated/verification key names an undefined command | No |
 | W032 | warning | Check 12: profile body over 150 lines | No |
-| I030 | info | Check 12: no `.planning/STACK.md` but a manifest is present (general profile in use) | No |
+| I030 | info | Check 12: no `.aoforge/STACK.md` but a manifest is present (general profile in use) | No |
 | W033 | warning | Check 12b: a `.mcp.json` server owned by `stack mcp --write` (`env.AOFORGE_MANAGED: stack`) names a command that is not installed. Fix: install it, or `aof-tools stack mcp --write` to prune | No |
 | W040 | warning | Check 13: project behind the running AOForge (`project-behind: …`), or the upgrade check could not run (`upgrade-check-not-available: …`). Fix: `aof-tools upgrade --apply` or `/aoforge:status check --migrate` | No |
 

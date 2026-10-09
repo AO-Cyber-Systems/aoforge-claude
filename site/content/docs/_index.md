@@ -25,7 +25,7 @@ If you have never used AOForge, read these three in order. Twenty minutes total.
 - **Architecture** — the agents, hooks and plugin layout underneath.
 - **Configuration** — `config.json`, model profiles, gates, environment variables.
 - **Guides** — task-shaped walkthroughs for GitHub sync, workstreams, UI eval and releases.
-- **Reference** — the `aof-tools` CLI, the `.planning/` file structure, the defaults table, a glossary.
+- **Reference** — the `aof-tools` CLI, the `.aoforge/` file structure, the defaults table, a glossary.
 
 {{< callout title="Generated from source" >}}
 The command, agent, hook and CLI tables on this site are generated from the plugin

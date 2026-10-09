@@ -58,8 +58,8 @@ Decimal objective directories use the full decimal number:
 
 ```bash
 SLUG=$(node ~/.claude/aoforge/bin/aof-tools.cjs generate-slug "$DESCRIPTION" --raw)
-OBJECTIVE_DIR=".planning/objectives/${DECIMAL_OBJECTIVE}-${SLUG}"
+OBJECTIVE_DIR=".aoforge/objectives/${DECIMAL_OBJECTIVE}-${SLUG}"
 mkdir -p "$OBJECTIVE_DIR"
 ```
 
-Example: `.planning/objectives/06.1-fix-critical-auth-bug/`
+Example: `.aoforge/objectives/06.1-fix-critical-auth-bug/`

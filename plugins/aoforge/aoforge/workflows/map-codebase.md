@@ -2,11 +2,11 @@
 status: active
 ---
 <purpose>
-Orchestrate parallel codebase mapper agents to analyze codebase and produce structured documents in .planning/codebase/, then synthesize a CLAUDE.md with coding rules.
+Orchestrate parallel codebase mapper agents to analyze codebase and produce structured documents in .aoforge/codebase/, then synthesize a CLAUDE.md with coding rules.
 
 Each agent has fresh context, explores a specific focus area, and **writes its documents to drafts itself**. The orchestrator only receives confirmation + line counts, publishes every draft in one pass with `aof-tools doc put codebase/<NAME>.md`, then synthesizes CLAUDE.md and writes a summary.
 
-Output: .planning/codebase/ folder with 8 structured documents + CLAUDE.md at project root with prescriptive coding rules.
+Output: .aoforge/codebase/ folder with 8 structured documents + CLAUDE.md at project root with prescriptive coding rules.
 </purpose>
 
 <philosophy>
@@ -29,13 +29,13 @@ Used by `/aoforge:adopt` (and `/aoforge:map-codebase --non-interactive`). No pro
 for a response — every step below resolves itself deterministically. Every `aof-tools.cjs` call and
 every path in this mode is under the target directory via `--cwd`.
 
-- **check_existing** — if `.planning/codebase/` already has complete documents, use them as-is;
+- **check_existing** — if `.aoforge/codebase/` already has complete documents, use them as-is;
   map only the docs that are missing or empty — never delete existing documents.
 - **spawn_agents / collect_confirmations / verify_output / publish_maps** — unchanged; still spawn
   the 4 mapper agents (or, if the Task tool is unavailable, perform each focus directly in sequence),
   verify their drafts and publish them. A secret hit in publish_maps does not pause here — as in
   scan_for_secrets, it is left for `adopt report`.
-- **draft_stack_profile** — skipped entirely. `adopt scaffold` writes `.planning/STACK.md` itself.
+- **draft_stack_profile** — skipped entirely. `adopt scaffold` writes `.aoforge/STACK.md` itself.
 - **confirm_stack_profile** — skipped. `/aoforge:adopt` runs its own after `adopt scaffold`.
 - **generate_claude_md** — unchanged; still writes the versioned CLAUDE.md block that `adopt`
   relies on.
@@ -60,17 +60,17 @@ Extract from init JSON: `mapper_model`, `commit_docs`, `codebase_dir`, `existing
 <step name="check_existing">
 **Non-interactive:** see <non_interactive_mode>.
 
-Check if .planning/codebase/ already exists using `has_maps` from init context.
+Check if .aoforge/codebase/ already exists using `has_maps` from init context.
 
 If `codebase_dir_exists` is true:
 ```bash
-ls -la .planning/codebase/
+ls -la .aoforge/codebase/
 ```
 
 **If exists:**
 
 ```
-.planning/codebase/ already exists with these documents:
+.aoforge/codebase/ already exists with these documents:
 [List files found]
 ```
 
@@ -78,7 +78,7 @@ ls -la .planning/codebase/
 AskUserQuestion([
   {
     header: "Codebase map",
-    question: ".planning/codebase/ already exists. What should happen to it?",
+    question: ".aoforge/codebase/ already exists. What should happen to it?",
     multiSelect: false,
     options: [
       { label: "Update", description: "Keep existing, update only the documents you pick" },
@@ -89,7 +89,7 @@ AskUserQuestion([
 ])
 ```
 
-If "Refresh": Delete .planning/codebase/, continue to create_structure
+If "Refresh": Delete .aoforge/codebase/, continue to create_structure
 If "Update": pick the documents, then continue to spawn_agents (filtered: spawn only the mappers that own a picked document):
 
 ```
@@ -127,7 +127,7 @@ Continue to create_structure.
 
 <step name="create_structure">
 Nothing to create by hand: each mapper writes its documents to drafts, and `doc put` (publish_maps)
-creates `.planning/codebase/` in local mode and the store page in store mode. Each draft path comes from:
+creates `.aoforge/codebase/` in local mode and the store page in store mode. Each draft path comes from:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs planning draft codebase/<NAME>.md
@@ -313,7 +313,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs doc put codebase/STACK.md --from "<draf
 
 Repeat for every verified draft (INTEGRATIONS, ARCHITECTURE, STRUCTURE, CONVENTIONS, TESTING, PATTERNS,
 CONCERNS). `planning draft codebase/<NAME>.md` prints the same path again if a confirmation lost it.
-Each `aof-tools doc put` writes `.planning/codebase/<NAME>.md` in both modes (in store mode it also pushes the page),
+Each `aof-tools doc put` writes `.aoforge/codebase/<NAME>.md` in both modes (in store mode it also pushes the page),
 so the steps below read the published maps from there. A non-zero exit names the document: report it
 and continue with the rest.
 
@@ -323,9 +323,9 @@ Continue to draft_stack_profile.
 <step name="draft_stack_profile">
 **Non-interactive:** see <non_interactive_mode>.
 
-**Draft the project stack profile (`.planning/STACK.md`) from what was just mapped.**
+**Draft the project stack profile (`.aoforge/STACK.md`) from what was just mapped.**
 
-Skip this step if `.planning/STACK.md` already exists.
+Skip this step if `.aoforge/STACK.md` already exists.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs stack init --from codebase --raw
@@ -338,7 +338,7 @@ Otherwise show the draft, then:
 AskUserQuestion([
   {
     header: "Stack",
-    question: "Write this draft as .planning/STACK.md?",
+    question: "Write this draft as .aoforge/STACK.md?",
     multiSelect: false,
     options: [
       { label: "Write it (Recommended)", description: "Write the draft as the project stack profile" },
@@ -351,7 +351,7 @@ AskUserQuestion([
 
 On **Write it** run `node ~/.claude/aoforge/bin/aof-tools.cjs stack init --from codebase --write`.
 On **Edit first**, get the changes in plain text, run the same write command, apply the changes to
-`.planning/STACK.md` and show the result. On **Skip**, write nothing.
+`.aoforge/STACK.md` and show the result. On **Skip**, write nothing.
 STACK.md is prescriptive; codebase/STACK.md stays descriptive and is its evidence. Never write it without confirmation.
 
 Continue to confirm_stack_profile.
@@ -360,7 +360,7 @@ Continue to confirm_stack_profile.
 <step name="confirm_stack_profile">
 **Non-interactive:** see <non_interactive_mode>.
 
-Skip if `.planning/STACK.md` does not exist. Best-effort: confirm it against the code with the
+Skip if `.aoforge/STACK.md` does not exist. Best-effort: confirm it against the code with the
 gopls/dart MCP tools when this session has them. `.mcp.json` servers need approval and a session
 restart, so their absence is normal — never block on them.
 
@@ -388,14 +388,14 @@ Continue to generate_claude_md.
 Read all 8 analysis documents and the template:
 
 ```
-Read: .planning/codebase/STACK.md
-Read: .planning/codebase/ARCHITECTURE.md
-Read: .planning/codebase/STRUCTURE.md
-Read: .planning/codebase/CONVENTIONS.md
-Read: .planning/codebase/TESTING.md
-Read: .planning/codebase/PATTERNS.md
-Read: .planning/codebase/INTEGRATIONS.md
-Read: .planning/codebase/CONCERNS.md
+Read: .aoforge/codebase/STACK.md
+Read: .aoforge/codebase/ARCHITECTURE.md
+Read: .aoforge/codebase/STRUCTURE.md
+Read: .aoforge/codebase/CONVENTIONS.md
+Read: .aoforge/codebase/TESTING.md
+Read: .aoforge/codebase/PATTERNS.md
+Read: .aoforge/codebase/INTEGRATIONS.md
+Read: .aoforge/codebase/CONCERNS.md
 Read: ~/.claude/aoforge/templates/claude-md.md
 ```
 
@@ -440,7 +440,7 @@ Run secret pattern detection:
 
 ```bash
 # Check for common API key patterns in generated docs
-grep -E '(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]+|sk_test_[a-zA-Z0-9]+|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9_-]+|AKIA[A-Z0-9]{16}|xox[baprs]-[a-zA-Z0-9-]+|-----BEGIN.*PRIVATE KEY|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.)' .planning/codebase/*.md CLAUDE.md 2>/dev/null && SECRETS_FOUND=true || SECRETS_FOUND=false
+grep -E '(sk-[a-zA-Z0-9]{20,}|sk_live_[a-zA-Z0-9]+|sk_test_[a-zA-Z0-9]+|ghp_[a-zA-Z0-9]{36}|gho_[a-zA-Z0-9]{36}|glpat-[a-zA-Z0-9_-]+|AKIA[A-Z0-9]{16}|xox[baprs]-[a-zA-Z0-9-]+|-----BEGIN.*PRIVATE KEY|eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+\.)' .aoforge/codebase/*.md CLAUDE.md 2>/dev/null && SECRETS_FOUND=true || SECRETS_FOUND=false
 ```
 
 **If SECRETS_FOUND=true:**
@@ -488,7 +488,7 @@ Continue to commit_codebase_map.
 Commit the codebase map:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: map existing codebase" --files .planning/codebase/*.md CLAUDE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: map existing codebase" --files .aoforge/codebase/*.md CLAUDE.md
 ```
 
 Continue to offer_next.
@@ -501,7 +501,7 @@ Present completion summary and next steps.
 
 **Get line counts:**
 ```bash
-wc -l .planning/codebase/*.md CLAUDE.md
+wc -l .aoforge/codebase/*.md CLAUDE.md
 ```
 
 **Output format:**
@@ -509,7 +509,7 @@ wc -l .planning/codebase/*.md CLAUDE.md
 ```
 Codebase mapping complete.
 
-Created .planning/codebase/:
+Created .aoforge/codebase/:
 - STACK.md ([N] lines) - Technologies and dependencies
 - ARCHITECTURE.md ([N] lines) - System design and patterns
 - STRUCTURE.md ([N] lines) - Directory layout and organization
@@ -537,7 +537,7 @@ Generated CLAUDE.md ([N] lines) — coding rules auto-loaded every session
 **Also available:**
 - Re-run mapping: `/aoforge:map-codebase`
 - Review CLAUDE.md: `cat CLAUDE.md`
-- Review specific file: `cat .planning/codebase/STACK.md`
+- Review specific file: `cat .aoforge/codebase/STACK.md`
 - Edit any document before proceeding
 
 ---

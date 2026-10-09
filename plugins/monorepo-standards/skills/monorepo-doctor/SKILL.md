@@ -19,7 +19,7 @@ Validate a monorepo against the standard layout:
 4. Every declared area has its own `CLAUDE.md`.
 5. No compiled executables or oversize files (> 5 MB) are tracked in non-asset paths.
 
-This is a standalone command — no `.planning/` directory required.
+This is a standalone command — no `.aoforge/` directory required.
 
 Output: a Markdown report printed to the terminal, plus exit code 0 (clean) or 1 (issues found).
 </objective>
@@ -79,7 +79,7 @@ If the report shows issues, suggest the user invoke `/aoforge:new-monorepo` (tem
 **Do NOT use for:**
 - Linting code style (use language-native linters)
 - Validating CI workflows (separate skill)
-- AOForge `.planning/` state checks (use `/aoforge:status check`)
+- AOForge `.aoforge/` state checks (use `/aoforge:status check`)
 </when_to_use>
 
 <output_format>

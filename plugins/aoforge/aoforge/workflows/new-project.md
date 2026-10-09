@@ -125,7 +125,7 @@ AskUserQuestion([
     multiSelect: false,
     options: [
       { label: "Yes (Recommended)", description: "Planning docs tracked in version control" },
-      { label: "No", description: "Keep .planning/ local-only (add to .gitignore)" }
+      { label: "No", description: "Keep .aoforge/ local-only (add to .gitignore)" }
     ]
   }
 ])
@@ -175,7 +175,7 @@ AskUserQuestion([
 ])
 ```
 
-Create `.planning/config.json` with mode set to "yolo":
+Create `.aoforge/config.json` with mode set to "yolo":
 
 ```json
 {
@@ -193,13 +193,13 @@ Create `.planning/config.json` with mode set to "yolo":
 }
 ```
 
-**If commit_docs = No:** Add `.planning/` to `.gitignore`.
+**If commit_docs = No:** Add `.aoforge/` to `.gitignore`.
 
 **Commit config.json:**
 
 ```bash
-mkdir -p .planning
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: add project config" --files .planning/config.json
+mkdir -p .aoforge
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: add project config" --files .aoforge/config.json
 node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --register
 ```
 
@@ -343,7 +343,7 @@ All Active requirements are hypotheses until shipped and validated.
 
 Infer Validated requirements from existing code:
 
-1. Read `.planning/codebase/ARCHITECTURE.md` and `STACK.md`
+1. Read `.aoforge/codebase/ARCHITECTURE.md` and `STACK.md`
 2. Identify what the codebase already does
 3. These become the initial Validated set
 
@@ -404,9 +404,9 @@ Approved → apply any edits the user made to the draft in the plan, then publis
 **Commit PROJECT.md (after approval or auto mode):**
 
 ```bash
-mkdir -p .planning
+mkdir -p .aoforge
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put PROJECT.md --from "$DRAFT"
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: initialize project" --files .planning/PROJECT.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: initialize project" --files .aoforge/PROJECT.md
 ```
 
 ## 5. Workflow Preferences
@@ -469,7 +469,7 @@ questions: [
     multiSelect: false,
     options: [
       { label: "Yes (Recommended)", description: "Planning docs tracked in version control" },
-      { label: "No", description: "Keep .planning/ local-only (add to .gitignore)" }
+      { label: "No", description: "Keep .aoforge/ local-only (add to .gitignore)" }
     ]
   },
   {
@@ -486,7 +486,7 @@ questions: [
 
 Record the Research answer (question 4) — use it in Step 6 to skip the standalone ask.
 
-Create `.planning/config.json` with settings (defaults + any overrides):
+Create `.aoforge/config.json` with settings (defaults + any overrides):
 
 ```json
 {
@@ -506,7 +506,7 @@ Create `.planning/config.json` with settings (defaults + any overrides):
 
 **If commit_docs = No:**
 - Set `commit_docs: false` in config.json
-- Add `.planning/` to `.gitignore` (create if needed)
+- Add `.aoforge/` to `.gitignore` (create if needed)
 
 **If commit_docs = Yes:**
 - No additional gitignore entries needed
@@ -514,7 +514,7 @@ Create `.planning/config.json` with settings (defaults + any overrides):
 **Commit config.json:**
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: add project config" --files .planning/config.json
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: add project config" --files .aoforge/config.json
 node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --register
 ```
 
@@ -554,7 +554,7 @@ Researching [domain] ecosystem...
 
 Create research directory:
 ```bash
-mkdir -p .planning/research
+mkdir -p .aoforge/research
 ```
 
 **Determine milestone context:**
@@ -772,10 +772,10 @@ Synthesize research outputs into SUMMARY.md.
 
 <research_files>
 Read these files:
-- .planning/research/STACK.md
-- .planning/research/FEATURES.md
-- .planning/research/ARCHITECTURE.md
-- .planning/research/PITFALLS.md
+- .aoforge/research/STACK.md
+- .aoforge/research/FEATURES.md
+- .aoforge/research/ARCHITECTURE.md
+- .aoforge/research/PITFALLS.md
 </research_files>
 
 <output>
@@ -797,11 +797,11 @@ b. **Publish** it verbatim. Run `node ~/.claude/aoforge/bin/aof-tools.cjs planni
    put the extracted text at the printed path with the Write tool, then run
    `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/SUMMARY.md --from "$DRAFT"`.
    Do not summarise, reword or reformat it: local mode stores exactly those bytes in
-   `.planning/research/SUMMARY.md`; store mode publishes the research wiki page.
+   `.aoforge/research/SUMMARY.md`; store mode publishes the research wiki page.
 c. **Commit** all research in one commit. The researchers published their four files without
    committing, so this single commit covers all 5 files:
    ```bash
-   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: complete project research" --files .planning/research/
+   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: complete project research" --files .aoforge/research/
    ```
 
 **Update progress (if available):**
@@ -821,12 +821,12 @@ Display research complete banner and key findings:
 **Table Stakes:** [from SUMMARY.md]
 **Watch Out For:** [from SUMMARY.md]
 
-Files: `.planning/research/`
+Files: `.aoforge/research/`
 ```
 
 **Draft the stack profile:**
 
-Skip this step if `.planning/STACK.md` already exists.
+Skip this step if `.aoforge/STACK.md` already exists.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs stack init --from research --raw
@@ -835,7 +835,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs stack init --from research --raw
 If the command fails with "Unknown command" (an older AOForge mirror), skip this step silently.
 Otherwise show the draft, then use AskUserQuestion:
 - header: "Stack"
-- question: "Write this draft as .planning/STACK.md?"
+- question: "Write this draft as .aoforge/STACK.md?"
 - options:
   - "Write it (Recommended)" — Write the draft as shown
   - "Edit first" — Tell me what to change, then show the draft again
@@ -999,7 +999,7 @@ took), update the draft and present it again.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put REQUIREMENTS.md --from "$DRAFT"
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: define v1 requirements" --files .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: define v1 requirements" --files .aoforge/REQUIREMENTS.md
 ```
 
 ## 8. Create Roadmap
@@ -1025,16 +1025,16 @@ Task(prompt="
 <planning_context>
 
 **Project:**
-@.planning/PROJECT.md
+@.aoforge/PROJECT.md
 
 **Requirements:**
-@.planning/REQUIREMENTS.md
+@.aoforge/REQUIREMENTS.md
 
 **Research (if exists):**
-@.planning/research/SUMMARY.md
+@.aoforge/research/SUMMARY.md
 
 **Config:**
-@.planning/config.json
+@.aoforge/config.json
 
 </planning_context>
 
@@ -1115,7 +1115,7 @@ Success criteria:
 EnterPlanMode()
 
 Put in the plan: the Proposed Roadmap above (the summary table and every objective's details) with the path
-`.planning/ROADMAP.md` for the full file, then "On approval: commit ROADMAP.md, STATE.md and REQUIREMENTS.md". The
+`.aoforge/ROADMAP.md` for the full file, then "On approval: commit ROADMAP.md, STATE.md and REQUIREMENTS.md". The
 roadmapper has already persisted the roadmap draft; nothing is committed until approval.
 
 ExitPlanMode()
@@ -1130,7 +1130,7 @@ ExitPlanMode again. On approval, re-spawn the roadmapper with the revision conte
   User feedback on roadmap:
   [the Requested changes]
 
-  Current ROADMAP.md: @.planning/ROADMAP.md
+  Current ROADMAP.md: @.aoforge/ROADMAP.md
 
   Update the roadmap based on feedback. Edit files in place.
   Return ROADMAP REVISED with changes made.
@@ -1142,12 +1142,12 @@ Then put the revised roadmap draft in the plan and review it again. Loop until t
 **Commit roadmap (after approval or auto mode):**
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create roadmap ([N] objectives)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create roadmap ([N] objectives)" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/REQUIREMENTS.md
 ```
 
 ## 8.5. GitHub Sync (optional)
 
-If `.planning/config.json` has `github.enabled: true` and `github.repo` set, sync the roadmap to GitHub issues:
+If `.aoforge/config.json` has `github.enabled: true` and `github.repo` set, sync the roadmap to GitHub issues:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs gh sync --all
@@ -1156,13 +1156,13 @@ node ~/.claude/aoforge/bin/aof-tools.cjs gh sync --all
 This reports `skipped` and exits 0 when GitHub integration is disabled. When it is enabled and `gh` is not authenticated it exits 1 with the fix. The command:
 - Uses each objective's `milestone:` (else the ROADMAP `## Milestones` current entry)
 - Creates one issue per objective with goal + success criteria, and records its number as `github_issue` in each OBJECTIVE.md
-- Persists issue numbers in `.planning/.gh-mapping.json` (commit this file)
+- Persists issue numbers in `.aoforge/.gh-mapping.json` (commit this file)
 - Is idempotent — re-running updates existing issues and never duplicates them
 
 If issues were created, commit the mapping file and the OBJECTIVE.md files that gained `github_issue`:
 
 ```bash
-[ -f .planning/.gh-mapping.json ] && node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: sync objectives to GitHub" --files .planning/.gh-mapping.json $(git ls-files -m -o --exclude-standard -- '.planning/objectives/*/OBJECTIVE.md')
+[ -f .aoforge/.gh-mapping.json ] && node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: sync objectives to GitHub" --files .aoforge/.gh-mapping.json $(git ls-files -m -o --exclude-standard -- '.aoforge/objectives/*/OBJECTIVE.md')
 ```
 
 The `git ls-files` list holds only OBJECTIVE.md files that changed, so a roadmap with no objective directories yet does not pass `commit` a glob that matches nothing (git rejects it).
@@ -1180,11 +1180,11 @@ Present completion summary:
 
 | Artifact       | Location                    |
 |----------------|-----------------------------|
-| Project        | `.planning/PROJECT.md`      |
-| Config         | `.planning/config.json`     |
-| Research       | `.planning/research/`       |
-| Requirements   | `.planning/REQUIREMENTS.md` |
-| Roadmap        | `.planning/ROADMAP.md`      |
+| Project        | `.aoforge/PROJECT.md`      |
+| Config         | `.aoforge/config.json`     |
+| Research       | `.aoforge/research/`       |
+| Requirements   | `.aoforge/REQUIREMENTS.md` |
+| Roadmap        | `.aoforge/ROADMAP.md`      |
 
 **[N] objectives** | **[X] requirements** | Ready to build ✓
 ```
@@ -1223,23 +1223,23 @@ Exit skill and invoke SlashCommand("/aoforge:plan-objective 1 --auto")
 
 <output>
 
-- `.planning/PROJECT.md`
-- `.planning/config.json`
-- `.planning/research/` (if research selected)
+- `.aoforge/PROJECT.md`
+- `.aoforge/config.json`
+- `.aoforge/research/` (if research selected)
   - `STACK.md`
   - `FEATURES.md`
   - `ARCHITECTURE.md`
   - `PITFALLS.md`
   - `SUMMARY.md`
-- `.planning/REQUIREMENTS.md`
-- `.planning/ROADMAP.md`
-- `.planning/STATE.md`
+- `.aoforge/REQUIREMENTS.md`
+- `.aoforge/ROADMAP.md`
+- `.aoforge/STATE.md`
 
 </output>
 
 <success_criteria>
 
-- [ ] .planning/ directory created
+- [ ] .aoforge/ directory created
 - [ ] Git repo initialized
 - [ ] Brownfield detection completed
 - [ ] Deep questioning completed (threads followed, not rushed)

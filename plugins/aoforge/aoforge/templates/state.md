@@ -1,6 +1,6 @@
 # State Template
 
-Template for `.planning/STATE.md` — the project's living memory.
+Template for `.aoforge/STATE.md` — the project's living memory.
 
 ---
 
@@ -11,7 +11,7 @@ Template for `.planning/STATE.md` — the project's living memory.
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated [date])
+See: .aoforge/PROJECT.md (updated [date])
 
 **Core value:** [One-liner from PROJECT.md Core Value section]
 **Current focus:** [Current objective name]
@@ -31,7 +31,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ### Pending Todos
 
-[From .planning/todos/pending/ — ideas captured during sessions]
+[From .aoforge/todos/pending/ — ideas captured during sessions]
 
 None yet.
 
@@ -113,7 +113,7 @@ Decisions and performance metrics live in STATE_ARCHIVE.md to keep STATE.md lean
 
 **Pending Todos:** Ideas captured via /aoforge:todo add
 - Count of pending todos
-- Reference to .planning/todos/pending/
+- Reference to .aoforge/todos/pending/
 - Brief list if few, count if many (e.g., "5 pending todos — see /aoforge:todo list")
 
 **Blockers/Concerns:** From "Next Objective Readiness" sections

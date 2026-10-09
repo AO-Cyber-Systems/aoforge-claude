@@ -32,10 +32,10 @@ off between the two writes loses nothing. Without task tools in the session (new
 `CLAUDE_CODE_ENABLE_TODO_TOOLS=1`) the flows are archive-only, exactly as before. Convention:
 `@~/.claude/aoforge/references/built-ins.md` section 5.
 
-Todo files go through the verbs. Never write, edit or move a file under `.planning/todos/` directly. Add with
+Todo files go through the verbs. Never write, edit or move a file under `.aoforge/todos/` directly. Add with
 `node ~/.claude/aoforge/bin/aof-tools.cjs todo add --from <draft>` (draft path from `planning draft todos/pending/<stem>.md`)
 and complete with `node ~/.claude/aoforge/bin/aof-tools.cjs todo complete <filename>`. In local mode they write the same
-`.planning/todos/` files; with `github.store` on each todo is also a GitHub issue.
+`.aoforge/todos/` files; with `github.store` on each todo is also a GitHub issue.
 </objective>
 
 <execution_context>
@@ -48,7 +48,7 @@ and complete with `node ~/.claude/aoforge/bin/aof-tools.cjs todo complete <filen
 Subcommand: $ARGUMENTS
 Session: ${CLAUDE_SESSION_ID}
 
-@.planning/STATE.md
+@.aoforge/STATE.md
 </context>
 
 <process>

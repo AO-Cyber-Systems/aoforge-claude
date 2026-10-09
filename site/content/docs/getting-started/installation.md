@@ -51,7 +51,7 @@ plugins/aoforge/aoforge/   →   ~/.claude/aoforge/
   bin/                           bin/          aof-tools.cjs and its lib
   workflows/                     workflows/    workflow bodies
   references/                    references/   docs agents read at runtime
-  templates/                     templates/    files copied into your .planning/
+  templates/                     templates/    files copied into your .aoforge/
 ```
 
 The mirror is atomic per subdirectory (temp dir plus `renameSync`), skips test
@@ -153,6 +153,6 @@ git clone https://github.com/AO-Cyber-Systems/aoforge-claude.git
 /plugin uninstall aoforge@aocyber
 ```
 
-That removes the skills, agents, hooks and status line. Your `.planning/`
+That removes the skills, agents, hooks and status line. Your `.aoforge/`
 directories are project data and are left untouched — delete them per-project if
 you want them gone.

@@ -70,7 +70,7 @@ Don't find articles supporting your initial guess — find what the ecosystem ac
 
 <output_formats>
 
-All files → `.planning/research/`
+All files → `.aoforge/research/`
 
 Templates:
 @~/.claude/aoforge/templates/research-project/SUMMARY.md
@@ -109,7 +109,7 @@ Publish each file through a draft — the same three steps in local and store mo
 1. `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft research/<FILE>.md` prints the draft path.
 2. Put the file's content at that path with the Write tool.
 3. `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/<FILE>.md --from "$DRAFT"` — local mode stores those bytes in
-   `.planning/research/<FILE>.md`; store mode publishes the research wiki page.
+   `.aoforge/research/<FILE>.md`; store mode publishes the research wiki page.
 
 The files, all under `research/`:
 1. **SUMMARY.md** — Always
@@ -145,11 +145,11 @@ The files, all under `research/`:
 
 | File | Purpose |
 |------|---------|
-| .planning/research/SUMMARY.md | Executive summary with roadmap implications |
-| .planning/research/STACK.md | Technology recommendations |
-| .planning/research/FEATURES.md | Feature landscape |
-| .planning/research/ARCHITECTURE.md | Architecture patterns |
-| .planning/research/PITFALLS.md | Domain pitfalls |
+| .aoforge/research/SUMMARY.md | Executive summary with roadmap implications |
+| .aoforge/research/STACK.md | Technology recommendations |
+| .aoforge/research/FEATURES.md | Feature landscape |
+| .aoforge/research/ARCHITECTURE.md | Architecture patterns |
+| .aoforge/research/PITFALLS.md | Domain pitfalls |
 
 ### Confidence Assessment
 

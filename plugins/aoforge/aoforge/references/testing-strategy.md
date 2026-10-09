@@ -1,6 +1,6 @@
 # Testing Strategy — Layers and Routing
 
-This reference doc names the abstract verification layers (unit / integration / system / AI exploratory / visual / wrong-tenant / contract-parity) and how they route to a platform's outermost layer. The concrete tool per layer comes from the project's stack profile (`.planning/STACK.md` → `## Testing` + `commands.test`), resolved with `aof-tools stack context planner`. No stack is inferred from `kind`.
+This reference doc names the abstract verification layers (unit / integration / system / AI exploratory / visual / wrong-tenant / contract-parity) and how they route to a platform's outermost layer. The concrete tool per layer comes from the project's stack profile (`.aoforge/STACK.md` → `## Testing` + `commands.test`), resolved with `aof-tools stack context planner`. No stack is inferred from `kind`.
 
 Soft-bundled with `defaults-table.md` per the v1.1 design — both are read by the planner; neither is read by the resolver. The (kind, work) defaults table answers "what testing posture does this objective need?"; this doc answers "what does each layer prove, and where does the tool come from?".
 
@@ -24,7 +24,7 @@ Soft-bundled with `defaults-table.md` per the v1.1 design — both are read by t
 
 ## Example stack profiles
 
-The former per-stack cells (Go, Flutter, Node) now live as tier-2 profiles that ship bundled in `aoforge/stack-profiles/` (`go.md`, `dart.md`, `flutter.md`), mirrored to `~/.claude/aoforge/stack-profiles/`. A project adopts one via `extends: <id>` in `.planning/STACK.md` with nothing to install. A user or org override goes in `~/.claude/aoforge/stacks/<id>.md` and wins over the bundled profile of the same id.
+The former per-stack cells (Go, Flutter, Node) now live as tier-2 profiles that ship bundled in `aoforge/stack-profiles/` (`go.md`, `dart.md`, `flutter.md`), mirrored to `~/.claude/aoforge/stack-profiles/`. A project adopts one via `extends: <id>` in `.aoforge/STACK.md` with nothing to install. A user or org override goes in `~/.claude/aoforge/stacks/<id>.md` and wins over the bundled profile of the same id.
 
 | Layer | Go | Flutter (mobile + web) | Node (CLI / plugin) |
 |---|---|---|---|
@@ -89,7 +89,7 @@ Covered by future objectives, not this doc:
 - Extending the shipped Flutter visual gate with a probe/conform layer (cross-stack, beyond Flutter) — see `docs/PROPOSAL-ui-oracle-loop.md` in the aoforge-claude repository (the `~/.claude/aoforge` mirror carries no `docs/`)
 - AI-exploratory testing patterns — no observed org adoption; revisit if/when patterns emerge
 - Property-based testing infrastructure — suppressed by default per the `no_property_based_default` resolver constraint
-- Stack-specific tooling — declare it in the project's stack profile (`.planning/STACK.md`)
+- Stack-specific tooling — declare it in the project's stack profile (`.aoforge/STACK.md`)
 
 ## Versioning
 

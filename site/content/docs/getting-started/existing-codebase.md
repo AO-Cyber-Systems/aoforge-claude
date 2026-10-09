@@ -23,7 +23,7 @@ angle:
   in the style guide).
 - **Concerns** — things that will bite: coupling, dead code, risky patterns.
 
-Findings land in `.planning/codebase/`.
+Findings land in `.aoforge/codebase/`.
 
 You can scope it to one area:
 
@@ -49,7 +49,7 @@ imaginary problems. Only `VERIFIED` findings feed the planner.
 /aoforge:new-project
 ```
 
-`new-project` detects the existing `.planning/codebase/` output and grounds the
+`new-project` detects the existing `.aoforge/codebase/` output and grounds the
 roadmap in it — objectives reference real modules, and the requirements reflect
 what is already built rather than restating it.
 
@@ -61,7 +61,7 @@ Worth running once on any inherited codebase:
 /aoforge:security-audit
 ```
 
-This works standalone — it does not need `.planning/` to exist. It fans out
+This works standalone — it does not need `.aoforge/` to exist. It fans out
 `security-auditor` agents across three domains: secrets, auth flows, and dependency
 risk, then reports code-level findings against the OWASP Top 10.
 
@@ -84,7 +84,7 @@ have no `kind` on `PROJECT.md` and no `work` on their objectives. Migrate them:
 ```
 
 If it reports missing intent frontmatter, the health check offers a migration that
-adds it. Migration always backs up to `.planning/.migrate-backup-{timestamp}/`
+adds it. Migration always backs up to `.aoforge/.migrate-backup-{timestamp}/`
 before writing anything.
 
 ## Working with a roadmap that drifted

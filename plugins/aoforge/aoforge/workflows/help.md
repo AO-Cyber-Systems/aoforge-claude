@@ -41,7 +41,7 @@ One command takes you from idea to ready-for-planning:
 - Requirements definition with v1/v2/out-of-scope scoping
 - Roadmap creation with objective breakdown and success criteria
 
-Creates all `.planning/` artifacts:
+Creates all `.aoforge/` artifacts:
 - `PROJECT.md` — vision and requirements
 - `config.json` — workflow mode (interactive/yolo)
 - `research/` — domain research (if selected)
@@ -55,7 +55,7 @@ Usage: `/aoforge:new-project`
 Map an existing codebase for brownfield projects.
 
 - Analyzes codebase with parallel codebase-mapper agents, each writing drafts
-- Publishes 8 focused documents to `.planning/codebase/`, one `aof-tools doc put codebase/<NAME>.md` each
+- Publishes 8 focused documents to `.aoforge/codebase/`, one `aof-tools doc put codebase/<NAME>.md` each
 - Covers stack, architecture, structure, conventions, testing, patterns, integrations, concerns
 - Use before `/aoforge:new-project` on existing codebases — or use `/aoforge:adopt` to turn an existing codebase into an AOForge project directly
 
@@ -66,7 +66,7 @@ Turn an existing repository into an AOForge project, unattended.
 
 - Maps the code, infers `PROJECT.md` and `STACK.md`, scaffolds `config.json`/`STATE.md`/`ROADMAP.md`
 - Adds the CLAUDE.md routing block and makes ONE recorded commit on an `aoforge/adopt` branch (never pushed)
-- Never asks a question — uncertain inferences are written to `.planning/ADOPT-REPORT.md` for review
+- Never asks a question — uncertain inferences are written to `.aoforge/ADOPT-REPORT.md` for review
 - Use when you have an existing repository and want AOForge set up without answering setup questions yourself
 
 Usage: `/aoforge:adopt` or `/aoforge:adopt ./path/to/repo`
@@ -111,7 +111,7 @@ Create detailed execution plan for a specific objective.
 - Shows the TRD drafts in plan mode for your review before they are pushed (skipped with `--auto`, `--gaps` or `workflow.auto_advance`)
 
 Usage: `/aoforge:plan-objective 1`
-Result: `.planning/objectives/01-foundation/01-01-<slug>-TRD.md`
+Result: `.aoforge/objectives/01-foundation/01-01-<slug>-TRD.md`
 
 ### Execution
 
@@ -132,13 +132,13 @@ Execute small, ad-hoc tasks with AOForge guarantees but skip optional agents.
 
 Quick mode uses the same system with a shorter path:
 - Spawns planner + executor (skips researcher, checker, verifier)
-- Quick tasks live in `.planning/quick/` separate from planned objectives
+- Quick tasks live in `.aoforge/quick/` separate from planned objectives
 - Tracks each task in STATE.md's Quick Tasks table (not ROADMAP.md)
 
 Use when you know exactly what to do and the task is small enough to not need research or verification.
 
 Usage: `/aoforge:quick`
-Result: `.planning/quick/NNN-slug/` — the plan via `aof-tools quick put <N> <slug> --from <draft>`, the summary via `aof-tools quick summary <N> --from <draft>`
+Result: `.aoforge/quick/NNN-slug/` — the plan via `aof-tools quick put <N> <slug> --from <draft>`, the summary via `aof-tools quick summary <N> --from <draft>`
 
 ### Roadmap Management
 
@@ -156,9 +156,9 @@ Usage: `/aoforge:objective remove 17 --confirm`
 **`/aoforge:workstreams <setup|status|merge|run>`**
 Parallel feature development via git worktrees.
 
-- `setup` — Analyze dependency graph, create worktrees and provision `.planning/`
+- `setup` — Analyze dependency graph, create worktrees and provision `.aoforge/`
 - `status` — Progress across active workstreams
-- `merge` — Squash-merge completed workstreams, reconcile `.planning/`, advance to join objective
+- `merge` — Squash-merge completed workstreams, reconcile `.aoforge/`, advance to join objective
 - `run` — *(v1.2 obj 6)* Run a workstream end-to-end autonomously
 
 Usage: `/aoforge:workstreams setup`
@@ -186,7 +186,7 @@ Usage: `/aoforge:milestone gaps`
 Project status, health, save/resume work.
 
 - *(no arg)* — Visual progress bar + current position + what's next
-- `check` — Validate `.planning/` directory integrity (alias: `--check`)
+- `check` — Validate `.aoforge/` directory integrity (alias: `--check`)
 - `pause` — Save context for later resumption (alias: `--pause`)
 - `resume` — Restore context from previous session (alias: `--resume`)
 
@@ -213,10 +213,10 @@ Usage: `/aoforge:doctor ./path/to/repo`
 Systematic debugging with persistent state across context resets.
 
 - Gathers symptoms through adaptive questioning
-- Tracks the investigation in `.planning/debug/[slug].md` (`aof-tools debug put <slug> --from <draft>`)
+- Tracks the investigation in `.aoforge/debug/[slug].md` (`aof-tools debug put <slug> --from <draft>`)
 - Investigates using scientific method (evidence → hypothesis → test)
 - Survives `/clear` — run `/aoforge:debug` with no args to resume
-- Archives resolved issues to `.planning/debug/resolved/` (`aof-tools debug resolve <slug>`)
+- Archives resolved issues to `.aoforge/debug/resolved/` (`aof-tools debug resolve <slug>`)
 
 Usage: `/aoforge:debug "login button doesn't work"`
 Usage: `/aoforge:debug` (resume active session)
@@ -226,7 +226,7 @@ Usage: `/aoforge:debug` (resume active session)
 **`/aoforge:todo <add|list>`**
 Capture todos and view morning standup.
 
-- `add [description]` — Capture idea or task from conversation context (or use provided description); also adds a `Todo:` item to the session task list when the session has task tools; files it under `.planning/todos/pending/` with `aof-tools todo add --from <draft>`; checks for duplicates
+- `add [description]` — Capture idea or task from conversation context (or use provided description); also adds a `Todo:` item to the session task list when the session has task tools; files it under `.aoforge/todos/pending/` with `aof-tools todo add --from <draft>`; checks for duplicates
 - `list [area]` — Merge the session's task-list todos into the archive first (`aof-tools todo sync`), then list pending todos with their in-session status, select one to work on; optional area filter; routes to work now / add to objective / brainstorm. A Stop hook runs the same merge at the end of every turn
 
 Usage: `/aoforge:todo add` (infers from conversation)
@@ -257,7 +257,7 @@ Configure workflow toggles and model profile interactively.
 
 - Toggle researcher, job checker, verifier agents
 - Select model profile (quality/balanced/budget)
-- Updates `.planning/config.json`
+- Updates `.aoforge/config.json`
 
 Usage: `/aoforge:settings`
 
@@ -275,10 +275,10 @@ Usage: `/aoforge:set-profile budget`
 **`/aoforge:cleanup`**
 Archive accumulated objective directories from completed milestones.
 
-- Identifies objectives from completed milestones still in `.planning/objectives/`
+- Identifies objectives from completed milestones still in `.aoforge/objectives/`
 - Shows dry-run summary before moving anything
-- Moves objective dirs to `.planning/milestones/v{X.Y}-objectives/`
-- Use after multiple milestones to reduce `.planning/objectives/` clutter
+- Moves objective dirs to `.aoforge/milestones/v{X.Y}-objectives/`
+- Use after multiple milestones to reduce `.aoforge/objectives/` clutter
 
 Usage: `/aoforge:cleanup`
 
@@ -298,7 +298,7 @@ Show this command reference.
 ## Files & Structure
 
 ```
-.planning/
+.aoforge/
 ├── PROJECT.md            # Project vision
 ├── ROADMAP.md            # Current objective breakdown
 ├── STATE.md              # Project memory & context
@@ -334,8 +334,8 @@ Show this command reference.
 ## Planning Verbs
 
 Every planning file is written through an aof-tools verb — never by hand, and never with `Write`/`Edit`.
-**In store mode (`github.store: true`) `.planning/` is a read-only cache: use the verbs.** In local mode
-the same verbs write the same `.planning/` files, so the instructions never change between modes.
+**In store mode (`github.store: true`) `.aoforge/` is a read-only cache: use the verbs.** In local mode
+the same verbs write the same `.aoforge/` files, so the instructions never change between modes.
 Content comes from `--from <path|->`; `aof-tools planning draft <rel>` prints a draft path to write first.
 
 - `aof-tools plan put-trd <objective> <file-name> --from <path|->` — publish one TRD
@@ -353,7 +353,7 @@ Content comes from `--from <path|->`; `aof-tools planning draft <rel>` prints a 
 - `aof-tools quick put <N> <slug> --from <path|->` / `quick summary <N> --from <path|->` — quick tasks
 - `aof-tools milestone put <version> --from <path|->` / `milestone complete <version>` — milestones
 - `aof-tools planning mode` — prints `local` or `store`
-- `aof-tools planning import` — store mode only: import an existing `.planning/` into the store
+- `aof-tools planning import` — store mode only: import an existing `.aoforge/` into the store
 - `aof-tools gh pull --all` — regenerate the cache views (ROADMAP.md, STATE.md) from the store
 
 `STATE.md`, `ROADMAP.md` and `REQUIREMENTS.md` progress changes go through `aof-tools state ...`,
@@ -376,24 +376,24 @@ Set during `/aoforge:new-project`:
 - Executes plans without confirmation
 - Only stops for critical checkpoints
 
-Change anytime by editing `.planning/config.json`
+Change anytime by editing `.aoforge/config.json`
 
 ## Planning Configuration
 
-Configure how planning artifacts are managed in `.planning/config.json`:
+Configure how planning artifacts are managed in `.aoforge/config.json`:
 
 **`planning.commit_docs`** (default: `true`)
 - `true`: Planning artifacts committed to git (standard workflow)
 - `false`: Planning artifacts kept local-only, not committed
 
 When `commit_docs: false`:
-- Add `.planning/` to your `.gitignore`
+- Add `.aoforge/` to your `.gitignore`
 - Useful for OSS contributions, client projects, or keeping planning private
 - All planning files still work normally, just not tracked in git
 
 **`planning.search_gitignored`** (default: `false`)
 - `true`: Add `--no-ignore` to broad ripgrep searches
-- Only needed when `.planning/` is gitignored and you want project-wide searches to include it
+- Only needed when `.aoforge/` is gitignored and you want project-wide searches to include it
 
 Example config:
 ```json
@@ -474,7 +474,7 @@ AOForge works alongside Claude Code's built-in features:
 
 ```
 /loop 10m /aoforge:status         # Check project status every 10 minutes
-/loop 5m /aoforge:status check    # Monitor .planning/ integrity during builds
+/loop 5m /aoforge:status check    # Monitor .aoforge/ integrity during builds
 /loop 15m /aoforge:todo list      # Periodic todo reminders
 ```
 
@@ -486,9 +486,9 @@ Plan mode (`EnterPlanMode`, then `ExitPlanMode`) is where AOForge asks you to ap
 
 ## Getting Help
 
-- Read `.planning/PROJECT.md` for project vision
-- Read `.planning/STATE.md` for current context
-- Check `.planning/ROADMAP.md` for objective status
+- Read `.aoforge/PROJECT.md` for project vision
+- Read `.aoforge/STATE.md` for current context
+- Check `.aoforge/ROADMAP.md` for objective status
 - Run `/aoforge:status` to check where you're up to
 
 ## Removed Skill Names (removed in v2.2)

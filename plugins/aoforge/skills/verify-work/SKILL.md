@@ -44,8 +44,8 @@ Objective: $ARGUMENTS (optional)
 - If provided: Test specific objective (e.g., "4")
 - If not provided: Check for active sessions or prompt for objective
 
-@.planning/STATE.md
-@.planning/ROADMAP.md
+@.aoforge/STATE.md
+@.aoforge/ROADMAP.md
 </context>
 
 

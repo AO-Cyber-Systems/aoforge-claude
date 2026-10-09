@@ -1,9 +1,9 @@
 # STACK.md Template
 
-Template for `.planning/STACK.md`: the project's **stack profile**. It tells AOForge agents which
+Template for `.aoforge/STACK.md`: the project's **stack profile**. It tells AOForge agents which
 toolchain, commands, idioms, generated files and agent tooling this project uses.
 
-**Prescriptive, not descriptive.** `.planning/codebase/STACK.md` (from map-codebase) *describes* what
+**Prescriptive, not descriptive.** `.aoforge/codebase/STACK.md` (from map-codebase) *describes* what
 the code uses. This file *directs* what agents do. map-codebase and new-project draft it from that
 evidence, and a human confirms it.
 
@@ -123,7 +123,7 @@ provenance:
 <guidelines>
 
 **Resolution (lowest → highest):** bundled `general` → org/pack profile named in `extends` →
-`.planning/STACK.md` → component profile. Frontmatter merges key by key, and lists replace. Body
+`.aoforge/STACK.md` → component profile. Frontmatter merges key by key, and lists replace. Body
 sections replace by H2 name unless marked `<!-- inherit -->`. `aof-tools stack resolve --provenance`
 shows which tier supplied each field.
 
@@ -144,7 +144,7 @@ runner and manifests, verifies each command it would write, and drafts what it c
   not exist here. The draft also opens the body with a `stack init notes` comment, one line per
   unverified or weak candidate. Replace each `discover` with the real command (or `none`), then
   delete the comment.
-- `aof-tools stack report --write` writes `.planning/STACK-REPORT.md`: CI and local-testing gaps, each
+- `aof-tools stack report --write` writes `.aoforge/STACK-REPORT.md`: CI and local-testing gaps, each
   with a proposal and snippet. Proposals only. Nothing edits STACK.md, CI or the repo for you.
 - `aof-tools stack verify` checks every command statically (binary resolves, runner target exists).
   `--run` executes only safe keys (`format`, `lint`, `typecheck`, `build`); `--include test,audit`

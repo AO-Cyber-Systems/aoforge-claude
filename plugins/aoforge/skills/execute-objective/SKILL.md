@@ -36,8 +36,8 @@ Objective: $ARGUMENTS
 **Flags:**
 - `--gaps-only` — Execute only gap closure plans (plans with `gap_closure: true` in frontmatter). Use after verify-work creates fix plans.
 
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 </context>
 
 <process>

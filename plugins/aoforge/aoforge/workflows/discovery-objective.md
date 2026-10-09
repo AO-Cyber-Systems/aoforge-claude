@@ -119,7 +119,7 @@ For: Choosing between options, new external integration.
 
 7. Return to plan-objective.md.
 
-**Output:** `.planning/objectives/XX-name/DISCOVERY.md`
+**Output:** `.aoforge/objectives/XX-name/DISCOVERY.md`
 </step>
 
 <step name="level_3_deep_dive">
@@ -172,7 +172,7 @@ For: Architectural decisions, novel problems, high-risk choices.
 
 8. Return to plan-objective.md.
 
-**Output:** `.planning/objectives/XX-name/DISCOVERY.md` (comprehensive)
+**Output:** `.aoforge/objectives/XX-name/DISCOVERY.md` (comprehensive)
 </step>
 
 <step name="identify_unknowns">
@@ -206,8 +206,8 @@ Run the discovery:
 </step>
 
 <step name="create_discovery_output">
-Publish `objectives/XX-name/DISCOVERY.md` (relative to `.planning/`) through a draft — never a direct Write under
-`.planning/` (in store mode the gate denies it; in local mode `doc put` writes the same file as before):
+Publish `objectives/XX-name/DISCOVERY.md` (relative to `.aoforge/`) through a draft — never a direct Write under
+`.aoforge/` (in store mode the gate denies it; in local mode `doc put` writes the same file as before):
 
 ```bash
 DRAFT=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/DISCOVERY.md)
@@ -259,7 +259,7 @@ If "Address first": the continuation carries the user's answers. Revise the draf
 
 <step name="offer_next">
 ```
-Discovery complete: .planning/objectives/XX-name/DISCOVERY.md
+Discovery complete: .aoforge/objectives/XX-name/DISCOVERY.md
 Recommendation: [one-liner]
 Confidence: [level]
 

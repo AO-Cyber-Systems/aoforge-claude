@@ -89,7 +89,7 @@ Jobs:
 
 ---
 
-_For current project status, see .planning/ROADMAP.md_
+_For current project status, see .aoforge/ROADMAP.md_
 
 ---
 
@@ -113,7 +113,7 @@ _For current project status, see .planning/ROADMAP.md_
 **Archive location:**
 
 - Publish as `milestones/v{VERSION}-{NAME}.md`: `aof-tools doc put milestones/v{VERSION}-{NAME}.md --from <draft>`
-- Example: `.planning/milestones/v1.0-mvp.md`
+- Example: `.aoforge/milestones/v1.0-mvp.md`
 
 **After archiving:**
 

@@ -38,9 +38,9 @@ Replaces 4 sibling skills: new-milestone, audit-milestone, complete-milestone, p
 <context>
 Subcommand: $ARGUMENTS
 
-@.planning/ROADMAP.md
-@.planning/STATE.md
-@.planning/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
+@.aoforge/PROJECT.md
 </context>
 
 <process>

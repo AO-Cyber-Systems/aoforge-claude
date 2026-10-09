@@ -12,7 +12,7 @@ allowed-tools:
   - AskUserQuestion
 ---
 <objective>
-Operate AOForge's GitHub store. With `github.store: true`, GitHub is the system of record: issues, TRD sub-issues, comments and wiki pages hold the planning state, `.planning/` is a cache rebuilt from them, and every planning verb queues its GitHub write in the outbox. With the store off (the default), `<objective>|--all` is a one-way mirror and `.planning/` stays authoritative.
+Operate AOForge's GitHub store. With `github.store: true`, GitHub is the system of record: issues, TRD sub-issues, comments and wiki pages hold the planning state, `.aoforge/` is a cache rebuilt from them, and every planning verb queues its GitHub write in the outbox. With the store off (the default), `<objective>|--all` is a one-way mirror and `.aoforge/` stays authoritative.
 
 Every command below reports `skipped` (exit 0) when `github.enabled` is not true; when it is true and `gh` is not authenticated it exits 1 with the remediation.
 
@@ -44,7 +44,7 @@ No arguments: `status` in store mode, `--all` with the store off. `objectives` m
    b. `--dry-run` stops here. Otherwise ask with AskUserQuestion, header "GitHub store", "Migrate this project's planning onto GitHub?", options **Not now (Recommended)** / **Migrate now** / **Keep mirror mode** ("don't ask again"). State the cost in the question: the estimate; writes are paced at GitHub's 80 per minute and 450 per hour, so a large backfill spans hours and resumes; `github.store` turns on at the start (the config is backed up first); until it finishes, the edit gate denies cache edits and `aof-tools commit` refuses the default branch. Never apply without **Migrate now**. **Not now** leaves 0011 pending, so `validate health` keeps reporting W040. On **Keep mirror mode**, record the decision in the tracked config and commit it (the store is off, so the store-mode commit gate does not apply):
    ```bash
    node ~/.claude/aoforge/bin/aof-tools.cjs config-set github.mirror_only true
-   node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: keep GitHub in mirror mode" --files .planning/config.json
+   node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: keep GitHub in mirror mode" --files .aoforge/config.json
    ```
    Tell the user that 0011 is now skipped while the store is off, so `upgrade --check`, W040, doctor check 21 and the SessionStart upgrade notice go quiet, and that `/aoforge:gh-sync migrate` can still clear it later. Then stop: do not apply.
 
@@ -63,11 +63,11 @@ No arguments: `status` in store mode, `--all` with the store off. `objectives` m
    e. Commit the switch. Show the steps from the notes; they look like this:
    ```
    git switch -c aoforge-store-cache
-   AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="store migration" node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .planning/
+   AOFORGE_SKIP_GH_GATE=1 AOFORGE_SKIP_GH_GATE_REASON="store migration" node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: gitignore the planning cache (store mode)" --files .gitignore .aoforge/
    git push -u origin aoforge-store-cache
    gh pr create --head aoforge-store-cache --fill
    ```
-   Run them only when the user asks; do not run a raw `git commit`. Store mode refuses commits on the default branch and on unlinked branches, so the escape is needed once; it is logged (gate `gh`, `.planning/.override-log.jsonl`).
+   Run them only when the user asks; do not run a raw `git commit`. Store mode refuses commits on the default branch and on unlinked branches, so the escape is needed once; it is logged (gate `gh`, `.aoforge/.override-log.jsonl`).
 
 3. **`status`** — run each, then report enablement and reachability, the queue (pending, blocked, halted, why the last flush stopped) and any W057 (unsynced writes), W058 (missing links), W059 (orphans), W060 (frozen-body drift) or W061 (the check failed) line:
    ```bash
@@ -90,7 +90,7 @@ No arguments: `status` in store mode, `--all` with the store off. `objectives` m
 </process>
 
 <context>
-- `.planning/.gh-mapping.json` (v3, keyed by objective id) maps objectives to issues. It is recoverable: if it is lost, `gh sync --all` (mirror) or `gh pull --all` (store) finds the issues again by their `aoforge:id` marker and never duplicates one. In store mode it is cache, gitignored by migration 0010.
+- `.aoforge/.gh-mapping.json` (v3, keyed by objective id) maps objectives to issues. It is recoverable: if it is lost, `gh sync --all` (mirror) or `gh pull --all` (store) finds the issues again by their `aoforge:id` marker and never duplicates one. In store mode it is cache, gitignored by migration 0010.
 - Each issue body starts with `<!-- aoforge:id=N -->`. AOForge rewrites only the text between its `aoforge:begin` / `aoforge:end` markers; text a human wrote around them is preserved byte for byte. An issue from an older AOForge (no markers) keeps its old text and gets the managed sections appended once.
 - Writes are at least 1 s apart, and a secondary rate limit is retried after GitHub's `retry-after`. Failures never block the user's workflow.
 - In store mode an objective's branch and pull request have their own verbs (`gh pr start|sync|status|merge|reconcile`), run by `/aoforge:execute-objective`; `gh pr status <objective>` shows where one stands. The `gh trd` verbs need connectivity.

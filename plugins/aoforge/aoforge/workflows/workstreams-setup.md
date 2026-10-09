@@ -3,7 +3,7 @@ status: active
 ---
 <purpose>
 
-Analyze the ROADMAP.md dependency graph and identify independent objectives. Then set up one git worktree per workstream for parallel execution, and provision each with filtered `.planning/` context.
+Analyze the ROADMAP.md dependency graph and identify independent objectives. Then set up one git worktree per workstream for parallel execution, and provision each with filtered `.aoforge/` context.
 
 </purpose>
 
@@ -11,9 +11,9 @@ Analyze the ROADMAP.md dependency graph and identify independent objectives. The
 
 **Read these files NOW:**
 
-1. `.planning/ROADMAP.md`
-2. `.planning/STATE.md`
-3. `.planning/config.json`
+1. `.aoforge/ROADMAP.md`
+2. `.aoforge/STATE.md`
+3. `.aoforge/config.json`
 
 </required_reading>
 
@@ -29,9 +29,9 @@ git rev-parse --git-dir 2>/dev/null
 ```
 If not a git repo, stop: "Workstreams require a git repository."
 
-2. **`.planning/` exists with ROADMAP.md:**
+2. **`.aoforge/` exists with ROADMAP.md:**
 ```bash
-ls .planning/ROADMAP.md 2>/dev/null
+ls .aoforge/ROADMAP.md 2>/dev/null
 ```
 
 3. **No uncommitted changes:**
@@ -42,7 +42,7 @@ If dirty: "Commit or stash changes before creating workstreams."
 
 4. **No existing workstreams active:**
 ```bash
-cat .planning/workstreams.json 2>/dev/null
+cat .aoforge/workstreams.json 2>/dev/null
 ```
 If exists and status is "active": warn that workstreams already exist, then ask:
 
@@ -114,14 +114,14 @@ Present the workstream plan to the user:
 ### What happens next
 
 1. Create a git worktree + branch for each workstream
-2. Copy .planning/ context (filtered per workstream)
+2. Copy .aoforge/ context (filtered per workstream)
 3. You open a terminal in each worktree and run normal AOForge commands
 4. When done, run `/aoforge:workstreams merge` from the main worktree
 ```
 
 <config-check>
 ```bash
-cat .planning/config.json 2>/dev/null
+cat .aoforge/config.json 2>/dev/null
 ```
 </config-check>
 
@@ -141,7 +141,7 @@ AskUserQuestion([
     multiSelect: false,
     options: [
       { label: "Not yet (Recommended)", description: "Stop here; nothing is created" },
-      { label: "Create them", description: "Create the worktrees and branches and copy the .planning/ context" }
+      { label: "Create them", description: "Create the worktrees and branches and copy the .aoforge/ context" }
     ]
   }
 ])
@@ -185,7 +185,7 @@ Track created worktrees for the workstreams.json file.
 
 <step name="provision_planning">
 
-For each created worktree, provision `.planning/`:
+For each created worktree, provision `.aoforge/`:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs workstreams provision {ws-id} {worktree-path}
@@ -202,7 +202,7 @@ This copies:
 
 <step name="write_workstreams_json">
 
-Write `.planning/workstreams.json` in the main worktree:
+Write `.aoforge/workstreams.json` in the main worktree:
 
 ```json
 {
@@ -240,7 +240,7 @@ Check `commit_docs` from config.
 If commit_docs is true:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: setup workstreams for parallel development" --files .planning/workstreams.json .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: setup workstreams for parallel development" --files .aoforge/workstreams.json .aoforge/STATE.md
 ```
 
 </step>
@@ -299,7 +299,7 @@ Setup is complete when:
 - [ ] Dependency analysis found parallel opportunities
 - [ ] User approved workstream groupings
 - [ ] Git worktrees created with branches
-- [ ] .planning/ provisioned in each worktree (filtered state, marker)
+- [ ] .aoforge/ provisioned in each worktree (filtered state, marker)
 - [ ] workstreams.json written to main worktree
 - [ ] User has clear instructions for next steps
 

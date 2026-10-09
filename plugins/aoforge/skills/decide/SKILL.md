@@ -2,7 +2,7 @@
 name: decide
 description: |
   Resolve a parked decision and resume autonomous execution.
-  Use when you see a pending DECISION-NNN.md in .planning/decisions/pending/, when the user wants to choose an option for a blocked checkpoint:decision, or when you need to tell the executor which option to take.
+  Use when you see a pending DECISION-NNN.md in .aoforge/decisions/pending/, when the user wants to choose an option for a blocked checkpoint:decision, or when you need to tell the executor which option to take.
   Triggers on: "resolve decision", "decide DECISION-", "pick option for DECISION-", "unblock DECISION-", "answer DECISION-", "choose option for decision", "I want option-a", "go with option-b", "my answer is".
 argument-hint: "[<decision-id> <choice>]"
 allowed-tools:
@@ -16,8 +16,8 @@ Resolve a parked decision (or list pending decisions if no arguments given) and 
 
 Decisions are opened with `aof-tools decision open <trd-id> --question <text|@path>` when autonomous execution hits a `checkpoint:decision` it cannot auto-select, and answered with `aof-tools decision answer <id> --text <choice>`. Never write or move a decision file by hand.
 
-- **Local mode** (`github.store` off): a decision is `.planning/decisions/pending/DECISION-NNN.md`; answering it moves it to `.planning/decisions/resolved/` and unblocks the TRDs listed in its `blocks` field.
-- **Store mode**: a decision is a Decision issue that blocks its TRD, with id `<trd-id>-d<k>` and the read cache `.planning/decisions/<id>.md`; answering it posts the answer and closes the issue.
+- **Local mode** (`github.store` off): a decision is `.aoforge/decisions/pending/DECISION-NNN.md`; answering it moves it to `.aoforge/decisions/resolved/` and unblocks the TRDs listed in its `blocks` field.
+- **Store mode**: a decision is a Decision issue that blocks its TRD, with id `<trd-id>-d<k>` and the read cache `.aoforge/decisions/<id>.md`; answering it posts the answer and closes the issue.
 </objective>
 
 <process>
@@ -92,8 +92,8 @@ node ~/.claude/aoforge/bin/aof-tools.cjs decision answer <decision-id> --text "<
 
 For a long answer, put it in a draft file and pass `--from <path>` instead of `--text`.
 
-If exit 0, the verb prints `decision answer: wrote .planning/<rel> (<mode> mode).`:
-- Read the decision file it names (local: `.planning/decisions/resolved/<decision-id>.md`; store: `.planning/decisions/<decision-id>.md`)
+If exit 0, the verb prints `decision answer: wrote .aoforge/<rel> (<mode> mode).`:
+- Read the decision file it names (local: `.aoforge/decisions/resolved/<decision-id>.md`; store: `.aoforge/decisions/<decision-id>.md`)
 - Local: extract the `blocks` list from its frontmatter. Store: the id `<trd-id>-d<k>` names the TRD the decision blocked
 - Report the resolution and list the newly-unblocked TRDs
 - Suggest the next step:
@@ -115,7 +115,7 @@ If exit non-zero, show the error from stderr and suggest running `/aoforge:decid
 
 **Step 3 — Context note**
 
-In local mode, decisions in `.planning/decisions/resolved/` are the permanent archive. They are NOT gitignored — parked decisions are durable planning state, not runtime markers. In store mode the closed Decision issue is the archive.
+In local mode, decisions in `.aoforge/decisions/resolved/` are the permanent archive. They are NOT gitignored — parked decisions are durable planning state, not runtime markers. In store mode the closed Decision issue is the archive.
 </process>
 
 <context>

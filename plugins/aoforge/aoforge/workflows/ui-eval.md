@@ -35,7 +35,7 @@ either a manifest path **or an objective id** and resolves it via `resolveUIEval
 (`bin/lib/flutter-ui-eval-resolve.cjs`), in this order:
 
 1. An explicit path passed in `$ARGUMENTS` that names an existing file.
-2. `.planning/objectives/<obj>/evidence/ui_eval/manifest.json`
+2. `.aoforge/objectives/<obj>/evidence/ui_eval/manifest.json`
 3. `ui_eval/manifests/*.manifest.json` (and `flutter/ui_eval/manifests/*.manifest.json`) — **never resolves** (W0-3, spec §12.2): any match here reports `resolution: 'absent', reason: 'unscoped-candidates', candidates: [...]` instead of being picked, since a repo-root manifest is not scoped to this objective.
 
 **The engine reads JSON, not YAML.** A Tier-2 (`evidence/ui_eval/manifest.yaml`) or
@@ -48,7 +48,7 @@ pass the objective id and read `resolution` off the result.
 Run the Playwright web capture adapter to produce `CaptureResult[]` + screenshots for each declared state. Write screenshots and Shape-B capture JSON into the objective's evidence dir:
 
 ```bash
-mkdir -p .planning/objectives/$OBJECTIVE_DIR/evidence/ui_eval/
+mkdir -p .aoforge/objectives/$OBJECTIVE_DIR/evidence/ui_eval/
 ```
 
 For each manifest state with a `surface`/route:
@@ -84,8 +84,8 @@ Never a hard fail on `not_applicable` or `absent`; only `invalid` and a judged `
 For each non-skipped state in `states[]`, write a per-state judge artifact and the run report into the evidence dir:
 
 ```bash
-# .planning/objectives/<obj>/evidence/ui_eval/<state_id>.judge.json   (per-state detail)
-# .planning/objectives/<obj>/evidence/ui_eval/ui-eval-report.json      (full rollup)
+# .aoforge/objectives/<obj>/evidence/ui_eval/<state_id>.judge.json   (per-state detail)
+# .aoforge/objectives/<obj>/evidence/ui_eval/ui-eval-report.json      (full rollup)
 ```
 
 Each `<state_id>.judge.json` carries the state's `{ state_id, verdict, is_broken, defects, errors, screenshot_path }`. `ui-eval-report.json` carries the whole rollup plus the manifest path and timestamp.
@@ -98,7 +98,7 @@ Emit the verdict + per-state detail using the verdict→action mapping:
 - `pass-with-reviews` / per-state `review` → advisory `notes:` + partial section; surface stays on human-verify.
 - `pass` → machine-verified; the verifier removes that surface from its Step 9 human-verification list.
 
-Report path: `.planning/objectives/<obj>/evidence/ui_eval/ui-eval-report.json`.
+Report path: `.aoforge/objectives/<obj>/evidence/ui_eval/ui-eval-report.json`.
 </step>
 
 </process>

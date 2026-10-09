@@ -27,7 +27,7 @@ Exit workflow.
 Validate objective exists in roadmap:
 
 ```bash
-cat .planning/ROADMAP.md | grep -i "Objective ${OBJECTIVE}"
+cat .aoforge/ROADMAP.md | grep -i "Objective ${OBJECTIVE}"
 ```
 
 **If objective not found:**

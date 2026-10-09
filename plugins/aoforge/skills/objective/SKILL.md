@@ -37,8 +37,8 @@ Note: decimal objectives (insert) were removed in v1.2 (TRD 12-06, I2 survey: 0%
 <context>
 Subcommand: $ARGUMENTS
 
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 </context>
 
 <process>

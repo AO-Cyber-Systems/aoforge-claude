@@ -113,9 +113,9 @@ aof-tools micro abort
 
 A different loop from build. The `debugger` agent works a structured scientific
 method — hypothesis, prediction, experiment, evidence — and writes it all to
-`.planning/debug/`. That persistence is the point: a hard bug outlives a context
+`.aoforge/debug/`. That persistence is the point: a hard bug outlives a context
 window, and starting over from scratch each session is how bugs stay unfixed.
 
-Resolved sessions archive to `.planning/debug/resolved/`.
+Resolved sessions archive to `.aoforge/debug/resolved/`.
 
 {{< triggers name="debug" >}}

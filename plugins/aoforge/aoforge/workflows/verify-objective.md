@@ -39,7 +39,7 @@ Extract from init JSON: `objective_dir`, `objective_number`, `objective_name`, `
 Then load objective details and list plans/summaries:
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective "${objective_number}"
-grep -E "^| ${objective_number}" .planning/REQUIREMENTS.md 2>/dev/null
+grep -E "^| ${objective_number}" .aoforge/REQUIREMENTS.md 2>/dev/null
 ls "$objective_dir"/*-SUMMARY.md "$objective_dir"/*-JOB.md 2>/dev/null
 ```
 
@@ -162,7 +162,7 @@ Record status and evidence for each key link.
 <step name="verify_requirements">
 If REQUIREMENTS.md exists:
 ```bash
-grep -E "Objective ${OBJECTIVE_NUM}" .planning/REQUIREMENTS.md 2>/dev/null
+grep -E "Objective ${OBJECTIVE_NUM}" .aoforge/REQUIREMENTS.md 2>/dev/null
 ```
 
 For each requirement: parse description → identify supporting truths/artifacts → status: ✓ SATISFIED / ✗ BLOCKED / ? NEEDS HUMAN.

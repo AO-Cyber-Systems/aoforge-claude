@@ -3,7 +3,7 @@
 > **Note:** Planning methodology is in `agents/planner.md`.
 > This template defines the JOB.md output format that the agent produces.
 
-Template for `.planning/objectives/XX-name/{objective}-{job}-JOB.md` - executable objective plans optimized for parallel execution.
+Template for `.aoforge/objectives/XX-name/{objective}-{job}-JOB.md` - executable objective plans optimized for parallel execution.
 
 **Naming:** Use `{objective}-{job}-JOB.md` format (e.g., `01-02-JOB.md` for Objective 1, Job 2)
 
@@ -64,9 +64,9 @@ src/
 </execution_context>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 
 # Only reference prior job SUMMARYs if genuinely needed:
 # - This job uses types/exports from prior job
@@ -155,7 +155,7 @@ Before declaring plan complete:
   </success_criteria>
 
 <output>
-After completion, publish `.planning/objectives/XX-name/{objective}-{job}-SUMMARY.md` from a `planning draft` with `aof-tools summary post {objective}-{job} --from <draft path>`
+After completion, publish `.aoforge/objectives/XX-name/{objective}-{job}-SUMMARY.md` from a `planning draft` with `aof-tools summary post {objective}-{job} --from <draft path>`
 </output>
 ```
 
@@ -254,9 +254,9 @@ Wave 3 runs after Waves 1 and 2. Pauses at checkpoint, orchestrator presents to 
 
 ```markdown
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 
 # Only include SUMMARY refs if genuinely needed:
 # - This job imports types from prior job
@@ -273,8 +273,8 @@ Wave 3 runs after Waves 1 and 2. Pauses at checkpoint, orchestrator presents to 
 **Bad pattern (creates false dependencies):**
 ```markdown
 <context>
-@.planning/objectives/03-features/03-01-SUMMARY.md  # Just because it's earlier
-@.planning/objectives/03-features/03-02-SUMMARY.md  # Reflexive chaining
+@.aoforge/objectives/03-features/03-01-SUMMARY.md  # Just because it's earlier
+@.aoforge/objectives/03-features/03-02-SUMMARY.md  # Reflexive chaining
 </context>
 ```
 
@@ -371,9 +371,9 @@ src/features/user/
 </file_tree>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 </context>
 
 <research_context>
@@ -421,7 +421,7 @@ src/features/user/
 </success_criteria>
 
 <output>
-After completion, publish `.planning/objectives/03-features/03-01-SUMMARY.md` with `aof-tools summary post 03-01 --from <draft path>`
+After completion, publish `.aoforge/objectives/03-features/03-01-SUMMARY.md` with `aof-tools summary post 03-01 --from <draft path>`
 </output>
 ```
 
@@ -452,10 +452,10 @@ Output: Working dashboard component.
 </execution_context>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
-@.planning/objectives/03-features/03-01-SUMMARY.md
-@.planning/objectives/03-features/03-02-SUMMARY.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/objectives/03-features/03-01-SUMMARY.md
+@.aoforge/objectives/03-features/03-02-SUMMARY.md
 </context>
 
 <tasks>
@@ -492,7 +492,7 @@ Output: Working dashboard component.
 </success_criteria>
 
 <output>
-After completion, publish `.planning/objectives/03-features/03-03-SUMMARY.md` with `aof-tools summary post 03-03 --from <draft path>`
+After completion, publish `.aoforge/objectives/03-features/03-03-SUMMARY.md` with `aof-tools summary post 03-03 --from <draft path>`
 </output>
 ```
 

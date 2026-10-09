@@ -68,7 +68,7 @@ Present the removal summary:
 Removing Objective {target}: {Name}
 
 This will:
-- Delete: .planning/objectives/{target}-{slug}/
+- Delete: .aoforge/objectives/{target}-{slug}/
 - Renumber all subsequent objectives
 - Revise: ROADMAP.md, STATE.md
 ```
@@ -157,7 +157,7 @@ Both modes also return `dry_run`, `confirmed` and `mutated`. Check `mutated: tru
 Stage and commit the removal:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: remove objective {target} ({original-phase-name})" --files .planning/
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: remove objective {target} ({original-phase-name})" --files .aoforge/
 ```
 
 The commit message preserves the historical record of what was removed.
@@ -170,7 +170,7 @@ Present completion summary:
 Objective {target} ({original-name}) removed.
 
 Changes:
-- Deleted: .planning/objectives/{target}-{slug}/
+- Deleted: .aoforge/objectives/{target}-{slug}/
 - Renumbered: {N} directories and {M} files
 - Updated: ROADMAP.md, STATE.md
 - Committed: chore: remove objective {target} ({original-name})

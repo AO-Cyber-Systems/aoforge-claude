@@ -11,9 +11,9 @@ Mark a shipped version (v1.0, v1.1, v2.0) as complete. Records the historical MI
 
 1. templates/milestone.md
 2. templates/milestone-archive.md
-3. `.planning/ROADMAP.md`
-4. `.planning/REQUIREMENTS.md`
-5. `.planning/PROJECT.md`
+3. `.aoforge/ROADMAP.md`
+4. `.aoforge/REQUIREMENTS.md`
+5. `.aoforge/PROJECT.md`
 
 </required_reading>
 
@@ -21,8 +21,8 @@ Mark a shipped version (v1.0, v1.1, v2.0) as complete. Records the historical MI
 
 When a milestone completes:
 
-1. Extract full milestone details to `.planning/milestones/v[X.Y]-ROADMAP.md`
-2. Archive requirements to `.planning/milestones/v[X.Y]-REQUIREMENTS.md`
+1. Extract full milestone details to `.aoforge/milestones/v[X.Y]-ROADMAP.md`
+2. Archive requirements to `.aoforge/milestones/v[X.Y]-REQUIREMENTS.md`
    (local: `aof-tools milestone complete` builds both; store: each is published with `aof-tools doc put milestones/v[X.Y]-<KIND>.md`)
 3. Collapse ROADMAP.md — replace milestone details with one-line summary
 4. Delete REQUIREMENTS.md (fresh one for next milestone)
@@ -108,7 +108,7 @@ If "Proceed anyway": note incomplete requirements in MILESTONES.md under `### Kn
 <config-check>
 
 ```bash
-cat .planning/config.json 2>/dev/null
+cat .aoforge/config.json 2>/dev/null
 ```
 
 </config-check>
@@ -185,7 +185,7 @@ Extract one-liners from SUMMARY.md files using summary-extract:
 
 ```bash
 # For each objective in milestone, extract one-liner
-for summary in .planning/objectives/*-*/*-SUMMARY.md; do
+for summary in .aoforge/objectives/*-*/*-SUMMARY.md; do
   node ~/.claude/aoforge/bin/aof-tools.cjs summary-extract "$summary" --fields one_liner | jq -r '.one_liner'
 done
 ```
@@ -218,7 +218,7 @@ Full PROJECT.md evolution review at milestone completion.
 Read all objective summaries:
 
 ```bash
-cat .planning/objectives/*-*/*-SUMMARY.md
+cat .aoforge/objectives/*-*/*-SUMMARY.md
 ```
 
 **Full review checklist:**
@@ -390,7 +390,7 @@ Continue to reorganize_roadmap.
 
 <step name="reorganize_roadmap">
 
-Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`. **Store:** ROADMAP.md is a generated view — `gh pull --all` regroups it from the native milestones after archive_milestone; do not hand-edit it. **Local:** edit `.planning/ROADMAP.md` as today — group completed milestone objectives:
+Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`. **Store:** ROADMAP.md is a generated view — `gh pull --all` regroups it from the native milestones after archive_milestone; do not hand-edit it. **Local:** edit `.aoforge/ROADMAP.md` as today — group completed milestone objectives:
 
 ```markdown
 # Roadmap: [Project Name]
@@ -443,7 +443,7 @@ ARCHIVE=$(node ~/.claude/aoforge/bin/aof-tools.cjs milestone complete "v[X.Y]" -
 ```
 
 The CLI handles:
-- Creating `.planning/milestones/` directory
+- Creating `.aoforge/milestones/` directory
 - Archiving ROADMAP.md to `milestones/v[X.Y]-ROADMAP.md`
 - Archiving REQUIREMENTS.md to `milestones/v[X.Y]-REQUIREMENTS.md` with archive header
 - Moving audit file to milestones if it exists
@@ -452,7 +452,7 @@ The CLI handles:
 
 Extract from result: `version`, `date`, `objectives`, `plans`, `tasks`, `accomplishments`, `archived`.
 
-Verify: `✅ Milestone archived to .planning/milestones/`
+Verify: `✅ Milestone archived to .aoforge/milestones/`
 
 Then record the full entry drafted in create_milestone_entry; it replaces the CLI's base entry:
 
@@ -477,13 +477,13 @@ AskUserQuestion(header="Archive", question="Archive objective directories to mil
 
 If "Yes": move objective directories to the milestone archive:
 ```bash
-mkdir -p .planning/milestones/v[X.Y]-objectives
-# For each objective directory in .planning/objectives/:
-mv .planning/objectives/{objective-dir} .planning/milestones/v[X.Y]-objectives/
+mkdir -p .aoforge/milestones/v[X.Y]-objectives
+# For each objective directory in .aoforge/objectives/:
+mv .aoforge/objectives/{objective-dir} .aoforge/milestones/v[X.Y]-objectives/
 ```
-Verify: `✅ Objective directories archived to .planning/milestones/v[X.Y]-objectives/`
+Verify: `✅ Objective directories archived to .aoforge/milestones/v[X.Y]-objectives/`
 
-If "Skip": Objective directories remain in `.planning/objectives/` as raw execution history. Use `/aoforge:cleanup` later to archive retroactively.
+If "Skip": Objective directories remain in `.aoforge/objectives/` as raw execution history. Use `/aoforge:cleanup` later to archive retroactively.
 
 After archival, the AI still handles:
 - Reorganizing ROADMAP.md with milestone grouping (requires judgment)
@@ -521,8 +521,8 @@ After `milestone complete` has archived, reorganize ROADMAP.md with milestone gr
 **Then delete originals:**
 
 ```bash
-rm .planning/ROADMAP.md
-rm .planning/REQUIREMENTS.md
+rm .aoforge/ROADMAP.md
+rm .aoforge/REQUIREMENTS.md
 ```
 
 </step>
@@ -536,7 +536,7 @@ Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`. **Store:** STATE
 ```markdown
 ## Project Reference
 
-See: .planning/PROJECT.md (updated [today])
+See: .aoforge/PROJECT.md (updated [today])
 
 **Core value:** [Current core value from PROJECT.md]
 **Current focus:** [Next milestone or "Planning next milestone"]
@@ -633,10 +633,10 @@ git checkout main
 git merge --squash <branch>
 ```
 
-4. Only if `commit_docs` is false, strip `.planning/` from the staging area:
+4. Only if `commit_docs` is false, strip `.aoforge/` from the staging area:
 
 ```bash
-git reset HEAD .planning/
+git reset HEAD .aoforge/
 ```
 
 5. Commit it. A squash leaves no `MERGE_HEAD` (only `SQUASH_MSG`), so the gate cannot see a merge in
@@ -675,10 +675,10 @@ git checkout main
 git merge --no-ff --no-commit <branch>
 ```
 
-4. Only if `commit_docs` is false, strip `.planning/` from the staging area:
+4. Only if `commit_docs` is false, strip `.aoforge/` from the staging area:
 
 ```bash
-git reset HEAD .planning/
+git reset HEAD .aoforge/
 ```
 
 5. Complete the merge as its own call. No escape prefix is needed: the gate sees the stopped merge's
@@ -726,7 +726,7 @@ Key accomplishments:
 - [Item 2]
 - [Item 3]
 
-See .planning/MILESTONES.md for full details."
+See .aoforge/MILESTONES.md for full details."
 ```
 
 Confirm: "Tagged: v[X.Y]"
@@ -760,7 +760,7 @@ git push origin v[X.Y]
 Commit milestone completion.
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: complete v[X.Y] milestone" --files .planning/milestones/v[X.Y]-ROADMAP.md .planning/milestones/v[X.Y]-REQUIREMENTS.md .planning/milestones/v[X.Y]-MILESTONE-AUDIT.md .planning/MILESTONES.md .planning/PROJECT.md .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: complete v[X.Y] milestone" --files .aoforge/milestones/v[X.Y]-ROADMAP.md .aoforge/milestones/v[X.Y]-REQUIREMENTS.md .aoforge/milestones/v[X.Y]-MILESTONE-AUDIT.md .aoforge/MILESTONES.md .aoforge/PROJECT.md .aoforge/STATE.md
 ```
 ```
 
@@ -781,7 +781,7 @@ Archived:
 - milestones/v[X.Y]-ROADMAP.md
 - milestones/v[X.Y]-REQUIREMENTS.md
 
-Summary: .planning/MILESTONES.md
+Summary: .aoforge/MILESTONES.md
 Tag: v[X.Y]
 
 ---

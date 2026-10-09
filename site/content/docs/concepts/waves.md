@@ -114,7 +114,7 @@ saying "looks fine".
 ### The decision queue
 
 In autonomous mode, a `checkpoint:decision` is parked rather than guessed. A
-`DECISION-NNN.md` file lands in `.planning/decisions/pending/` and execution
+`DECISION-NNN.md` file lands in `.aoforge/decisions/pending/` and execution
 continues with other work.
 
 Resolve it when you get to it:

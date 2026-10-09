@@ -37,7 +37,7 @@ INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init objective-op "0")
 
 Check `roadmap_exists` from init JSON. If false:
 ```
-ERROR: No roadmap found (.planning/ROADMAP.md)
+ERROR: No roadmap found (.aoforge/ROADMAP.md)
 Run /aoforge:new-project to initialize.
 ```
 Exit.
@@ -54,7 +54,7 @@ The CLI handles:
 - Finding the highest existing integer objective number
 - Calculating next objective number (max + 1)
 - Generating slug from description
-- Creating the objective directory (`.planning/objectives/{NN}-{slug}/`)
+- Creating the objective directory (`.aoforge/objectives/{NN}-{slug}/`)
 - Inserting the objective entry into ROADMAP.md with Goal, Depends on, and Plans sections
 
 Extract from result: `objective_number`, `padded`, `name`, `slug`, `directory`.
@@ -67,7 +67,7 @@ Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`.
 
 **Local:** edit STATE.md as today to reflect the new objective:
 
-1. Read `.planning/STATE.md`
+1. Read `.aoforge/STATE.md`
 2. Under "## Accumulated Context" → "### Roadmap Evolution" add entry:
    ```
    - Objective {N} added: {description}
@@ -82,10 +82,10 @@ Present completion summary:
 ```
 Objective {N} added to current milestone:
 - Description: {description}
-- Directory: .planning/objectives/{phase-num}-{slug}/
+- Directory: .aoforge/objectives/{phase-num}-{slug}/
 - Status: Not planned yet
 
-Roadmap updated: .planning/ROADMAP.md
+Roadmap updated: .aoforge/ROADMAP.md
 
 ---
 

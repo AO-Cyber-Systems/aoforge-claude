@@ -45,7 +45,7 @@ function isCalibration(cal) {
 /**
  * Estimates each objective from its own calibration and judges EST-08 over the lot.
  *   base        the repository (the directory `estimate backtest` would run in); the project root is chosen as
- *               estimate-cli's runRoot does: the nearest directory above `base` holding `.planning`, else `base`
+ *               estimate-cli's runRoot does: the nearest directory above `base` holding a planning directory, else `base`
  *   old         { '59': <loaded calibration object>, ... } keyed by objective number
  *   objectives  the objectives to estimate (default: the keys of `old`); one without a calibration is excluded
  *   ratesFile   test seam: the model rates (default: the shipped file)

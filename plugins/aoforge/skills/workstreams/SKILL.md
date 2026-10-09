@@ -19,7 +19,7 @@ allowed-tools:
 
 <objective>
 Manage parallel feature development using git worktrees. Routes by first argument:
-- `setup` — Analyze deps, create worktrees, provision .planning/
+- `setup` — Analyze deps, create worktrees, provision .aoforge/
 - `status` — Check progress across all active workstreams
 - `merge` — Squash-merge completed workstreams, reconcile state
 - `run` — (stub; v1.2 obj 6 implementation) Run an active workstream end-to-end
@@ -36,9 +36,9 @@ Manage parallel feature development using git worktrees. Routes by first argumen
 <context>
 Subcommand: $ARGUMENTS
 
-@.planning/ROADMAP.md
-@.planning/STATE.md
-@.planning/config.json
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
+@.aoforge/config.json
 </context>
 
 <process>

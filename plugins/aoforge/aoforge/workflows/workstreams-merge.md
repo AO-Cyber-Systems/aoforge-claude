@@ -3,7 +3,7 @@ status: active
 ---
 <purpose>
 
-Merge completed workstream branches back to main, reconcile `.planning/` state, clean up worktrees, and prepare for the join objective.
+Merge completed workstream branches back to main, reconcile `.aoforge/` state, clean up worktrees, and prepare for the join objective.
 
 </purpose>
 
@@ -11,9 +11,9 @@ Merge completed workstream branches back to main, reconcile `.planning/` state, 
 
 **Read these files NOW:**
 
-1. `.planning/workstreams.json`
-2. `.planning/ROADMAP.md`
-3. `.planning/STATE.md`
+1. `.aoforge/workstreams.json`
+2. `.aoforge/ROADMAP.md`
+3. `.aoforge/STATE.md`
 
 </required_reading>
 
@@ -24,15 +24,15 @@ Merge completed workstream branches back to main, reconcile `.planning/` state, 
 Read workstreams.json and check each workstream's completion status:
 
 ```bash
-cat .planning/workstreams.json
+cat .aoforge/workstreams.json
 ```
 
 For each workstream, check its worktree's STATE.md and disk status:
 
 ```bash
 # For each workstream
-cat {worktree_path}/.planning/STATE.md 2>/dev/null
-ls {worktree_path}/.planning/objectives/XX-*/*-SUMMARY.md 2>/dev/null
+cat {worktree_path}/.aoforge/STATE.md 2>/dev/null
+ls {worktree_path}/.aoforge/objectives/XX-*/*-SUMMARY.md 2>/dev/null
 ```
 
 **If all workstreams complete:**
@@ -96,7 +96,7 @@ The `--squash` strategy creates a single clean commit per workstream on main.
    - If real conflicts: present diff to user for manual resolution
    - After resolution: `git add` resolved files
 
-   **`.planning/` files — auto-reconcile strategy:**
+   **`.aoforge/` files — auto-reconcile strategy:**
 
    | File | Strategy |
    |------|----------|
@@ -109,16 +109,16 @@ The `--squash` strategy creates a single clean commit per workstream on main.
    | `codebase/` | Take latest (or manual merge if both modified) |
    | `workstream-marker.json` | Delete from merge (main worktree doesn't need it) |
 
-   For `.planning/` conflicts, auto-resolve by taking the workstream's version for objective directories and discarding STATE.md/ROADMAP.md changes (they'll be regenerated):
+   For `.aoforge/` conflicts, auto-resolve by taking the workstream's version for objective directories and discarding STATE.md/ROADMAP.md changes (they'll be regenerated):
 
    ```bash
    # Accept workstream's objective directories (they're unique per workstream)
-   git checkout --theirs .planning/objectives/
+   git checkout --theirs .aoforge/objectives/
    # Discard STATE.md and ROADMAP.md changes (will regenerate)
-   git checkout --ours .planning/STATE.md .planning/ROADMAP.md 2>/dev/null
+   git checkout --ours .aoforge/STATE.md .aoforge/ROADMAP.md 2>/dev/null
    # Remove workstream-marker.json from merge
-   git rm .planning/workstream-marker.json 2>/dev/null
-   git add .planning/
+   git rm .aoforge/workstream-marker.json 2>/dev/null
+   git add .aoforge/
    ```
 
 4. **Commit the merge** as its own call, never chained after the merge or the conflict resolution in step 3.
@@ -139,7 +139,7 @@ Repeat for each workstream.
 
 <step name="reconcile_state">
 
-After all merges complete, reconcile `.planning/` state:
+After all merges complete, reconcile `.aoforge/` state:
 
 ```bash
 RECONCILE=$(node ~/.claude/aoforge/bin/aof-tools.cjs workstreams reconcile)
@@ -190,7 +190,7 @@ Check `commit_docs` from config.
 If commit_docs is true:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: merge workstreams, advance to Objective {N}" --files .planning/workstreams.json .planning/STATE.md .planning/ROADMAP.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: merge workstreams, advance to Objective {N}" --files .aoforge/workstreams.json .aoforge/STATE.md .aoforge/ROADMAP.md
 ```
 
 </step>
@@ -235,7 +235,7 @@ All workstream dependencies are satisfied. Ready to plan:
 
 ### Merge Conflict Resolution
 
-**.planning/ files — deterministic strategy:**
+**.aoforge/ files — deterministic strategy:**
 
 | File | Action | Rationale |
 |------|--------|-----------|
@@ -263,9 +263,9 @@ Git auto-merge handles most cases. For real conflicts:
 Merge is complete when:
 
 - [ ] All selected workstreams merged to main
-- [ ] Merge conflicts resolved (code: manual, .planning/: auto)
+- [ ] Merge conflicts resolved (code: manual, .aoforge/: auto)
 - [ ] Merge commits created per workstream
-- [ ] .planning/ state reconciled (ROADMAP, STATE regenerated)
+- [ ] .aoforge/ state reconciled (ROADMAP, STATE regenerated)
 - [ ] Worktrees removed and branches deleted
 - [ ] workstreams.json updated (active → completed)
 - [ ] User knows join objective and next steps

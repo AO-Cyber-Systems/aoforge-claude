@@ -143,7 +143,7 @@ If `files` field has entries, read and briefly summarize each.
 <step name="check_roadmap">
 Check for roadmap (can use init progress or directly check file existence):
 
-If `.planning/ROADMAP.md` exists:
+If `.aoforge/ROADMAP.md` exists:
 1. Check if todo's area matches an upcoming objective
 2. Check if todo's files overlap with an objective's scope
 3. Note any match for action options
@@ -199,7 +199,7 @@ With neither tool, complete it now, as before:
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs todo complete [filename]
 ```
-The verb moves the todo to `.planning/todos/completed/` and stamps `completed: <date>`; with `github.store` on it also
+The verb moves the todo to `.aoforge/todos/completed/` and stamps `completed: <date>`; with `github.store` on it also
 closes the todo issue. Never move todo files by hand. Then run the update_state step, run the git_commit step, present
 the problem/solution context, and begin work or ask how to proceed.
 
@@ -233,7 +233,7 @@ If the todo was completed, commit the move. The pending path records the removal
 planning paths are skipped and nothing else needs committing:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: start work on todo - [title]" --files .planning/todos/pending/[filename] .planning/todos/completed/[filename] .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: start work on todo - [title]" --files .aoforge/todos/pending/[filename] .aoforge/todos/completed/[filename] .aoforge/STATE.md
 ```
 
 Tool respects `commit_docs` config and gitignore automatically.

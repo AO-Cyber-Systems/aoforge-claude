@@ -4,7 +4,7 @@
 > This template defines the TRD.md output format that the agent produces.
 > TRD replaces JOB.md as the primary execution document. Old JOB.md files still work for backward compatibility.
 
-Template for `.planning/objectives/XX-name/{objective}-{trd}-TRD.md` - self-contained task documents optimized for parallel execution.
+Template for `.aoforge/objectives/XX-name/{objective}-{trd}-TRD.md` - self-contained task documents optimized for parallel execution.
 
 **Naming:** Use `{objective}-{trd}-TRD.md` format (e.g., `01-02-TRD.md` for Objective 1, TRD 2)
 
@@ -97,9 +97,9 @@ this TRD should follow for consistency]
 </codebase_examples>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 
 # Only reference prior SUMMARY refs if genuinely needed
 @src/relevant/source.ts
@@ -178,7 +178,7 @@ Before declaring TRD complete:
 After completion, publish `{objective}-{trd}-SUMMARY.md`: draft it from
 `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md`, then
 `node ~/.claude/aoforge/bin/aof-tools.cjs summary post {objective}-{trd} --from <draft>` (in local mode this lands on
-`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before)
+`.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before)
 </output>
 ```
 

@@ -31,7 +31,7 @@ Cost target: ~2k tokens (skill body + aof-tools output). For changes that exceed
 </execution_context>
 
 <context>
-@.planning/STATE.md
+@.aoforge/STATE.md
 $ARGUMENTS
 </context>
 

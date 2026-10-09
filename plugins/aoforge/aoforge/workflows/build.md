@@ -57,7 +57,7 @@ Make the objective directory, plan 1-3 TRDs inline from the description, execute
 
 **If `objective_found` is false but number given:**
 ```bash
-mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
+mkdir -p ".aoforge/objectives/${padded_objective}-${objective_slug}"
 ```
 
 **One-line estimate (skip in Quick Build mode):** once the objective number is known, run this as one plain command, with the number written out:

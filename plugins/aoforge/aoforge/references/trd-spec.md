@@ -64,9 +64,9 @@ src/
 </embedded_context>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
-@.planning/STATE.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
+@.aoforge/STATE.md
 
 # Only reference prior TRD SUMMARYs if genuinely needed
 @path/to/relevant/source.ts
@@ -109,7 +109,7 @@ src/
 </success_criteria>
 
 <output>
-After completion, create `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`
+After completion, create `.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md`
 </output>
 ```
 
@@ -157,7 +157,7 @@ Other values are warned and treated as absent. There is no TRD-level confidence 
 - `execute-objective.md`: computes the blocked set when parking a decision (TRDs with a matching `decision_gate` plus their transitive `depends_on` closure).
 - `aof-tools decision-queue computeBlockedSet`: recomputes the blocked set at resume time for `/aoforge:decide`.
 
-**Value format:** A `DECISION-NNN` id matching the filename in `.planning/decisions/pending/`.
+**Value format:** A `DECISION-NNN` id matching the filename in `.aoforge/decisions/pending/`.
 
 **Absent = independent.** A TRD without `decision_gate` is always eligible to execute (subject to normal `depends_on` ordering).
 

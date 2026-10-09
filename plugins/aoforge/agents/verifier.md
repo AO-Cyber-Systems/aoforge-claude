@@ -130,7 +130,7 @@ Set `is_re_verification = false`, proceed with Step 1.
 ls "$OBJECTIVE_DIR"/*-TRD.md "$OBJECTIVE_DIR"/*-JOB.md 2>/dev/null
 ls "$OBJECTIVE_DIR"/*-SUMMARY.md 2>/dev/null
 node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective "$OBJECTIVE_NUM"
-grep -E "^| $OBJECTIVE_NUM" .planning/REQUIREMENTS.md 2>/dev/null
+grep -E "^| $OBJECTIVE_NUM" .aoforge/REQUIREMENTS.md 2>/dev/null
 ```
 
 Extract objective goal from ROADMAP.md — this is the outcome to verify, not the tasks.
@@ -386,7 +386,7 @@ For each requirement ID from plans:
 **6c. Check for orphaned requirements:**
 
 ```bash
-grep -E "Objective $OBJECTIVE_NUM" .planning/REQUIREMENTS.md 2>/dev/null
+grep -E "Objective $OBJECTIVE_NUM" .aoforge/REQUIREMENTS.md 2>/dev/null
 ```
 
 If REQUIREMENTS.md maps additional IDs to this objective that don't appear in ANY job's `requirements` field, flag as **ORPHANED** — these requirements were expected but no plan claimed them. ORPHANED requirements MUST appear in the verification report.
@@ -469,7 +469,7 @@ Record a `| Gate | Command | Result |` table in VERIFICATION.md. If `stack` is u
 
 2. **Wait on network-idle + stable landmark, not fixed sleeps.** After `browser_navigate`, call `browser_wait_for` on a known landmark selector (e.g., `main`, `[role=main]`, a header text) before `browser_snapshot`. Snapshotting mid-hydration returns an empty or partial tree — this is the #1 cause of false "element not found" failures.
 
-3. **Seeded auth via `storageState.json` + verifier-mode fixtures.** If the app has auth, the project should provide `.planning/verification/storageState.json` (logged-in session) and a `VERIFIER_MODE=1` env flag that disables animations and uses deterministic fixtures. Load via Playwright's storage state at browser launch. If missing, flag `? UNCERTAIN` and add to human verification.
+3. **Seeded auth via `storageState.json` + verifier-mode fixtures.** If the app has auth, the project should provide `.aoforge/verification/storageState.json` (logged-in session) and a `VERIFIER_MODE=1` env flag that disables animations and uses deterministic fixtures. Load via Playwright's storage state at browser launch. If missing, flag `? UNCERTAIN` and add to human verification.
 
 **Protocol:**
 
@@ -479,7 +479,7 @@ Record a `| Gate | Command | Result |` table in VERIFICATION.md. If `stack` is u
    - `browser_wait_for(text="<landmark>")`
    - `browser_snapshot()` — parse accessibility tree
    - Click key interactive elements, re-snapshot, verify state change
-   - `browser_take_screenshot()` → save to `.planning/objectives/<obj>/evidence/`
+   - `browser_take_screenshot()` → save to `.aoforge/objectives/<obj>/evidence/`
 3. **On any failure**, capture both full-page screenshot AND the accessibility snapshot JSON as evidence. The next verifier pass needs this to reason about what actually rendered.
 4. `browser_close()`; `kill $DEV_PID` if started here.
 
@@ -511,7 +511,7 @@ xcrun simctl boot "iPhone 15" && xcrun simctl bootstatus "iPhone 15" -b
 
 **Protocol:**
 
-1. Flows live at `.planning/objectives/<obj>/verification/*.yaml`. If the agent that planned this objective did not author flows, derive one per truth from Step 3 now and write it.
+1. Flows live at `.aoforge/objectives/<obj>/verification/*.yaml`. If the agent that planned this objective did not author flows, derive one per truth from Step 3 now and write it.
 
    Minimal flow:
    ```yaml
@@ -527,13 +527,13 @@ xcrun simctl boot "iPhone 15" && xcrun simctl bootstatus "iPhone 15" -b
 2. Run flows via Maestro MCP (invoke `maestro mcp` server, or subprocess `maestro test`):
    ```bash
    REPO_ROOT=$(git rev-parse --show-toplevel)
-   ( cd "$PACKAGE_DIR" && maestro test "$REPO_ROOT"/.planning/objectives/"$OBJECTIVE_DIR"/verification/ \
-     --format junit --output "$REPO_ROOT"/.planning/objectives/"$OBJECTIVE_DIR"/evidence/maestro.xml )
+   ( cd "$PACKAGE_DIR" && maestro test "$REPO_ROOT"/.aoforge/objectives/"$OBJECTIVE_DIR"/verification/ \
+     --format junit --output "$REPO_ROOT"/.aoforge/objectives/"$OBJECTIVE_DIR"/evidence/maestro.xml )
    ```
 
 3. For state inspection between steps, call `maestro hierarchy` — returns JSON view tree (text, resource-id, bounds, clickable, children). Parse to verify expected elements present.
 
-4. Capture screenshots via `takeScreenshot` steps in the flow; they land in the Maestro output dir — move to `.planning/objectives/<obj>/evidence/`.
+4. Capture screenshots via `takeScreenshot` steps in the flow; they land in the Maestro output dir — move to `.aoforge/objectives/<obj>/evidence/`.
 
 5. Cleanup: `adb emu kill` or `xcrun simctl shutdown booted` if started here.
 
@@ -544,7 +544,7 @@ xcrun simctl boot "iPhone 15" && xcrun simctl bootstatus "iPhone 15" -b
 After running Maestro flows, cross-reference the on-disk `.maestro/*.yaml` files against TRD `must_haves.artifacts[*].tests.maestro` references:
 
 ```bash
-DECLARED=$(find .planning/objectives/$OBJECTIVE_DIR -name '*-TRD.md' -exec grep -h '^\s*maestro:' {} \; | sed -E 's/^\s*maestro:\s*//' | sort -u)
+DECLARED=$(find .aoforge/objectives/$OBJECTIVE_DIR -name '*-TRD.md' -exec grep -h '^\s*maestro:' {} \; | sed -E 's/^\s*maestro:\s*//' | sort -u)
 ACTUAL=$(find .maestro -name '*.yaml' 2>/dev/null | sort -u)
 
 ORPHANS=$(comm -23 <(echo "$ACTUAL") <(echo "$DECLARED"))
@@ -567,7 +567,7 @@ Regardless of backend, record the evidence in the report:
 ```yaml
 evidence:
   - type: screenshot | tree | log | junit
-    path: .planning/objectives/<obj>/evidence/<file>
+    path: .aoforge/objectives/<obj>/evidence/<file>
     truth: "which truth from Step 3 this supports"
 ```
 
@@ -611,7 +611,7 @@ Rollup shape: `{ verdict: 'pass'|'pass-with-reviews'|'fail', gate: 'binding'|'ad
 
 **Route per verdict (the load-bearing contract, `resolution: 'resolved'` only):**
 
-- Any state in `fails[]` (verdict `fail`) → append a `gaps:` entry: the defect type/severity + the screenshot evidence path under `.planning/objectives/<obj>/evidence/ui_eval/<state_id>.png`.
+- Any state in `fails[]` (verdict `fail`) → append a `gaps:` entry: the defect type/severity + the screenshot evidence path under `.aoforge/objectives/<obj>/evidence/ui_eval/<state_id>.png`.
 - `verdict: pass-with-reviews` OR any state in `reviews[]` → append `notes:` entries + a partial section; that surface STAYS on the Step 9 human-verification list.
 - Any state in `unjudged[]` (aodex#485 — nothing examined it, distinct from a genuine judge disagreement) → append a `notes:` entry naming it as never judged; that surface STAYS on the Step 9 human-verification list regardless of `gate` or the run's overall verdict.
 - Any state in `known_broken[]` (#72 — judged BROKEN, but only MEDIUM/LOW, so below the HIGH-only blocking bar and still `verdict: pass`) → append a `notes:` entry naming it with its `max_severity` and defects. It never fails the gate, but it is a known defect, not a clean pass: that surface STAYS on the Step 9 human-verification list.
@@ -632,7 +632,7 @@ After the Step 8c defect gate, run a lightweight ADVISORY design-critique pass o
 
 ```bash
 # Locate the objective's design-review manifest (same manifest the ui_eval gate uses):
-#   .planning/objectives/<obj>/evidence/ui_eval/manifest.json  OR  flutter/ui_eval/manifests/*.json
+#   .aoforge/objectives/<obj>/evidence/ui_eval/manifest.json  OR  flutter/ui_eval/manifests/*.json
 DESIGN_MANIFEST="<resolved manifest path>"
 
 # A credential is required for the live critique (ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN+ANTHROPIC_BASE_URL).
@@ -654,7 +654,7 @@ Rollup shape (when it runs): `{ advisory:true, total, counts:{high,medium,low}, 
 
 **Routing high-priority debt → candidate todos (reuse the existing todo mechanism):**
 
-Use the SAME capture verb as `/aoforge:todo add`. For each `high` (and optionally `medium`) debt item, draft the todo and hand it to `aof-tools todo add`. Local mode writes `.planning/todos/pending/<date>-<slug>.md` exactly as before; store mode also files it as a todo issue:
+Use the SAME capture verb as `/aoforge:todo add`. For each `high` (and optionally `medium`) debt item, draft the todo and hand it to `aof-tools todo add`. Local mode writes `.aoforge/todos/pending/<date>-<slug>.md` exactly as before; store mode also files it as a todo issue:
 
 ```bash
 slug=$(node ~/.claude/aoforge/bin/aof-tools.cjs generate-slug "design debt <state_id> <dimension>" --raw)
@@ -662,7 +662,7 @@ DRAFT=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning draft todos/pending/<d
 # Fill the printed draft path (Write tool) with area: ui, the debt anchor/observation/suggestion,
 # and a note that it is a candidate for a FUTURE UI-polish objective (NOT a blocker for THIS one).
 node ~/.claude/aoforge/bin/aof-tools.cjs todo add --from "$DRAFT" --stem <date>-<slug>
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: capture design-debt todo - <state_id> <dimension>" --files .planning/todos/pending/<date>-<slug>.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: capture design-debt todo - <state_id> <dimension>" --files .aoforge/todos/pending/<date>-<slug>.md
 ```
 
 Shell variables do not survive between Bash calls: note the path `planning draft` prints and pass it literally to `--from`. The commit records the file in local mode; in store mode `commit` skips the gitignored cache path.
@@ -760,7 +760,7 @@ gaps:
 
 ## Publish VERIFICATION
 
-The report is one draft for the whole run, published once with `aof-tools verification post`. Local mode writes `.planning/objectives/{objective_dir}/{phase_num}-VERIFICATION.md`, the same file as before; store mode also queues it as the sticky `aoforge:verification` comment on the objective issue. Never edit the `.planning/` file directly.
+The report is one draft for the whole run, published once with `aof-tools verification post`. Local mode writes `.aoforge/objectives/{objective_dir}/{phase_num}-VERIFICATION.md`, the same file as before; store mode also queues it as the sticky `aoforge:verification` comment on the objective issue. Never edit the `.aoforge/` file directly.
 
 **1. Open the draft** (seeded from the previous report when one exists):
 
@@ -875,7 +875,7 @@ Exit 0 means the report is written (store mode: also queued). A non-zero exit is
 Check the mode first: `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode` prints `local` or `store`.
 
 - **`store`** — skip this section. `verification post` already queued the sticky `aoforge:verification` comment, and the issue closes when the orchestrator runs `objective set-status <id> complete`.
-- **`local` with `.planning/config.json` `github.enabled: true`** (legacy sync) — post the verification result to the objective's GitHub issue:
+- **`local` with `.aoforge/config.json` `github.enabled: true`** (legacy sync) — post the verification result to the objective's GitHub issue:
 
 ```bash
 # For gaps_found: post the gaps section as a comment
@@ -903,7 +903,7 @@ Return with:
 
 **Status:** {passed | gaps_found | human_needed}
 **Score:** {N}/{M} must-haves verified
-**Report:** .planning/objectives/{objective_dir}/{phase_num}-VERIFICATION.md
+**Report:** .aoforge/objectives/{objective_dir}/{phase_num}-VERIFICATION.md
 
 {If gaps_found:} {N} gaps in VERIFICATION.md frontmatter (use `/aoforge:plan-objective --gaps` to close).
 {If human_needed:} {N} items need human testing; see VERIFICATION.md "Human Verification" section.

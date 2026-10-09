@@ -30,7 +30,7 @@ Extract from init JSON: `project_exists`, `roadmap_exists`, `state_exists`, `obj
 
 **File contents (from --include):** `state_content`, `roadmap_content`, `project_content`, `config_content`. These are null if files don't exist.
 
-If `project_exists` is false (no `.planning/` directory):
+If `project_exists` is false (no `.aoforge/` directory):
 
 ```
 No planning structure found.
@@ -96,7 +96,7 @@ Use this instead of manually reading/parsing ROADMAP.md.
 - Use objective-level `has_context` and `has_research` flags from analyze
 - Note `paused_at` if work was paused (from init context)
 - Count pending todos: use `init todos` or `list-todos`
-- Check for active debug sessions: `ls .planning/debug/*.md 2>/dev/null | grep -v resolved | wc -l`
+- Check for active debug sessions: `ls .aoforge/debug/*.md 2>/dev/null | grep -v resolved | wc -l`
   </step>
 
 <step name="report">
@@ -160,9 +160,9 @@ CONTEXT: [✓ if has_context | - if not]
 List files in the current objective directory:
 
 ```bash
-ls -1 .planning/objectives/[current-objective-dir]/*-TRD.md 2>/dev/null | wc -l
-ls -1 .planning/objectives/[current-objective-dir]/*-SUMMARY.md 2>/dev/null | wc -l
-ls -1 .planning/objectives/[current-objective-dir]/*-UAT.md 2>/dev/null | wc -l
+ls -1 .aoforge/objectives/[current-objective-dir]/*-TRD.md 2>/dev/null | wc -l
+ls -1 .aoforge/objectives/[current-objective-dir]/*-SUMMARY.md 2>/dev/null | wc -l
+ls -1 .aoforge/objectives/[current-objective-dir]/*-UAT.md 2>/dev/null | wc -l
 ```
 
 State: "This objective has {X} plans, {Y} summaries."
@@ -173,7 +173,7 @@ Check for UAT.md files with status "diagnosed" (has gaps needing fixes).
 
 ```bash
 # Check for diagnosed UAT with gaps
-grep -l "status: diagnosed" .planning/objectives/[current-objective-dir]/*-UAT.md 2>/dev/null
+grep -l "status: diagnosed" .aoforge/objectives/[current-objective-dir]/*-UAT.md 2>/dev/null
 ```
 
 Track:

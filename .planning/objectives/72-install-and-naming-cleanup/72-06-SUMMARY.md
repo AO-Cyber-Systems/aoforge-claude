@@ -8,4 +8,4 @@ trd: "06"
 ## Progress
 - [x] Task 1: Fixture builder: main checkout plus worktree in each layout — 6afc9662
 - [x] Task 2: Hooks resolve both layouts — e8ab54ec (RED), e5f40291 (GREEN)
-- [ ] Task 3: Prose pass and the guard's planning token — RED (this commit); next step: commit the codemod ignore-region implementation with the prose pass (`node scripts/aoforge-rename.cjs --rules planning --only ... --write`), add `.aoforge/` lines to .gitignore, fix the remaining guard findings (docs/built-in-*.md, five bin tests), run the repo gates and the full suite
+- [x] Task 3: Prose pass and the guard's planning token — 9c2e8d4e (RED), (this commit) (GREEN)

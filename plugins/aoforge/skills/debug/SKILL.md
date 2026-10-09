@@ -27,7 +27,7 @@ User's issue: $ARGUMENTS
 
 Check for active sessions:
 ```bash
-ls .planning/debug/*.md 2>/dev/null | grep -v resolved | head -5
+ls .aoforge/debug/*.md 2>/dev/null | grep -v resolved | head -5
 ```
 </context>
 
@@ -151,7 +151,7 @@ goal: find_and_fix
 </mode>
 
 <debug_file>
-Session: .planning/debug/{slug}.md. Start and save it only with `node ~/.claude/aoforge/bin/aof-tools.cjs debug put {slug} --from "$DRAFT"` (draft path from `planning draft debug/{slug}.md`); archive with `debug resolve {slug}`.
+Session: .aoforge/debug/{slug}.md. Start and save it only with `node ~/.claude/aoforge/bin/aof-tools.cjs debug put {slug} --from "$DRAFT"` (draft path from `planning draft debug/{slug}.md`); archive with `debug resolve {slug}`.
 </debug_file>
 ```
 
@@ -221,7 +221,7 @@ Continue debugging {slug}. Evidence is in the debug file.
 </objective>
 
 <prior_state>
-Debug file: @.planning/debug/{slug}.md
+Debug file: @.aoforge/debug/{slug}.md
 </prior_state>
 
 <checkpoint_response>

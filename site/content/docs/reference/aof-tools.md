@@ -74,7 +74,7 @@ aof-tools state-snapshot
 
 ```bash
 aof-tools commit "feat(api): add rate limiting" --files src/a.go src/b.go
-aof-tools commit "docs(12-03): complete TRD" --files .planning/STATE.md
+aof-tools commit "docs(12-03): complete TRD" --files .aoforge/STATE.md
 aof-tools commit "..." --amend
 ```
 
@@ -87,7 +87,7 @@ Two safety rules, both from [#87](https://github.com/AO-Cyber-Systems/aoforge-cl
   than an intended subject line.
 - **`--files` scopes the commit to those pathspecs**, so a parallel executor's
   staged work is never swept in. Omit it and the commit is scoped to
-  `.planning/` — the planning docs the command is named for — and still never
+  `.aoforge/` — the planning docs the command is named for — and still never
   the rest of the working tree. Pass `--files` anyway: it is the only form that
   says what you meant.
 

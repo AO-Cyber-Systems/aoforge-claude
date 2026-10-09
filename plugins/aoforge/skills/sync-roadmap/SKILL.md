@@ -10,7 +10,7 @@ allowed-tools:
 ---
 
 <objective>
-Reconcile `.planning/ROADMAP.md` against on-disk reality:
+Reconcile `.aoforge/ROADMAP.md` against on-disk reality:
 
 - TRD has `<id>-SUMMARY.md` on disk → mark `[x]`
 - TRD has `Self-Check: FAILED` in SUMMARY → mark `[ ]` and append `(failed)` annotation
@@ -26,7 +26,7 @@ Idempotent: running twice produces zero second-run changes.
 </objective>
 
 <execution_context>
-@.planning/ROADMAP.md
+@.aoforge/ROADMAP.md
 </execution_context>
 
 <process>

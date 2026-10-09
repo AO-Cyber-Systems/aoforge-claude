@@ -5,9 +5,9 @@ status: active
 
 **Read these files NOW:**
 
-1. `.planning/STATE.md`
-2. `.planning/PROJECT.md`
-3. `.planning/ROADMAP.md`
+1. `.aoforge/STATE.md`
+2. `.aoforge/PROJECT.md`
+3. `.aoforge/ROADMAP.md`
 4. Current objective's job files (`*-TRD.md`)
 5. Current objective's summary files (`*-SUMMARY.md`)
 
@@ -28,8 +28,8 @@ Mark current objective complete and advance to next. This is the natural point w
 Before transition, read project state:
 
 ```bash
-cat .planning/STATE.md 2>/dev/null
-cat .planning/PROJECT.md 2>/dev/null
+cat .aoforge/STATE.md 2>/dev/null
+cat .aoforge/PROJECT.md 2>/dev/null
 ```
 
 Parse current position to verify we're transitioning the right objective.
@@ -42,8 +42,8 @@ Note accumulated context that may need updating after transition.
 Check current objective has all plan summaries:
 
 ```bash
-ls .planning/objectives/XX-current/*-TRD.md 2>/dev/null | sort
-ls .planning/objectives/XX-current/*-SUMMARY.md 2>/dev/null | sort
+ls .aoforge/objectives/XX-current/*-TRD.md 2>/dev/null | sort
+ls .aoforge/objectives/XX-current/*-SUMMARY.md 2>/dev/null | sort
 ```
 
 **Verification logic:**
@@ -56,7 +56,7 @@ ls .planning/objectives/XX-current/*-SUMMARY.md 2>/dev/null | sort
 <config-check>
 
 ```bash
-cat .planning/config.json 2>/dev/null
+cat .aoforge/config.json 2>/dev/null
 ```
 
 </config-check>
@@ -141,7 +141,7 @@ AskUserQuestion([
 Check for lingering handoffs:
 
 ```bash
-ls .planning/objectives/XX-current/.continue-here*.md 2>/dev/null
+ls .aoforge/objectives/XX-current/.continue-here*.md 2>/dev/null
 ```
 
 If found, delete them — objective is complete, handoffs are stale.
@@ -181,7 +181,7 @@ Evolve PROJECT.md to reflect learnings from completed objective.
 **Read objective summaries:**
 
 ```bash
-cat .planning/objectives/XX-current/*-SUMMARY.md
+cat .aoforge/objectives/XX-current/*-SUMMARY.md
 ```
 
 **Assess requirement changes:**
@@ -206,7 +206,7 @@ cat .planning/objectives/XX-current/*-SUMMARY.md
    - If the product has meaningfully changed, update the description
    - Keep it current and accurate
 
-**Publish PROJECT.md through a draft.** Never edit it in place: in store mode `.planning/` is a read-only cache.
+**Publish PROJECT.md through a draft.** Never edit it in place: in store mode `.aoforge/` is a read-only cache.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs planning draft PROJECT.md
@@ -219,7 +219,7 @@ Make the edits in the printed draft path, including the "Last updated" footer:
 *Last updated: [date] after Objective [X]*
 ```
 
-Then publish it: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put PROJECT.md --from <draft path>`. Local mode puts the same `.planning/PROJECT.md` in place as before.
+Then publish it: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put PROJECT.md --from <draft path>`. Local mode puts the same `.aoforge/PROJECT.md` in place as before.
 
 **Example evolution:**
 
@@ -295,7 +295,7 @@ Refresh the Project Reference section in STATE.md one field at a time: `node ~/.
 ```markdown
 ## Project Reference
 
-See: .planning/PROJECT.md (updated [today])
+See: .aoforge/PROJECT.md (updated [today])
 
 **Core value:** [Current core value from PROJECT.md]
 **Current focus:** [Next objective name]
@@ -376,7 +376,7 @@ Resume file: None
 **Check for workstream context:**
 
 ```bash
-cat .planning/workstream-marker.json 2>/dev/null
+cat .aoforge/workstream-marker.json 2>/dev/null
 ```
 
 If the file exists, parse it. Check if the completing objective is the LAST objective in this workstream's `objectives` array. If so → **Route C: Workstream Complete**. Otherwise → normal routing below (advance within this workstream).
@@ -435,7 +435,7 @@ Read ROADMAP.md to get the next objective's name and goal.
 **Check if next objective has CONTEXT.md:**
 
 ```bash
-ls .planning/objectives/*[X+1]*/*-CONTEXT.md 2>/dev/null
+ls .aoforge/objectives/*[X+1]*/*-CONTEXT.md 2>/dev/null
 ```
 
 **If next objective exists:**

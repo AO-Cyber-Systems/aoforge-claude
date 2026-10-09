@@ -1,6 +1,6 @@
 # UAT Template
 
-Template for `.planning/objectives/XX-name/{phase_num}-UAT.md` — persistent UAT session tracking.
+Template for `.aoforge/objectives/XX-name/{phase_num}-UAT.md` — persistent UAT session tracking.
 
 ---
 
@@ -85,12 +85,12 @@ Invocation:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs generate uat <objective>
-# The generator fills .planning/objectives/<obj-dir>/<obj>-UAT.md; publish those bytes through the UAT verb
+# The generator fills .aoforge/objectives/<obj-dir>/<obj>-UAT.md; publish those bytes through the UAT verb
 # (local mode rewrites the same file; store mode also queues its wiki page):
-node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/<obj-dir>/<obj>-UAT.md --from .planning/objectives/<obj-dir>/<obj>-UAT.md
+node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/<obj-dir>/<obj>-UAT.md --from .aoforge/objectives/<obj-dir>/<obj>-UAT.md
 ```
 
-Every later edit to the UAT (walkthrough results, diagnosis) goes through a `planning draft` of that path and `doc put` — never a direct edit of the `.planning/` file.
+Every later edit to the UAT (walkthrough results, diagnosis) goes through a `planning draft` of that path and `doc put` — never a direct edit of the `.aoforge/` file.
 
 **Safety:** the generator REFUSES to overwrite an existing UAT.md with non-pending results (i.e., once you've started walkthrough, the auto-generator is locked out).
 
@@ -160,7 +160,7 @@ Every later edit to the UAT (walkthrough results, diagnosis) goes through a `pla
       issue: "useEffect missing dependency"
   missing:
     - "Add commentCount to useEffect dependency array"
-  debug_session: ".planning/debug/comment-not-refreshing.md"
+  debug_session: ".aoforge/debug/comment-not-refreshing.md"
 ```
 
 </diagnosis_lifecycle>
@@ -273,6 +273,6 @@ skipped: 0
       issue: "useEffect missing dependency"
   missing:
     - "Add commentCount to useEffect dependency array"
-  debug_session: ".planning/debug/comment-not-refreshing.md"
+  debug_session: ".aoforge/debug/comment-not-refreshing.md"
 ```
 </good_example>

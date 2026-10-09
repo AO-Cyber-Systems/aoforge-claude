@@ -1,6 +1,6 @@
 # OBJECTIVE.md Template
 
-Template for `.planning/objectives/XX-name/OBJECTIVE.md` — per-objective metadata that supplements the parent ROADMAP.md entry.
+Template for `.aoforge/objectives/XX-name/OBJECTIVE.md` — per-objective metadata that supplements the parent ROADMAP.md entry.
 
 This file is **optional**. When absent, the planner reads PROJECT.md `default_work` (or falls back to `work: feature`). When present, it overrides the project default for this objective.
 

@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Interactive configuration of AOForge workflow agents (research, job_check, verifier) and model profile selection via multi-question prompt. Updates .planning/config.json with user preferences. Optionally saves settings as global defaults (~/.aoforge/defaults.json) for future projects.
+Interactive configuration of AOForge workflow agents (research, job_check, verifier) and model profile selection via multi-question prompt. Updates .aoforge/config.json with user preferences. Optionally saves settings as global defaults (~/.aoforge/defaults.json) for future projects.
 </purpose>
 
 <required_reading>
@@ -19,12 +19,12 @@ node ~/.claude/aoforge/bin/aof-tools.cjs config-ensure-section
 INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs state load)
 ```
 
-Creates `.planning/config.json` with defaults if missing and loads current config values.
+Creates `.aoforge/config.json` with defaults if missing and loads current config values.
 </step>
 
 <step name="read_current">
 ```bash
-cat .planning/config.json
+cat .aoforge/config.json
 ```
 
 Parse current values (default to `true` if not present):
@@ -128,7 +128,7 @@ Merge new settings into existing config.json:
 }
 ```
 
-Write updated config to `.planning/config.json`.
+Write updated config to `.aoforge/config.json`.
 </step>
 
 <step name="save_as_defaults">

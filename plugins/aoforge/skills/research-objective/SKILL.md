@@ -59,7 +59,7 @@ OBJECTIVE_INFO=$(node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective 
 ## 2. Check Existing Research
 
 ```bash
-ls .planning/objectives/${OBJECTIVE}-*/RESEARCH.md 2>/dev/null
+ls .aoforge/objectives/${OBJECTIVE}-*/RESEARCH.md 2>/dev/null
 ```
 
 **If exists:** ask:
@@ -97,7 +97,7 @@ If CONSIDERATIONS is empty (aof-tools failed or scanners returned nothing), proc
 
 If CONSIDERATIONS is non-empty:
 
-The section is assembled in a draft and published with `doc put` — never edited in place under `.planning/` (in store
+The section is assembled in a draft and published with `doc put` — never edited in place under `.aoforge/` (in store
 mode the gate denies that; in local mode `doc put` lands on the same CONTEXT.md file as before):
 
 ```bash
@@ -165,9 +165,9 @@ Display: "Cross-Repo Considerations refreshed in ${CONTEXT_PATH}"
 ```bash
 # Objective section already loaded in OBJECTIVE_INFO
 echo "$OBJECTIVE_INFO" | jq -r '.section'
-cat .planning/REQUIREMENTS.md 2>/dev/null
-cat .planning/objectives/${OBJECTIVE}-*/*-CONTEXT.md 2>/dev/null
-grep -A30 "### Decisions Made" .planning/STATE.md 2>/dev/null
+cat .aoforge/REQUIREMENTS.md 2>/dev/null
+cat .aoforge/objectives/${OBJECTIVE}-*/*-CONTEXT.md 2>/dev/null
+grep -A30 "### Decisions Made" .aoforge/STATE.md 2>/dev/null
 ```
 
 Present summary with objective description, requirements, prior decisions.
@@ -227,7 +227,7 @@ Before declaring complete, verify:
 </quality_gate>
 
 <output>
-Publish `objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md` (relative to `.planning/`) as your Step 5 says:
+Publish `objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md` (relative to `.aoforge/`) as your Step 5 says:
 `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft <that path>`, Write the draft, then
 `node ~/.claude/aoforge/bin/aof-tools.cjs doc put <that path> --from <draft>`.
 </output>
@@ -300,7 +300,7 @@ Continue research for Objective {objective_number}: {objective_name}
 </objective>
 
 <prior_state>
-Research file: @.planning/objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md
+Research file: @.aoforge/objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md
 </prior_state>
 
 <checkpoint_response>

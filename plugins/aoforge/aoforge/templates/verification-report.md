@@ -1,6 +1,6 @@
 # Verification Report Template
 
-Template for `.planning/objectives/XX-name/{phase_num}-VERIFICATION.md` — objective goal verification results.
+Template for `.aoforge/objectives/XX-name/{phase_num}-VERIFICATION.md` — objective goal verification results.
 
 Fill this template in a draft (`node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{phase_num}-VERIFICATION.md` prints its path), then publish it once with `node ~/.claude/aoforge/bin/aof-tools.cjs verification post <objective> --from <draft>`. Local mode produces the same file as before; store mode also posts the sticky `aoforge:verification` comment on the objective issue.
 

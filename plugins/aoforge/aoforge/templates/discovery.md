@@ -1,6 +1,6 @@
 # Discovery Template
 
-Template for `.planning/objectives/XX-name/DISCOVERY.md` - shallow research for library/option decisions.
+Template for `.aoforge/objectives/XX-name/DISCOVERY.md` - shallow research for library/option decisions.
 
 **Purpose:** Answer "which library/option should we use" questions during mandatory discovery in plan-objective.
 
@@ -71,7 +71,7 @@ Before completing discovery, verify:
 
 
 <output_structure>
-Publish `objectives/XX-name/DISCOVERY.md` (relative to `.planning/`): fill a draft from
+Publish `objectives/XX-name/DISCOVERY.md` (relative to `.aoforge/`): fill a draft from
 `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/DISCOVERY.md`, then
 `node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/DISCOVERY.md --from <draft>`. Structure:
 

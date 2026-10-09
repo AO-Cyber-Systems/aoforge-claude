@@ -37,8 +37,8 @@ Escape with `AOFORGE_SKIP_CHANGELOG_GATE=1` or
 
 ## "Project already initialized"
 
-`/aoforge:new-project` found an existing `.planning/PROJECT.md`. That is a safety
-check. To genuinely start over, delete `.planning/` first. To add a new phase of
+`/aoforge:new-project` found an existing `.aoforge/PROJECT.md`. That is a safety
+check. To genuinely start over, delete `.aoforge/` first. To add a new phase of
 work to an existing project, use `/aoforge:milestone new` instead.
 
 ## Quality is dropping in a long session
@@ -134,7 +134,7 @@ In order of impact:
 { "planning": { "commit_docs": false } }
 ```
 
-Then add `.planning/` to `.gitignore`. Planning artifacts stay local and never
+Then add `.aoforge/` to `.gitignore`. Planning artifacts stay local and never
 reach git.
 
 ## An update overwrote my local changes
@@ -146,7 +146,7 @@ own files do not survive — that is what the development install is for:
 /plugin marketplace add /absolute/path/to/your/clone
 ```
 
-Your project's `.planning/` is never touched by an update.
+Your project's `.aoforge/` is never touched by an update.
 
 ## Skills reference a file I cannot find
 

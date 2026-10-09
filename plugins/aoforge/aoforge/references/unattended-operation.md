@@ -104,7 +104,7 @@ mode, AOForge parks the decision and continues independent TRDs.
 **Where decisions surface:**
 
 ```
-.planning/decisions/pending/DECISION-NNN.md
+.aoforge/decisions/pending/DECISION-NNN.md
 ```
 
 Each file carries full context, named options with pros/cons, a recommendation, and
@@ -129,7 +129,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs decision-queue resolve DECISION-001 opt
 # → suggest: /aoforge:execute-objective N
 ```
 
-Resolved decisions move to `.planning/decisions/resolved/DECISION-NNN.md`.
+Resolved decisions move to `.aoforge/decisions/resolved/DECISION-NNN.md`.
 
 For full checkpoint semantics in autonomous mode see
 `@~/.claude/aoforge/references/checkpoints.md` — the `autonomous` section documents
@@ -143,8 +143,8 @@ The following limits prevent a runaway session from consuming unbounded resource
 
 | Bound | Value | Mechanism |
 |-------|-------|-----------|
-| Stop-hook resume cap | 3 attempts per objective | Counter file `.planning/.autonomous-resume-{objectiveKey}`; cleared on completion or cap |
-| Executor retry (subagent) | 1 retry per agent | Marker file `.planning/.autonomous-retry-{sanitized-agent-id}`; stale markers swept after 1 hour |
+| Stop-hook resume cap | 3 attempts per objective | Counter file `.aoforge/.autonomous-resume-{objectiveKey}`; cleared on completion or cap |
+| Executor retry (subagent) | 1 retry per agent | Marker file `.aoforge/.autonomous-retry-{sanitized-agent-id}`; stale markers swept after 1 hour |
 | Wave failure | Retry once, then skip dependents | Fresh executor spawn with `<failure_feedback>` block; only transitive dependents skipped |
 | maxTurns — executor/verifier | none | Removed in objective 44; guard-no-progress.js (repeat-call detection) is the runaway guard |
 | Truncated executor (INCOMPLETE) | Up to 3 SendMessage resumes, then the wave-failure path | `execute-objective` classifies a turn-limit / partial-result return as INCOMPLETE, not failed; dependents wait, never skipped |
@@ -203,7 +203,7 @@ curl http://localhost:8091/healthz
 
 | Symptom | Check |
 |---------|-------|
-| Session exits immediately on stop | `cat .planning/.autonomous-resume-*` — if ≥ 3, cap reached; re-enable manually after confirming STATE.md |
+| Session exits immediately on stop | `cat .aoforge/.autonomous-resume-*` — if ≥ 3, cap reached; re-enable manually after confirming STATE.md |
 | Verifier never returns `status: passed` | Start server on port 8091 before the checkpoint task; confirm `curl http://localhost:8091` responds |
 | Decision queue empty but TRDs are stalled | Run `decision-queue list` — may have `status: resolved` already; run `/aoforge:decide` to unblock |
 | OS notification not firing | macOS: `osascript` available by default. Linux: install `libnotify` (`sudo apt install libnotify-bin`) |

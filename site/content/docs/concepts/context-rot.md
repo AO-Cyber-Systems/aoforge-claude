@@ -41,7 +41,7 @@ every unit of work a fresh one.
 
 ### 1. State lives on disk
 
-`.planning/` holds the project's memory: what you're building, the roadmap, the
+`.aoforge/` holds the project's memory: what you're building, the roadmap, the
 decisions and their rationale, open blockers, and the position in the plan. None
 of it is in the conversation, so losing the conversation costs nothing.
 

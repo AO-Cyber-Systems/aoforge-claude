@@ -1,6 +1,6 @@
 <planning_config>
 
-Configuration options for `.planning/` directory behavior.
+Configuration options for `.aoforge/` directory behavior.
 
 <config_schema>
 ```json
@@ -32,15 +32,15 @@ Configuration options for `.planning/` directory behavior.
 - Full history of planning decisions preserved
 
 **When `commit_docs: false`:**
-- Skip all `git add`/`git commit` for `.planning/` files
-- User must add `.planning/` to `.gitignore`
+- Skip all `git add`/`git commit` for `.aoforge/` files
+- User must add `.aoforge/` to `.gitignore`
 - Useful for: OSS contributions, client projects, keeping planning private
 
 **Using aof-tools.cjs (preferred):**
 
 ```bash
 # Commit with automatic commit_docs + gitignore checks:
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: update state" --files .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: update state" --files .aoforge/STATE.md
 
 # Load config via state load (returns JSON):
 INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs state load)
@@ -51,12 +51,12 @@ INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init execute-objective "1")
 # commit_docs is included in all init command outputs
 ```
 
-**Auto-detection:** If `.planning/` is gitignored, `commit_docs` is automatically `false` regardless of config.json. This prevents git errors when users have `.planning/` in `.gitignore`.
+**Auto-detection:** If `.aoforge/` is gitignored, `commit_docs` is automatically `false` regardless of config.json. This prevents git errors when users have `.aoforge/` in `.gitignore`.
 
 **Commit via CLI (handles checks automatically):**
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: update state" --files .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: update state" --files .aoforge/STATE.md
 ```
 
 The CLI checks `commit_docs` config and gitignore status internally — no manual conditionals needed.
@@ -67,12 +67,12 @@ The CLI checks `commit_docs` config and gitignore status internally — no manua
 
 **When `search_gitignored: false` (default):**
 - Standard rg behavior (respects .gitignore)
-- Direct path searches work: `rg "pattern" .planning/` finds files
-- Broad searches skip gitignored: `rg "pattern"` skips `.planning/`
+- Direct path searches work: `rg "pattern" .aoforge/` finds files
+- Broad searches skip gitignored: `rg "pattern"` skips `.aoforge/`
 
 **When `search_gitignored: true`:**
-- Add `--no-ignore` to broad rg searches that should include `.planning/`
-- Only needed when searching entire repo and expecting `.planning/` matches
+- Add `--no-ignore` to broad rg searches that should include `.aoforge/`
+- Only needed when searching entire repo and expecting `.aoforge/` matches
 
 **Note:** Most AOForge operations use direct file reads or explicit paths, which work regardless of gitignore status.
 
@@ -92,16 +92,16 @@ To use uncommitted mode:
 
 2. **Add to .gitignore:**
    ```
-   .planning/
+   .aoforge/
    ```
 
-3. **Existing tracked files:** If `.planning/` was previously tracked:
+3. **Existing tracked files:** If `.aoforge/` was previously tracked:
    ```bash
-   git rm -r --cached .planning/
+   git rm -r --cached .aoforge/
    git commit -m "chore: stop tracking planning docs"
    ```
 
-4. **Branch merges:** When using `branching_strategy: objective` or `milestone`, the `complete-milestone` workflow automatically strips `.planning/` files from staging before merge commits when `commit_docs: false`.
+4. **Branch merges:** When using `branching_strategy: objective` or `milestone`, the `complete-milestone` workflow automatically strips `.aoforge/` files from staging before merge commits when `commit_docs: false`.
 
 </setup_uncommitted_mode>
 
@@ -229,8 +229,8 @@ Parallel feature development using git worktrees. Independent objectives execute
 4. `/aoforge:workstreams merge` — Squash-merge branches, reconcile state
 
 **Key files:**
-- `.planning/workstreams.json` — Active workstream tracking (main worktree)
-- `.planning/workstream-marker.json` — Worktree identity marker (per worktree)
+- `.aoforge/workstreams.json` — Active workstream tracking (main worktree)
+- `.aoforge/workstream-marker.json` — Worktree identity marker (per worktree)
 
 **Merge strategies:**
 

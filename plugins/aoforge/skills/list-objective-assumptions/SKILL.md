@@ -28,10 +28,10 @@ Output: Conversational output only (no file creation) - ends with "What do you t
 Objective number: $ARGUMENTS (required)
 
 **Load project state first:**
-@.planning/STATE.md
+@.aoforge/STATE.md
 
 **Load roadmap:**
-@.planning/ROADMAP.md
+@.aoforge/ROADMAP.md
 </context>
 
 <process>

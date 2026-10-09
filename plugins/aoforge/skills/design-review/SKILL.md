@@ -47,8 +47,8 @@ prioritized design-debt list, and writes the report next to the manifest. It emi
 ALWAYS and never sets a pass/fail gate. This skill consumes that engine; it does not re-implement the
 critique and does not pick a vision model id.
 
-@.planning/STATE.md
-@.planning/ROADMAP.md
+@.aoforge/STATE.md
+@.aoforge/ROADMAP.md
 </context>
 
 <process>

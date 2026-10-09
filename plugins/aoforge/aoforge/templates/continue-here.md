@@ -1,6 +1,6 @@
 # Continue-Here Template
 
-Copy and fill this structure for `.planning/objectives/XX-name/.continue-here.md`:
+Copy and fill this structure for `.aoforge/objectives/XX-name/.continue-here.md`:
 
 ```yaml
 ---

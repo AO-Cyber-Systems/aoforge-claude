@@ -24,7 +24,7 @@ const ra = require('./requirements-agreement.cjs');
 const { planningRoot } = require('./compat.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
-// this repository's planning tree, wherever it is (`.planning/` until 72-21 moves it, `.aoforge/` after)
+// this repository's planning tree, wherever it is (the legacy name until 72-21 moves it, `.aoforge/` after)
 const PLANNING_DIR = planningRoot(REPO_ROOT);
 const OBJECTIVES_DIR = path.join(PLANNING_DIR, 'objectives');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md')) && fs.existsSync(OBJECTIVES_DIR);

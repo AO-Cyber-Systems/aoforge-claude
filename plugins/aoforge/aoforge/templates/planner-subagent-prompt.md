@@ -13,23 +13,23 @@ Template for spawning planner agent. The agent contains all planning expertise -
 **Mode:** {standard | gap_closure}
 
 **Project State:**
-@.planning/STATE.md
+@.aoforge/STATE.md
 
 **Roadmap:**
-@.planning/ROADMAP.md
+@.aoforge/ROADMAP.md
 
 **Requirements (if exists):**
-@.planning/REQUIREMENTS.md
+@.aoforge/REQUIREMENTS.md
 
 **Objective Context (if exists):**
-@.planning/objectives/{objective_dir}/{phase_num}-CONTEXT.md
+@.aoforge/objectives/{objective_dir}/{phase_num}-CONTEXT.md
 
 **Research (if exists):**
-@.planning/objectives/{objective_dir}/{phase_num}-RESEARCH.md
+@.aoforge/objectives/{objective_dir}/{phase_num}-RESEARCH.md
 
 **Gap Closure (if --gaps mode):**
-@.planning/objectives/{objective_dir}/{phase_num}-VERIFICATION.md
-@.planning/objectives/{objective_dir}/{phase_num}-UAT.md
+@.aoforge/objectives/{objective_dir}/{phase_num}-VERIFICATION.md
+@.aoforge/objectives/{objective_dir}/{phase_num}-UAT.md
 
 </planning_context>
 
@@ -98,8 +98,8 @@ Continue planning for Objective {objective_number}: {objective_name}
 </objective>
 
 <prior_state>
-Objective directory: @.planning/objectives/{objective_dir}/
-Existing jobs: @.planning/objectives/{objective_dir}/*-JOB.md
+Objective directory: @.aoforge/objectives/{objective_dir}/
+Existing jobs: @.aoforge/objectives/{objective_dir}/*-JOB.md
 </prior_state>
 
 <checkpoint_response>

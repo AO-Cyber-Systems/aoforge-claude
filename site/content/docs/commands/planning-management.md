@@ -53,7 +53,7 @@ satisfy are actually met. It reports gaps.
 **`gaps`** turns audit findings into gap-closure objectives you can plan and build.
 
 **`complete`** archives the milestone to `MILESTONES.md` and
-`.planning/milestones/`, then opens the next.
+`.aoforge/milestones/`, then opens the next.
 
 ## /aoforge:list-objective-assumptions
 

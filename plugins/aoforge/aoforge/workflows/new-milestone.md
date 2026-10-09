@@ -76,7 +76,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs doc put PROJECT.md --from "$DRAFT"
 
 ## 5. Move STATE.md to the new milestone
 
-Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`. **Store:** STATE.md is generated — `gh pull --all` refreshes it once the roadmapper has created this milestone's objectives; no hand edit here. **Local:** edit `.planning/STATE.md` as today:
+Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`. **Store:** STATE.md is generated — `gh pull --all` refreshes it once the roadmapper has created this milestone's objectives; no hand edit here. **Local:** edit `.aoforge/STATE.md` as today:
 
 ```markdown
 ## Current Position
@@ -94,7 +94,7 @@ Keep Accumulated Context section from previous milestone.
 Delete MILESTONE-CONTEXT.md if exists (consumed).
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: start milestone v[X.Y] [Name]" --files .planning/PROJECT.md .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: start milestone v[X.Y] [Name]" --files .aoforge/PROJECT.md .aoforge/STATE.md
 ```
 
 ## 7. Load Context and Resolve Models
@@ -143,7 +143,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs config-set workflow.research false
 ```
 
 ```bash
-mkdir -p .planning/research
+mkdir -p .aoforge/research
 ```
 
 Spawn 4 parallel project-researcher agents. Each uses this template with dimension-specific fields:
@@ -192,7 +192,7 @@ blocks subagent report files, so the orchestrator (you) writes and commits it:
 Task(prompt="
 Synthesize research outputs into SUMMARY.md.
 
-Read: .planning/research/STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md
+Read: .aoforge/research/STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md
 
 Use template: ~/.claude/aoforge/templates/research-project/SUMMARY.md
 Return the SUMMARY.md content between the BEGIN/END markers. Do not write files.
@@ -211,11 +211,11 @@ b. **Publish** it verbatim. Run `node ~/.claude/aoforge/bin/aof-tools.cjs planni
    put the extracted text at the printed path with the Write tool, then run
    `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/SUMMARY.md --from "$DRAFT"`.
    Do not summarise, reword or reformat it: local mode stores exactly those bytes in
-   `.planning/research/SUMMARY.md`; store mode publishes the research wiki page.
+   `.aoforge/research/SUMMARY.md`; store mode publishes the research wiki page.
 c. **Commit** all research in one commit. The researchers published their four files without
    committing, so this single commit covers all 5 files:
    ```bash
-   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: complete project research" --files .planning/research/
+   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: complete project research" --files .aoforge/research/
    ```
 
 Display key findings from SUMMARY.md:
@@ -325,7 +325,7 @@ If "Adjust": Return to scoping.
 
 **Commit requirements:**
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: define milestone v[X.Y] requirements" --files .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: define milestone v[X.Y] requirements" --files .aoforge/REQUIREMENTS.md
 ```
 
 ## 10. Create Roadmap
@@ -343,11 +343,11 @@ node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: define milestone v[X.Y] r
 ```
 Task(prompt="
 <planning_context>
-@.planning/PROJECT.md
-@.planning/REQUIREMENTS.md
-@.planning/research/SUMMARY.md (if exists)
-@.planning/config.json
-@.planning/MILESTONES.md
+@.aoforge/PROJECT.md
+@.aoforge/REQUIREMENTS.md
+@.aoforge/research/SUMMARY.md (if exists)
+@.aoforge/config.json
+@.aoforge/MILESTONES.md
 </planning_context>
 
 <instructions>
@@ -412,7 +412,7 @@ AskUserQuestion([
 
 **Commit roadmap** (after approval):
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create milestone v[X.Y] roadmap ([N] objectives)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create milestone v[X.Y] roadmap ([N] objectives)" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/REQUIREMENTS.md
 ```
 
 ## 11. Done
@@ -426,10 +426,10 @@ node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: create milestone v[X.Y] r
 
 | Artifact       | Location                    |
 |----------------|-----------------------------|
-| Project        | `.planning/PROJECT.md`      |
-| Research       | `.planning/research/`       |
-| Requirements   | `.planning/REQUIREMENTS.md` |
-| Roadmap        | `.planning/ROADMAP.md`      |
+| Project        | `.aoforge/PROJECT.md`      |
+| Research       | `.aoforge/research/`       |
+| Requirements   | `.aoforge/REQUIREMENTS.md` |
+| Roadmap        | `.aoforge/ROADMAP.md`      |
 
 **[N] objectives** | **[X] requirements** | Ready to build ✓
 

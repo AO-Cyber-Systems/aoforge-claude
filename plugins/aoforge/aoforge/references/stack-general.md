@@ -33,7 +33,7 @@ provenance:
 
 # Stack Profile: general
 
-The default profile. AOForge uses it when a project has no `.planning/STACK.md`, and every other
+The default profile. AOForge uses it when a project has no `.aoforge/STACK.md`, and every other
 profile inherits its **Principles** section. The Principles can be extended but not removed.
 It names no language, framework, package manager or tool. It tells an agent how to *find* those
 things in the repo in front of it, and what good engineering looks like anywhere.
@@ -41,7 +41,7 @@ things in the repo in front of it, and what good engineering looks like anywhere
 ## Principles
 
 1. **Discover, don't assume.** Take commands and toolchain from the repo, in this order:
-   `.planning/STACK.md` → CI config (`.github/workflows/`, `.gitlab-ci.yml`, …) → task runner
+   `.aoforge/STACK.md` → CI config (`.github/workflows/`, `.gitlab-ci.yml`, …) → task runner
    (`Makefile`, `justfile`, `Taskfile.yml`, manifest scripts) → the package manifest itself →
    `README` / `CONTRIBUTING`. CI is the best evidence, because it is what the project actually
    enforces. Record what you found in the SUMMARY. If STACK.md exists and is wrong, propose the

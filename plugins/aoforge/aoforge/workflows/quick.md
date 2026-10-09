@@ -6,7 +6,7 @@ Execute small features with AOForge guarantees (atomic commits, STATE.md trackin
 
 **Cutoff (advisory):** <5 files, <200 LOC, no new abstractions. For sub-30-LOC single-file changes, prefer `/aoforge:micro` (~2k token floor). For multi-subsystem features, use `/aoforge:build`.
 
-Quick mode spawns planner (quick mode) + executor(s). Each task's JOB and SUMMARY go through `aof-tools quick put` / `quick summary` (local mode: `.planning/quick/<N>-<slug>/`; with `github.store` on: a Quick issue). In local mode the task also gets a row in STATE.md's "Quick Tasks Completed" table.
+Quick mode spawns planner (quick mode) + executor(s). Each task's JOB and SUMMARY go through `aof-tools quick put` / `quick summary` (local mode: `.aoforge/quick/<N>-<slug>/`; with `github.store` on: a Quick issue). In local mode the task also gets a row in STATE.md's "Quick Tasks Completed" table.
 
 With `--full` flag: enables job-checking (max 2 iterations) and post-execution verification for quality guarantees without full milestone ceremony.
 </purpose>
@@ -62,10 +62,10 @@ mkdir -p "${task_dir}"
 **Step 4: Name the quick task and get its drafts**
 
 ```bash
-QUICK_DIR=".planning/quick/${next_num}-${slug}"
+QUICK_DIR=".aoforge/quick/${next_num}-${slug}"
 ```
 
-The JOB and SUMMARY are never written under `.planning/` directly: agents write drafts, and `aof-tools quick put` /
+The JOB and SUMMARY are never written under `.aoforge/` directly: agents write drafts, and `aof-tools quick put` /
 `quick summary` save them. Get both draft paths now (each command prints one path; note them as literals `JOB_DRAFT` and
 `SUMMARY_DRAFT`, since shell variables do not survive between Bash calls):
 
@@ -112,7 +112,7 @@ Task(
 **Description:** ${DESCRIPTION}
 
 **Project State:**
-@.planning/STATE.md
+@.aoforge/STATE.md
 
 </planning_context>
 
@@ -126,7 +126,7 @@ ${FULL_MODE ? '- Each task MUST have `files`, `action`, `verify`, `done` fields'
 </constraints>
 
 <output>
-Put the plan in this draft file (outside .planning/; the orchestrator saves it): ${JOB_DRAFT}
+Put the plan in this draft file (outside .aoforge/; the orchestrator saves it): ${JOB_DRAFT}
 Return: ## PLANNING COMPLETE with the draft path
 </output>
 ",
@@ -234,7 +234,7 @@ Revision prompt:
 </revision_context>
 
 <instructions>
-Make targeted changes to the draft at ${JOB_DRAFT} to address checker issues (outside .planning/; the orchestrator saves it).
+Make targeted changes to the draft at ${JOB_DRAFT} to address checker issues (outside .aoforge/; the orchestrator saves it).
 Do NOT replan from scratch unless issues are fundamental.
 Return what changed.
 </instructions>
@@ -303,7 +303,7 @@ Task(
 Execute quick task ${next_num}.
 
 Job: @${QUICK_DIR}/${next_num}-JOB.md
-Project state: @.planning/STATE.md
+Project state: @.aoforge/STATE.md
 
 <repo_and_base>
 Before anything else, prove you are in the right repository on the right base:
@@ -317,7 +317,7 @@ output, and end your turn without writing anything.
 <constraints>
 - Execute all tasks in the job
 - Commit each task atomically
-- Put the summary in this draft file (outside .planning/; the orchestrator saves it with `quick summary`): ${SUMMARY_DRAFT}
+- Put the summary in this draft file (outside .aoforge/; the orchestrator saves it with `quick summary`): ${SUMMARY_DRAFT}
 - Do NOT touch ROADMAP.md (quick tasks are separate from planned objectives)
 </constraints>
 ",
@@ -475,7 +475,7 @@ Stage and commit quick task artifacts:
 Build file list:
 - `${QUICK_DIR}/${next_num}-JOB.md`
 - `${QUICK_DIR}/${next_num}-SUMMARY.md`
-- `.planning/STATE.md`
+- `.aoforge/STATE.md`
 - If `$FULL_MODE` and verification file exists: `${QUICK_DIR}/${next_num}-VERIFICATION.md`
 
 ```bash
@@ -531,7 +531,7 @@ Ready for next task: /aoforge:quick
 - [ ] (task tools available) Plan and Execute tasks, plus Check plan and Verify under --full, each go in_progress as their step starts and completed as it ends
 - [ ] Slug generated (lowercase, hyphens, max 40 chars)
 - [ ] Next number calculated (001, 002, 003...)
-- [ ] `${next_num}-JOB.md` saved with `quick put` from the planner's draft (it makes `.planning/quick/NNN-slug/`)
+- [ ] `${next_num}-JOB.md` saved with `quick put` from the planner's draft (it makes `.aoforge/quick/NNN-slug/`)
 - [ ] (--full) Job checker validates plan, revision loop capped at 2
 - [ ] `${next_num}-SUMMARY.md` saved with `quick summary` from the executor's draft
 - [ ] (--full) `${next_num}-VERIFICATION.md` produced by verifier

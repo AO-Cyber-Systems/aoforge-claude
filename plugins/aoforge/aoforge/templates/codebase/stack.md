@@ -1,6 +1,6 @@
 # Technology Stack Template
 
-Template for `.planning/codebase/STACK.md` - captures the technology foundation.
+Template for `.aoforge/codebase/STACK.md` - captures the technology foundation.
 
 **Purpose:** Document what technologies run this codebase. Focused on "what executes when you run the code."
 
@@ -84,7 +84,7 @@ Canonical commands this codebase actually runs, with the evidence. `aof-tools st
 | test | `[command]` | [.github/workflows/ci.yml / Makefile target / manifest script] |
 
 Keys are `build test lint format fix typecheck audit codegen deps` (or a project-specific key).
-This file is descriptive — what the codebase already does — while `.planning/STACK.md` is
+This file is descriptive — what the codebase already does — while `.aoforge/STACK.md` is
 prescriptive; `stack init` drafts the latter from this table plus other repo evidence.
 
 ---
@@ -172,7 +172,7 @@ Canonical commands this codebase actually runs, with the evidence. `aof-tools st
 | build | `tsc` | package.json script `build` |
 
 Keys are `build test lint format fix typecheck audit codegen deps` (or a project-specific key).
-This file is descriptive — what the codebase already does — while `.planning/STACK.md` is
+This file is descriptive — what the codebase already does — while `.aoforge/STACK.md` is
 prescriptive; `stack init` drafts the latter from this table plus other repo evidence.
 
 ---

@@ -531,11 +531,11 @@ When files are written and returning to orchestrator:
 ## ROADMAP CREATED
 
 **Files written:**
-- .planning/ROADMAP.md
-- .planning/STATE.md
+- .aoforge/ROADMAP.md
+- .aoforge/STATE.md
 
 **Updated:**
-- .planning/REQUIREMENTS.md (traceability section)
+- .aoforge/REQUIREMENTS.md (traceability section)
 
 ### Summary
 
@@ -561,8 +561,8 @@ When files are written and returning to orchestrator:
 ### Files Ready for Review
 
 User can review actual files:
-- `cat .planning/ROADMAP.md`
-- `cat .planning/STATE.md`
+- `cat .aoforge/ROADMAP.md`
+- `cat .aoforge/STATE.md`
 
 {If gaps found during creation:}
 
@@ -585,9 +585,9 @@ After incorporating user feedback and updating files:
 - {change 2}
 
 **Files updated:**
-- .planning/ROADMAP.md
-- .planning/STATE.md (if needed)
-- .planning/REQUIREMENTS.md (if traceability changed)
+- .aoforge/ROADMAP.md
+- .aoforge/STATE.md (if needed)
+- .aoforge/REQUIREMENTS.md (if traceability changed)
 
 ### Updated Summary
 

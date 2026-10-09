@@ -112,7 +112,7 @@ Consider starting over when:
 
 ## File Location and Writes
 
-The session file is `.planning/debug/{slug}.md`; a resolved one is `.planning/debug/resolved/{slug}.md`. Both are
+The session file is `.aoforge/debug/{slug}.md`; a resolved one is `.aoforge/debug/resolved/{slug}.md`. Both are
 written ONLY through aof-tools, never with Write/Edit/`mv` on those paths. With `github.store` on, the session is a
 debug GitHub issue and these paths are its read cache; in local mode the verbs write exactly these files.
 
@@ -230,7 +230,7 @@ The file IS the debugging brain.
 **First:** Check for active debug sessions.
 
 ```bash
-ls .planning/debug/*.md 2>/dev/null | grep -v resolved
+ls .aoforge/debug/*.md 2>/dev/null | grep -v resolved
 ```
 
 **If active sessions exist AND no $ARGUMENTS:**
@@ -325,7 +325,7 @@ Return structured diagnosis:
 ```markdown
 ## ROOT CAUSE FOUND
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** .aoforge/debug/{slug}.md
 
 **Root Cause:** {from Resolution.root_cause}
 
@@ -344,7 +344,7 @@ If inconclusive:
 ```markdown
 ## INVESTIGATION INCONCLUSIVE
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** .aoforge/debug/{slug}.md
 
 **What Was Checked:**
 - {area}: {finding}
@@ -385,7 +385,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs debug put {slug} --from "$DRAFT"
 node ~/.claude/aoforge/bin/aof-tools.cjs debug resolve {slug}
 ```
 
-`debug resolve` moves the session to `.planning/debug/resolved/{slug}.md`; with `github.store` on it also closes the
+`debug resolve` moves the session to `.aoforge/debug/resolved/{slug}.md`; with `github.store` on it also closes the
 debug issue.
 
 **Check planning config using state load (commit_docs is available from the output):**
@@ -410,7 +410,7 @@ Root cause: {root_cause}" --files src/path/to/fixed-file.ts src/path/to/other-fi
 Then commit planning docs via CLI (respects `commit_docs` config and gitignore automatically; the active path records
 the move's removal, and in store mode the ignored cache paths are skipped):
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: resolve debug {slug}" --files .planning/debug/{slug}.md .planning/debug/resolved/{slug}.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: resolve debug {slug}" --files .aoforge/debug/{slug}.md .aoforge/debug/resolved/{slug}.md
 ```
 
 Report completion and offer next steps.
@@ -433,7 +433,7 @@ Return a checkpoint when:
 ## CHECKPOINT REACHED
 
 **Type:** [human-verify | human-action | decision]
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** .aoforge/debug/{slug}.md
 **Progress:** {evidence_count} evidence entries, {eliminated_count} hypotheses eliminated
 
 ### Investigation State
@@ -506,7 +506,7 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 ```markdown
 ## ROOT CAUSE FOUND
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** .aoforge/debug/{slug}.md
 
 **Root Cause:** {specific cause with evidence}
 
@@ -527,7 +527,7 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 ```markdown
 ## DEBUG COMPLETE
 
-**Debug Session:** .planning/debug/resolved/{slug}.md
+**Debug Session:** .aoforge/debug/resolved/{slug}.md
 
 **Root Cause:** {what was wrong}
 **Fix Applied:** {what was changed}
@@ -545,7 +545,7 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 ```markdown
 ## INVESTIGATION INCONCLUSIVE
 
-**Debug Session:** .planning/debug/{slug}.md
+**Debug Session:** .aoforge/debug/{slug}.md
 
 **What Was Checked:**
 - {area 1}: {finding}

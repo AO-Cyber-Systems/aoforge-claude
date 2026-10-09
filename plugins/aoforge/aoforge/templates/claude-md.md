@@ -5,7 +5,7 @@ template_version: "2"
 
 # CLAUDE.md Template
 
-Template for generating `CLAUDE.md` at project root — synthesized from `.planning/codebase/*.md` analysis documents.
+Template for generating `CLAUDE.md` at project root — synthesized from `.aoforge/codebase/*.md` analysis documents.
 
 **Purpose:** Auto-generate a prescriptive CLAUDE.md that Claude Code loads every session, making codebase rules always available — not just during AOForge workflows.
 

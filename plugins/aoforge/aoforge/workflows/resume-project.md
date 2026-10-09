@@ -5,7 +5,7 @@ status: active
 Use this workflow when:
 - Starting a new session on an existing project
 - User says "continue", "what's next", "where were we", "resume"
-- Any planning operation when .planning/ already exists
+- Any planning operation when .aoforge/ already exists
 - User returns after time away from project
 </trigger>
 
@@ -56,8 +56,8 @@ read in load_state and carry on from PROJECT.md and ROADMAP.md.
 Read and parse STATE.md, then PROJECT.md:
 
 ```bash
-cat .planning/STATE.md
-cat .planning/PROJECT.md
+cat .aoforge/STATE.md
+cat .aoforge/PROJECT.md
 ```
 
 **From STATE.md extract:**
@@ -84,10 +84,10 @@ Look for incomplete work that needs attention:
 
 ```bash
 # Check for continue-here files (mid-plan resumption)
-ls .planning/objectives/*/.continue-here*.md 2>/dev/null
+ls .aoforge/objectives/*/.continue-here*.md 2>/dev/null
 
 # Check for jobs without summaries (incomplete execution)
-for jobfile in .planning/objectives/*/*-JOB.md; do
+for jobfile in .aoforge/objectives/*/*-JOB.md; do
   summary="${jobfile/JOB/SUMMARY}"
   [ ! -f "$summary" ] && echo "Incomplete: $jobfile"
 done 2>/dev/null
@@ -225,7 +225,7 @@ AskUserQuestion([
 **Note:** When choosing between discuss and plan for the primary action, check for CONTEXT.md existence first:
 
 ```bash
-ls .planning/objectives/XX-name/*-CONTEXT.md 2>/dev/null
+ls .aoforge/objectives/XX-name/*-CONTEXT.md 2>/dev/null
 ```
 
 If missing, the primary action is discuss-objective (with Plan directly among the others). If it exists, the primary
@@ -270,7 +270,7 @@ Based on user selection, route to appropriate workflow:
   ---
   ```
 - **Transition** → ./transition.md
-- **Check todos** → Read .planning/todos/pending/, present summary
+- **Check todos** → Read .aoforge/todos/pending/, present summary
 - **Review alignment** → Read PROJECT.md, compare to current state
 - **Something else** (typed under Other) → act on what they typed, or ask what they need
 </step>
@@ -297,7 +297,7 @@ If STATE.md is missing but other artifacts exist:
 1. Read PROJECT.md → Extract "What This Is" and Core Value
 2. Read ROADMAP.md → Determine objectives, find current position
 3. Scan \*-SUMMARY.md files → Extract decisions, concerns
-4. Count pending todos in .planning/todos/pending/
+4. Count pending todos in .aoforge/todos/pending/
 5. Check for .continue-here files → Session continuity
 
 Then rebuild STATE.md and proceed normally:
@@ -312,7 +312,7 @@ This handles cases where:
 
 - Project predates STATE.md introduction
 - File was accidentally deleted
-- Cloning repo without full .planning/ state
+- Cloning repo without full .aoforge/ state
   </reconstruction>
 
 <quick_resume>

@@ -4,20 +4,20 @@ Commit planning artifacts using the aof-tools CLI, which automatically checks `c
 
 ## Commit via CLI
 
-Always use `aof-tools.cjs commit` for `.planning/` files — it handles `commit_docs` and gitignore checks automatically:
+Always use `aof-tools.cjs commit` for `.aoforge/` files — it handles `commit_docs` and gitignore checks automatically:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({scope}): {description}" --files .planning/STATE.md .planning/ROADMAP.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({scope}): {description}" --files .aoforge/STATE.md .aoforge/ROADMAP.md
 ```
 
-The CLI will return `skipped` (with reason) if `commit_docs` is `false` or `.planning/` is gitignored. No manual conditional checks needed.
+The CLI will return `skipped` (with reason) if `commit_docs` is `false` or `.aoforge/` is gitignored. No manual conditional checks needed.
 
 ## Amend previous commit
 
-To fold `.planning/` file changes into the previous commit:
+To fold `.aoforge/` file changes into the previous commit:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "" --files .planning/codebase/*.md --amend
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "" --files .aoforge/codebase/*.md --amend
 ```
 
 ## Commit Message Patterns
@@ -34,5 +34,5 @@ node ~/.claude/aoforge/bin/aof-tools.cjs commit "" --files .planning/codebase/*.
 ## When to Skip
 
 - `commit_docs: false` in config
-- `.planning/` is gitignored
-- No changes to commit (check with `git status --porcelain .planning/`)
+- `.aoforge/` is gitignored
+- No changes to commit (check with `git status --porcelain .aoforge/`)

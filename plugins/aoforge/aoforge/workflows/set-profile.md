@@ -30,7 +30,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs config-ensure-section
 INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs state load)
 ```
 
-This creates `.planning/config.json` with defaults if missing and loads current config.
+This creates `.aoforge/config.json` with defaults if missing and loads current config.
 </step>
 
 <step name="update_config">
@@ -43,7 +43,7 @@ Update `model_profile` field:
 }
 ```
 
-Write updated config back to `.planning/config.json`.
+Write updated config back to `.aoforge/config.json`.
 </step>
 
 <step name="confirm">

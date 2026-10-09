@@ -95,7 +95,7 @@ describe(
   () => {
     test('7: every file-backed override marker has a <planning dir>/<name> line in .gitignore', () => {
       const text = fs.readFileSync(path.join(REPO_ROOT, '.gitignore'), 'utf8');
-      // this repository's planning directory, wherever it is (`.planning/` until 72-21, `.aoforge/` after)
+      // this repository's planning directory, wherever it is (the legacy name until 72-21 moves it, `.aoforge/` after)
       const missing = missingMarkers(text, fileBackedMarkers(GATES, LOG_FILE), planningDirName(REPO_ROOT));
       assert.deepEqual(
         missing,

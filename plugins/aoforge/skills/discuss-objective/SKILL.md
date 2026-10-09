@@ -14,7 +14,7 @@ allowed-tools:
 <objective>
 Extract implementation decisions that downstream agents (objective-researcher, planner) need. Surface the gray areas in the objective, let the user pick what to discuss, then deep-dive until decisions are crisp enough to act on.
 
-**Output:** `.planning/objectives/<obj>/CONTEXT.md` — captures decisions about layout, data, UX, dependencies, and explicit "Claude's Discretion" items. Feeds directly into research queries and planner task specs.
+**Output:** `.aoforge/objectives/<obj>/CONTEXT.md` — captures decisions about layout, data, UX, dependencies, and explicit "Claude's Discretion" items. Feeds directly into research queries and planner task specs.
 
 **Not the job:** figuring out HOW to implement. That happens in research + planning using the decisions captured here.
 </objective>

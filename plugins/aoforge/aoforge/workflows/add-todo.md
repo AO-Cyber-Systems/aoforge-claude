@@ -22,7 +22,7 @@ Extract from init JSON: `commit_docs`, `date`, `timestamp`, `todo_count`, `todos
 
 Ensure the pending directory exists (the duplicate check below reads it):
 ```bash
-mkdir -p .planning/todos/pending
+mkdir -p .aoforge/todos/pending
 ```
 
 Note existing areas from the todos array for consistency in infer_area step.
@@ -55,7 +55,7 @@ Infer area from file paths:
 | `src/db/*`, `database/*` | `database` |
 | `tests/*`, `__tests__/*` | `testing` |
 | `docs/*` | `docs` |
-| `.planning/*` | `planning` |
+| `.aoforge/*` | `planning` |
 | `scripts/*`, `bin/*` | `tooling` |
 | No files or unclear | `general` |
 
@@ -65,7 +65,7 @@ Use existing area from step 2 if similar match exists.
 <step name="check_duplicates">
 ```bash
 # Search for key words from title in existing todos
-grep -l -i "[key words from title]" .planning/todos/pending/*.md 2>/dev/null
+grep -l -i "[key words from title]" .aoforge/todos/pending/*.md 2>/dev/null
 ```
 
 If potential duplicate found:
@@ -85,7 +85,7 @@ If overlapping, use AskUserQuestion:
 Use values from init context: `timestamp` and `date` are already available.
 
 Todo files are written only through `aof-tools todo add`, never directly: in local mode the verb writes
-`.planning/todos/pending/<date>-<slug>.md`; with `github.store` on it also files the todo as a GitHub issue. This step
+`.aoforge/todos/pending/<date>-<slug>.md`; with `github.store` on it also files the todo as a GitHub issue. This step
 drafts the todo, the next step puts it in the session task list, and the archive_todo step writes the archive.
 
 Generate the slug for the title, then get a draft path for the todo (each command prints one value; note it as a
@@ -140,7 +140,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs todo add --from "$DRAFT"
 ```
 
 The verb derives the file stem from today's date and the `title:` frontmatter (`<date>-<slug>`, the same name as
-before) and prints `todo add: wrote .planning/todos/pending/<stem>.md (<mode> mode).` Use that file name as
+before) and prints `todo add: wrote .aoforge/todos/pending/<stem>.md (<mode> mode).` Use that file name as
 `[filename]` below.
 </step>
 
@@ -151,7 +151,7 @@ Check the planning mode first:
 node ~/.claude/aoforge/bin/aof-tools.cjs planning mode
 ```
 
-**`local`:** if `.planning/STATE.md` exists,
+**`local`:** if `.aoforge/STATE.md` exists,
 1. Use `todo_count` from init context (or re-run `init todos` if count changed)
 2. Update "### Pending Todos" under "## Accumulated Context"
 
@@ -163,7 +163,7 @@ todo issue is the record.
 Commit the todo and any updated state:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: capture todo - [title]" --files .planning/todos/pending/[filename] .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: capture todo - [title]" --files .aoforge/todos/pending/[filename] .aoforge/STATE.md
 ```
 
 Tool respects `commit_docs` config and gitignore automatically.
@@ -173,7 +173,7 @@ Confirm: "Committed: docs: capture todo - [title]"
 
 <step name="confirm">
 ```
-Todo saved: .planning/todos/pending/[filename]
+Todo saved: .aoforge/todos/pending/[filename]
 
   [title]
   Area: [area]

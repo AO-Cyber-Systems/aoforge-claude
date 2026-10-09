@@ -51,7 +51,7 @@ Objectives:
 What to commit:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: initialize [project-name] ([N] objectives)" --files .planning/
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: initialize [project-name] ([N] objectives)" --files .aoforge/
 ```
 
 </format>
@@ -123,13 +123,13 @@ Tasks completed: [N]/[N]
 - [Task 2 name]
 - [Task 3 name]
 
-SUMMARY: .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md
+SUMMARY: .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md
 ```
 
 What to commit:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [plan-name] plan" --files .planning/objectives/XX-name/{objective}-{trd}-TRD.md .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md .planning/STATE.md .planning/ROADMAP.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [plan-name] plan" --files .aoforge/objectives/XX-name/{objective}-{trd}-TRD.md .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md .aoforge/STATE.md .aoforge/ROADMAP.md
 ```
 
 **Note:** Code files NOT included - already committed per-task.
@@ -149,7 +149,7 @@ Current: [task name]
 What to commit:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "wip: [objective-name] paused at task [X]/[Y]" --files .planning/
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "wip: [objective-name] paused at task [X]/[Y]" --files .aoforge/
 ```
 
 </format>

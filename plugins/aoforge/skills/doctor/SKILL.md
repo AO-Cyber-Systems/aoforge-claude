@@ -5,7 +5,7 @@ description: |
   committed or left untracked inside a repo, pending migrations, stale markers, guard state,
   awareness cache and backups, hook registry drift, and out-of-date model ids. Read-only by
   default; `--fix` applies only safe, reversible repairs.
-  Use when AOForge behaves oddly, after a plugin update, or when a repo shows .planning runtime
+  Use when AOForge behaves oddly, after a plugin update, or when a repo shows .aoforge runtime
   files changing.
   Triggers on: "aoforge doctor", "diagnose aoforge", "aoforge is broken", "fix my aoforge setup"
 argument-hint: "[--fix] [--global] [path]"
@@ -17,11 +17,11 @@ allowed-tools:
 
 <objective>
 Run the AOForge doctor against the project at [path] (default: the current directory, walking up to
-the nearest `.planning/`) and the global install under `~/.claude`, then present what it found.
+the nearest `.aoforge/`) and the global install under `~/.claude`, then present what it found.
 `--global` limits the run to the global checks.
 
 The doctor checks the runtime mirror against the installed plugin, the plugin cache and hook
-registry, model ids, runtime state that leaked into a repo (including nested `.planning/` dirs),
+registry, model ids, runtime state that leaked into a repo (including nested `.aoforge/` dirs),
 pending migrations, `validate health`, stale skill markers, progress-guard state, the awareness
 cache and backup retention.
 

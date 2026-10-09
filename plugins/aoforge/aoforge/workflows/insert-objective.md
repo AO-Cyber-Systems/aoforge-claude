@@ -42,7 +42,7 @@ INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init objective-op "${after_objec
 
 Check `roadmap_exists` from init JSON. If false:
 ```
-ERROR: No roadmap found (.planning/ROADMAP.md)
+ERROR: No roadmap found (.aoforge/ROADMAP.md)
 ```
 Exit.
 </step>
@@ -58,7 +58,7 @@ The CLI handles:
 - Verifying target objective exists in ROADMAP.md
 - Calculating next decimal objective number (checking existing decimals on disk)
 - Generating slug from description
-- Creating the objective directory (`.planning/objectives/{N.M}-{slug}/`)
+- Creating the objective directory (`.aoforge/objectives/{N.M}-{slug}/`)
 - Inserting the objective entry into ROADMAP.md after the target objective with (INSERTED) marker
 
 Extract from result: `objective_number`, `after_objective`, `name`, `slug`, `directory`.
@@ -67,7 +67,7 @@ Extract from result: `objective_number`, `after_objective`, `name`, `slug`, `dir
 <step name="update_project_state">
 Update STATE.md to reflect the inserted objective:
 
-1. Read `.planning/STATE.md`
+1. Read `.aoforge/STATE.md`
 2. Under "## Accumulated Context" → "### Roadmap Evolution" add entry:
    ```
    - Objective {decimal_objective} inserted after Objective {after_objective}: {description} (URGENT)
@@ -82,12 +82,12 @@ Present completion summary:
 ```
 Objective {decimal_objective} inserted after Objective {after_objective}:
 - Description: {description}
-- Directory: .planning/objectives/{decimal-objective}-{slug}/
+- Directory: .aoforge/objectives/{decimal-objective}-{slug}/
 - Status: Not planned yet
 - Marker: (INSERTED) - indicates urgent work
 
-Roadmap updated: .planning/ROADMAP.md
-Project state updated: .planning/STATE.md
+Roadmap updated: .aoforge/ROADMAP.md
+Project state updated: .aoforge/STATE.md
 
 ---
 

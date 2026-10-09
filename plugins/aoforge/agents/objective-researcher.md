@@ -94,7 +94,7 @@ When researching "best library for X": find what the ecosystem actually uses, do
 
 ## RESEARCH.md Structure
 
-**Location:** `.planning/objectives/XX-name/{phase_num}-RESEARCH.md`
+**Location:** `.aoforge/objectives/XX-name/{phase_num}-RESEARCH.md`
 
 ```markdown
 # Objective [X]: [Name] - Research
@@ -276,7 +276,7 @@ For each domain: Context7 first → Official docs → WebSearch → Cross-verify
 
 ## Step 5: Publish RESEARCH.md (draft, then `doc put`)
 
-Publishing is mandatory regardless of `commit_docs` setting. Never Write under `.planning/` directly — in store mode
+Publishing is mandatory regardless of `commit_docs` setting. Never Write under `.aoforge/` directly — in store mode
 the gate denies it. Get a draft path first (`<dir>` is the last segment of `objective_dir`):
 
 ```bash

@@ -297,7 +297,7 @@ Track deferred ideas internally.
 </step>
 
 <step name="write_context">
-Publish CONTEXT.md capturing decisions made — draft it, then `doc put` (never a direct Write under `.planning/`; in
+Publish CONTEXT.md capturing decisions made — draft it, then `doc put` (never a direct Write under `.aoforge/`; in
 store mode the gate denies it, in local mode `doc put` writes the same file as before).
 
 Use values from init: `objective_dir`, `objective_slug`, `padded_objective`. The objective directory is
@@ -378,7 +378,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs doc put "objectives/${padded_objective}
 Present summary and next steps:
 
 ```
-Created: .planning/objectives/${PADDED_OBJECTIVE}-${SLUG}/${PADDED_OBJECTIVE}-CONTEXT.md
+Created: .aoforge/objectives/${PADDED_OBJECTIVE}-${SLUG}/${PADDED_OBJECTIVE}-CONTEXT.md
 
 ## Decisions Captured
 
@@ -434,7 +434,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs state record-session \
 Commit STATE.md:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(state): record objective ${OBJECTIVE} context session" --files .planning/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(state): record objective ${OBJECTIVE} context session" --files .aoforge/STATE.md
 ```
 </step>
 

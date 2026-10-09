@@ -34,7 +34,7 @@
   </p>
   <p>
     AOForge's answer is structural rather than advisory. Planning artifacts live on disk in
-    <code>.planning/</code> instead of in the conversation. Each job is dispatched to a
+    <code>.aoforge/</code> instead of in the conversation. Each job is dispatched to a
     subagent with a fresh window and only the context that job needs. State survives
     <code>/clear</code>, context resets and machine reboots, because it was never in the
     context window to begin with.
@@ -86,7 +86,7 @@
     </div>
     <div class="card">
       <h3>Memory that outlives context</h3>
-      <p>Decisions, blockers and position live in <code>.planning/STATE.md</code>. Resume a week later with <code>/aoforge:status resume</code>.</p>
+      <p>Decisions, blockers and position live in <code>.aoforge/STATE.md</code>. Resume a week later with <code>/aoforge:status resume</code>.</p>
     </div>
     <div class="card">
       <h3>Cost you choose</h3>

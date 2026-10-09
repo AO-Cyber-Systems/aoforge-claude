@@ -1,6 +1,6 @@
 # Summary Template
 
-Template for `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md` - task completion documentation with evidence.
+Template for `.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md` - task completion documentation with evidence.
 
 Fill it in an `aof-tools planning draft` copy. The executor publishes it with `aof-tools summary checkpoint` (per task) and `aof-tools summary post` (once), never by putting the file in place itself. Right before `summary post`, `aof-tools tokens stamp {objective}-{trd} --draft <draft path>` adds the token fields documented in the `# Metrics` block of the frontmatter.
 

@@ -29,7 +29,7 @@ If `found` is false: Error and exit.
 ## Step 2: Check Existing Research
 
 ```bash
-ls .planning/objectives/${OBJECTIVE}-*/RESEARCH.md 2>/dev/null
+ls .aoforge/objectives/${OBJECTIVE}-*/RESEARCH.md 2>/dev/null
 ```
 
 If exists, ask:
@@ -58,8 +58,8 @@ AskUserQuestion([
 ```bash
 # Objective section from roadmap (already loaded in OBJECTIVE_INFO)
 echo "$OBJECTIVE_INFO" | jq -r '.section'
-cat .planning/REQUIREMENTS.md 2>/dev/null
-cat .planning/objectives/${OBJECTIVE}-*/*-CONTEXT.md 2>/dev/null
+cat .aoforge/REQUIREMENTS.md 2>/dev/null
+cat .aoforge/objectives/${OBJECTIVE}-*/*-CONTEXT.md 2>/dev/null
 # Decisions from state-snapshot (structured JSON)
 node ~/.claude/aoforge/bin/aof-tools.cjs state-snapshot | jq '.decisions'
 ```
@@ -80,7 +80,7 @@ Objective context: {context_md}
 </context>
 
 <output>
-Publish `objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md` (relative to `.planning/`) as your Step 5 says:
+Publish `objectives/${OBJECTIVE}-{slug}/${OBJECTIVE}-RESEARCH.md` (relative to `.aoforge/`) as your Step 5 says:
 `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft <that path>`, Write the draft, then
 `node ~/.claude/aoforge/bin/aof-tools.cjs doc put <that path> --from <draft>`.
 </output>",

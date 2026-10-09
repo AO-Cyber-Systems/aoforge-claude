@@ -40,7 +40,7 @@ aof-tools state add-blocker --text "Waiting on Stripe API key"
 aof-tools state resolve-blocker --text "Waiting on Stripe API key"
 
 aof-tools state record-metric --objective 4 --job 02 --duration 620 --tasks 3 --files 7
-aof-tools state record-session --stopped-at "mid objective 4" --resume-file .planning/SESSION_PICKUP.md
+aof-tools state record-session --stopped-at "mid objective 4" --resume-file .aoforge/SESSION_PICKUP.md
 ```
 
 ## Pausing and resuming
@@ -90,7 +90,7 @@ is waste.
 
 ## Archiving
 
-Completed milestones move to `MILESTONES.md` and `.planning/milestones/`. Old
+Completed milestones move to `MILESTONES.md` and `.aoforge/milestones/`. Old
 objective directories can be archived out of the way once their milestone is done:
 
 ```text

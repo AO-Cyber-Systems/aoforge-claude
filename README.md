@@ -36,10 +36,10 @@ The complexity is in the system, not in your workflow. Behind the scenes: contex
 
 ### What's new in 1.28 / 1.29
 
-- **Skill enforcement hooks** — `route-intent` injects skill suggestions on every prompt; `gate-commits` blocks raw `git commit` and forces atomic per-task commits via `aof-tools`; `gate-edits` **strict DENY by default** in ambient mode — allows edits only when a skill is active (`.planning/.skill-active` marker), user includes an override phrase, or `AOFORGE_SKIP_EDIT_GATE=1` env var is set. Hard gates with documented escape hatches (`AOFORGE_ALLOW_RAW_COMMIT=1`, `AOFORGE_SKIP_EDIT_GATE=1`).
-- **Backend-aware functional verification** — verifier Step 8 now selects between Playwright MCP (web) and Maestro MCP (Flutter) based on stack. Web path adds three reliability fixes (curl readiness probe, `browser_wait_for` landmark, seeded `storageState`). Flutter flows live as YAML at `.planning/objectives/<obj>/verification/`.
+- **Skill enforcement hooks** — `route-intent` injects skill suggestions on every prompt; `gate-commits` blocks raw `git commit` and forces atomic per-task commits via `aof-tools`; `gate-edits` **strict DENY by default** in ambient mode — allows edits only when a skill is active (`.aoforge/.skill-active` marker), user includes an override phrase, or `AOFORGE_SKIP_EDIT_GATE=1` env var is set. Hard gates with documented escape hatches (`AOFORGE_ALLOW_RAW_COMMIT=1`, `AOFORGE_SKIP_EDIT_GATE=1`).
+- **Backend-aware functional verification** — verifier Step 8 now selects between Playwright MCP (web) and Maestro MCP (Flutter) based on stack. Web path adds three reliability fixes (curl readiness probe, `browser_wait_for` landmark, seeded `storageState`). Flutter flows live as YAML at `.aoforge/objectives/<obj>/verification/`.
 - **Confidence-tagged findings** — `codebase-mapper` and `security-auditor` now require `Confidence: VERIFIED | SUSPECTED` on every concern; downstream planners only act on VERIFIED.
-- **GitHub integration** (opt-in) — with the opt-in GitHub store (`github.store: true`) GitHub is the system of record and `.planning/` is a cache rebuilt from it; store-off projects keep the one-way `aof-tools gh sync --all` mirror of the roadmap to issues + a milestone. Migrate an existing project with `/aoforge:gh-sync migrate` (dry run first). `gh comment` posts verification gaps and `gh sync-release` generates release notes from SUMMARY files.
+- **GitHub integration** (opt-in) — with the opt-in GitHub store (`github.store: true`) GitHub is the system of record and `.aoforge/` is a cache rebuilt from it; store-off projects keep the one-way `aof-tools gh sync --all` mirror of the roadmap to issues + a milestone. Migrate an existing project with `/aoforge:gh-sync migrate` (dry run first). `gh comment` posts verification gaps and `gh sync-release` generates release notes from SUMMARY files.
 - **CHANGELOG enforcement** — `aof-tools changelog update --version vX.Y.Z` auto-generates Keep-a-Changelog entries from git log, grouped by conventional-commit type. The `changelog-on-tag` hook blocks `git tag -a vX.Y.Z` until CHANGELOG has an entry for that version.
 
 See [CHANGELOG.md](./CHANGELOG.md) for full history.
@@ -157,12 +157,12 @@ If you prefer not to use that flag, add this to your project's `.claude/settings
 
 ### Recommended: CLAUDE.md Routing Hint
 
-The plugin's `route-intent` hook only fires inside directories containing `.planning/`. For greenfield work or projects you haven't initialized yet, add a short routing hint to a CLAUDE.md so Claude reaches for AOForge skills instead of editing files directly.
+The plugin's `route-intent` hook only fires inside directories containing `.aoforge/`. For greenfield work or projects you haven't initialized yet, add a short routing hint to a CLAUDE.md so Claude reaches for AOForge skills instead of editing files directly.
 
 <details>
 <summary><strong>Global hint — <code>~/.claude/CLAUDE.md</code></strong></summary>
 
-Applies to every directory. Use this if you want AOForge nudges everywhere, including projects that don't have `.planning/` yet.
+Applies to every directory. Use this if you want AOForge nudges everywhere, including projects that don't have `.aoforge/` yet.
 
 ```markdown
 # AOForge Routing
@@ -186,12 +186,12 @@ Skills enforce atomic commits, state tracking, and verification. Bypassing them 
 <details>
 <summary><strong>Project hint — <code>./CLAUDE.md</code> (recommended)</strong></summary>
 
-Add to a project that uses AOForge. Stronger and more specific than the global hint — drop it in the repo root next to `.planning/`.
+Add to a project that uses AOForge. Stronger and more specific than the global hint — drop it in the repo root next to `.aoforge/`.
 
 ```markdown
 # Project Conventions
 
-This project uses AOForge (`aoforge@aocyber`). Planning state lives in `.planning/`.
+This project uses AOForge (`aoforge@aocyber`). Planning state lives in `.aoforge/`.
 
 **Always route through AOForge skills** for non-trivial work — do not edit code directly when a skill applies:
 
@@ -227,7 +227,7 @@ One command, one flow. The system:
 
 You approve the roadmap. Now you're ready to build.
 
-**Creates:** `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `.planning/research/`
+**Creates:** `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `.aoforge/research/`
 
 ---
 
@@ -385,7 +385,7 @@ Quick mode gives you AOForge guarantees (atomic commits, state tracking) with a 
 
 - **Same agents** — Planner + executor, same quality
 - **Skips optional steps** — No research, no job checker, no verifier
-- **Separate tracking** — Lives in `.planning/quick/`, not objectives
+- **Separate tracking** — Lives in `.aoforge/quick/`, not objectives
 
 Use for: bug fixes, small features, config changes, one-off tasks.
 
@@ -394,7 +394,7 @@ Use for: bug fixes, small features, config changes, one-off tasks.
 > What do you want to do? "Add dark mode toggle to settings"
 ```
 
-**Creates:** `.planning/quick/001-add-dark-mode-toggle/JOB.md`, `SUMMARY.md`
+**Creates:** `.aoforge/quick/001-add-dark-mode-toggle/JOB.md`, `SUMMARY.md`
 
 ---
 
@@ -549,7 +549,7 @@ You're never locked in. The system adapts.
 
 ## Configuration
 
-AOForge stores project settings in `.planning/config.json`. Configure during `/aoforge:new-project` or update later with `/aoforge:settings`. For the full config schema, workflow toggles, git branching options, and per-agent model breakdown, see the [User Guide](docs/USER-GUIDE.md#configuration-reference).
+AOForge stores project settings in `.aoforge/config.json`. Configure during `/aoforge:new-project` or update later with `/aoforge:settings`. For the full config schema, workflow toggles, git branching options, and per-agent model breakdown, see the [User Guide](docs/USER-GUIDE.md#configuration-reference).
 
 ### Project Intent: `kind` and `work`
 
@@ -624,7 +624,7 @@ Use `/aoforge:settings` to toggle these, or override per-invocation:
 | Setting | Default | What it controls |
 |---------|---------|------------------|
 | `parallelization.enabled` | `true` | Run independent jobs simultaneously |
-| `planning.commit_docs` | `true` | Track `.planning/` in git |
+| `planning.commit_docs` | `true` | Track `.aoforge/` in git |
 
 ### Git Branching
 

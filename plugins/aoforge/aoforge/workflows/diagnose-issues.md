@@ -10,9 +10,9 @@ Orchestrator stays lean: parse gaps, spawn agents, collect results, publish the 
 </purpose>
 
 <paths>
-DEBUG_DIR=.planning/debug
+DEBUG_DIR=.aoforge/debug
 
-Debug files use the `.planning/debug/` path (hidden directory with leading dot).
+Debug files use the `.aoforge/debug/` path (hidden directory with leading dot).
 </paths>
 
 <core_principle>
@@ -180,7 +180,7 @@ For each gap in the draft's Gaps section, add artifacts and missing fields:
   missing:
     - "Add commentCount to useEffect dependency array"
     - "Trigger re-render when new comment added"
-  debug_session: .planning/debug/comment-not-refreshing.md
+  debug_session: .aoforge/debug/comment-not-refreshing.md
 ```
 
 Set status in the draft's frontmatter to "diagnosed".
@@ -188,7 +188,7 @@ Set status in the draft's frontmatter to "diagnosed".
 Publish the draft (local mode writes the same UAT.md as before; store mode also queues its wiki page), then commit it (local mode; in store mode `commit` skips the gitignored cache path):
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({phase_num}): add root causes from diagnosis" --files ".planning/objectives/XX-name/{phase_num}-UAT.md"
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({phase_num}): add root causes from diagnosis" --files ".aoforge/objectives/XX-name/{phase_num}-UAT.md"
 ```
 </step>
 

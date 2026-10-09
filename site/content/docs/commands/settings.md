@@ -32,7 +32,7 @@ and why some agents stay on a larger model even in budget.
 /aoforge:settings
 ```
 
-Interactive configuration of `.planning/config.json`: which workflow agents run,
+Interactive configuration of `.aoforge/config.json`: which workflow agents run,
 which gates prompt, parallelism, and safety toggles.
 
 The two settings that change cost most:

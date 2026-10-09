@@ -33,13 +33,13 @@ Omit whichever half did not apply. Print nothing when neither applied.
 
 **If `objective_found` is false:** Error — objective directory not found.
 **If `job_count` is 0:** Error — no plans found in objective.
-**If `state_exists` is false but `.planning/` exists:**
+**If `state_exists` is false but `.aoforge/` exists:**
 
 ```
 AskUserQuestion([
   {
     header: "Rebuild?",
-    question: "STATE.md is missing but .planning/ exists. Reconstruct it before executing?",
+    question: "STATE.md is missing but .aoforge/ exists. Reconstruct it before executing?",
     multiSelect: false,
     options: [
       { label: "Reconstruct (Recommended)", description: "Regenerate STATE.md from the roadmap, then execute" },
@@ -154,7 +154,7 @@ AskUserQuestion(
     question: "Detected duplicate-work overlap before execution begins. How do you want to resolve?",
     options: [
       { label: "Merge",      description: "Abort execution. Switch to peer branch and continue there." },
-      { label: "Defer",      description: "Save objective state to .planning/.deferred/. Resume later." },
+      { label: "Defer",      description: "Save objective state to .aoforge/.deferred/. Resume later." },
       { label: "Coordinate", description: "Continue execution. Add Coordination Note to CONTEXT.md naming the peer." },
       { label: "Proceed",    description: "Continue with full warning. Likely merge conflicts at commit time." }
     ],
@@ -316,7 +316,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/aoforge/bin/aof-tools.cjs merge-driver install
    ```
 
-   `.planning/state.json` then merges JSON-aware and `.planning/STATE_ARCHIVE.md` by union, so neither stops a
+   `.aoforge/state.json` then merges JSON-aware and `.aoforge/STATE_ARCHIVE.md` by union, so neither stops a
    wave merge. A failure, or `Unknown command` from an older runtime, is reported and the wave goes on: the
    Branch merge protocol in step 5b still handles a conflict on either file. Run the install and every wave
    merge in the main checkout, never inside an executor worktree: that worktree is removed after its merge, and
@@ -389,7 +389,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 4. **Spawn executor agents:**
 
    Embed the full TRD content inline in every executor spawn prompt. A parallel-wave
-   executor runs in the worktree you provisioned in step 0, where uncommitted .planning/
+   executor runs in the worktree you provisioned in step 0, where uncommitted .aoforge/
    files from the parent tree are not visible. Embedding the TRD guarantees the executor
    has its plan regardless of worktree state. Context cost: ~plan size per spawn;
    acceptable because TRDs are 2-3 tasks.
@@ -433,7 +433,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
        <plan_content>
        The full TRD content is embedded below because you may be running in an isolated
-       worktree where .planning/ files from the parent tree are not visible.
+       worktree where .aoforge/ files from the parent tree are not visible.
        --- BEGIN TRD ---
        {TRD_CONTENT}
        --- END TRD ---
@@ -521,7 +521,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 5b. **Merge the wave's worktree branches (parallel waves only):**
 
    **Ordering: classify (5c) and resume (5d) BEFORE this merge.** 5c reads each parallel plan's
-   SUMMARY state from that plan's worktree (`<worktree_path>/.planning/...`, local mode), where the
+   SUMMARY state from that plan's worktree (`<worktree_path>/.aoforge/...`, local mode), where the
    summary verbs wrote it, so it needs no merge. Merge only plans that are NOT INCOMPLETE. An INCOMPLETE
    executor is resumed inside its worktree, so merging that branch or removing that worktree
    would strand it. It is merged here, like any other plan, once a resume leaves it COMPLETE.
@@ -551,16 +551,16 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```
    A clean merge commits itself, so there is nothing more to run for that plan. File ownership is
    exclusive per wave (each TRD owns different files), so a conflict in a code file indicates a planning
-   error. The planning files are the exception: every executor touches `.planning/STATE.md`,
-   `.planning/ROADMAP.md` and `.planning/REQUIREMENTS.md` (see the worktree protocol above), and records
-   its position and metrics in `.planning/state.json` and `.planning/STATE_ARCHIVE.md`, so the peers'
+   error. The planning files are the exception: every executor touches `.aoforge/STATE.md`,
+   `.aoforge/ROADMAP.md` and `.aoforge/REQUIREMENTS.md` (see the worktree protocol above), and records
+   its position and metrics in `.aoforge/state.json` and `.aoforge/STATE_ARCHIVE.md`, so the peers'
    changes to them can conflict. With the merge driver from step 0 installed, the last two merge without
    stopping. When the merge stops on a conflict, list the unmerged paths:
    ```bash
    git diff --name-only --diff-filter=U
    ```
-   Classify every listed path three ways. `.planning/STATE.md`, `.planning/ROADMAP.md` and
-   `.planning/REQUIREMENTS.md`: take the integration branch's copy of each one, as two separate calls,
+   Classify every listed path three ways. `.aoforge/STATE.md`, `.aoforge/ROADMAP.md` and
+   `.aoforge/REQUIREMENTS.md`: take the integration branch's copy of each one, as two separate calls,
    once per listed path (`<planning_path>` stands for one listed path):
    ```bash
    git checkout --ours -- <planning_path>
@@ -568,7 +568,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    ```bash
    git add <planning_path>
    ```
-   `.planning/state.json` and `.planning/STATE_ARCHIVE.md`: merge them rather than dropping a peer's
+   `.aoforge/state.json` and `.aoforge/STATE_ARCHIVE.md`: merge them rather than dropping a peer's
    record. The command resolves the file (JSON-aware for state.json, by union for STATE_ARCHIVE.md) and
    stages it; run it once per listed state.json or STATE_ARCHIVE.md path:
    ```bash
@@ -605,7 +605,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/aoforge/bin/aof-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
    ```
    ```bash
-   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .planning/ROADMAP.md .planning/STATE.md .planning/state.json
+   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/state.json
    ```
    <!-- merge-sequence:end -->
 
@@ -671,12 +671,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
      `git log --oneline --all --grep="({objective}-{trd})"`
      (`--all` sees an unmerged worktree branch too).
    - **SUMMARY state**, read from where the summary verbs wrote it. Local mode: a parallel plan's state
-     comes from its worktree (`<worktree_path>/.planning/...`, the path you noted in step 0, read before
+     comes from its worktree (`<worktree_path>/.aoforge/...`, the path you noted in step 0, read before
      the 5b merge), and a sequential plan's from the current tree. Store mode: the main checkout's
-     `.planning/` and `.planning/.trd-progress/`, for every plan. It is one of:
-     - `missing`: no `{objective}-{trd}-SUMMARY.md` and no `.planning/.trd-progress/{objective}-{trd}.md`;
+     `.aoforge/` and `.aoforge/.trd-progress/`, for every plan. It is one of:
+     - `missing`: no `{objective}-{trd}-SUMMARY.md` and no `.aoforge/.trd-progress/{objective}-{trd}.md`;
      - `checkpoint`: the SUMMARY exists but has no `## Self-Check` heading, or (store mode) only
-       `.planning/.trd-progress/{objective}-{trd}.md` exists. The executor contract
+       `.aoforge/.trd-progress/{objective}-{trd}.md` exists. The executor contract
        says "A SUMMARY without `## Self-Check` means checkpoint, not complete";
      - `final`: it has `## Self-Check: PASSED` or `## Self-Check: FAILED`.
 
@@ -1023,7 +1023,7 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
 
        <plan_content>
        The full TRD content is embedded below because you may be running in an isolated
-       worktree where .planning/ files from the parent tree are not visible.
+       worktree where .aoforge/ files from the parent tree are not visible.
        --- BEGIN TRD ---
        {TRD_CONTENT}
        --- END TRD ---
@@ -1116,15 +1116,15 @@ After all waves, print the report below. Its **Token stamp:** line is the share 
 ### Pending Decisions
 ```bash
 # Check for pending decisions
-ls .planning/decisions/pending/ 2>/dev/null
+ls .aoforge/decisions/pending/ 2>/dev/null
 ```
-If `.planning/decisions/pending/` is non-empty, include this section:
+If `.aoforge/decisions/pending/` is non-empty, include this section:
 
 | ID | Title | Blocked TRDs | Resolve Command |
 |----|-------|-------------|----------------|
 | DECISION-001 | [title from decision file] | [comma-separated TRD ids] | `/aoforge:decide DECISION-001 <choice>` |
 
-Show one row per pending decision. If `.planning/decisions/pending/` is empty or absent, omit this section entirely.
+Show one row per pending decision. If `.aoforge/decisions/pending/` is empty or absent, omit this section entirely.
 ```
 </step>
 
@@ -1174,14 +1174,14 @@ node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/<parent objective di
 
 For each gap that has a `debug_session:` field:
 - Read the debug session file
-- Resolve it with the debug verb. In local mode it marks the session resolved and moves it to `.planning/debug/resolved/`:
+- Resolve it with the debug verb. In local mode it marks the session resolved and moves it to `.aoforge/debug/resolved/`:
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs debug resolve {slug}
 ```
 
 **6. Commit updated artifacts:**
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-${PARENT_OBJECTIVE}): resolve UAT gaps and debug sessions after ${OBJECTIVE_NUMBER} gap closure" --files .planning/objectives/*${PARENT_OBJECTIVE}*/*-UAT.md .planning/debug/resolved/*.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-${PARENT_OBJECTIVE}): resolve UAT gaps and debug sessions after ${OBJECTIVE_NUMBER} gap closure" --files .aoforge/objectives/*${PARENT_OBJECTIVE}*/*-UAT.md .aoforge/debug/resolved/*.md
 ```
 </step>
 
@@ -1359,7 +1359,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs sync-roadmap || {
 
 **Auto-push to GitHub (objective 46, GSF-03):**
 
-Push the objective's state to its GitHub issue (created on first sync). When `github.enabled` is not true the command reports `skipped` and exits 0. A failure never blocks completion, but it is shown, never swallowed. `OBJECTIVE_DIR` may be the bare directory name or the `.planning/objectives/…` path that `init` reports; `basename` accepts both.
+Push the objective's state to its GitHub issue (created on first sync). When `github.enabled` is not true the command reports `skipped` and exits 0. A failure never blocks completion, but it is shown, never swallowed. `OBJECTIVE_DIR` may be the bare directory name or the `.aoforge/objectives/…` path that `init` reports; `basename` accepts both.
 
 ```bash
 OBJECTIVE_DIR="$(basename "${OBJECTIVE_DIR}")"
@@ -1373,10 +1373,10 @@ fi
 ```
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{X}): complete objective execution" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md .planning/objectives/{objective_dir}/*-VERIFICATION.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{X}): complete objective execution" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/REQUIREMENTS.md .aoforge/objectives/{objective_dir}/*-VERIFICATION.md
 ```
 
-Add `.planning/objectives/{objective_dir}/OBJECTIVE.md` to `--files` when the objective has one, because `objective set-status` changed it.
+Add `.aoforge/objectives/{objective_dir}/OBJECTIVE.md` to `--files` when the objective has one, because `objective set-status` changed it.
 
 **If `pr_lifecycle` is true — merge the objective PR, then reconcile.**
 

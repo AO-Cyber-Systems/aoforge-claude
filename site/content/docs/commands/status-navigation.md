@@ -38,7 +38,7 @@ pause — it reconstructs from state files — but pause preserves the nuance.
 ```
 
 `add` captures an idea without derailing what you're doing — it lands in
-`.planning/todos/pending/`. `list` is the morning standup: it merges local todos,
+`.aoforge/todos/pending/`. `list` is the morning standup: it merges local todos,
 GitHub issues and peer activity into one "what should I work on?" view.
 
 ## /aoforge:decide

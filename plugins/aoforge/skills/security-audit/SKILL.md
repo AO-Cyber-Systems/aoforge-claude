@@ -18,9 +18,9 @@ allowed-tools:
 <objective>
 Scan codebase for security vulnerabilities using 3 parallel security-auditor agents, each covering a different domain. Agents write findings directly to temp files. Orchestrator merges, deduplicates, ranks by severity, and produces a final SECURITY-AUDIT.md report.
 
-This is a standalone command — no `.planning/` directory or AOForge project state required. Works on any codebase.
+This is a standalone command — no `.aoforge/` directory or AOForge project state required. Works on any codebase.
 
-Output: SECURITY-AUDIT.md (in `.planning/` if it exists, otherwise project root). This is a runtime report that is written directly. An objective-scoped copy goes through `aof-tools doc put objectives/<dir>/<NN>-SECURITY-AUDIT.md` (see the workflow).
+Output: SECURITY-AUDIT.md (in `.aoforge/` if it exists, otherwise project root). This is a runtime report that is written directly. An objective-scoped copy goes through `aof-tools doc put objectives/<dir>/<NN>-SECURITY-AUDIT.md` (see the workflow).
 </objective>
 
 <execution_context>

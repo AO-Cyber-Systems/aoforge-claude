@@ -939,7 +939,7 @@ AOForge uses **fresh agents with explicit file-based state** rather than agent r
 | **State transfer** | Explicit — file artifacts are the contract | Implicit — internal context may drift or corrupt |
 | **Context freshness** | Full 200k context per agent | Accumulated context, may be compressed or truncated |
 | **Reliability** | Proven — file state survives crashes, /clear, context limits | Fragile — depends on Claude Code internal serialization |
-| **Debuggability** | High — all state visible in .planning/ files | Low — internal context is opaque |
+| **Debuggability** | High — all state visible in .aoforge/ files | Low — internal context is opaque |
 | **Cost** | Higher — agent re-reads files each spawn | Lower — resumes from existing context |
 
 ### Resume is Safe ONLY When

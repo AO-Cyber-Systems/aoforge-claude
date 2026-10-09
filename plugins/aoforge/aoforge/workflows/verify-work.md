@@ -37,7 +37,7 @@ Parse JSON for: `planner_model`, `checker_model`, `commit_docs`, `objective_foun
 **First: Check for active UAT sessions**
 
 ```bash
-find .planning/objectives -name "*-UAT.md" -type f 2>/dev/null | head -5
+find .aoforge/objectives -name "*-UAT.md" -type f 2>/dev/null | head -5
 ```
 
 **If active sessions exist AND no $ARGUMENTS provided:**
@@ -215,7 +215,7 @@ skipped: 0
 [none yet]
 ```
 
-Publish it. Local mode writes `.planning/objectives/XX-name/{phase_num}-UAT.md`, the same file as before; store mode also queues its wiki page:
+Publish it. Local mode writes `.aoforge/objectives/XX-name/{phase_num}-UAT.md`, the same file as before; store mode also queues its wiki page:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
@@ -416,7 +416,7 @@ Clear Current Test section:
 Publish the final draft, then commit the UAT file (local mode; in store mode `commit` skips the gitignored cache path):
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "test({phase_num}): complete UAT - {passed} passed, {issues} issues" --files ".planning/objectives/XX-name/{phase_num}-UAT.md"
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "test({phase_num}): complete UAT - {passed} passed, {issues} issues" --files ".aoforge/objectives/XX-name/{phase_num}-UAT.md"
 ```
 
 Present summary:
@@ -507,13 +507,13 @@ Task(
 **Mode:** gap_closure
 
 **UAT with diagnoses:**
-@.planning/objectives/{objective_dir}/{phase_num}-UAT.md
+@.aoforge/objectives/{objective_dir}/{phase_num}-UAT.md
 
 **Project State:**
-@.planning/STATE.md
+@.aoforge/STATE.md
 
 **Roadmap:**
-@.planning/ROADMAP.md
+@.aoforge/ROADMAP.md
 
 </planning_context>
 
@@ -558,7 +558,7 @@ Task(
 **Objective Goal:** Close diagnosed gaps from UAT
 
 **Plans to verify:**
-@.planning/objectives/{objective_dir}/*-JOB.md
+@.aoforge/objectives/{objective_dir}/*-JOB.md
 
 </verification_context>
 
@@ -597,7 +597,7 @@ Task(
 **Mode:** revision
 
 **Existing jobs:**
-@.planning/objectives/{objective_dir}/*-JOB.md
+@.aoforge/objectives/{objective_dir}/*-JOB.md
 
 **Checker issues:**
 {structured_issues_from_checker}
@@ -682,7 +682,7 @@ Keep results in memory. A UAT write is always the same two steps — edit `$UAT_
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/{phase_num}-UAT.md --from "$UAT_DRAFT"
 ```
 
-Never edit the `.planning/` file directly. Publish only when:
+Never edit the `.aoforge/` file directly. Publish only when:
 1. **Issue found** — Preserve the problem immediately
 2. **Session complete** — Final publish before commit
 3. **Checkpoint** — Every 5 passed tests (safety net)

@@ -202,8 +202,8 @@ Output: [Working, tested feature]
 </objective>
 
 <context>
-@.planning/PROJECT.md
-@.planning/ROADMAP.md
+@.aoforge/PROJECT.md
+@.aoforge/ROADMAP.md
 @relevant/source/files.ts
 </context>
 

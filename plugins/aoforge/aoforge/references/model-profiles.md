@@ -80,7 +80,7 @@ fails. Only these six never reach haiku and can carry it: `planner`,
 Orchestrators resolve model before spawning:
 
 ```
-1. Read .planning/config.json
+1. Read .aoforge/config.json
 2. Check model_overrides for agent-specific override
 3. If no override, look up agent in profile table
 4. Pass model parameter to Task call
@@ -88,7 +88,7 @@ Orchestrators resolve model before spawning:
 
 ## Per-Agent Overrides
 
-Override specific agents without changing the entire profile using `agent_models` in `.planning/config.json`. Partial overrides are supported — only specified agents/tiers are replaced:
+Override specific agents without changing the entire profile using `agent_models` in `.aoforge/config.json`. Partial overrides are supported — only specified agents/tiers are replaced:
 
 ```json
 {
@@ -108,7 +108,7 @@ Overrides take precedence over the package defaults. Valid tier values: `opus`, 
 
 Runtime: `/aoforge:set-profile <profile>`
 
-Per-project default: Set in `.planning/config.json`:
+Per-project default: Set in `.aoforge/config.json`:
 ```json
 {
   "model_profile": "balanced"

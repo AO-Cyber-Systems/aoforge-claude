@@ -313,7 +313,7 @@ Non-testable tasks (UI layout/styling, configuration, glue code, one-off scripts
 - `result.config.back_compat ∈ {"api_parity", "ui_parity", "library_parity", "io_parity", "contract_parity", "behavioral"}` → emit a behavioral parity checklist section in the TRD listing source-behavior cases the new implementation must reproduce. Reference the contract-list-first approach (read source code + tests as documentation, not transplantable fixtures).
 - `result.config.back_compat === "visual_parity"` → emit a parity-target comment in the TRD; skip the actual visual-diff verification step until tooling lands (per the (ui-lib, *) cells' aspirational tagging).
 
-**Step 4 — Read the resolved Testing section, then consult `testing-strategy.md`.** Run `node ~/.claude/aoforge/bin/aof-tools.cjs stack context planner --raw`. Its `## Testing` section (from `.planning/STACK.md`, else the org profile it extends, else bundled `general`) and its commands name the layers, runner and scoped test form for this project. Route the resolver's stack-agnostic verification text to those. Then load `~/.claude/aoforge/references/testing-strategy.md` for the abstract layer definitions and platform routing; its stack tables are examples, and no stack is inferred from `kind`. If `stack` is unavailable (older mirror), use testing-strategy.md alone.
+**Step 4 — Read the resolved Testing section, then consult `testing-strategy.md`.** Run `node ~/.claude/aoforge/bin/aof-tools.cjs stack context planner --raw`. Its `## Testing` section (from `.aoforge/STACK.md`, else the org profile it extends, else bundled `general`) and its commands name the layers, runner and scoped test form for this project. Route the resolver's stack-agnostic verification text to those. Then load `~/.claude/aoforge/references/testing-strategy.md` for the abstract layer definitions and platform routing; its stack tables are examples, and no stack is inferred from `kind`. If `stack` is unavailable (older mirror), use testing-strategy.md alone.
 
 Reference: @~/.claude/aoforge/references/testing-strategy.md (loaded conditionally; if missing, fall back to the resolver's stack-agnostic verification text verbatim).
 
@@ -585,7 +585,7 @@ Triggered when orchestrator provides `<revision_context>` with checker issues. N
 ### Step 1: Load Existing TRDs
 
 ```bash
-cat .planning/objectives/$OBJECTIVE-*/$OBJECTIVE-*-TRD.md
+cat .aoforge/objectives/$OBJECTIVE-*/$OBJECTIVE-*-TRD.md
 ```
 
 Build mental model of current TRD structure, existing tasks, must_haves.
@@ -619,7 +619,7 @@ Group by TRD, dimension, severity.
 ### Step 4: Make Targeted Updates
 
 **DO:** Edit specific flagged sections, preserve working parts, update waves if dependencies change.
-Revise a draft, never the file under `.planning/` (in store mode the edit gate denies that):
+Revise a draft, never the file under `.aoforge/` (in store mode the edit gate denies that):
 
 ```bash
 DRAFT=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{NN}-TRD.md)
@@ -650,7 +650,7 @@ the literal path.
 ### Step 6: Commit
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "fix($OBJECTIVE): revise TRDs based on checker feedback" --files .planning/objectives/$OBJECTIVE-*/$OBJECTIVE-*-TRD.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "fix($OBJECTIVE): revise TRDs based on checker feedback" --files .aoforge/objectives/$OBJECTIVE-*/$OBJECTIVE-*-TRD.md
 ```
 
 ### Step 7: Return Revision Summary
@@ -669,8 +669,8 @@ node ~/.claude/aoforge/bin/aof-tools.cjs commit "fix($OBJECTIVE): revise TRDs ba
 
 ### Files Updated
 
-- .planning/objectives/16-xxx/16-01-TRD.md
-- .planning/objectives/16-xxx/16-02-TRD.md
+- .aoforge/objectives/16-xxx/16-01-TRD.md
+- .aoforge/objectives/16-xxx/16-02-TRD.md
 
 {If any issues NOT addressed:}
 
@@ -696,14 +696,14 @@ Extract from init JSON: `planner_model`, `researcher_model`, `checker_model`, `c
 
 Also read STATE.md for position and blockers:
 ```bash
-cat .planning/STATE.md 2>/dev/null
+cat .aoforge/STATE.md 2>/dev/null
 ```
 
-If STATE.md missing but .planning/ exists, offer to reconstruct or continue without.
+If STATE.md missing but .aoforge/ exists, offer to reconstruct or continue without.
 
 For deep constraint analysis, optionally read the decision archive:
 ```bash
-cat .planning/STATE_ARCHIVE.md 2>/dev/null
+cat .aoforge/STATE_ARCHIVE.md 2>/dev/null
 ```
 </step>
 
@@ -711,7 +711,7 @@ cat .planning/STATE_ARCHIVE.md 2>/dev/null
 Check for codebase map:
 
 ```bash
-ls .planning/codebase/*.md 2>/dev/null
+ls .aoforge/codebase/*.md 2>/dev/null
 ```
 
 If exists, load relevant documents by objective type:
@@ -727,13 +727,13 @@ If exists, load relevant documents by objective type:
 | setup, config | STACK.md, STRUCTURE.md |
 | (default) | STACK.md, ARCHITECTURE.md |
 
-**Note:** `.planning/codebase/STACK.md` (descriptive, from map-codebase) is evidence; `.planning/STACK.md` (prescriptive stack profile) is what `aof-tools stack` resolves. Gates come from the profile first. PATTERNS.md provides code examples executors can mimic.
+**Note:** `.aoforge/codebase/STACK.md` (descriptive, from map-codebase) is evidence; `.aoforge/STACK.md` (prescriptive stack profile) is what `aof-tools stack` resolves. Gates come from the profile first. PATTERNS.md provides code examples executors can mimic.
 </step>
 
 <step name="identify_objective">
 ```bash
-cat .planning/ROADMAP.md
-ls .planning/objectives/
+cat .aoforge/ROADMAP.md
+ls .aoforge/objectives/
 ```
 
 If multiple objectives available, ask which to plan. If obvious (first incomplete), proceed.
@@ -786,7 +786,7 @@ Select top 2-4 objectives. Skip objectives with no relevance signal.
 
 **Step 3 — Read full SUMMARYs for selected objectives:**
 ```bash
-cat .planning/objectives/{selected-objective}/*-SUMMARY.md
+cat .aoforge/objectives/{selected-objective}/*-SUMMARY.md
 ```
 
 From full SUMMARYs extract:
@@ -937,7 +937,7 @@ If `DETECTED == "true"`:
 
 5. **If detected=false:** proceed normally. No Flutter UI fields added; the rest of `break_into_tasks` is unchanged.
 
-6. **Failsafe:** If the detector returns `{ detected: false, error: ... }` (e.g., no pubspec, no .planning/objectives, etc.), treat as detected=false and proceed normally. Do NOT block planning on detector errors.
+6. **Failsafe:** If the detector returns `{ detected: false, error: ... }` (e.g., no pubspec, no .aoforge/objectives, etc.), treat as detected=false and proceed normally. Do NOT block planning on detector errors.
 
 7. **Auto-note the ADVISORY design-review pass (Phase B).** When flutter-ui scope is detected,
    ALSO note an ADVISORY design-review pass for the objective — PARALLEL to the ui-eval visual
@@ -1019,7 +1019,7 @@ Present breakdown with wave structure. Wait for confirmation in interactive mode
 
 <step name="write_objective_prompt">
 Use template structure for each TRD.md. Every TRD goes through a draft and the `plan put-trd` verb — never a Write
-under `.planning/` (in store mode the gate denies it). For each TRD:
+under `.aoforge/` (in store mode the gate denies it). For each TRD:
 
 1. Get a draft path (seeded from the current file when one exists):
    ```bash
@@ -1037,7 +1037,7 @@ After the last TRD of the objective, push them together once:
 node ~/.claude/aoforge/bin/aof-tools.cjs plan push "$OBJECTIVE"
 ```
 
-In local mode `plan put-trd` writes `.planning/objectives/XX-name/{objective}-{NN}-TRD.md` with the draft's bytes and
+In local mode `plan put-trd` writes `.aoforge/objectives/XX-name/{objective}-{NN}-TRD.md` with the draft's bytes and
 `plan push` reports `local mode` and sends nothing; in store mode the TRDs reach the objective's issue. `$DRAFT` stands
 for the path `planning draft` printed — shell variables do not survive between Bash calls, so pass the literal path.
 A non-zero exit from `plan put-trd` means nothing was published: read its message (an over-budget refusal names the
@@ -1056,7 +1056,7 @@ Include all frontmatter fields.
   `node ~/.claude/aoforge/bin/aof-tools.cjs stack resolve` (JSON `frontmatter.gates.task`). For each key run
   `node ~/.claude/aoforge/bin/aof-tools.cjs stack command <key> --raw` (add `--files <comma-list>` from the TRD's `files_modified` when a scoped form helps):
   - non-empty output → that is the gate command, verbatim;
-  - empty output with JSON status `discover` → fall back to the codebase scrape for that key (`.planning/codebase/STACK.md` Commands table, then `TESTING.md`); if nothing is found, list the gate as `not_available` — never invent a command;
+  - empty output with JSON status `discover` → fall back to the codebase scrape for that key (`.aoforge/codebase/STACK.md` Commands table, then `TESTING.md`); if nothing is found, list the gate as `not_available` — never invent a command;
   - status `none` → omit the gate.
   If `stack` is an unknown command (older mirror), use the codebase scrape for every gate, as before.
 - `<recovery>` in tasks: For tasks that modify existing files or could fail, include rollback steps or alternative approaches.
@@ -1111,7 +1111,7 @@ The target section ends at **whichever comes first**:
 
 You **must not** edit any line outside `[start, end)`.
 
-1. Read `.planning/ROADMAP.md` end-to-end. Identify the target section's line range using the boundary rule above. Cite the start and end line numbers in your reasoning so the boundary is auditable.
+1. Read `.aoforge/ROADMAP.md` end-to-end. Identify the target section's line range using the boundary rule above. Cite the start and end line numbers in your reasoning so the boundary is auditable.
 
 2. Within that range, update placeholders:
 
@@ -1134,14 +1134,14 @@ You **must not** edit any line outside `[start, end)`.
 4. **Post-write self-check (CRITICAL — must pass before commit).** After writing, run:
 
    ```bash
-   git diff .planning/ROADMAP.md | grep -E '^[+-]' | grep -v '^[+-]{3}'
+   git diff .aoforge/ROADMAP.md | grep -E '^[+-]' | grep -v '^[+-]{3}'
    ```
 
    Visually inspect every changed line. **Every `+` and `-` line must fall inside the target objective's section** (between its `### Objective {N}:` heading and the next `### Objective`/`## ` heading).
 
    If ANY changed line falls outside the target section:
    - **Do not commit.** The edit went out of bounds.
-   - `git restore .planning/ROADMAP.md` to revert.
+   - `git restore .aoforge/ROADMAP.md` to revert.
    - Re-read the file, recompute the boundary line range, and retry the edit with stricter scoping.
    - If the second attempt also crosses bounds, abort planning with `## PLANNING INCONCLUSIVE` and surface the diff to the orchestrator for human resolution rather than committing corrupted ROADMAP state.
 
@@ -1150,7 +1150,7 @@ You **must not** edit any line outside `[start, end)`.
 
 <step name="git_commit">
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs($OBJECTIVE): create objective TRDs" --files .planning/objectives/$OBJECTIVE-*/$OBJECTIVE-*-TRD.md .planning/ROADMAP.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs($OBJECTIVE): create objective TRDs" --files .aoforge/objectives/$OBJECTIVE-*/$OBJECTIVE-*-TRD.md .aoforge/ROADMAP.md
 ```
 </step>
 

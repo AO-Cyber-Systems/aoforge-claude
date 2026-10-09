@@ -24,12 +24,12 @@ allowed-tools:
 Initialize a new project through unified flow: questioning → research (optional) → requirements → roadmap.
 
 **Creates:**
-- `.planning/PROJECT.md` — project context
-- `.planning/config.json` — workflow preferences
-- `.planning/research/` — domain research (optional)
-- `.planning/REQUIREMENTS.md` — scoped requirements
-- `.planning/ROADMAP.md` — objective structure
-- `.planning/STATE.md` — project memory
+- `.aoforge/PROJECT.md` — project context
+- `.aoforge/config.json` — workflow preferences
+- `.aoforge/research/` — domain research (optional)
+- `.aoforge/REQUIREMENTS.md` — scoped requirements
+- `.aoforge/ROADMAP.md` — objective structure
+- `.aoforge/STATE.md` — project memory
 
 **After this command:** Run `/aoforge:plan-objective 1` to start execution.
 </objective>

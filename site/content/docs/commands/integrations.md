@@ -18,7 +18,7 @@ GitHub is derivative.
 /aoforge:gh-sync 4                   # push one objective's full state
 ```
 
-Opt in via `.planning/config.json`:
+Opt in via `.aoforge/config.json`:
 
 ```json
 {
@@ -80,7 +80,7 @@ See the [UI evaluation guide](/docs/guides/ui-eval/).
 /aoforge:security-audit deps-only
 ```
 
-Standalone — works without `.planning/`. Fans out `security-auditor` agents across
+Standalone — works without `.aoforge/`. Fans out `security-auditor` agents across
 three domains (secrets, auth flows, dependency risk) plus code-level OWASP Top 10
 checks.
 
@@ -96,6 +96,6 @@ remediation work for imaginary problems.
 ```
 
 Parallel `codebase-mapper` agents analyse stack, architecture, quality and
-concerns, writing findings to `.planning/codebase/`. Run this before
+concerns, writing findings to `.aoforge/codebase/`. Run this before
 `/aoforge:new-project` on an existing codebase so the roadmap is grounded in what
 exists. Same `VERIFIED` / `SUSPECTED` confidence tagging as the security audit.

@@ -1,13 +1,13 @@
 ---
 title: "File structure"
 weight: 20
-lede: "Quick lookup: what every file in .planning/ is, and what writes it."
+lede: "Quick lookup: what every file in .aoforge/ is, and what writes it."
 ---
 
 ## Project root
 
 ```text
-.planning/
+.aoforge/
   PROJECT.md              vision, constraints, `kind` on frontmatter
   REQUIREMENTS.md         scoped v1/v2 requirements with stable IDs
   ROADMAP.md              objectives in dependency order, with checkboxes
@@ -80,7 +80,7 @@ Rarely touched, but they explain otherwise-confusing behaviour.
 
 ## Templates
 
-Files copied into `.planning/` by `aof-tools template`:
+Files copied into `.aoforge/` by `aof-tools template`:
 
 | Template | Becomes |
 |---|---|

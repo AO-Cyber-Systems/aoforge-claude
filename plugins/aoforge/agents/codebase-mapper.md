@@ -82,7 +82,7 @@ Explore the codebase thoroughly for your focus area.
 **For tech focus:**
 ```bash
 # Prescriptive stack profile, if the project has one (you describe; STACK.md directs)
-cat .planning/STACK.md 2>/dev/null | head -60
+cat .aoforge/STACK.md 2>/dev/null | head -60
 
 # Package manifests
 ls package.json requirements.txt Cargo.toml go.mod pyproject.toml pubspec.yaml Gemfile build.gradle build.gradle.kts settings.gradle.kts Package.swift 2>/dev/null
@@ -96,7 +96,7 @@ ls .env* 2>/dev/null  # Note existence only, never read contents
 grep -r "import.*stripe\|import.*supabase\|import.*aws\|import.*@" src/ --include="*.ts" --include="*.tsx" 2>/dev/null | head -50
 ```
 
-Record the commands you find (CI `run:` steps, task-runner targets, manifest scripts) in the `## Commands` table of `codebase/STACK.md` — `aof-tools stack init` drafts `.planning/STACK.md` from it.
+Record the commands you find (CI `run:` steps, task-runner targets, manifest scripts) in the `## Commands` table of `codebase/STACK.md` — `aof-tools stack init` drafts `.aoforge/STACK.md` from it.
 
 **For arch focus:**
 ```bash
@@ -140,9 +140,8 @@ Read key files identified during exploration. Use Glob and Grep liberally.
 </step>
 
 <step name="write_documents">
-Write each document to its **draft**, using the templates below — never to `.planning/codebase/`
+Write each document to its **draft**, using the templates below — never to `.aoforge/codebase/`
 directly. Get the draft path with one call per document:
-
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs planning draft codebase/STACK.md
 ```
@@ -151,7 +150,7 @@ It prints an absolute path (outside the repo, seeded from the current map if the
 orchestrator publishes every draft afterwards with `aof-tools doc put codebase/<NAME>.md --from <draft>`,
 one at a time. **Never run `doc put` yourself** — four mappers publishing at once would race.
 
-**Never write `.planning/STACK.md`.** That is the prescriptive stack profile: `aof-tools stack init`
+**Never write `.aoforge/STACK.md`.** That is the prescriptive stack profile: `aof-tools stack init`
 drafts it and the user approves it. Your `codebase/STACK.md` is the descriptive evidence it is drafted from.
 
 **Document naming:** UPPERCASE.md (e.g., STACK.md, ARCHITECTURE.md)

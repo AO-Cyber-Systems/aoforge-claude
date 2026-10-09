@@ -18,7 +18,7 @@ plugins/aoforge/
     ├── bin/lib/*.cjs             aof-tools internals
     ├── workflows/<name>.md       workflow bodies, referenced via @~/.claude/aoforge/...
     ├── references/<name>.md      static docs agents read at runtime
-    └── templates/<name>.md       files copied into user projects' .planning/
+    └── templates/<name>.md       files copied into user projects' .aoforge/
 ```
 
 ## Skills
@@ -79,7 +79,7 @@ Every one carries a `status` on frontmatter:
 execution — TDD posture, git conventions, checkpoint handling, verification
 patterns, anti-patterns, the defaults table.
 
-**Templates** (`aoforge/templates/`) are copied into user projects' `.planning/`
+**Templates** (`aoforge/templates/`) are copied into user projects' `.aoforge/`
 directories by `aof-tools`.
 
 ## The marketplace

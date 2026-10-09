@@ -3,7 +3,7 @@
   "$id": "https://aoforge.aocyber.ai/schemas/stack-profile/v1",
   "schema_version": 1,
   "title": "Stack Profile v1",
-  "description": "Frontmatter of a stack profile: .planning/STACK.md, a component profile under .planning/stacks/, an org/pack profile at ~/.claude/aoforge/stacks/<id>.md, or the bundled references/stack-general.md. See docs/PROPOSAL-stack-profile.md. Only structure is declared here. Cross-field rules (loop/gates reference defined command keys, `extends` resolves, no cycles, `regenerate` names a command) are checked in code by `aof-tools stack validate`, not in this schema, so each rule has one home. The markdown body's fixed H2 sections are also validated in code.",
+  "description": "Frontmatter of a stack profile: .aoforge/STACK.md, a component profile under .aoforge/stacks/, an org/pack profile at ~/.claude/aoforge/stacks/<id>.md, or the bundled references/stack-general.md. See docs/PROPOSAL-stack-profile.md. Only structure is declared here. Cross-field rules (loop/gates reference defined command keys, `extends` resolves, no cycles, `regenerate` names a command) are checked in code by `aof-tools stack validate`, not in this schema, so each rule has one home. The markdown body's fixed H2 sections are also validated in code.",
   "type": "object",
   "required": ["schema", "id"],
   "additionalProperties": false,

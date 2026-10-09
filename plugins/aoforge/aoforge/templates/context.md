@@ -1,10 +1,10 @@
 # Objective Context Template
 
-Template for `.planning/objectives/XX-name/{phase_num}-CONTEXT.md` - captures implementation decisions for an objective.
+Template for `.aoforge/objectives/XX-name/{phase_num}-CONTEXT.md` - captures implementation decisions for an objective.
 
 **Publishing:** fill a draft from `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{phase_num}-CONTEXT.md`,
 then `node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/{phase_num}-CONTEXT.md --from <draft>` — never a direct
-Write under `.planning/` (in local mode `doc put` writes this same file).
+Write under `.aoforge/` (in local mode `doc put` writes this same file).
 
 **Purpose:** Document decisions that downstream agents need. Researcher uses this to know WHAT to investigate. Planner uses this to know WHAT choices are locked vs flexible.
 
@@ -280,7 +280,7 @@ The output should answer: "What does the researcher need to investigate? What ch
 - "Easy to use"
 
 **After creation:**
-- File lives in objective directory: `.planning/objectives/XX-name/{phase_num}-CONTEXT.md`
+- File lives in objective directory: `.aoforge/objectives/XX-name/{phase_num}-CONTEXT.md`
 - `objective-researcher` uses decisions to focus investigation
 - `planner` uses decisions + research to create executable tasks
 - Downstream agents should NOT need to ask the user again about captured decisions

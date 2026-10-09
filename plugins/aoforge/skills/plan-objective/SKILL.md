@@ -49,7 +49,7 @@ Objective number: $ARGUMENTS (optional — auto-detects next unplanned objective
 - `--depth LEVEL` — Override planning depth: `quick | standard | comprehensive`
 - `--model PROFILE` — Override model profile: `quality | balanced | budget`
 
-When any intent override flag is set, the planner persists the override to `.planning/objectives/<id>/OBJECTIVE.md` so future executor runs honor it.
+When any intent override flag is set, the planner persists the override to `.aoforge/objectives/<id>/OBJECTIVE.md` so future executor runs honor it.
 
 Normalize objective input in step 2 before any directory lookups.
 </context>

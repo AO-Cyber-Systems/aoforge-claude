@@ -1,14 +1,14 @@
 ---
-title: "The .planning directory"
+title: "The .aoforge directory"
 weight: 30
 lede: "Every file AOForge creates, who writes it, and who reads it back."
 ---
 
-`.planning/` is the project's memory. It is the reason AOForge survives context
+`.aoforge/` is the project's memory. It is the reason AOForge survives context
 resets: nothing important lives in the conversation.
 
 ```text
-.planning/
+.aoforge/
   PROJECT.md              vision, context, `kind` — loaded on nearly every operation
   REQUIREMENTS.md         scoped v1/v2 requirements with stable IDs
   ROADMAP.md              objectives in dependency order, with checkboxes
@@ -102,11 +102,11 @@ explain otherwise-mysterious behaviour:
 | `.edit-override` | Written by `route-intent` when your prompt contains an override phrase. Single-turn, consumed by the edit gate. |
 | `.gh-mapping.json` | Objective number → GitHub issue number. Commit this. |
 
-## Should .planning be committed?
+## Should .aoforge be committed?
 
 By default, yes — `planning.commit_docs` is `true`. Planning artifacts are project
 documentation, and committing them means the roadmap and decisions are visible in
 review and survive a fresh clone.
 
-For client or sensitive work, set `commit_docs: false` and add `.planning/` to
+For client or sensitive work, set `commit_docs: false` and add `.aoforge/` to
 `.gitignore`. Planning stays local; only code is committed.

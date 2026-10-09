@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { planningDirName } = require('./compat.cjs');
+const { planningDirName, PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 const {
   parseStateMd,
@@ -714,7 +714,7 @@ test('gitignore G1: .gitignore contains .awareness-cache.json line', () => {
     return;
   }
   const content = fs.readFileSync(gitignorePath, 'utf-8');
-  // the line names this repository's planning directory, wherever it is (`.planning/` until 72-21, `.aoforge/` after)
+  // the line names this repository's planning directory, wherever it is (the legacy name until 72-21 moves it, `.aoforge/` after)
   const dir = planningDirName(path.dirname(gitignorePath));
   assert.ok(content.split(/\r?\n/).includes(`${dir}/.awareness-cache.json`), `no ${dir}/.awareness-cache.json line`);
 });
@@ -725,8 +725,14 @@ test('gitignore G2: gitignore line appears exactly once (does not inadvertently 
     return;
   }
   const content = fs.readFileSync(gitignorePath, 'utf-8');
-  const matches = (content.match(/\.awareness-cache\.json/g) || []).length;
-  assert.strictEqual(matches, 1, '.awareness-cache.json appears exactly once in .gitignore');
+  // One line per planning-directory name (TRD 72-06: the legacy line keeps its new twin for one release),
+  // each exactly once, and nothing else names the file.
+  const lines = content.split(/\r?\n/).filter((l) => l.includes('.awareness-cache.json'));
+  assert.deepStrictEqual(
+    lines.sort(),
+    PLANNING_DIR_NAMES.map((dir) => `${dir}/.awareness-cache.json`).sort(),
+    'one .awareness-cache.json line per planning directory name in .gitignore',
+  );
 });
 
 // ─── Group T: templates/config.json documentation ────────────────────────────

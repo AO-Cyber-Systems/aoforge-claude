@@ -31,7 +31,7 @@ Usage:
 </execution_context>
 
 <context>
-@.planning/STATE.md
-@.planning/ROADMAP.md
-@.planning/config.json
+@.aoforge/STATE.md
+@.aoforge/ROADMAP.md
+@.aoforge/config.json
 </context>

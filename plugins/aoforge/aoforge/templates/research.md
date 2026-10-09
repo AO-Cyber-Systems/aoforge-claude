@@ -1,10 +1,10 @@
 # Research Template
 
-Template for `.planning/objectives/XX-name/{phase_num}-RESEARCH.md` - comprehensive ecosystem research before planning.
+Template for `.aoforge/objectives/XX-name/{phase_num}-RESEARCH.md` - comprehensive ecosystem research before planning.
 
 **Publishing:** fill a draft from `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{phase_num}-RESEARCH.md`,
 then `node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/XX-name/{phase_num}-RESEARCH.md --from <draft>` — never a direct
-Write under `.planning/` (in local mode `doc put` writes this same file).
+Write under `.aoforge/` (in local mode `doc put` writes this same file).
 
 **Purpose:** Document what Claude needs to know to implement an objective well - not just "which library" but "how do experts build this."
 
@@ -551,6 +551,6 @@ function useVehicleControls(rigidBodyRef) {
 - Code examples can be referenced in task actions
 
 **After creation:**
-- File lives in objective directory: `.planning/objectives/XX-name/{phase_num}-RESEARCH.md`
+- File lives in objective directory: `.aoforge/objectives/XX-name/{phase_num}-RESEARCH.md`
 - Referenced during planning workflow
 - plan-objective loads it automatically when present

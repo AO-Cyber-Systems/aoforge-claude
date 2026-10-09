@@ -28,7 +28,7 @@ Composes obj 1 (gh chain) + obj 2 (peer awareness) + obj 5 (initiatives) + obj 6
 </objective>
 
 <execution_context>
-@.planning/STATE.md
+@.aoforge/STATE.md
 </execution_context>
 
 <process>

@@ -24,10 +24,10 @@ AOForge asks what you're building, researches the domain, scopes requirements in
 v1 and v2, and writes a roadmap. You will be asked to confirm at three gates
 (project, requirements, roadmap) — that is `gates.confirm_*` doing its job.
 
-When it finishes, `.planning/` exists:
+When it finishes, `.aoforge/` exists:
 
 ```text
-.planning/
+.aoforge/
   PROJECT.md        what you're building and why
   REQUIREMENTS.md   scoped v1/v2 requirements with IDs
   ROADMAP.md        objectives, ordered, with success criteria
@@ -113,5 +113,5 @@ right one is the single biggest lever on cost.
 ## What to read next
 
 - [The loop](/docs/concepts/the-loop/) — what each phase actually produces.
-- [The `.planning` directory](/docs/concepts/planning-directory/) — every file and who writes it.
+- [The `.aoforge` directory](/docs/concepts/planning-directory/) — every file and who writes it.
 - [Commands](/docs/commands/) — the full command surface.

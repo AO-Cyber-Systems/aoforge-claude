@@ -33,7 +33,7 @@ const { GOLDEN, GOLDEN_SHAPES, HAND_ONLY, KEY_ALIASES, EXTRA_ALLOWED } = golden;
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 const REPO_ROOT = path.join(__dirname, '..', '..', '..', '..', '..');
-// this repository's planning tree, wherever it is (`.planning/` until 72-21 moves it, `.aoforge/` after)
+// this repository's planning tree, wherever it is (the legacy name until 72-21 moves it, `.aoforge/` after)
 const OVERRIDES_DIR = path.join(planningRoot(REPO_ROOT), 'objectives', '42-codebase-aware-stack-drafter', 'overrides');
 
 // TRD 42-07: no run/apply may be a comment, flag, `${{ }}`, echo/printf, a `test -f` guard, a control

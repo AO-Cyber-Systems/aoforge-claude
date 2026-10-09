@@ -15,7 +15,7 @@ Read all files referenced by the invoking prompt's execution_context before star
 
 ```bash
 # Find the most recent audit file
-ls -t .planning/v*-MILESTONE-AUDIT.md 2>/dev/null | head -1
+ls -t .aoforge/v*-MILESTONE-AUDIT.md 2>/dev/null | head -1
 ```
 
 Parse YAML frontmatter to extract structured gaps:
@@ -169,7 +169,7 @@ MODE=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning mode)
 ## 7. Revise the REQUIREMENTS.md Traceability Table (REQUIRED)
 
 Make these changes in a draft and publish it with `doc put` (both modes; in local mode it lands on the same
-`.planning/REQUIREMENTS.md`):
+`.aoforge/REQUIREMENTS.md`):
 
 ```bash
 DRAFT=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning draft REQUIREMENTS.md)
@@ -191,19 +191,19 @@ node ~/.claude/aoforge/bin/aof-tools.cjs doc put REQUIREMENTS.md --from "$DRAFT"
 
 ```bash
 # Verify traceability table reflects gap closure assignments
-grep -c "Pending" .planning/REQUIREMENTS.md
+grep -c "Pending" .aoforge/REQUIREMENTS.md
 ```
 
 ## 8. Create Objective Directories
 
 ```bash
-mkdir -p ".planning/objectives/{NN}-{name}"
+mkdir -p ".aoforge/objectives/{NN}-{name}"
 ```
 
 ## 9. Commit Roadmap and Requirements Update
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(roadmap): add gap closure objectives {N}-{M}" --files .planning/ROADMAP.md .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(roadmap): add gap closure objectives {N}-{M}" --files .aoforge/ROADMAP.md .aoforge/REQUIREMENTS.md
 ```
 
 ## 10. Offer Next Steps
@@ -228,7 +228,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(roadmap): add gap closure 
 
 **Also available:**
 - `/aoforge:execute-objective {N}` — if plans already exist
-- `cat .planning/ROADMAP.md` — see updated roadmap
+- `cat .aoforge/ROADMAP.md` — see updated roadmap
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-08T14:22:23.503Z",
+  "generatedAt": "2026-10-09T01:11:09.885Z",
   "version": "2.15.0",
   "packageVersion": "2.15.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
@@ -154,7 +154,7 @@
       "command": "/aoforge:decide",
       "summary": "Resolve a parked decision and resume autonomous execution.",
       "notes": [
-        "Use when you see a pending DECISION-NNN.md in .planning/decisions/pending/, when the user wants to choose an option for a blocked checkpoint:decision, or when you need to tell the executor which option to take."
+        "Use when you see a pending DECISION-NNN.md in .aoforge/decisions/pending/, when the user wants to choose an option for a blocked checkpoint:decision, or when you need to tell the executor which option to take."
       ],
       "triggers": [
         "resolve decision",
@@ -246,7 +246,7 @@
         "committed or left untracked inside a repo, pending migrations, stale markers, guard state,",
         "awareness cache and backups, hook registry drift, and out-of-date model ids. Read-only by",
         "default; `--fix` applies only safe, reversible repairs.",
-        "Use when AOForge behaves oddly, after a plugin update, or when a repo shows .planning runtime",
+        "Use when AOForge behaves oddly, after a plugin update, or when a repo shows .aoforge runtime",
         "files changing."
       ],
       "triggers": [
@@ -1299,7 +1299,7 @@
       "file": "gate-bash-writes.js",
       "name": "gate-bash-writes",
       "group": "Enforcement",
-      "purpose": "Denies a Bash write to a tracked source file in ambient mode (redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv`, inline python/node), the same as Edit/Write. Commands that only mention a write (heredoc bodies, quoted arguments) and writes to `.planning/`, `*.md`, untracked files, paths outside the project and unresolvable targets are never gated. Same escapes as the Edit gate (live skill marker, `aoforge:<name>` agent, override phrase, which only a write that would be gated consumes). Severity is the least of `gates.editGate` and `gates.bashEditGate` (`strict` deny, `warn` ask, `off`). With no `bashEditGate` key the default is `warn`, measured at 633/17,957 = 0.035251 of ambient Bash calls (an upper bound, above the 0.02 threshold), so `strict` is opt-in; `gates.editGate` `warn` softens it to ask and `off` disables it. The env escape works only in the environment Claude Code was launched from, never as an inline command prefix. Needs an installed plugin carrying objective 60.",
+      "purpose": "Denies a Bash write to a tracked source file in ambient mode (redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv`, inline python/node), the same as Edit/Write. Commands that only mention a write (heredoc bodies, quoted arguments) and writes to `.aoforge/`, `*.md`, untracked files, paths outside the project and unresolvable targets are never gated. Same escapes as the Edit gate (live skill marker, `aoforge:<name>` agent, override phrase, which only a write that would be gated consumes). Severity is the least of `gates.editGate` and `gates.bashEditGate` (`strict` deny, `warn` ask, `off`). With no `bashEditGate` key the default is `warn`, measured at 633/17,957 = 0.035251 of ambient Bash calls (an upper bound, above the 0.02 threshold), so `strict` is opt-in; `gates.editGate` `warn` softens it to ask and `off` disables it. The env escape works only in the environment Claude Code was launched from, never as an inline command prefix. Needs an installed plugin carrying objective 60.",
       "escape": "AOFORGE_SKIP_EDIT_GATE=1",
       "events": [
         "PreToolUse (Bash)"
@@ -1323,7 +1323,7 @@
       "file": "gate-edits.js",
       "name": "gate-edits",
       "group": "Enforcement",
-      "purpose": "Strict DENY by default in ambient mode. Allows edits when a live `.planning/.skill-active` marker exists (resolved from both the local and the main checkout, so worktree-isolated agents are not denied by a marker they cannot see), when the PreToolUse payload's `agent_type` is an AOForge agent (`aoforge:<name>`), when the prompt carries an override phrase, or when the env escape is set. Targets outside the project root are never gated. Severity is per-project via `gates.editGate`. Bash writes to the same files are gated by `gate-bash-writes.js`.",
+      "purpose": "Strict DENY by default in ambient mode. Allows edits when a live `.aoforge/.skill-active` marker exists (resolved from both the local and the main checkout, so worktree-isolated agents are not denied by a marker they cannot see), when the PreToolUse payload's `agent_type` is an AOForge agent (`aoforge:<name>`), when the prompt carries an override phrase, or when the env escape is set. Targets outside the project root are never gated. Severity is per-project via `gates.editGate`. Bash writes to the same files are gated by `gate-bash-writes.js`.",
       "escape": "AOFORGE_SKIP_EDIT_GATE=1",
       "events": [
         "PreToolUse (Edit|Write|MultiEdit)"
@@ -1463,7 +1463,7 @@
       "file": "todo-sync.js",
       "name": "todo-sync",
       "group": "Observability",
-      "purpose": "At every Stop, merges the session's `/aoforge:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `aof-tools todo sync`: `.planning/todos/` in local mode, a queued `aoforge:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message (archived, completed, uncommitted todo files, or a failure line), never commits, never blocks, keeps no state and fails open.",
+      "purpose": "At every Stop, merges the session's `/aoforge:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `aof-tools todo sync`: `.aoforge/todos/` in local mode, a queued `aoforge:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message (archived, completed, uncommitted todo files, or a failure line), never commits, never blocks, keeps no state and fails open.",
       "escape": "AOFORGE_SKIP_TODO_SYNC=1",
       "events": [
         "Stop"
@@ -1925,7 +1925,8 @@
       "subcommands": [
         "consistency",
         "health",
-        "docs"
+        "docs",
+        "requirements"
       ]
     },
     {

@@ -6,7 +6,7 @@ Orchestrate parallel security auditor agents to scan codebase for vulnerabilitie
 
 Each agent has fresh context, scans for a specific category of vulnerabilities, and **writes findings directly** to `.security-audit-tmp/`. The orchestrator only receives confirmation + counts, then merges, deduplicates, ranks, and writes the final report.
 
-Output: SECURITY-AUDIT.md (in `.planning/` if exists, otherwise project root).
+Output: SECURITY-AUDIT.md (in `.aoforge/` if exists, otherwise project root).
 </purpose>
 
 <philosophy>
@@ -226,7 +226,7 @@ Continue to write_report.
 <step name="write_report">
 Write the final SECURITY-AUDIT.md to `{output_dir}`.
 
-This report is written directly in every mode. `.planning/SECURITY-AUDIT.md` (or the project root) is not an objective document: planning-paths classifies it as `runtime`, which no verb owns and which `doc put` refuses. When the audit is run for a specific objective, publish a copy as an objective document with `node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/<dir>/<NN>-SECURITY-AUDIT.md --from <report path>`. Local mode writes that file; store mode also queues its wiki page.
+This report is written directly in every mode. `.aoforge/SECURITY-AUDIT.md` (or the project root) is not an objective document: planning-paths classifies it as `runtime`, which no verb owns and which `doc put` refuses. When the audit is run for a specific objective, publish a copy as an objective document with `node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/<dir>/<NN>-SECURITY-AUDIT.md --from <report path>`. Local mode writes that file; store mode also queues its wiki page.
 
 **Report format:**
 

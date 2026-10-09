@@ -19,9 +19,9 @@
 *.keystore
 
 # ---- AOForge runtime ------------------------------------------------
-.planning/.skill-active
-.planning/.cache/
-.planning/.migrate-backup-*/
+.aoforge/.skill-active
+.aoforge/.cache/
+.aoforge/.migrate-backup-*/
 
 # ---- Go -------------------------------------------------------------
 go/bin/

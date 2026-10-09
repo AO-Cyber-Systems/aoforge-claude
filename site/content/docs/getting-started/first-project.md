@@ -4,7 +4,7 @@ weight: 30
 lede: "A closer look at what new-project produces, and how to steer it before it commits to a plan."
 ---
 
-`/aoforge:new-project` is the only command that creates `.planning/` from nothing.
+`/aoforge:new-project` is the only command that creates `.aoforge/` from nothing.
 Everything downstream reads what it writes, so it is worth understanding what
 comes out.
 
@@ -102,7 +102,7 @@ Runs the `objective-researcher` against the objective's domain and writes
 ## Confirmation gates
 
 By default AOForge stops for your confirmation at several points. They are all
-toggleable in `.planning/config.json`:
+toggleable in `.aoforge/config.json`:
 
 ```json
 {
@@ -130,5 +130,5 @@ For client or sensitive work, keep planning artifacts out of git:
 { "planning": { "commit_docs": false } }
 ```
 
-Then add `.planning/` to `.gitignore`. Planning stays local; only code is
+Then add `.aoforge/` to `.gitignore`. Planning stays local; only code is
 committed.

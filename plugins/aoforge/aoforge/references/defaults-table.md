@@ -28,7 +28,7 @@ Machine-readable lookup table mapping every (`kind`, `work`) pair to a recommend
 - `trd_override` — set in TRD frontmatter
 
 **`cell_provenance`** — *table-tier* origin per field, regardless of overrides:
-- `project_table` — `.planning/defaults-table.md` supplied this cell
+- `project_table` — `.aoforge/defaults-table.md` supplied this cell
 - `org_table` — `~/.claude/aoforge/defaults-table.md` supplied this cell
 - `bundled_table` — bundled `references/defaults-table.md` supplied this cell
 - `table_explicit` — test-only path (explicit `tablePath` argument)
@@ -38,7 +38,7 @@ Machine-readable lookup table mapping every (`kind`, `work`) pair to a recommend
 
 **To override (kind, work) cells without forking the plugin:**
 - **Org-wide:** `aof-tools defaults-table init --scope=org` then edit `~/.claude/aoforge/defaults-table.md`
-- **Per-project:** `aof-tools defaults-table init --scope=project` then edit `.planning/defaults-table.md`
+- **Per-project:** `aof-tools defaults-table init --scope=project` then edit `.aoforge/defaults-table.md`
 
 The 3-tier loader (project > org > bundled) merges cell-by-cell — your override file does NOT need to copy all 42 cells. Omitted cells fall through to the next tier.
 

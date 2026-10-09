@@ -22,7 +22,7 @@ Analyze existing codebase using parallel codebase-mapper agents to produce struc
 
 Each mapper agent explores a focus area and **writes its documents to drafts itself** (`aof-tools planning draft codebase/<NAME>.md` prints each path). The orchestrator only receives confirmations, publishes each draft in one sequential pass with `aof-tools doc put codebase/<NAME>.md --from <draft>`, then reads the 8 docs to generate CLAUDE.md with coding rules that Claude Code auto-loads every session.
 
-Output: .planning/codebase/ folder with 8 structured documents + CLAUDE.md at project root.
+Output: .aoforge/codebase/ folder with 8 structured documents + CLAUDE.md at project root.
 </objective>
 
 <execution_context>
@@ -33,7 +33,7 @@ Output: .planning/codebase/ folder with 8 structured documents + CLAUDE.md at pr
 Focus area: $ARGUMENTS (optional - if provided, tells agents to focus on specific subsystem)
 
 **Load project state if exists:**
-Check for .planning/STATE.md - loads context if project already initialized
+Check for .aoforge/STATE.md - loads context if project already initialized
 
 **This command can run:**
 - Before /aoforge:new-project (brownfield codebases) - creates codebase map first
@@ -55,8 +55,8 @@ Check for .planning/STATE.md - loads context if project already initialized
 </when_to_use>
 
 <process>
-1. Check if .planning/codebase/ already exists (ask Refresh / Update / Skip with AskUserQuestion, as map-codebase.md does)
-2. Resolve draft paths (`aof-tools planning draft codebase/<NAME>.md`); nothing is created under `.planning/` by hand
+1. Check if .aoforge/codebase/ already exists (ask Refresh / Update / Skip with AskUserQuestion, as map-codebase.md does)
+2. Resolve draft paths (`aof-tools planning draft codebase/<NAME>.md`); nothing is created under `.aoforge/` by hand
 3. Spawn 4 parallel codebase-mapper agents, each writing drafts only:
    - Agent 1: tech focus → STACK.md, INTEGRATIONS.md drafts
    - Agent 2: arch focus → ARCHITECTURE.md, STRUCTURE.md drafts

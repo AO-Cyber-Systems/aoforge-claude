@@ -24,7 +24,7 @@ Judge the visual correctness of a Flutter UI surface (or whole objective) by cap
 
 Purpose: a `gate: 'binding'` clean pass (real vision comparison, `--judge live`) is the ONLY result that may drop a surface off the verifier's Step 9 human-verification list; a real defect lands as a `gaps:` entry with screenshot evidence regardless of gate. The default `gate: 'advisory'` path (offline label-echo, no network) is a labels lookup for dogfooding and fast iteration — it surfaces defects it can detect from the label, but a clean advisory pass NEVER clears human verification (aodex#485: an unjudged/label-only pass must not be mistaken for a machine-verified one). Standalone-invocable for dogfooding a single surface.
 
-Output: per-state `*.judge.json` + `ui-eval-report.json` under `.planning/objectives/<obj>/evidence/ui_eval/`, plus a verdict rollup.
+Output: per-state `*.judge.json` + `ui-eval-report.json` under `.aoforge/objectives/<obj>/evidence/ui_eval/`, plus a verdict rollup.
 </objective>
 
 <execution_context>
@@ -49,8 +49,8 @@ regardless of how clean its verdict is. An unrecognised `--judge` value is rejec
 error rather than silently falling through to the offline path. This skill consumes that engine;
 it does not re-implement scoring and does not pick a vision model id.
 
-@.planning/STATE.md
-@.planning/ROADMAP.md
+@.aoforge/STATE.md
+@.aoforge/ROADMAP.md
 </context>
 
 <process>

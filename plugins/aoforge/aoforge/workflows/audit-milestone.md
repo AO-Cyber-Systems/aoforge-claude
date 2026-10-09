@@ -106,7 +106,7 @@ For each objective's VERIFICATION.md, extract the expanded requirements table:
 
 For each objective's SUMMARY.md, extract `requirements-completed` from YAML frontmatter:
 ```bash
-for summary in .planning/objectives/*-*/*-SUMMARY.md; do
+for summary in .aoforge/objectives/*-*/*-SUMMARY.md; do
   node ~/.claude/aoforge/bin/aof-tools.cjs summary-extract "$summary" --fields requirements_completed | jq -r '.requirements_completed'
 done
 ```
@@ -134,7 +134,7 @@ For each REQ-ID, determine status using all three sources:
 
 Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`, then produce the report with the content below:
 
-- **Local:** save it as `.planning/v{version}-MILESTONE-AUDIT.md`, as today — `milestone complete` moves it into `milestones/`.
+- **Local:** save it as `.aoforge/v{version}-MILESTONE-AUDIT.md`, as today — `milestone complete` moves it into `milestones/`.
 - **Store:** draft it at the path `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft milestones/v{version}-MILESTONE-AUDIT.md` prints, then publish it with `node ~/.claude/aoforge/bin/aof-tools.cjs doc put milestones/v{version}-MILESTONE-AUDIT.md --from "$DRAFT"`.
 
 ```yaml
@@ -192,7 +192,7 @@ Output this markdown directly (not as a code block). Route based on status:
 ## ✓ Milestone {version} — Audit Passed
 
 **Score:** {N}/{M} requirements satisfied
-**Report:** .planning/v{version}-MILESTONE-AUDIT.md
+**Report:** .aoforge/v{version}-MILESTONE-AUDIT.md
 
 All requirements covered. Cross-objective integration verified. E2E flows complete.
 
@@ -215,7 +215,7 @@ All requirements covered. Cross-objective integration verified. E2E flows comple
 ## ⚠ Milestone {version} — Gaps Found
 
 **Score:** {N}/{M} requirements satisfied
-**Report:** .planning/v{version}-MILESTONE-AUDIT.md
+**Report:** .aoforge/v{version}-MILESTONE-AUDIT.md
 
 ### Unsatisfied Requirements
 
@@ -246,7 +246,7 @@ All requirements covered. Cross-objective integration verified. E2E flows comple
 ───────────────────────────────────────────────────────────────
 
 **Also available:**
-- cat .planning/v{version}-MILESTONE-AUDIT.md — see full report
+- cat .aoforge/v{version}-MILESTONE-AUDIT.md — see full report
 - /aoforge:milestone complete {version} — proceed anyway (accept tech debt)
 
 ───────────────────────────────────────────────────────────────
@@ -258,7 +258,7 @@ All requirements covered. Cross-objective integration verified. E2E flows comple
 ## ⚡ Milestone {version} — Tech Debt Review
 
 **Score:** {N}/{M} requirements satisfied
-**Report:** .planning/v{version}-MILESTONE-AUDIT.md
+**Report:** .aoforge/v{version}-MILESTONE-AUDIT.md
 
 All requirements met. No critical blockers. Accumulated tech debt needs review.
 

@@ -59,7 +59,7 @@ Statuses: adopted (a shipped flow, agent or hook uses it; Where says where) · p
 | `WebFetch` | partial | `plugins/aoforge/agents/objective-researcher.md`, `plugins/aoforge/agents/planner.md` | pre-62 | Declared by 3 agents and plan-objective; the prose names it only in the declaration. |
 | `WebSearch` | adopted | `plugins/aoforge/agents/objective-researcher.md`, `plugins/aoforge/skills/research-objective/SKILL.md` | pre-62 | A named tier in the researchers' source hierarchy (Context7, official docs, WebSearch). |
 | `Workflow` | not adopted | | | The word in the tree is AOForge's own `workflows/` prompt files, not this tool. |
-| `Write` | adopted | `plugins/aoforge/agents/executor.md`, `plugins/aoforge/skills/build/SKILL.md` | pre-62 | Declared by 21 skills and 10 agents; under `.planning/` it is replaced by the planning verbs in store mode. |
+| `Write` | adopted | `plugins/aoforge/agents/executor.md`, `plugins/aoforge/skills/build/SKILL.md` | pre-62 | Declared by 21 skills and 10 agents; under `.aoforge/` it is replaced by the planning verbs in store mode. |
 
 ## Hook events
 

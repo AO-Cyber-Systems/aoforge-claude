@@ -65,7 +65,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs --cwd "$TARGET" adopt begin
 ```
 
 This is idempotent — safe to re-run on `resume`. It creates the `aoforge/adopt` branch and its
-marker. Then start the skill marker so `.planning/` edits are allowed for the rest of this run:
+marker. Then start the skill marker so `.aoforge/` edits are allowed for the rest of this run:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs --cwd "$TARGET" skill-active --start adopt
@@ -89,7 +89,7 @@ and the manifest files, then produce two files.
 
 **PROJECT.md** — draft it at the path `node ~/.claude/aoforge/bin/aof-tools.cjs --cwd "$TARGET" planning draft PROJECT.md`
 prints, then publish it with `node ~/.claude/aoforge/bin/aof-tools.cjs --cwd "$TARGET" doc put PROJECT.md --from "$DRAFT"`
-(local mode, the normal case for adopt: that stores the draft's bytes as `$TARGET/.planning/PROJECT.md`).
+(local mode, the normal case for adopt: that stores the draft's bytes as `$TARGET/.aoforge/PROJECT.md`).
 Frontmatter `kind` and `default_work`, then these sections:
 `## What This Is`, `## Core Value`, `## Requirements` (with `### Validated`, `### Active`,
 `### Out of Scope`), `## Constraints`.
@@ -116,7 +116,7 @@ Frontmatter `kind` and `default_work`, then these sections:
 Confidence: `high` — one rule matched with direct evidence. `medium` — two plausible rules.
 `low` — best guess, no strong signal.
 
-**`$TARGET/.planning/.adopt-inferences.json`** — a JSON array of `{field, value, confidence,
+**`$TARGET/.aoforge/.adopt-inferences.json`** — a JSON array of `{field, value, confidence,
 evidence}`, one entry each for `kind`, `default_work`, `core_value`, every `### Validated` item,
 and every `## Constraints` entry.
 
@@ -137,7 +137,7 @@ Continue to `confirm_stack_profile`.
 </step>
 
 <step name="confirm_stack_profile">
-Best-effort: confirm the drafted `.planning/STACK.md` against the code with the gopls/dart MCP
+Best-effort: confirm the drafted `.aoforge/STACK.md` against the code with the gopls/dart MCP
 tools when this session has them. `.mcp.json` servers need approval and a session restart, so
 their absence is normal — never block on them, never install anything.
 
@@ -154,7 +154,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs --cwd "$TARGET" stack verify --run --ra
 ```
 
 5. Record each discrepancy as one `{field, value, confidence, evidence}` entry appended to
-   `$TARGET/.planning/.adopt-inferences.json` — confidence `medium` (a failing key, a layout
+   `$TARGET/.aoforge/.adopt-inferences.json` — confidence `medium` (a failing key, a layout
    mismatch) or `low` (advisory) — so it lands in the report's needs-review rows.
    NEVER edit STACK.md silently: this step only records findings. A gate skipped `env_required`
    (it needs a database or other service) is a finding too: record it as a `low` confidence entry,
@@ -220,8 +220,8 @@ Report, in plain text:
 
 - The branch (`aoforge/adopt`) and the commit sha:
   `git -C "$TARGET" rev-parse --short HEAD`.
-- The needs-review count from `.planning/ADOPT-REPORT.md`.
-- "Review `.planning/ADOPT-REPORT.md`, then `git switch <base_branch> && git merge aoforge/adopt`.
+- The needs-review count from `.aoforge/ADOPT-REPORT.md`.
+- "Review `.aoforge/ADOPT-REPORT.md`, then `git switch <base_branch> && git merge aoforge/adopt`.
   Nothing was pushed."
 
 End workflow.
@@ -234,7 +234,7 @@ End workflow.
 - The `new-project` and `upgrade` routes stop without scaffolding a second time.
 - A fresh or resumed `adopt` route produces exactly one recorded change on `aoforge/adopt`, with
   PROJECT.md, the codebase maps, STACK.md, config/STATE/ROADMAP, the CLAUDE.md block, and
-  `.planning/ADOPT-REPORT.md` all present.
+  `.aoforge/ADOPT-REPORT.md` all present.
 - Never asks the user anything, anywhere in the run.
-- `.planning/.skill-active` is never part of the committed file list.
+- `.aoforge/.skill-active` is never part of the committed file list.
 </success_criteria>

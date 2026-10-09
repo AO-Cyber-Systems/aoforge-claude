@@ -16,7 +16,7 @@ Parse `$ARGUMENTS` as `$DESCRIPTION`. If empty, ask in plain text: "One-line des
 node ~/.claude/aoforge/bin/aof-tools.cjs micro start "$DESCRIPTION" --raw
 ```
 
-Parse JSON: `next_num`, `slug`. The `.planning/.skill-active` marker is written here — gate-edits.js will now allow edits. If `ok: false`, surface the error and abort.
+Parse JSON: `next_num`, `slug`. The `.aoforge/.skill-active` marker is written here — gate-edits.js will now allow edits. If `ok: false`, surface the error and abort.
 
 Display: `AOF ► MICRO #${next_num}: ${DESCRIPTION}`
 

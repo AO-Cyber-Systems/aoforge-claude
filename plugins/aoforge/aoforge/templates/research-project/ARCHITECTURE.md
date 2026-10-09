@@ -1,6 +1,6 @@
 # Architecture Research Template
 
-Template for `.planning/research/ARCHITECTURE.md` — system structure patterns for the project domain.
+Template for `.aoforge/research/ARCHITECTURE.md` — system structure patterns for the project domain.
 
 <template>
 

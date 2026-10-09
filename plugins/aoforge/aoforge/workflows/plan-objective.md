@@ -52,7 +52,7 @@ Extract from $ARGUMENTS: objective number (integer or decimal like `2.1`), flags
 - `--depth <level>` — Override planning depth: `quick | standard | comprehensive`.
 - `--model <profile>` — Override model profile: `quality | balanced | budget`.
 
-If any of these flags are present, record a corresponding `overrides:` block in the objective's OBJECTIVE.md so the override persists for future executor runs (not just this planning invocation). Edit a draft (seeded from the current OBJECTIVE.md) and publish it — never a direct Write under `.planning/`:
+If any of these flags are present, record a corresponding `overrides:` block in the objective's OBJECTIVE.md so the override persists for future executor runs (not just this planning invocation). Edit a draft (seeded from the current OBJECTIVE.md) and publish it — never a direct Write under `.aoforge/`:
 ```bash
 DRAFT=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning draft "objectives/${padded_objective}-${objective_slug}/OBJECTIVE.md")
 node ~/.claude/aoforge/bin/aof-tools.cjs objective put "${objective_number}" --from "$DRAFT"
@@ -63,7 +63,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs objective put "${objective_number}" --f
 
 **If `objective_found` is false:** Validate objective exists in ROADMAP.md (a read). If valid, make the directory with `mkdir -p` using `objective_slug` and `padded_objective` from init:
 ```bash
-mkdir -p ".planning/objectives/${padded_objective}-${objective_slug}"
+mkdir -p ".aoforge/objectives/${padded_objective}-${objective_slug}"
 ```
 
 **Existing artifacts from init:** `has_research`, `has_jobs` (covers TRD + JOB files), `job_count`.
@@ -194,7 +194,7 @@ If context/preferences exist below, they contain user decisions.
 </additional_context>
 
 <output>
-Publish `objectives/<dir>/{padded_objective}-RESEARCH.md` (relative to `.planning/`; `<dir>` is the last segment of
+Publish `objectives/<dir>/{padded_objective}-RESEARCH.md` (relative to `.aoforge/`; `<dir>` is the last segment of
 {objective_dir}) as your Step 5 says: `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft <that path>`, Write the
 draft, then `node ~/.claude/aoforge/bin/aof-tools.cjs doc put <that path> --from <draft>`.
 </output>
@@ -311,7 +311,7 @@ AskUserQuestion(
     question: "Detected duplicate-work overlap with peer session(s). How do you want to resolve?",
     options: [
       { label: "Merge",      description: "Abort planning. Switch to peer branch and continue there." },
-      { label: "Defer",      description: "Save planning state to .planning/.deferred/. Resume later." },
+      { label: "Defer",      description: "Save planning state to .aoforge/.deferred/. Resume later." },
       { label: "Coordinate", description: "Continue planning. Add Coordination Note to CONTEXT.md naming the peer." },
       { label: "Proceed",    description: "Continue with full warning. Likely merge conflicts at commit time." }
     ],
@@ -445,8 +445,8 @@ fi
 # loads from ~/.claude/aoforge/initiatives/, filters by PROJECT.md::github_repo,
 # returns formatted markdown bounded by MAX_FORMATTED_PLANNER_CHARS per initiative.
 PROJECT_GITHUB_REPO=""
-if [[ -f .planning/PROJECT.md ]]; then
-  PROJECT_GITHUB_REPO=$(awk '/^github_repo:/ { print $2; exit }' .planning/PROJECT.md | tr -d '"')
+if [[ -f .aoforge/PROJECT.md ]]; then
+  PROJECT_GITHUB_REPO=$(awk '/^github_repo:/ { print $2; exit }' .aoforge/PROJECT.md | tr -d '"')
 fi
 INITIATIVES=""
 if [[ -n "$PROJECT_GITHUB_REPO" ]]; then
@@ -899,14 +899,14 @@ this block is strictly conditional on the gate being on.
 ───────────────────────────────────────────────────────────────
 
 **Also available:**
-- cat .planning/objectives/{objective-dir}/*-TRD.md — review plans
+- cat .aoforge/objectives/{objective-dir}/*-TRD.md — review plans
 - /aoforge:plan-objective {X} --research — re-research first
 
 ───────────────────────────────────────────────────────────────
 </offer_next>
 
 <success_criteria>
-- [ ] .planning/ directory validated
+- [ ] .aoforge/ directory validated
 - [ ] Objective validated against roadmap
 - [ ] Objective directory created if needed
 - [ ] CONTEXT.md loaded early (step 4) and passed to ALL agents

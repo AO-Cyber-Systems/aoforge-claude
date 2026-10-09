@@ -82,7 +82,7 @@ aof-tools workstreams reconcile
 
 Planning state was updated inside each worktree. Reconcile merges those updates —
 roadmap checkboxes, `STATE.md` decisions, summaries — back into the main
-checkout's `.planning/`.
+checkout's `.aoforge/`.
 
 Follow it with a consistency check:
 

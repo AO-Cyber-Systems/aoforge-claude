@@ -4,7 +4,7 @@ weight: 10
 lede: "The full workflow configuration schema, field by field, with the defaults AOForge ships."
 ---
 
-`.planning/config.json` is created by `/aoforge:new-project` and edited by
+`.aoforge/config.json` is created by `/aoforge:new-project` and edited by
 `/aoforge:settings`. You can also edit it directly.
 
 ## The shipped defaults
@@ -123,7 +123,7 @@ legacy convenience and approves without evidence at all.
 
 | Field | Default | Effect |
 |---|---|---|
-| `commit_docs` | `true` | Commit `.planning/` artifacts. Set `false` plus a `.gitignore` entry for sensitive work. |
+| `commit_docs` | `true` | Commit `.aoforge/` artifacts. Set `false` plus a `.gitignore` entry for sensitive work. |
 | `search_gitignored` | `false` | Let agents search gitignored paths. |
 
 ## parallelization

@@ -92,7 +92,7 @@ For each objective, extract what it provides and what it should consume.
 
 ```bash
 # Key exports from each objective
-for summary in .planning/objectives/*/*-SUMMARY.md; do
+for summary in .aoforge/objectives/*/*-SUMMARY.md; do
   echo "=== $summary ==="
   grep -A 10 "Key Files\|Exports\|Provides" "$summary" 2>/dev/null
 done

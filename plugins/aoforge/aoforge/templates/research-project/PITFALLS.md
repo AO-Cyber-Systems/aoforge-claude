@@ -1,6 +1,6 @@
 # Pitfalls Research Template
 
-Template for `.planning/research/PITFALLS.md` — common mistakes to avoid in the project domain.
+Template for `.aoforge/research/PITFALLS.md` — common mistakes to avoid in the project domain.
 
 <template>
 

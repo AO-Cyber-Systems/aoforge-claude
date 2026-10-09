@@ -557,6 +557,42 @@ function rewritePlanning(text, rel = '', opts = {}) {
 
 const isBinary = (buf) => buf.includes(0);
 
+// Ignore regions (TRD 72-06): the lines from an ignore-start marker through the next ignore-end marker are
+// never rewritten, by either pass. CLAUDE.md's transition note names the live legacy runtime on purpose; the
+// rename guard (rename-guard.repo.test.cjs) skips the same lines. Built from parts so this file holds no marker.
+const IGNORE_START = ['rename-guard', 'ignore-start'].join(':');
+const IGNORE_END = ['rename-guard', 'ignore-end'].join(':');
+
+/**
+ * Swap every line inside an ignore region for a placeholder that no rule matches, one per line, so line
+ * numbers (residuals) stay true. Returns the masked text and the saved lines; an unclosed region throws.
+ */
+function maskIgnoreRegions(text) {
+  if (!text.includes(IGNORE_START) && !text.includes(IGNORE_END)) return { text, saved: [] };
+  const lines = text.split('\n');
+  const saved = [];
+  let open = false;
+  for (let i = 0; i < lines.length; i++) {
+    const hasStart = lines[i].includes(IGNORE_START);
+    const hasEnd = lines[i].includes(IGNORE_END);
+    if (!open && !hasStart) {
+      if (hasEnd) throw new Error(`${IGNORE_END} without ${IGNORE_START} at line ${i + 1}`);
+      continue;
+    }
+    if (!open) open = !hasEnd;
+    else if (hasEnd) open = false;
+    saved.push(lines[i]);
+    lines[i] = `\u0000I${saved.length - 1}\u0000`;
+  }
+  if (open) throw new Error(`unclosed ${IGNORE_START}`);
+  return { text: lines.join('\n'), saved };
+}
+
+function restoreIgnoreRegions(text, saved) {
+  if (!saved.length) return text;
+  return text.replace(/\u0000I(\d+)\u0000/g, (_, n) => saved[Number(n)]);
+}
+
 /**
  * Rewrite one file's content for `rules` ('names' | 'planning').
  * `skipped` is 'skip' (policy), 'binary' (NUL byte or not UTF-8) or null.
@@ -567,8 +603,10 @@ function processFile(rel, buf, rules, opts = {}) {
   if (isBinary(buf)) return { skipped: 'binary', ...none };
   const text = buf.toString('utf8');
   if (!Buffer.from(text, 'utf8').equals(buf)) return { skipped: 'binary', ...none };
-  const r = rules === 'planning' ? rewritePlanning(text, rel, opts) : rewriteNames(text, rel);
-  return { skipped: null, changed: r.text !== text, text: r.text, count: r.count, residuals: r.residuals };
+  const masked = maskIgnoreRegions(text);
+  const r = rules === 'planning' ? rewritePlanning(masked.text, rel, opts) : rewriteNames(masked.text, rel);
+  const out = restoreIgnoreRegions(r.text, masked.saved);
+  return { skipped: null, changed: out !== text, text: out, count: r.count, residuals: r.residuals };
 }
 
 // ─── classifyToken ───────────────────────────────────────────────────────────

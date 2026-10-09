@@ -1,10 +1,10 @@
 # Debug Template
 
-Template for `.planning/debug/[slug].md` — active debug session tracking.
+Template for `.aoforge/debug/[slug].md` — active debug session tracking.
 
 The session is kept in a draft (`aof-tools planning draft debug/[slug].md`) and saved with
 `aof-tools debug put [slug] --from <draft>`; it is archived with `aof-tools debug resolve [slug]`. Never write or move
-the `.planning/debug/` file directly. With `github.store` on the session is a debug GitHub issue.
+the `.aoforge/debug/` file directly. With `github.store` on the session is a debug GitHub issue.
 
 ---
 
@@ -136,7 +136,7 @@ every hypothesis.
 
 **On resolution:**
 - status → "resolved", saved with `debug put`
-- `aof-tools debug resolve [slug]` moves it to `.planning/debug/resolved/` (store mode: closes the issue)
+- `aof-tools debug resolve [slug]` moves it to `.aoforge/debug/resolved/` (store mode: closes the issue)
 
 </lifecycle>
 

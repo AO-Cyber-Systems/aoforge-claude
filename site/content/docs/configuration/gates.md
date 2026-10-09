@@ -64,7 +64,7 @@ Only `gate-edits` has a severity dial:
 ```
 
 Use `warn` on a repository where you frequently work outside AOForge but still
-want the reminder. Use `off` for a repository that has `.planning/` for historical
+want the reminder. Use `off` for a repository that has `.aoforge/` for historical
 reasons but is not actively driven by AOForge.
 
 ## Logging an override

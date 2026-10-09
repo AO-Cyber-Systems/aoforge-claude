@@ -99,11 +99,11 @@ Extract from init JSON: `executor_model`, `commit_docs`, `objective_dir`, `trds`
 
 Also read STATE.md for position, decisions, blockers:
 ```bash
-cat .planning/STATE.md 2>/dev/null
+cat .aoforge/STATE.md 2>/dev/null
 ```
 
-If STATE.md missing but .planning/ exists: offer to reconstruct or continue without.
-If .planning/ missing: Error — project not initialized.
+If STATE.md missing but .aoforge/ exists: offer to reconstruct or continue without.
+If .aoforge/ missing: Error — project not initialized.
 
 **Stack profile (load once):**
 ```bash
@@ -128,11 +128,11 @@ pwd
 
 The repo root is read here, at the repo root, and both values are worth noting down as literal absolute paths (they will not survive into the next Bash call — that is why nothing above assigns them to a variable); every evidence path below is absolute from `$REPO_ROOT`, never `$OLDPWD` (in this harness the working directory persists across Bash tool calls while shell state does not, so `$OLDPWD` is never a reliable repo root). `PACKAGE_DIR` is read straight from `.packageDir` with no further resolution — `aof-tools verify flutter-ui-bootstrap`'s `packageDir` is already absolute per the W0-4 contract, so re-deriving it (e.g. `cd "$REPO_ROOT/$PACKAGE_DIR" && pwd`) would be redundant.
 
-Every flutter/maestro/adb command in this agent runs from `$PACKAGE_DIR` **in a subshell** — `( cd "$PACKAGE_DIR" && <cmd> )` — never a bare `cd "$PACKAGE_DIR" && <cmd>`. The working directory of the session stays the repo root: the harness persists cwd across Bash tool calls, and `.planning/` paths (marker, evidence, `aof-tools` state) resolve from cwd, so a leaked `cd` breaks every later call. Evidence `mv`/`--output` targets are absolute from `$REPO_ROOT`; the `.planning/` marker and evidence paths stay at the repo root.
+Every flutter/maestro/adb command in this agent runs from `$PACKAGE_DIR` **in a subshell** — `( cd "$PACKAGE_DIR" && <cmd> )` — never a bare `cd "$PACKAGE_DIR" && <cmd>`. The working directory of the session stays the repo root: the harness persists cwd across Bash tool calls, and `.aoforge/` paths (marker, evidence, `aof-tools` state) resolve from cwd, so a leaked `cd` breaks every later call. Evidence `mv`/`--output` targets are absolute from `$REPO_ROOT`; the `.aoforge/` marker and evidence paths stay at the repo root.
 
 Shell variables do NOT persist across Bash tool calls either, so `$REPO_ROOT`, `$PACKAGE_DIR`, and `$OBJECTIVE_DIR` in the examples below are placeholders for a single call. `$OBJECTIVE_DIR` comes from `objective_dir` in the `init execute-objective` JSON (extracted above at agent start) — it does not survive into later calls any more than the other two do. Each Bash call must do one of:
 
-1. **Preferred (cheaper): substitute the literal absolute paths** you learned at bootstrap — write `( cd /abs/path/to/flutter && flutter test ... )` and `mv /abs/path/to/flutter/build/... /abs/repo/.planning/...` directly. No re-derivation, no extra process.
+1. **Preferred (cheaper): substitute the literal absolute paths** you learned at bootstrap — write `( cd /abs/path/to/flutter && flutter test ... )` and `mv /abs/path/to/flutter/build/... /abs/repo/.aoforge/...` directly. No re-derivation, no extra process.
 2. Re-derive at the top of the call: `REPO_ROOT=$(git rev-parse --show-toplevel)`, `PACKAGE_DIR=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify flutter-ui-bootstrap . --raw | jq -r .packageDir)`, and `OBJECTIVE_DIR=$(node ~/.claude/aoforge/bin/aof-tools.cjs init execute-objective "$OBJECTIVE" | jq -r .objective_dir)`.
 
 Never assume a variable set in an earlier call is still defined.
@@ -156,7 +156,7 @@ through `jq` into a shell variable would only lose it at the end of that Bash ca
 # The missing items are the `.missing` array in the detector output above — quote them
 # into the message you return. `$MISSING` from an earlier call no longer exists here.
 echo "EXECUTOR HARD FAIL: Flutter UI bootstrap infra missing after marker set."
-echo "Restore the missing infra OR delete .planning/.flutter-ui-bootstrap-done to re-run bootstrap."
+echo "Restore the missing infra OR delete .aoforge/.flutter-ui-bootstrap-done to re-run bootstrap."
 # harness: expect-exit 1
 exit 1
 ```
@@ -238,7 +238,7 @@ For each task:
 
 ## Progress checkpoint (after every task)
 
-Every task commit leaves a resumable trail. You never put the SUMMARY under `.planning/` with Write or Edit: you work on a draft and publish it with a verb. At the first task, get the draft path once:
+Every task commit leaves a resumable trail. You never put the SUMMARY under `.aoforge/` with Write or Edit: you work on a draft and publish it with a verb. At the first task, get the draft path once:
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md
@@ -250,8 +250,8 @@ It prints an absolute path outside the project, seeded from the current SUMMARY 
 node ~/.claude/aoforge/bin/aof-tools.cjs summary checkpoint {objective}-{trd} --from <draft path>
 ```
 
-- **Local mode:** the checkpoint lands at the TRD's output path (`.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`) in the checkout you are standing in, byte for byte as before. In a worktree that is YOUR worktree, so you commit it on your own branch and the wave merge delivers it. Nothing is written to the main checkout. (A worktree with no `.planning/`, because planning is untracked, falls back to the main checkout.)
-- **Store mode:** it lands in the runtime file `.planning/.trd-progress/{objective}-{trd}.md` and nothing reaches GitHub. A comment per task would spend GitHub's per-minute rate budget; `summary post` is the single GitHub post per TRD. From a worktree this is still the MAIN checkout's gitignored cache: the journal, ledger and outbox are single-writer files there.
+- **Local mode:** the checkpoint lands at the TRD's output path (`.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md`) in the checkout you are standing in, byte for byte as before. In a worktree that is YOUR worktree, so you commit it on your own branch and the wave merge delivers it. Nothing is written to the main checkout. (A worktree with no `.aoforge/`, because planning is untracked, falls back to the main checkout.)
+- **Store mode:** it lands in the runtime file `.aoforge/.trd-progress/{objective}-{trd}.md` and nothing reaches GitHub. A comment per task would spend GitHub's per-minute rate budget; `summary post` is the single GitHub post per TRD. From a worktree this is still the MAIN checkout's gitignored cache: the journal, ledger and outbox are single-writer files there.
 - task_commit_protocol says when the SUMMARY joins the task commit.
 
 The draft's `## Progress` section looks like this:
@@ -285,12 +285,12 @@ A resume is not a restart. Redoing a committed task duplicates its commit, and t
 
 **Task gates (before each commit).** Same procedure for each key in `gates.task`; results go in the SUMMARY "Validation Gate Results" table. A gate you could not run is `not_available`, never PASS.
 
-**Discovered commands.** Any command you discovered (because the profile said `discover`) goes in the SUMMARY `## Discovered commands` section. Never write `.planning/STACK.md` yourself — the user reviews the proposals in SUMMARY and adopts them.
+**Discovered commands.** Any command you discovered (because the profile said `discover`) goes in the SUMMARY `## Discovered commands` section. Never write `.aoforge/STACK.md` yourself — the user reviews the proposals in SUMMARY and adopts them.
 
 <store_mode>
-In store mode (`node ~/.claude/aoforge/bin/aof-tools.cjs planning mode` prints `store`), `.planning/` is a read-only cache of GitHub. The edit gate denies Edit and Write there, and its message names the verb to use. Draft with `planning draft` and publish with the verb.
+In store mode (`node ~/.claude/aoforge/bin/aof-tools.cjs planning mode` prints `store`), `.aoforge/` is a read-only cache of GitHub. The edit gate denies Edit and Write there, and its message names the verb to use. Draft with `planning draft` and publish with the verb.
 A denial that names a verb means this prompt sent you to the cache: report it in the SUMMARY's deviations as a prompt defect. Do not route around it.
-Local mode (`planning mode` prints `local`) uses the same verbs, which put the same `.planning/` files in place as before. Never skip a verb because the project is local.
+Local mode (`planning mode` prints `local`) uses the same verbs, which put the same `.aoforge/` files in place as before. Never skip a verb because the project is local.
 </store_mode>
 
 ## Flutter UI per-task verification (REQ-10-04)
@@ -307,26 +307,26 @@ The baseline lives in a file, not a shell variable — task START and task END a
 # At task START (capture baseline to a file under the evidence dir)
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-mkdir -p "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/
+mkdir -p "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
 # harness: derive PACKAGE_DIR={root}/flutter
-# harness: expect .planning/objectives/34-demo/evidence/analyze-baseline.txt
-( cd "$PACKAGE_DIR" && flutter analyze --no-pub --no-fatal-warnings 2>&1 | sort ) > "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/analyze-baseline.txt
+# harness: expect .aoforge/objectives/34-demo/evidence/analyze-baseline.txt
+( cd "$PACKAGE_DIR" && flutter analyze --no-pub --no-fatal-warnings 2>&1 | sort ) > "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/analyze-baseline.txt
 
 # At task END: the CURRENT output goes to a SECOND FILE, not a shell variable. Task START
 # and task END are separate Bash calls, so `$CURRENT_ANALYZE` would not exist by now.
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
 # harness: derive PACKAGE_DIR={root}/flutter
-# harness: expect .planning/objectives/34-demo/evidence/analyze-current.txt
-( cd "$PACKAGE_DIR" && flutter analyze --no-pub --no-fatal-warnings 2>&1 | sort ) > "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/analyze-current.txt
+# harness: expect .aoforge/objectives/34-demo/evidence/analyze-current.txt
+( cd "$PACKAGE_DIR" && flutter analyze --no-pub --no-fatal-warnings 2>&1 | sort ) > "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/analyze-current.txt
 
 # One call compares the two FILES. `grep` exits 1 when there is nothing new, which is the
 # PASSING case, so the `||` branch reports it; read the result from the tool output.
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-diff "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/analyze-baseline.txt "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/analyze-current.txt | grep '^>' || echo "OK: no new flutter analyze warnings"
+diff "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/analyze-baseline.txt "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/analyze-current.txt | grep '^>' || echo "OK: no new flutter analyze warnings"
 ```
 
 Any line the comparison prints is a warning this task introduced: apply deviation Rules 1-3
@@ -364,7 +364,7 @@ After ALL tasks complete (before final commit + SUMMARY), if TRD has `type: ui` 
 ```bash
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-mkdir -p "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/
+mkdir -p "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/
 ```
 
 **Per-platform integration_test + Maestro invocations:**
@@ -383,8 +383,8 @@ Read `platform:` from TRD frontmatter (default `[mobile, web]` per TRD 10-03's p
 # harness: derive PACKAGE_DIR={root}/flutter
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-# harness: expect .planning/objectives/34-demo/evidence/shot.png
-mv "$PACKAGE_DIR"/build/integration_test_screenshots/* "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true
+# harness: expect .aoforge/objectives/34-demo/evidence/shot.png
+mv "$PACKAGE_DIR"/build/integration_test_screenshots/* "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true
 
 # Build + install app for Maestro:
 # harness: derive PACKAGE_DIR={root}/flutter
@@ -399,16 +399,16 @@ mv "$PACKAGE_DIR"/build/integration_test_screenshots/* "$REPO_ROOT"/.planning/ob
 # harness: derive PACKAGE_DIR={root}/flutter
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-# harness: expect .planning/objectives/34-demo/evidence/maestro.xml
+# harness: expect .aoforge/objectives/34-demo/evidence/maestro.xml
 ( cd "$PACKAGE_DIR" && maestro test .maestro/ \
   --format junit \
-  --output "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/maestro.xml )
+  --output "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/maestro.xml )
 
 # Maestro screenshots — source is already absolute (~), destination is absolute from $REPO_ROOT:
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-# harness: expect .planning/objectives/34-demo/evidence/flow-1.png
-mv ~/.maestro/tests/*/screenshots/* "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true
+# harness: expect .aoforge/objectives/34-demo/evidence/flow-1.png
+mv ~/.maestro/tests/*/screenshots/* "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true
 ```
 
 **If `maestro` is not installed:** Emit a checkpoint. Do not silently skip. Install: `curl -fsSL "https://get.maestro.dev" | bash`.
@@ -438,8 +438,8 @@ pgrep chromedriver >/dev/null || { echo "CHECKPOINT: Start chromedriver --port=4
 # harness: derive PACKAGE_DIR={root}/flutter
 # harness: derive REPO_ROOT={root}
 # harness: derive OBJECTIVE_DIR=34-demo
-# harness: expect .planning/objectives/34-demo/evidence/web-shot.png
-mv "$PACKAGE_DIR"/build/integration_test_screenshots/* "$REPO_ROOT"/.planning/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true
+# harness: expect .aoforge/objectives/34-demo/evidence/web-shot.png
+mv "$PACKAGE_DIR"/build/integration_test_screenshots/* "$REPO_ROOT"/.aoforge/objectives/$OBJECTIVE_DIR/evidence/ 2>/dev/null || true
 
 # NO MAESTRO ON WEB — Maestro is mobile-only BY DESIGN.
 # See references/flutter-state-patterns.md "Web verification mechanism" section.
@@ -456,10 +456,10 @@ After all verification commands run, add this section to your SUMMARY draft:
 ```markdown
 ## Flutter UI Evidence
 
-- Mobile integration_test screenshots: .planning/objectives/<obj>/evidence/<file>.png (N files)
-- Web flutter drive screenshots: .planning/objectives/<obj>/evidence/<file>.png (N files)
-- Maestro junit XML (mobile): .planning/objectives/<obj>/evidence/maestro.xml
-- Maestro screenshots (mobile): .planning/objectives/<obj>/evidence/<flow>-<step>.png (N files)
+- Mobile integration_test screenshots: .aoforge/objectives/<obj>/evidence/<file>.png (N files)
+- Web flutter drive screenshots: .aoforge/objectives/<obj>/evidence/<file>.png (N files)
+- Maestro junit XML (mobile): .aoforge/objectives/<obj>/evidence/maestro.xml
+- Maestro screenshots (mobile): .aoforge/objectives/<obj>/evidence/<flow>-<step>.png (N files)
 - flutter analyze: clean (no new warnings vs baseline)
 - Platforms verified: [mobile, web]  <- from TRD frontmatter `platform:` field
 ```
@@ -938,12 +938,12 @@ After each task completes (verification passed, done criteria met), commit immed
 
 **4. Commit** with `aof-tools commit`, one plain command. A raw `git commit` is denied by `gate-commits.js` in every AOForge project, so do not reach for it. The `--files` list is the task's files plus the TRD's SUMMARY path, which `summary checkpoint` just refreshed. In local mode always add it, in the main checkout and in a worktree alike (`exec-context check` prints which one you are in): the verb wrote the checkout you are standing in, so the file is in your tree and your branch carries it to the merge:
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "{type}({objective}-{trd}): {concise task description}" --files src/api/auth.ts src/types/user.ts .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "{type}({objective}-{trd}): {concise task description}" --files src/api/auth.ts src/types/user.ts .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md
 ```
 
-In store mode, `.planning/` is a gitignored cache and `aof-tools commit` drops the SUMMARY path itself (`skipped_planning` beside `committed: true`). That is expected, and the task's code still commits.
+In store mode, `.aoforge/` is a gitignored cache and `aof-tools commit` drops the SUMMARY path itself (`skipped_planning` beside `committed: true`). That is expected, and the task's code still commits.
 
-Read the JSON it prints: `committed: true` with a hash is the only success. `committed: false` with a `skipped_*` reason (`commit_docs` is false, or `.planning/` is gitignored) means NOTHING was committed. Record that as a blocker in the SUMMARY draft, and do not report the task as committed.
+Read the JSON it prints: `committed: true` with a hash is the only success. `committed: false` with a `skipped_*` reason (`commit_docs` is false, or `.aoforge/` is gitignored) means NOTHING was committed. Record that as a blocker in the SUMMARY draft, and do not report the task as committed.
 
 **5. Record hash:** `git rev-parse --short HEAD` — track it for the SUMMARY and for the next `## Progress` tick.
 
@@ -960,7 +960,7 @@ After all tasks complete, finish the SUMMARY in your draft: the `planning draft`
 node ~/.claude/aoforge/bin/aof-tools.cjs summary post {objective}-{trd} --from <draft path>
 ```
 
-`summary post` is the TRD's single GitHub write in store mode. In local mode it puts `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md` in place byte for byte, as before. Never post twice and never put the SUMMARY under `.planning/` by hand.
+`summary post` is the TRD's single GitHub write in store mode. In local mode it puts `.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md` in place byte for byte, as before. Never post twice and never put the SUMMARY under `.aoforge/` by hand.
 
 **ALWAYS use the Write or Edit tool on the draft path** — never use `Bash(cat << 'EOF')` or heredoc commands to produce it.
 
@@ -1137,7 +1137,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs --cwd <checkout> state add-blocker "Blo
 
 <final_commit>
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [trd-name] TRD" --files .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md .planning/STATE.md .planning/STATE_ARCHIVE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [trd-name] TRD" --files .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md .aoforge/STATE.md .aoforge/STATE_ARCHIVE.md .aoforge/ROADMAP.md .aoforge/REQUIREMENTS.md
 ```
 
 Separate from per-task commits — captures execution results only. Keep the SUMMARY path in `--files` in a worktree too (local mode): `summary post` wrote your own checkout, so this commit puts the final SUMMARY on your branch (see task_commit_protocol).

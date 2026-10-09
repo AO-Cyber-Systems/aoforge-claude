@@ -1755,7 +1755,7 @@ describe('cmdGhSyncObjective', () => {
 // Tests are RED because .aoforge/objectives/00-refine-defaults-table/OBJECTIVE.md
 // does not exist yet.
 
-// this repository's planning tree, wherever it is (`.planning/` until 72-21 moves it, `.aoforge/` after)
+// this repository's planning tree, wherever it is (the legacy name until 72-21 moves it, `.aoforge/` after)
 const OBJ0_PATH = path.join(
   require('./compat.cjs').planningRoot(path.join(__dirname, '..', '..', '..', '..', '..')),
   'objectives', '00-refine-defaults-table', 'OBJECTIVE.md'

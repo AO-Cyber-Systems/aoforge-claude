@@ -28,15 +28,15 @@ Extract from init JSON: `executor_model`, `commit_docs`, `objective_dir`, `objec
 
 **File contents (from --include):** `state_content`, `config_content`.
 
-If `.planning/` missing: error.
+If `.aoforge/` missing: error.
 </step>
 
 <step name="identify_plan">
 ```bash
 # Scan for TRD files first, fall back to JOB files
-ls .planning/objectives/XX-name/*-TRD.md 2>/dev/null | sort
-ls .planning/objectives/XX-name/*-JOB.md 2>/dev/null | sort
-ls .planning/objectives/XX-name/*-SUMMARY.md 2>/dev/null | sort
+ls .aoforge/objectives/XX-name/*-TRD.md 2>/dev/null | sort
+ls .aoforge/objectives/XX-name/*-JOB.md 2>/dev/null | sort
+ls .aoforge/objectives/XX-name/*-SUMMARY.md 2>/dev/null | sort
 ```
 
 Find first TRD/JOB without matching SUMMARY.
@@ -76,7 +76,7 @@ PLAN_START_EPOCH=$(date +%s)
 
 <step name="parse_segments">
 ```bash
-grep -n "type=\"checkpoint" .planning/objectives/XX-name/{plan-file}
+grep -n "type=\"checkpoint" .aoforge/objectives/XX-name/{plan-file}
 ```
 
 **Routing by checkpoint type:**
@@ -172,7 +172,7 @@ After all tasks complete, run a verification loop:
 </step>
 
 <step name="create_summary_with_evidence">
-Finish the SUMMARY in a draft (`node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path). Stamp your token usage into the draft's frontmatter with `node ~/.claude/aoforge/bin/aof-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>` (its own command; it reads your executor transcript, and if it reports `stamped: false` or is unknown in an older runtime you carry on without the fields; never type token numbers by hand), then publish it once with `node ~/.claude/aoforge/bin/aof-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
+Finish the SUMMARY in a draft (`node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path). Stamp your token usage into the draft's frontmatter with `node ~/.claude/aoforge/bin/aof-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>` (its own command; it reads your executor transcript, and if it reports `stamped: false` or is unknown in an older runtime you carry on without the fields; never type token numbers by hand), then publish it once with `node ~/.claude/aoforge/bin/aof-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
 
 **Use template:** @~/.claude/aoforge/templates/summary.md
 
@@ -231,7 +231,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs requirements mark-complete ${REQ_IDS}
 
 <step name="git_commit_metadata">
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [plan-name]" --files .planning/objectives/XX-name/{objective}-{trd}-SUMMARY.md .planning/STATE.md .planning/ROADMAP.md .planning/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [plan-name]" --files .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md .aoforge/STATE.md .aoforge/ROADMAP.md .aoforge/REQUIREMENTS.md
 ```
 </step>
 
