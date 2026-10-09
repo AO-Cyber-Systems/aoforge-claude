@@ -11,6 +11,6 @@ requires:
 # Objective 73 TRD 06: Register inject-handoff-results.js and prove it coexists Summary
 
 ## Progress
-- [x] Task 1: RED, the PostToolUse model tests, the world option, the RUNS entries and the timeout pin — (this commit)
-- [ ] Task 2: GREEN, postToolUseProblems, the registrations and the CLAUDE.md move — next step: add postToolUseProblems to plugins/aoforge/hooks/__fixtures__/hook-output-schema.js, call it from contractProblems, register the hook in hooks.json, move the CLAUDE.md bullet
-- [ ] Task 3: The full-suite gate and the runtime smoke — pending
+- [x] Task 1: RED, the PostToolUse model tests, the world option, the RUNS entries and the timeout pin — 19673462
+- [x] Task 2: GREEN, postToolUseProblems, the registrations and the CLAUDE.md move — (this commit)
+- [ ] Task 3: The full-suite gate and the runtime smoke — next step: pipe a hand-written PostToolUse and Stop payload into plugins/aoforge/hooks/inject-handoff-results.js in a temp project holding one done record, then run the full suite

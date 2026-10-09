@@ -805,6 +805,8 @@ function contractProblems(event, r) {
   if (json.decision !== undefined && json.decision !== 'block') problems.push(`unknown decision "${json.decision}"`);
   // Stop and SubagentStop: the documented schema also checks the keys inside hookSpecificOutput (TRD 70-02).
   if (STOP_FAMILY_EVENTS.includes(event)) problems.push(...stopFamilyProblems(event, json));
+  // PostToolUse: the documented "PostToolUse decision control" schema, including the keys inside hookSpecificOutput (TRD 73-06).
+  if (event === 'PostToolUse') problems.push(...postToolUseProblems(json));
   for (const where of longStrings(json)) problems.push(`string over ${STRING_LIMIT} characters at ${where}`);
   return problems;
 }
