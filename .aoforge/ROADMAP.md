@@ -315,7 +315,17 @@ TRDs:
   1. Each of the three PTY gaps (dispatch-wrapper isatty, wrapper stdin race, detector late match) has a regression test that fails on the old behavior and passes now.
   2. `inject-handoff-results.js` is registered in `hooks.json`, delivers a completed handoff result into the session, and appears in the hook coexistence suite.
   3. With the `aoforge-watch` daemon running, a TTY-required command (auth login, token paste or sudo prompt) is detected, handed off, run by the user, and its result appears in context. The live run is a user checkpoint and AOForge never types or reads a secret.
-**TRDs**: TBD
+**TRDs**: 8 plans
+
+TRDs:
+- [ ] 73-01-pty-dispatch-script-TRD.md — (W1) bash/zsh PTY dispatch through a private script file and one input line: output stays on the terminal (gap 1), no queued wrapper lines for `read` (gap 2), INT trap so Ctrl+C still ends in END:130; history guard
+- [ ] 73-02-handoff-delivery-library-TRD.md — (W1) `lib/handoff-results.cjs`: shared select/render, O_EXCL claim (exactly once), session/agent address, pending lookup, watcher check; route-results on it as the catch-all
+- [ ] 73-03-live-window-listeners-TRD.md — (W2) `attachDataListener(fn, { liveOnly })`: the detector sees only the live command (gap 3, late match); MA-6-synth / MA-7 / MA-6 assert instead of skipping
+- [ ] 73-04-inject-handoff-results-TRD.md — (W2) the DRAFT hook completed: PostToolUse context, Stop block with a bounded wait; gate-interactive records session/agent and names the aoforge-watch terminal
+- [ ] 73-05-attended-watch-terminal-TRD.md — (W3) attended `aoforge-watch start --foreground`: live output mirrored, the user's keys forwarded during a dispatch; respawning shell facade; PTY e2e test that plays the user
+- [ ] 73-06-hook-registration-and-coexistence-TRD.md — (W3) hooks.json PostToolUse `*` + Stop (timeout 150); coexistence RUNS entries; cited PostToolUse schema model; CLAUDE.md bullet out of Draft
+- [ ] 73-07-live-tty-demonstration-TRD.md — (W4, checkpoint) live run: ssh-keygen passphrase prompt answered by the user in the aoforge-watch terminal, result in context with no paste; evidence and cleanup
+- [ ] 73-08-docs-and-close-out-TRD.md — (W5) CHANGELOG [Unreleased], USER-GUIDE, site handoff guide, handoff skill, CLAUDE.md, HOOK_DOCS + docs data; todo complete; full suite
 
 ### Objective 74: Operations decisions
 
