@@ -262,6 +262,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-10: coexistence-guard queues one global notice per session (key coexistence:<session_id>) when the pre-rename plugin is installed and not explicitly disabled; the pointer release (major >= 3) gets an info notice without the double-gate warning
 - [Objective 72]: 72-10: compat.isOwnAgentType requires a non-empty agent name; isOwnExecutor is an exact match for the executor in either namespace; gate-edits, verify-commits and gate-executor-stop use them
 - [Objective 72]: 72-10: session-audit maps the old gate texts, skill/command namespace and override phrases to the unchanged category ids; agent-overhead normalizes aoforge:, the legacy namespace and the df- install prefix
+- [Objective 72]: 72-17: docs/MIGRATING-TO-AOFORGE.md is live documentation: in the codemod LIVE_DOCS and doc-refs SCAN_INCLUDE, listed in the rename guard IGNORE_REGION_FILES with a temp-copy sensitivity test; the site page is the same body with Hugo front matter
+- [Objective 72]: 72-17: the real AO emblem (aocyber.ai ao-icon.svg, sha256 12f6c83e...5965) is cached at assets/ao-icon.svg with assets/SOURCES.md; README and site header size it by height only; the old CLI reference URL redirects 301 via site/static/_redirects inside a rename-guard region
 
 ## Performance Metrics
 
@@ -438,4 +440,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P05 | 53min | 3 tasks | 422 files |
 | Objective 72 P06 | 19min | 3 tasks | 228 files |
 | Objective 72 P10 | 15min | 3 tasks | 20 files |
+| Objective 72 P17 | 21min | 3 tasks | 15 files |
 

@@ -1,8 +1,8 @@
 {
   "current_objective": "72",
-  "current_job": 16,
+  "current_job": 17,
   "total_jobs": 26,
-  "progress_pct": 96,
+  "progress_pct": 98,
   "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
@@ -1374,6 +1374,16 @@
     {
       "objective": "72",
       "summary": "72-10: session-audit maps the old gate texts, skill/command namespace and override phrases to the unchanged category ids; agent-overhead normalizes aoforge:, the legacy namespace and the df- install prefix",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-17: docs/MIGRATING-TO-AOFORGE.md is live documentation: in the codemod LIVE_DOCS and doc-refs SCAN_INCLUDE, listed in the rename guard IGNORE_REGION_FILES with a temp-copy sensitivity test; the site page is the same body with Hugo front matter",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-17: the real AO emblem (aocyber.ai ao-icon.svg, sha256 12f6c83e...5965) is cached at assets/ao-icon.svg with assets/SOURCES.md; README and site header size it by height only; the old CLI reference URL redirects 301 via site/static/_redirects inside a rename-guard region",
       "rationale": null
     }
   ],
