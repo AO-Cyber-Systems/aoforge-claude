@@ -25,8 +25,8 @@ metrics:
 # Objective 72 TRD 25: Fleet sweep Summary (CHECKPOINT: Task 1 done, Task 2 awaiting the first repository's approval)
 
 ## Progress
-- [x] Task 1: Discover the fleet and preview each repository — (this commit; read-only, recorded after 72-24 finished)
-- [ ] Task 2: Approval gate. User's literal reply (AskUserQuestion, relayed by the orchestrator): "Approve 1–16, hold 17 (Recommended)" — approves, by name and in order, dfip, quanta-local, torrentConsole, aocyber-deploy, trades, EdenDocs, ao-terminal, devflow, eden-press, qrCodeBuilder, aostudio, aoid, aoinference, aofamily, justin-donnaruma-us-go, navigators; github-enterprise-migration HELD; the 16 dirty repositories and the ambiguous items skipped with no action. Next step: re-check dfip (`fleet-recheck.cjs`), then `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --apply --path /Users/justin/dev/dfip`, then `aof-tools --cwd /Users/justin/dev/dfip commit "chore: move to AOForge (3.0.0 upgrade)" --files <changed_files>`
+- [x] Task 1: Discover the fleet and preview each repository — 52e92ced (read-only, recorded after 72-24 finished)
+- [ ] Task 2: Approval gate. User's literal reply (AskUserQuestion, relayed by the orchestrator): "Approve 1–16, hold 17 (Recommended)" — approves, by name and in order, dfip, quanta-local, torrentConsole, aocyber-deploy, trades, EdenDocs, ao-terminal, devflow, eden-press, qrCodeBuilder, aostudio, aoid, aoinference, aofamily, justin-donnaruma-us-go, navigators; github-enterprise-migration HELD; the 16 dirty repositories and the ambiguous items skipped with no action. Done: 1/16 (dfip). Next step: re-check quanta-local, then `aof-tools upgrade --apply --path /Users/justin/dev/quanta-local` and its commit
 - [ ] Task 3: Verify the upgraded repositories
 
 ## Preflight
@@ -80,6 +80,14 @@ Ready = no blocking dirt, no operation in progress. Task 2 order = this order (s
 | 33 | videoArchive | main (main) | 1/190 | blocking: 4 (ios/Podfile.lock, pbxproj, pubspec.lock) | local | 0001, 0005, 0007, 0008, 0012, 0014 | skipped: dirty |
 
 Rebrand counts: none (no store-mode repository). No operation (merge/rebase/cherry-pick/revert/bisect) is in progress in any candidate. Every skill marker found is expired except videoArchive's `build` marker, which has no expiry.
+
+## Task 2 outcomes (one row per approved repository, in order)
+
+Every row: re-checked against the preview first (same branch, same tracked dirt, no operation in progress, same pending ids), then exactly `aof-tools upgrade --apply --path <repo>` and `aof-tools --cwd <repo> commit "chore: move to AOForge (3.0.0 upgrade)" --files <changed_files>`. Local commits only, nothing pushed. Health codes other than W066/W067 are the repository's own advisories (W001 PROJECT.md sections, W065 requirements-unlisted, W040 only because a held `confirm` migration is pending).
+
+| # | Repo | Re-check | Applied | Commit | Commit contents | `.aoforge/` / `.planning` gone | W066/W067 | Outcome |
+|---|---|---|---|---|---|---|---|---|
+| 1 | dfip | ok (main, 78c10ff) | 0012 (0006 held) | 12bf091 | 27 R100 + config.json R087 (stamp) + .gitignore (+`.aoforge/.skill-active`) | yes / yes | none (W001, W040, W065) | upgraded |
 
 ## Ambiguous (listed for the user, not swept)
 
