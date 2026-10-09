@@ -5,9 +5,17 @@
  * helpers used by the aoforge-watch daemon and by hooks that need to know
  * whether the daemon is running.
  *
- * Module is dependency-free CommonJS so hooks (which run in their own Node
- * processes) can require it directly. All paths honour $HOME (so tests can
- * point at a temp dir).
+ * Module is CommonJS that hooks (which run in their own Node processes) can
+ * require directly. All paths honour $HOME (so tests can point at a temp dir).
+ *
+ * Legacy pid file (objective 72, INST-03, one release): when ~/.aoforge/ has no
+ * pid file, the legacy daemon's pid file under the legacy dot directory is read
+ * (compat.userDotFile) and the record is marked `legacy: true`, so `status` and
+ * `stop` see a daemon started before the rename. Writes and removals touch the
+ * ~/.aoforge/ file only. The legacy daemon watches its own handoff directories,
+ * not this one's, so its pid file is never taken over: add/remove refuse it.
+ * The compat layer is loaded fail-open, because some stub runtimes copy this
+ * file alone; without it there is no legacy fallback.
  */
 
 const fs = require('fs');
@@ -24,12 +32,39 @@ function homeDir() {
   return process.env.HOME || os.homedir();
 }
 
+/** The AOForge daemon's pid file: the only one this module writes or removes. */
 function pidFilePath() {
   // Allow explicit override via env (used by hook tests).
   if (process.env.AOFORGE_HANDOFF_PID_FILE) {
     return process.env.AOFORGE_HANDOFF_PID_FILE;
   }
   return path.join(homeDir(), PID_DIR_NAME, PID_FILE_NAME);
+}
+
+/** The pid file to read: `{ file, legacy }`, the legacy daemon's file only when the AOForge one is absent. */
+function readablePidFile() {
+  const current = pidFilePath();
+  if (process.env.AOFORGE_HANDOFF_PID_FILE) return { file: current, legacy: false };
+  let userDotFile;
+  let LEGACY;
+  try {
+    ({ userDotFile } = require('./compat.cjs'));
+    ({ LEGACY } = require('./legacy-names.cjs'));
+  } catch (e) {
+    if (e.code !== 'MODULE_NOT_FOUND') throw e;
+    return { file: current, legacy: false };
+  }
+  const file = userDotFile(homeDir(), PID_FILE_NAME, fs, `${LEGACY.watch}.pid`);
+  return { file, legacy: file !== current };
+}
+
+function legacyDaemonError(pid) {
+  const err = new Error(
+    `the running watcher (pid ${pid}) was started before the rename to AOForge and watches only its own ` +
+    'handoff directories; stop it with `aoforge-watch stop`, then start aoforge-watch',
+  );
+  err.code = 'ELEGACYDAEMON';
+  return err;
 }
 
 function writePidFile({ pid, version, shell, watching }) {
@@ -46,13 +81,14 @@ function writePidFile({ pid, version, shell, watching }) {
   return payload;
 }
 
+/** The daemon's pid record, or null. A record read from the legacy daemon's file carries `legacy: true`. */
 function readPidFile() {
-  const file = pidFilePath();
+  const { file, legacy } = readablePidFile();
   if (!fs.existsSync(file)) return null;
   try {
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     if (!data || typeof data !== 'object') return null;
-    return data;
+    return legacy ? { ...data, legacy: true } : data;
   } catch {
     return null;
   }
@@ -157,6 +193,7 @@ function addWatchedProject(projectPath) {
     err.code = 'ENOPIDFILE';
     throw err;
   }
+  if (current.legacy) throw legacyDaemonError(current.pid);
   const watching = Array.isArray(current.watching) ? [...current.watching] : [];
   const norm = path.resolve(projectPath);
   if (!watching.includes(norm)) watching.push(norm);
@@ -185,6 +222,7 @@ function removeWatchedProject(projectPath) {
     err.code = 'ENOPIDFILE';
     throw err;
   }
+  if (current.legacy) throw legacyDaemonError(current.pid);
   const watching = Array.isArray(current.watching) ? [...current.watching] : [];
   const norm = path.resolve(projectPath);
   const idx = watching.indexOf(norm);

@@ -222,9 +222,13 @@ function cmdFlutterUISetup(cwd, args, raw) {
   // ── Daemon detection (lazy require so this module loads cleanly in unit tests
   //    that never touch the daemon path).
   const watcherState = require('./watcher-state.cjs');
+  // A daemon started before the rename (a `legacy` record) watches only its own handoff
+  // directories, never `.aoforge-handoff/`, so installs are never dispatched to it.
   const pidInfo = watcherState.readPidFile();
-  const daemonLive = pidInfo && watcherState.isWatcherLive();
-  if (pidInfo && !daemonLive) {
+  const daemonLive = pidInfo && !pidInfo.legacy && watcherState.isWatcherLive();
+  if (pidInfo && pidInfo.legacy) {
+    process.stderr.write(`[advisory] the running watcher (pid ${pidInfo.pid}) predates the rename and does not watch .aoforge-handoff/; treating as not-running (stop it with \`aoforge-watch stop\`)\n`);
+  } else if (pidInfo && !daemonLive) {
     // Stale PID file — advisory + treat as not-running.
     process.stderr.write(`[advisory] stale aoforge-watch PID file at ${watcherState.pidFilePath()}; treating as not-running\n`);
   }
