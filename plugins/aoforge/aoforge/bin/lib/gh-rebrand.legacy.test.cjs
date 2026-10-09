@@ -306,3 +306,218 @@ describe('gh rebrand: plan and dry run (TRD 72-16)', () => {
     assert.equal(inProcess.code, 1);
   });
 });
+
+// ─── apply, idempotence, resume (Task 3) ────────────────────────────────────────
+
+const ORDER = ['labels', 'issues', 'comments', 'wiki', 'rulesets'];
+
+/** A scratch outbox directory, so the base store never touches ~/.claude. */
+function outboxEnv() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rebrand-outbox-'));
+  repos.push({ cleanup: () => fs.rmSync(dir, { recursive: true, force: true }) });
+  return { ...process.env, AOFORGE_OUTBOX_DIR: dir };
+}
+
+function apply(repo, stub, extra = {}) {
+  return rebrand.runRebrand(repo.root, ['--repo', 'o/r', '--apply'], {
+    client: stub, version: VERSION, runGit: repo.runGit, env: outboxEnv(), ...extra,
+  });
+}
+
+describe('gh rebrand: apply, idempotence and resume (TRD 72-16)', () => {
+  test('8. --apply sends every op in the fixed section order, leaves local changes uncommitted, prints the mode\'s commit steps', () => {
+    const { branchCommitSteps, commitCommand } = require('./commit-steps.cjs');
+    for (const store of [true, false]) {
+      const repo = checkout({ store });
+      const head = repo.git(['rev-parse', 'HEAD']);
+      const stub = fx.stubClient(fx.legacyRepoSnapshot({ withAoforgeLabels: ['trd'] }));
+      const res = apply(repo, stub);
+      assert.equal(res.code, 0, res.prose);
+
+      const sections = stub.writes.map((w) => w.section);
+      assert.deepEqual([...new Set(sections)], ORDER, 'every remote section is written, in order');
+      assert.deepEqual(sections, [...sections].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b)), 'never back to an earlier section');
+      const labelKinds = stub.writes.filter((w) => w.section === 'labels').map((w) => w.kind);
+      assert.ok(labelKinds.indexOf('merge-add') < labelKinds.indexOf('merge-delete'), 'the label is moved before the legacy one is deleted');
+      assert.equal(stub.writes.filter((w) => w.kind === 'push').length, 1, 'one wiki push');
+      assert.ok(stub.state.issues.find((i) => i.number === 2).labels.some((l) => l.name === 'aoforge:trd'), 'the merged issue keeps its label');
+
+      assert.equal(repo.git(['rev-parse', 'HEAD']), head, 'nothing was committed');
+      assert.ok(fs.existsSync(path.join(repo.root, '.github/workflows/aoforge.yml')));
+      assert.ok(!fs.existsSync(path.join(repo.root, '.github/workflows/devflow.yml')));
+      assert.equal(fs.readFileSync(path.join(repo.root, 'docs/aoforge/Project.md'), 'utf-8'), '# Project\n\nPlanned with AOForge. Pages live in docs/aoforge/.\n');
+      assert.ok(!fs.existsSync(path.join(repo.root, 'docs/devflow')));
+      assert.equal(JSON.parse(fs.readFileSync(path.join(repo.root, '.aoforge/config.json'), 'utf-8')).github.labels.trd, 'aoforge:trd');
+      assert.match(repo.git(['status', '--porcelain']), /^R {2}\.github\/workflows\/devflow\.yml -> \.github\/workflows\/aoforge\.yml$/m, 'the caller move is a staged rename');
+
+      const files = res.payload.files;
+      const want = branchCommitSteps({
+        branch: 'aoforge-rebrand',
+        command: commitCommand('chore: rebrand the AOForge workflow, docs and config', files),
+        reason: store ? 'gh rebrand' : null,
+      });
+      assert.equal(res.payload.steps, want, `the ${store ? 'store' : 'plain'} commit sequence`);
+      assert.ok(res.prose.includes(want));
+      assert.equal(/AOFORGE_SKIP_GH_GATE=1/.test(res.prose), store, 'the logged escape only in store mode');
+
+      repo.git(['commit', '-q', '-m', 'rebrand', '--', ...files]);
+      assert.equal(repo.status(), '', 'the printed file list covers every local change');
+    }
+  });
+
+  test('9. --apply twice: the second run finds nothing to rebrand and writes nothing', () => {
+    const repo = checkout({ store: true });
+    const stub = fx.stubClient(fx.legacyRepoSnapshot({ withAoforgeLabels: ['trd'] }));
+    assert.equal(apply(repo, stub).code, 0);
+    const writes = stub.writes.length;
+    const tree = repo.status();
+
+    const again = apply(repo, stub);
+    assert.equal(again.code, 0, again.prose);
+    assert.match(again.prose, /nothing to rebrand/i);
+    assert.deepEqual(again.payload.done, []);
+    assert.equal(stub.writes.length, writes, 'no write the second time');
+    assert.equal(repo.status(), tree, 'no local change the second time');
+
+    const preview = rebrand.runRebrand(repo.root, ['--repo', 'o/r'], { client: stub, version: VERSION, runGit: repo.runGit });
+    assert.deepEqual(preview.payload.ops, [], 'the dry run agrees');
+  });
+
+  test('10. a failed 3rd issue PATCH stops the run with done/left and exit 1; re-running resumes', () => {
+    const repo = checkout({ store: true });
+    const stub = fx.stubClient(fx.legacyRepoSnapshot(), {
+      failAt: (op, n) => op.section === 'issues' && n.issues === 3,
+    });
+    const first = apply(repo, stub);
+    assert.equal(first.code, 1, first.prose);
+    assert.deepEqual(first.payload.done.map((o) => o.section), ['labels', 'labels', 'labels', 'labels', 'labels', 'issues', 'issues']);
+    assert.equal(first.payload.left[0].section, 'issues');
+    assert.equal(first.payload.left[0].number, 3, 'the failed op leads what is left');
+    assert.deepEqual([...new Set(first.payload.left.map((o) => o.section))], ['issues', 'comments', 'wiki', 'rulesets', 'local']);
+    assert.match(first.prose, /Stopped at: issues edit issue #3/);
+    assert.match(first.prose, /Re-run `aof-tools gh rebrand --apply`/);
+    assert.match(stub.state.issues.find((i) => i.number === 3).body, /^<!-- devflow:id=/, 'the failed write changed nothing');
+    assert.equal(repo.status(), '', 'local files are untouched until their turn');
+
+    const before = stub.writes.length;
+    const second = apply(repo, stub);
+    assert.equal(second.code, 0, second.prose);
+    const resumed = stub.writes.slice(before);
+    assert.ok(!resumed.some((w) => w.section === 'labels'), 'the labels are not redone');
+    assert.deepEqual(resumed.filter((w) => w.section === 'issues').map((w) => w.endpoint), ['repos/o/r/issues/3', 'repos/o/r/issues/5']);
+    assert.ok(fs.existsSync(path.join(repo.root, '.github/workflows/aoforge.yml')), 'the local files are done on the resume');
+
+    assert.match(apply(repo, stub).prose, /nothing to rebrand/i);
+  });
+
+  test('10b. a secondary rate limit stops at once with the wait time, never retrying', () => {
+    const repo = checkout({ store: true });
+    const stub = fx.stubClient(fx.legacyRepoSnapshot(), {
+      failAt: (op, n) => (op.section === 'comments' && n.comments === 1
+        ? { status: 403, rate_limited: true, wait_ms: 60000, error: 'You have exceeded a secondary rate limit (HTTP 403)' }
+        : false),
+    });
+    const res = apply(repo, stub);
+    assert.equal(res.code, 1);
+    assert.equal(res.payload.wait_ms, 60000);
+    assert.match(res.prose, /wait 60 s/);
+    assert.equal(stub.writes.filter((w) => w.section === 'comments').length, 1, 'one attempt, no retry loop');
+  });
+
+  test('10c. a failed wiki push puts the staged pages back in what is left', () => {
+    const repo = checkout({ store: true });
+    const stub = fx.stubClient(fx.legacyRepoSnapshot(), { failAt: (op) => op.kind === 'push' });
+    const res = apply(repo, stub);
+    assert.equal(res.code, 1);
+    assert.ok(!res.payload.done.some((o) => o.section === 'wiki'), 'no wiki page counts as done before its push');
+    assert.deepEqual(res.payload.left.slice(0, 3).map((o) => o.kind), ['page', 'page', 'push']);
+    assert.equal(stub.state.wiki.pages.find((p) => p.name === 'Home').text.includes('DevFlow'), true, 'the wiki is unchanged');
+  });
+
+  test('12. store mode: the outbox bases of rewritten issues and comments are refreshed (72-11 hand-off)', () => {
+    const outbox = require('./gh-outbox.cjs');
+    const trd = require('./gh-trd.cjs');
+    const { managedHash } = require('./gh-outbox-flush.cjs');
+    const repo = checkout({ store: true });
+    const env = outboxEnv();
+    const snap = fx.legacyRepoSnapshot();
+    const oldOne = snap.issues[0];
+    const oldTwo = snap.issues[1];
+    const strip = (b) => b.slice(b.indexOf('\n') + 1);
+    const seed = (key, entry) => assert.equal(outbox.setBase(repo.root, key, entry, { env }).ok, true);
+    seed('46', { issue_number: 1, issue_id: 5001, body_hash: trd.contentHash(oldOne.body), updated_at: oldOne.updated_at, managed_hash: managedHash(oldOne.body) });
+    seed('46-01', { issue_number: 2, issue_id: 5002, body_hash: trd.contentHash(oldTwo.body), updated_at: oldTwo.updated_at, frozen: true });
+    seed('46#state', { issue_number: 1, issue_id: 5001, body_hash: trd.contentHash(strip(snap.comments[0].body)), updated_at: null });
+    const oldParts = trd.joinParts([strip(snap.comments[1].body), strip(snap.comments[2].body)]);
+    seed('46-01#summary', { issue_number: 2, issue_id: 5002, body_hash: trd.contentHash(oldParts.text), updated_at: null });
+    seed('99', { issue_number: 99, issue_id: 9999, body_hash: 'sha256:untouched', updated_at: null });
+
+    const stub = fx.stubClient(snap);
+    const res = rebrand.runRebrand(repo.root, ['--repo', 'o/r', '--apply'], { client: stub, version: VERSION, runGit: repo.runGit, env });
+    assert.equal(res.code, 0, res.prose);
+
+    const bases = outbox.readBase(repo.root, { env });
+    const one = stub.state.issues.find((i) => i.number === 1);
+    assert.equal(bases['46'].body_hash, trd.contentHash(one.body));
+    assert.equal(bases['46'].managed_hash, managedHash(one.body));
+    assert.equal(bases['46'].updated_at, one.updated_at);
+    const two = stub.state.issues.find((i) => i.number === 2);
+    assert.equal(bases['46-01'].body_hash, trd.contentHash(two.body));
+    assert.equal(bases['46-01'].frozen, true, 'a frozen TRD stays frozen');
+    assert.equal(bases['46#state'].body_hash, trd.contentHash(strip(stub.state.comments.find((c) => c.id === 9100).body)));
+    const newParts = trd.joinParts([9101, 9102].map((id) => strip(stub.state.comments.find((c) => c.id === id).body)));
+    assert.equal(newParts.ok, true);
+    assert.equal(bases['46-01#summary'].body_hash, trd.contentHash(newParts.text));
+    assert.equal(bases['99'].body_hash, 'sha256:untouched', 'a base for another issue is left alone');
+  });
+
+  test('13. the real client: reads and writes go through the gh-client seam with the planned requests; wiki through gh-wiki', () => {
+    const ghClient = require('./gh-client.cjs');
+    const wikiLib = require('./gh-wiki.cjs');
+    const snap = fx.legacyRepoSnapshot();
+    const calls = [];
+    const page = (items) => ({ ok: true, status: 0, stdout: JSON.stringify([items]), stderr: '' });
+    ghClient._setSleep(() => {});
+    ghClient._setRunGh((args, opts) => {
+      calls.push({ args, input: opts && opts.input });
+      if (args[1] === '--paginate') {
+        const p = args[3];
+        if (p === 'repos/o/r/labels') return page(snap.labels);
+        if (p === 'repos/o/r/issues?state=all') return page(snap.issues);
+        if (p === 'repos/o/r/issues/comments') return page(snap.comments);
+        if (p === 'repos/o/r/rulesets') return page(snap.rulesets.list);
+      }
+      if (args.length === 2 && args[1] === 'repos/o/r') return { ok: true, status: 0, stdout: JSON.stringify({ has_wiki: true }), stderr: '' };
+      if (args.length === 2 && args[1] === 'repos/o/r/rulesets/42') return { ok: true, status: 0, stdout: JSON.stringify(snap.rulesets.full[42]), stderr: '' };
+      if (args.includes('-X')) return { ok: true, status: 0, stdout: '{"updated_at":"2026-10-08T00:00:00Z"}', stderr: '' };
+      return { ok: false, status: 1, stdout: '', stderr: `unexpected gh ${args.join(' ')} (HTTP 404)` };
+    });
+    const gitCalls = [];
+    wikiLib._setRunGit((args) => {
+      gitCalls.push(args);
+      return { ok: false, status: 128, stdout: '', stderr: 'remote: Repository not found.\nfatal: repository \'https://github.com/o/r.wiki.git/\' not found' };
+    });
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'rebrand-real-'));
+    try {
+      const dry = rebrand.runRebrand(cwd, ['--repo', 'o/r']);
+      assert.equal(dry.code, 0, dry.prose);
+      assert.equal(calls.filter((c) => c.args.includes('-X')).length, 0, 'the dry run sends no gh write');
+      assert.equal(dry.payload.sections.wiki.status, 'skipped', 'an uninitialised wiki is reported, not cloned');
+      assert.equal(dry.payload.sections.local.status, 'skipped', 'not a checkout of o/r');
+      assert.ok(gitCalls.every((a) => a.includes('ls-remote')), 'the wiki was only probed');
+
+      const applied = rebrand.runRebrand(cwd, ['--repo', 'o/r', '--apply']);
+      assert.equal(applied.code, 0, applied.prose);
+      const writes = calls.filter((c) => c.args.includes('-X'));
+      assert.equal(writes.length, applied.payload.done.length);
+      assert.deepEqual(writes[0].args, ['api', '-X', 'PATCH', 'repos/o/r/labels/devflow%3Aobjective', '--input', '-']);
+      assert.equal(writes[0].input, '{"new_name":"aoforge:objective"}');
+      const put = writes.find((w) => w.args[2] === 'PUT');
+      assert.deepEqual(put.args, ['api', '-X', 'PUT', 'repos/o/r/rulesets/42', '--input', '-']);
+    } finally {
+      ghClient._resetClient();
+      wikiLib._setRunGit(null);
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+});
