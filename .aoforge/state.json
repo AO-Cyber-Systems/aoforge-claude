@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 21,
+  "current_job": 22,
   "total_jobs": 26,
   "progress_pct": 99,
   "status": "executing",
@@ -1429,6 +1429,16 @@
     {
       "objective": "72",
       "summary": "72-21: only INST-01 marked complete (last TRD for it); INST-04 stays Pending for 72-25 and INST-06 for 72-22..72-26",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-22: active planning docs follow a live-vs-history rule: present and future text uses AOForge names; completed requirements and objectives, archives, dated decisions and quick-task rows keep their DevFlow wording; the devflowops platform product keeps its name",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-22: CLAUDE.md lost its transition note and its rename-guard ignore-region allowance, so it is now guarded line for line; PROJECT.md github_repo names AO-Cyber-Systems/aoforge-claude",
       "rationale": null
     }
   ],
