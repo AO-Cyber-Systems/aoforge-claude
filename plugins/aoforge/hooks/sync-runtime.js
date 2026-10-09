@@ -24,6 +24,15 @@
 //    content (a dev branch, an in-place update of an unreleased build) re-mirrors. A missing
 //    marker (a pre-45 mirror) re-mirrors once. Downgrade refusal is unchanged and precedes it.
 //    If the digest module cannot be loaded the hook falls back to version-only behavior.
+//  - Objective 72 (TRD 72-07, INST-03): the runtime home moved from the old product's directory to ~/.claude/aoforge.
+//    migrateLegacyRuntimeOnce() runs aoforge/bin/lib/runtime-state-migrate.cjs (a) after a good mirror and (b) on the
+//    fast path when the old runtime home exists and ~/.claude/aoforge has no `.legacy-state-migrated.json` marker yet.
+//    The user's state is split: calibration.json, audit.log, transcript-index.jsonl, stacks/ and state/** except the
+//    outbox are COPIED (the old copy is the backup, and the old plugin keeps writing it until it is disabled);
+//    state/outbox and backups/ are MOVED, never copied, so no queued GitHub write is flushed by both plugins and
+//    hundreds of MB of backups are not duplicated. Nothing under ~/.claude/aoforge is overwritten. The migration is
+//    silent on success; any error is one `[aoforge] runtime state migration skipped: <msg>` stderr line and leaves no
+//    marker, so the next session retries. It never changes the mirror result or the exit code.
 
 const fs = require('fs');
 const path = require('path');
@@ -85,6 +94,33 @@ function bundledDigest() {
     }
   }
   return bundledDigestMemo;
+}
+
+// ---------------------------------------------------------------------------
+// Objective 72 (TRD 72-07): carry the old runtime home's state over, once
+// ---------------------------------------------------------------------------
+
+/**
+ * Run runtime-state-migrate.cjs migrateLegacyRuntime when it is pending (the old runtime home exists and the marker
+ * does not). Loaded from THIS hook's own plugin tree, like the digest module; a tree without it skips silently. Never
+ * throws and never writes stdout: an error is one stderr line.
+ */
+function migrateLegacyRuntimeOnce() {
+  try {
+    let rsm;
+    try {
+      rsm = require(path.join(__dirname, '..', 'aoforge', 'bin', 'lib', 'runtime-state-migrate.cjs'));
+    } catch (e) {
+      if (e && e.code === 'MODULE_NOT_FOUND') return;
+      throw e;
+    }
+    const userHome = os.homedir();
+    if (!rsm.migrationPending({ userHome })) return;
+    rsm.migrateLegacyRuntime({ userHome });
+  } catch (e) {
+    const msg = String((e && e.message) || e).split('\n')[0];
+    process.stderr.write(`[aoforge] runtime state migration skipped: ${msg}\n`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +197,8 @@ if (mirrorSv) {
     // the last good mirror recorded (Objective 45). No digest available => version-only behavior.
     const bd = bundledDigest();
     if (bd === null || bd === rd.readMarkerDigest(targetDir)) {
+      // (b) TRD 72-07: a mirror made before the migration existed, or a migration that failed last session.
+      migrateLegacyRuntimeOnce();
       process.exit(0);
     }
     process.stderr.write(
@@ -301,6 +339,9 @@ try {
   } catch (e) {
     process.stderr.write(`[aoforge] digest marker skipped: ${e.message}\n`);
   }
+
+  // (a) TRD 72-07: after a good mirror, carry the old runtime home's state over (its own error handling).
+  migrateLegacyRuntimeOnce();
 
   // TRD 36-06: bring the global ~/.claude state forward (legacy install → backup, managed block in
   // ~/.claude/CLAUDE.md). Only after a good mirror, from the BUNDLED module (never the mirror), in its
