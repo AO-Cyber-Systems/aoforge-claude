@@ -1,6 +1,6 @@
 {
   "current_objective": "73",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 8,
   "progress_pct": 99,
   "status": "executing",
@@ -1529,6 +1529,16 @@
     {
       "objective": "73",
       "summary": "73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-05: the session facade keeps a registry of attached listeners and re-attaches them to a respawned shell, because processOnce attaches its prompt detector before dispatch",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-05: framing lines strip control characters from the handoff id and command (cap 200 chars) so a pending record cannot drive the user's terminal; the command's own output is mirrored verbatim",
       "rationale": null
     }
   ],
