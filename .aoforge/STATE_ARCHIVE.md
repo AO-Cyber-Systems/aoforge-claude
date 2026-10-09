@@ -281,6 +281,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-25: user approved 16 fleet repositories in one reply ("Approve 1–16, hold 17 (Recommended)"); 10 upgraded with one local commit each, nothing pushed; github-enterprise-migration held by the user
 - [Objective 72]: 72-25: trades failed at 0012 after 0002 (fs-renamed JOB.md files break git mv); not committed, nothing reverted; finish/undo is the user's call (todo)
 - [Objective 72]: 72-25: devflow, eden-press, aoinference, aoid, navigators held untouched because the approved commit (--files .aoforge) would also track their untracked planning files (todo)
+- [Objective 72]: 72-25 follow-up: trades undone to 30c2c5b1 with a clean tree ("Undo it (Recommended)"); its redo waits for the 0012 fix. EdenDocs: the two swept files untracked in b10659d1b08 ("Untrack them in a new commit (Recommended)"), kept on disk, .gitignore unchanged
 
 ## Performance Metrics
 

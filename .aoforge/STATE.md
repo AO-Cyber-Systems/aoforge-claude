@@ -233,7 +233,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 - **`feature/v1.1-coordination` is duplicative** — same content as `feature/v1.1`. Should be deleted to avoid confusion. Its worktree at `/Users/markemerson/Source/devflow-claude-v11` can be removed.
 - EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run aof-tools calibrate until objective 75 has scored 68-72
-- ~/dev/trades is mid-upgrade and uncommitted after 0012 failed (72-25): finish or undo per todo 2026-10-09-fix-0012-failing-after-0002-in-the-same-upgrade-run-then-finish-or-undo-trades
 
 ### Quick Tasks Completed
 
