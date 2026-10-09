@@ -15,6 +15,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const client = require('./gh-client.cjs');
+const { installGhShim } = require('./__fixtures__/gh-shim.cjs');
+const { buildGhResponse_issuesSlurp } = require('./__fixtures__/gh-fixtures.cjs');
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -54,10 +56,12 @@ const SECONDARY = (stdout = '') => ({
 });
 
 const tmpDirs = [];
+const shims = [];
 
 afterEach(() => {
   client._resetClient();
   while (tmpDirs.length) fs.rmSync(tmpDirs.pop(), { recursive: true, force: true });
+  while (shims.length) shims.pop().cleanup();
 });
 
 // ─── Seam (tests 1-2) ────────────────────────────────────────────────────────
@@ -720,5 +724,101 @@ describe('49-02 isWriteArgs: issue develop, pr, graphql', () => {
     client.ghRun(['issue', 'develop', '121', '--name', 'c']);
     assert.deepEqual(h.sleeps, [1000]);
     assert.equal(client.writeCount(), 2);
+  });
+});
+
+// ─── 72-27 spawn runner limits (R1-R4 over the real runner, U1-U4 pure) ──────
+
+describe('72-27 spawn runner limits', () => {
+  // The real spawn runner, with the gh PATH shim first on PATH: nothing reaches GitHub.
+  function shimFor(table) {
+    const shim = installGhShim({ table });
+    shims.push(shim);
+    client._setRunGh(null);
+    return shim;
+  }
+
+  it('R1. ghPaginate over the real spawn runner returns every item of a slurped answer larger than 2 MiB', () => {
+    const payload = buildGhResponse_issuesSlurp({ count: 300, bodyBytes: 8000 });
+    assert.ok(Buffer.byteLength(payload.stdout) > 2 * 1024 * 1024);
+    const shim = shimFor({ 'api --paginate --slurp repos/o/r/issues?state=all': { code: 0, stdout: payload.stdout } });
+
+    const r = client.ghPaginate('repos/o/r/issues?state=all', { env: shim.env() });
+
+    assert.equal(r.ok, true, r.error);
+    assert.equal(r.items.length, 300);
+    assert.equal(r.items[0].number, 1);
+    assert.equal(r.items[299].number, 300);
+  });
+
+  it('R2. a single gh read over the real spawn runner returns an answer larger than 1 MiB intact', () => {
+    const payload = buildGhResponse_issuesSlurp({ count: 150, bodyBytes: 8000 });
+    assert.ok(Buffer.byteLength(payload.stdout) > 1024 * 1024);
+    const shim = shimFor({ 'api repos/o/r/issues/comments': { code: 0, stdout: payload.stdout } });
+
+    const r = client._runGh(['api', 'repos/o/r/issues/comments'], { env: shim.env() });
+
+    assert.equal(r.ok, true, r.stderr);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, payload.stdout.trim());
+  });
+
+  it('R3. an answer larger than the read buffer fails with a named ENOBUFS cause and no partial stdout', () => {
+    const shim = shimFor({ 'api repos/o/r/issues/comments': { code: 0, stdout: 'x'.repeat(4096) } });
+
+    const r = client._runGh(['api', 'repos/o/r/issues/comments'], { env: shim.env(), maxBuffer: 1024 });
+
+    assert.deepEqual(r, {
+      ok: false,
+      status: null,
+      stdout: '',
+      stderr: 'gh output exceeded the read buffer of 1024 bytes (ENOBUFS)',
+    });
+  });
+
+  it('R4. a gh call that outlives its timeout fails with a named ETIMEDOUT cause and no partial stdout', () => {
+    const shim = shimFor({ 'api repos/o/r/issues/comments': { code: 0, stdout: 'never read', delay_ms: 5000 } });
+
+    const r = client._runGh(['api', 'repos/o/r/issues/comments'], { env: shim.env(), timeout: 300 });
+
+    assert.deepEqual(r, {
+      ok: false,
+      status: null,
+      stdout: '',
+      stderr: 'gh timed out after 0.3 s (ETIMEDOUT)',
+    });
+  });
+
+  it('U1. a call that does not paginate gets the 256 MiB buffer and the 30 s timeout', () => {
+    assert.deepEqual(client._spawnOptions(['issue', 'view', '1']), {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30000,
+      maxBuffer: 268435456,
+    });
+  });
+
+  it('U2. a --paginate call gets the 300 s timeout and the same buffer', () => {
+    const o = client._spawnOptions(['api', '--paginate', '--slurp', 'repos/o/r/issues']);
+    assert.equal(o.timeout, client.PAGINATE_TIMEOUT_MS);
+    assert.equal(o.timeout, 300000);
+    assert.equal(o.maxBuffer, 268435456);
+  });
+
+  it('U3. caller opts win over the defaults and nothing the caller passed is dropped', () => {
+    assert.deepEqual(client._spawnOptions(['api', 'x'], { timeout: 5, maxBuffer: 10, input: 'i', env: { A: '1' } }), {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 5,
+      maxBuffer: 10,
+      input: 'i',
+      env: { A: '1' },
+    });
+  });
+
+  it('U4. the buffer and timeout limits are exported constants', () => {
+    assert.equal(client.GH_MAX_BUFFER, 256 * 1024 * 1024);
+    assert.equal(client.PAGINATE_TIMEOUT_MS, 300000);
+    assert.equal(client.DEFAULT_TIMEOUT_MS, 30000);
   });
 });
