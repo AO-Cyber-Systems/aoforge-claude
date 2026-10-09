@@ -1,6 +1,8 @@
 <div align="center">
 
-# AOFORGE
+<img src="assets/ao-icon.svg" alt="AO Cyber Systems" height="72">
+
+<h1>AOForge</h1>
 
 **A meta-prompting, context engineering and spec-driven development system for Claude Code.**
 

@@ -2,3 +2,8 @@
 /commands/*   /docs/commands/:splat   301
 /cli          /docs/reference/aof-tools/   301
 /install      /docs/getting-started/installation/   301
+
+# The CLI reference page kept its old name until the 3.0.0 rename; old links land on the new page.
+# rename-guard:ignore-start
+/docs/reference/df-tools/  /docs/reference/aof-tools/  301
+# rename-guard:ignore-end

@@ -129,8 +129,11 @@ const ALLOW = [
 const IGNORE_START = ['rename-guard', 'ignore-start'].join(':');
 const IGNORE_END = ['rename-guard', 'ignore-end'].join(':');
 
-/** The only files allowed to hold an ignore region. */
-const IGNORE_REGION_FILES = ['CLAUDE.md', 'docs/USER-GUIDE.md'];
+/**
+ * The only files allowed to hold an ignore region. `site/static/_redirects` (TRD 72-17) spells the
+ * old CLI reference URL so the docs site can redirect it (`#` comments carry the markers).
+ */
+const IGNORE_REGION_FILES = ['CLAUDE.md', 'docs/USER-GUIDE.md', 'site/static/_redirects'];
 
 class RenameGuardError extends Error {}
 
