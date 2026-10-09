@@ -181,6 +181,7 @@ const PROBES = {
   'state add-blocker': ['state', 'add-blocker', '--text', 'A blocker'],
   'state resolve-blocker': ['state', 'resolve-blocker', '--text', 'A blocker'],
   'state record-session': ['state', 'record-session', '--stopped-at', 'Probe'],
+  'state rekey': ['state', 'rekey', '--from', '/nonexistent-probe/old-checkout', '--dry-run'],
   'commit': ['commit', 'msg'],
   'template select': ['template', 'select', '.aoforge/objectives/01-a/01-01-TRD.md'],
   'template fill': ['template', 'fill', 'summary', '--objective', '1', '--job', '01', '--name', 'Probe'],

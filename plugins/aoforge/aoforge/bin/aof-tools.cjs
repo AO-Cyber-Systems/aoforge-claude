@@ -20,6 +20,9 @@
  *   state update <field> <value>       Update a STATE.md field
  *   state get [section]                Get STATE.md content or section
  *   state patch --field val ...        Batch update STATE.md fields
+ *   state rekey --from <old> [--to <new>] [--dry-run]
+ *                                      Copy repo-keyed runtime state from a moved
+ *                                      checkout's old key to its new key
  *   resolve-model <agent-type>         Get model for agent based on profile
  *   find-objective <objective>                 Find objective directory by number
  *   commit <message> [--files f1 f2]   Commit planning docs. A message starting
@@ -438,6 +441,14 @@ async function main() {
           stopped_at: stoppedIdx !== -1 ? args[stoppedIdx + 1] : null,
           resume_file: resumeIdx !== -1 ? args[resumeIdx + 1] : 'None',
         }, raw);
+      } else if (subcommand === 'rekey') {
+        // TRD 72-07 (INST-06): copy repo-keyed runtime state from a moved checkout's old key to its new key; never deletes.
+        const { output: outputRekey } = require('./lib/helpers.cjs');
+        const { runStateRekey } = require('./lib/state-rekey.cjs');
+        const os = require('os');
+        const r = runStateRekey({ argv: args.slice(2), cwd, userHome: os.homedir(), tmpDir: os.tmpdir() });
+        if (!r.ok) error(r.message);
+        outputRekey(r.result, raw, r.text);
       } else {
         cmdStateLoad(cwd, raw);
       }
