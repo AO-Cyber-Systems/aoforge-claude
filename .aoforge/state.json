@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 24,
+  "current_job": 25,
   "total_jobs": 26,
   "progress_pct": 100,
   "status": "executing",
@@ -1455,10 +1455,26 @@
       "objective": "72",
       "summary": "72-24: aoforge-docs Pages project and docs deploy deferred by the user to objective 74 (OPS-03); devflow-docs is in the AOCyber Systems account, so the org CLOUDFLARE_ACCOUNT_ID or token is the unconfirmed lead",
       "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-25: user approved 16 fleet repositories in one reply (\"Approve 1–16, hold 17 (Recommended)\"); 10 upgraded with one local commit each, nothing pushed; github-enterprise-migration held by the user",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-25: trades failed at 0012 after 0002 (fs-renamed JOB.md files break git mv); not committed, nothing reverted; finish/undo is the user's call (todo)",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-25: devflow, eden-press, aoinference, aoid, navigators held untouched because the approved commit (--files .aoforge) would also track their untracked planning files (todo)",
+      "rationale": null
     }
   ],
   "blockers": [
-    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72"
+    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72",
+    "~/dev/trades is mid-upgrade and uncommitted after 0012 failed (72-25): finish or undo per todo 2026-10-09-fix-0012-failing-after-0002-in-the-same-upgrade-run-then-finish-or-undo-trades"
   ],
   "session_log": []
 }

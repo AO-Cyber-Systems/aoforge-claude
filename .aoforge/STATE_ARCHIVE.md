@@ -278,6 +278,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-23: global CLAUDE.md outside-block rewrite approved and applied once with upgrade --global --confirm (only the two TDD & Quality lines; backup global-2026-10-09T14-03-31-298Z); aocyber marketplace re-point skipped, entry keeps its redirecting source
 - [Objective 72]: 72-24: vanity PR deferred by the user until the rename is complete and git.aocyber.ai is configured; mapping plus seed-contract patches preserved in a todo
 - [Objective 72]: 72-24: aoforge-docs Pages project and docs deploy deferred by the user to objective 74 (OPS-03); devflow-docs is in the AOCyber Systems account, so the org CLOUDFLARE_ACCOUNT_ID or token is the unconfirmed lead
+- [Objective 72]: 72-25: user approved 16 fleet repositories in one reply ("Approve 1–16, hold 17 (Recommended)"); 10 upgraded with one local commit each, nothing pushed; github-enterprise-migration held by the user
+- [Objective 72]: 72-25: trades failed at 0012 after 0002 (fs-renamed JOB.md files break git mv); not committed, nothing reverted; finish/undo is the user's call (todo)
+- [Objective 72]: 72-25: devflow, eden-press, aoinference, aoid, navigators held untouched because the approved commit (--files .aoforge) would also track their untracked planning files (todo)
 
 ## Performance Metrics
 
@@ -462,4 +465,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P22 | 9 min | 2 tasks | 6 files |
 | Objective 72 P23 | 4 min | 3 tasks | 2 files |
 | Objective 72 P24 | 15 min | 3 tasks | 3 files |
+| Objective 72 P25 | 30 min | 3 tasks | 7 files |
 

@@ -31,10 +31,16 @@ decisions:
 requirements-completed: []
 metrics:
   started: 2026-10-09T15:05:00Z
-  completed: 2026-10-09T16:05:00Z
-  duration: "about 60 min of executor time, plus the approval wait"
+  completed: 2026-10-09T15:35:07Z
+  duration: "about 30 min of executor time, plus the approval wait"
   tasks: 3
   files: 7
+tokens_input: 29329546
+tokens_output: 124019
+tokens_cache_read: 29098162
+tokens_cache_write: 231060
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 25: Fleet sweep Summary
@@ -44,7 +50,7 @@ metrics:
 ## Progress
 - [x] Task 1: Discover the fleet and preview each repository — 52e92ced (read-only, recorded after 72-24 finished)
 - [x] Task 2: Approval gate — d9907148, 093e55c7, 0efd477c, 572ccd13, 1d3c342a, 53b0fdd3, 131c1239, 459db923, 8b6832ce, a088a3f8, 80e4b195 (one checkpoint per repository; the fleet commits are in each repository, see "Task 2 outcomes"). User's literal reply (AskUserQuestion, relayed by the orchestrator): "Approve 1–16, hold 17 (Recommended)", approving by name and in order dfip, quanta-local, torrentConsole, aocyber-deploy, trades, EdenDocs, ao-terminal, devflow, eden-press, qrCodeBuilder, aostudio, aoid, aoinference, aofamily, justin-donnaruma-us-go, navigators; github-enterprise-migration HELD; the 16 dirty repositories and the ambiguous items skipped with no action
-- [x] Task 3: Verify the upgraded repositories — (this commit)
+- [x] Task 3: Verify the upgraded repositories — 278ff7a1
 
 ## Preflight
 
@@ -209,3 +215,17 @@ Untouched since the preview (HEAD and tracked state re-read): devflow 5f79ecf, e
 - Auto-fix cycles used: 0
 - Must-haves: 3 met, 1 partly met, 1 not applicable. (1) Fleet listed with pending migrations, tree state and mode: met. (2) Each repository upgraded only after approval, ending on `.aoforge/` with the stamp and its CLAUDE.md block, committed locally, nothing pushed: **partly met**. True for the 10 upgraded, but the approval was one reply naming each repository, not one reply per repository. trades did not end on `.aoforge/`. (3) Store-mode rebrand: not applicable (no store-mode repository). (4) Dirty, mid-operation or declined repositories not touched: met. trades was neither; it was touched by its approved step 1, which failed. (5) No W066/W067 in each upgraded repository: met (10/10).
 - Gate failures: none. Open items: trades (decision), five held repositories (decision), github-enterprise-migration (held), six todos.
+
+## Self-Check: PASSED
+
+The SUMMARY's claims are verified. They do not say the sweep is complete.
+- Commits exist: 13 in this repository (52e92ced, d9907148, 093e55c7, 0efd477c, 572ccd13, 1d3c342a, 53b0fdd3, 131c1239, 459db923, 8b6832ce, a088a3f8, 80e4b195, 278ff7a1) and the 10 fleet upgrade commits (dfip 12bf091, quanta-local dd98daa, torrentConsole da3236b, aocyber-deploy 69e31b3, EdenDocs 121d2b35aa8, ao-terminal d7284005, qrCodeBuilder 9077470, aostudio fda6af5, aofamily 9b15c1e, justin-donnaruma-us-go 21e2bb8): all FOUND.
+- Files exist: this SUMMARY and the six todos: all FOUND.
+- **Not upgraded, stated explicitly:**
+  - failed and left uncommitted: trades;
+  - held untouched (untracked-file sweep): devflow, eden-press, aoinference, aoid, navigators;
+  - held by the user: github-enterprise-migration;
+  - skipped dirty per the reply: AOSignal, aocore, aodex, aoedge, devcluster, devflow-test, devflowops, eden-biz, eden-circle, eden-libs, justinforme, opsCluster, politihub, recycling-oracle, smartWellness, videoArchive;
+  - ambiguous, no action: eden-platform-go, eden-ui-flutter, the sub-project planning directories, aohealth, aoCyberSecurity;
+  - deferred by 0012: none.
+- Nothing was pushed from any repository. No GitHub write was made.
