@@ -275,7 +275,7 @@ TRDs:
   4. A session start in a clean `.planning/` project moves it to `.aoforge/` with `git mv` and commits only the move; a dirty or mid-merge tree is skipped; config, CLAUDE.md and (after a dry run and approval) store-mode GitHub artefacts are renamed.
   5. 3.0.0 is tagged on `main` with the three version files in step and a CHANGELOG entry leading with the rename; the `devflow@aocyber` pointer release tells users to install `aoforge@aocyber`; aoforge flags an enabled devflow plugin.
   6. After approval of each step: this repo runs on `.aoforge/`, the global CLAUDE.md routes to `/aoforge:`, the repo is `aoforge-claude`, the checkout is `~/dev/aoforge-claude` with memory and run state carried over, the vanity PR is open for review, the Pages project is `aoforge-docs`, and each fleet repo was upgraded behind its own checkpoint.
-**TRDs**: 26 plans (18 waves)
+**TRDs**: 27 plans (19 waves)
 
 TRDs:
 - [x] 72-01-rescope-requirements-and-roadmap-TRD.md — (W1) run-state estimate gate (`estimate start 72`; decision: frozen-method recalibration or unscored, never silent); INST-01 rewritten, INST-02..06 added; this entry rescoped to the AOForge rename
@@ -304,6 +304,7 @@ TRDs:
 - [x] 72-24-vanity-pr-and-pages-project-TRD.md — (W16) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
 - [x] 72-25-fleet-sweep-TRD.md — (W17) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
 - [x] 72-26-checkout-move-and-rekey-TRD.md — (W18) checkpoint: user moves checkout to `~/dev/aoforge-claude`; worktrees, memory and keyed state carried over; follow-up PR for the post-merge commits (push and PR gates)
+- [ ] 72-27-gh-client-max-buffer-TRD.md — (W19, gap closure) gh-client spawn runner gets a 256 MiB buffer and 300 s paginated timeout with named ENOBUFS/ETIMEDOUT causes (TDD); read-only `gh rebrand --dry-run` against eden-biz recorded; INST-04 ticked only on success; no `--apply`
 
 ### Objective 73: Handoff gaps and result injection
 
