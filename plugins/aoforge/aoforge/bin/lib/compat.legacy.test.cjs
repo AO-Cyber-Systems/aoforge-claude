@@ -14,6 +14,8 @@
 // 15. runtimeHome and legacyRuntimeHome.
 // 16. Source guard: compat.cjs spells no legacy name.
 // 17-19 (TRD 72-05): planningRel, PLANNING_DIR_NAMES/isPlanningDirName, planningDirLabel.
+// 13b (TRD 72-10): isOwnAgentType rejects an empty agent name in either namespace (the gates trusted only a
+//     non-empty name before the shim); isOwnExecutor is an own type whose agent is `executor`.
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
@@ -253,6 +255,24 @@ describe('compat.isOwnAgentType', () => {
     assert.equal(compat.isOwnAgentType(null), false);
     assert.equal(compat.isOwnAgentType(undefined), false);
     assert.equal(compat.isOwnAgentType(42), false);
+  });
+
+  it('13b. rejects an empty agent name in either namespace (TRD 72-10)', () => {
+    assert.equal(compat.isOwnAgentType('aoforge:'), false);
+    assert.equal(compat.isOwnAgentType('devflow:'), false);
+    assert.equal(compat.isOwnAgentType('x:devflow:a'), false);
+    assert.equal(compat.isOwnAgentType('DEVFLOW:executor'), false);
+  });
+});
+
+describe('compat.isOwnExecutor (TRD 72-10)', () => {
+  it('13b. the executor in either namespace, nothing else', () => {
+    assert.equal(compat.isOwnExecutor('aoforge:executor'), true);
+    assert.equal(compat.isOwnExecutor('devflow:executor'), true);
+    for (const t of ['aoforge:verifier', 'devflow:planner', 'executor', 'Explore:executor', 'aoforge:executor-x',
+      'aoforge:', ':executor', '', null, undefined, 42]) {
+      assert.equal(compat.isOwnExecutor(t), false, JSON.stringify(t));
+    }
   });
 });
 
