@@ -26,9 +26,9 @@ metrics:
 **Checkpoint: Task 1 (read-only inspection) is done. Tasks 2 and 3 are human-action gates waiting on the user's literal replies.**
 
 ## Progress
-- [x] Task 1: Inspect the global block and preview the outside-block change (read-only) — (this commit)
-- [ ] Task 2: Approval gate: apply the outside-block change to ~/.claude/CLAUDE.md — next step: on the user's literal reply `approved`, run `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm` once, then verify `upgrade --global` shows `outside.lines: 0`, `rg -n devflowops ~/.claude/CLAUDE.md` still matches line 16, and a new `~/.claude/aoforge/backups/global-*` directory holds the previous file
-- [ ] Task 3: Decision gate: re-point the aocyber marketplace at aoforge-claude (separate reply: `approved`, `skip`, or hold)
+- [x] Task 1: Inspect the global block and preview the outside-block change (read-only) — 2c92f943
+- [x] Task 2: Approval gate: apply the outside-block change to ~/.claude/CLAUDE.md. Reply "approved"; `upgrade --global --confirm` run once; only lines 51 and 53 changed — (this commit)
+- [ ] Task 3: Decision gate: re-point the aocyber marketplace at aoforge-claude — next step: the user's literal reply is "skip (Recommended)", so run no marketplace command; verify with `claude plugin list` that aoforge@aocyber is enabled and with `claude plugin marketplace list --json` that `aocyber` still reads `AO-Cyber-Systems/devflow-claude`, then record `skip`
 
 ## Task 1: block state and outside-block preview (2026-10-09T14:00-14:05Z, AOForge 3.0.0 session)
 
@@ -62,6 +62,22 @@ Preflight: `exec-context check --repo /Users/justin/dev/devflow-claude --base fe
  
  # AO Cyber Systems — Brand Guide
 ```
+
+## Approvals (literal replies)
+
+| Gate | Reply | Run |
+|---|---|---|
+| A. Task 2, the change outside the block | "approved" (user's AskUserQuestion reply, relayed by the orchestrator) | `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm` (run once): `outside.applied: true`, `outside.lines: 2`, `block.action: none`, backup `/Users/justin/.claude/aoforge/backups/global-2026-10-09T14-03-31-298Z/CLAUDE.md` |
+
+## Task 2: apply the approved diff (2026-10-09T14:03Z)
+
+| Check | Result |
+|---|---|
+| `diff <backup> ~/.claude/CLAUDE.md` | exactly `51c51` and `53c53`: the two TDD & Quality lines, DevFlow's to AOForge's and `~/.claude/devflow/references/defaults-table.md` to `~/.claude/aoforge/references/defaults-table.md`. Nothing else differs; both files are 106 lines |
+| `ls -l ~/.claude/aoforge/backups/global-2026-10-09T14-03-31-298Z` | `CLAUDE.md`, 12468 bytes: the file as it was just before the rewrite |
+| `aof-tools upgrade --global --raw` (TRD verify) | `legacy: none; CLAUDE.md block: none; check only; nothing written`: no outside-block diff remains |
+| `rg -n -i -e devflowops -e devflow -e '^# Import Paths' -e 'AOFORGE:' ~/.claude/CLAUDE.md` | line 14 `# Import Paths — Vanity Domains (decided 2026-09-28)` and line 16 `... a later devflowops move ...` unchanged; markers at 24 (`AOFORGE:START v=4`) and 47. No other legacy wording left in the file |
+| Notice | `global-upgrade` info notice queued: "AOForge v3.0.0 rewrote 2 hand-written line(s) outside the managed block ... as approved with --confirm" |
 
 ## Task 3 pre-check facts (read-only, gathered with Task 1)
 
