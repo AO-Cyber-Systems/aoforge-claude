@@ -7,28 +7,44 @@ requirements: [INST-06]
 requires:
   - objective: 72
     provides: "72-21: AOForge 3.0.0 installed and the global block moved to AOFORGE v4 at the first AOForge session; 72-22: active docs in AOForge terms"
-provides: []
+provides:
+  - "~/.claude/CLAUDE.md: one AOFORGE v4 managed block routing to /aoforge: commands, and the two hand-written TDD & Quality lines now name AOForge and ~/.claude/aoforge/references/defaults-table.md (approved; backup global-2026-10-09T14-03-31-298Z)"
+  - "Marketplace decision recorded: skip. The aocyber entry keeps its redirecting source AO-Cyber-Systems/devflow-claude"
 affects: [72-24, 72-25, 72-26]
 tech-stack:
   added: []
   patterns: []
 key-files:
   created: []
-  modified: []
-decisions: []
+  modified:
+    - "~/.claude/CLAUDE.md (outside this repo; lines 51 and 53, via upgrade --global --confirm)"
+    - CLAUDE.md
+decisions:
+  - "Global CLAUDE.md outside-block rewrite approved (\"approved\") and applied once with upgrade --global --confirm; only the two TDD & Quality lines changed"
+  - "aocyber marketplace re-point skipped (\"skip (Recommended)\"): the old slug redirects to aoforge-claude, and remove + add could uninstall aoforge, eden-ui-flutter and the disabled pre-rename plugin"
 requirements-completed: []
 metrics:
   started: 2026-10-09T14:00:42Z
+  completed: 2026-10-09T14:04:37Z
+  duration: "about 4 min of executor time, plus the approval wait"
+  tasks: 3
+  files: 2
+tokens_input: 3815926
+tokens_output: 24761
+tokens_cache_read: 3725115
+tokens_cache_write: 90729
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 23: Move the user's global CLAUDE.md and marketplace entry over (approval gates) Summary
 
-**Checkpoint: Task 1 (read-only inspection) is done. Tasks 2 and 3 are human-action gates waiting on the user's literal replies.**
+**`~/.claude/CLAUDE.md` now routes to AOForge throughout. The managed block was already AOFORGE v4 from the first AOForge session. After the user approved the shown diff, `upgrade --global --confirm` rewrote the two hand-written TDD & Quality lines to AOForge, with a backup first. The `aocyber` marketplace re-point was skipped by the user's choice, so its redirecting entry is unchanged.**
 
 ## Progress
 - [x] Task 1: Inspect the global block and preview the outside-block change (read-only) — 2c92f943
-- [x] Task 2: Approval gate: apply the outside-block change to ~/.claude/CLAUDE.md. Reply "approved"; `upgrade --global --confirm` run once; only lines 51 and 53 changed — (this commit)
-- [ ] Task 3: Decision gate: re-point the aocyber marketplace at aoforge-claude — next step: the user's literal reply is "skip (Recommended)", so run no marketplace command; verify with `claude plugin list` that aoforge@aocyber is enabled and with `claude plugin marketplace list --json` that `aocyber` still reads `AO-Cyber-Systems/devflow-claude`, then record `skip`
+- [x] Task 2: Approval gate: apply the outside-block change to ~/.claude/CLAUDE.md. Reply "approved"; `upgrade --global --confirm` run once; only lines 51 and 53 changed — e355e010
+- [x] Task 3: Decision gate: re-point the aocyber marketplace at aoforge-claude. Reply "skip (Recommended)"; no marketplace command run; recorded in the final docs commit
 
 ## Task 1: block state and outside-block preview (2026-10-09T14:00-14:05Z, AOForge 3.0.0 session)
 
@@ -68,6 +84,7 @@ Preflight: `exec-context check --repo /Users/justin/dev/devflow-claude --base fe
 | Gate | Reply | Run |
 |---|---|---|
 | A. Task 2, the change outside the block | "approved" (user's AskUserQuestion reply, relayed by the orchestrator) | `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm` (run once): `outside.applied: true`, `outside.lines: 2`, `block.action: none`, backup `/Users/justin/.claude/aoforge/backups/global-2026-10-09T14-03-31-298Z/CLAUDE.md` |
+| B. Task 3, the marketplace re-point | "skip (Recommended)" (user's AskUserQuestion reply, relayed by the orchestrator) | nothing: no `claude plugin marketplace remove/add`, no install or uninstall |
 
 ## Task 2: apply the approved diff (2026-10-09T14:03Z)
 
@@ -93,3 +110,74 @@ Preflight: `exec-context check --repo /Users/justin/dev/devflow-claude --base fe
 | Repo manifest `.claude-plugin/marketplace.json` | `"name": "aocyber"`, so a re-added marketplace keeps the name and the `@aocyber` plugin ids |
 | `claude plugin list` (aocyber plugins) | `aoforge@aocyber` 3.0.0 ✔ enabled; `devflow@aocyber` 2.15.0 ✘ disabled; `eden-ui-flutter@aocyber` 1.0.0 ✔ enabled |
 | `~/.claude/settings.json` (read only, not edited) | `enabledPlugins`: `devflow@aocyber: false`, `eden-ui-flutter@aocyber: true`, `aoforge@aocyber: true` |
+
+Re-point sequence offered (not run): `claude plugin marketplace remove aocyber`, then `claude plugin marketplace add AO-Cyber-Systems/aoforge-claude`, then `claude plugin install aoforge@aocyber` and `claude plugin install eden-ui-flutter@aocyber`. The disabled pre-rename plugin would not have been reinstalled.
+
+## Task 3: decision recorded (2026-10-09T14:04Z)
+
+| Step | Command | Result |
+|---|---|---|
+| Gate | (orchestrator relay) | the user's literal reply: "skip (Recommended)". Recorded as **skip** |
+| Run | none | no marketplace, install or settings command was run |
+| Verify | `claude plugin list` | `aoforge@aocyber` 3.0.0, user, **✔ enabled**; `eden-ui-flutter@aocyber` 1.0.0 ✔ enabled; the pre-rename plugin 2.15.0 ✘ disabled (unchanged since 72-21) |
+| Verify | `claude plugin marketplace list --json` | `aocyber`: `source: github`, `repo: AO-Cyber-Systems/devflow-claude`. Unchanged; GitHub redirects it to `AO-Cyber-Systems/aoforge-claude` |
+
+## Must-haves
+
+| # | Truth | Evidence | Status |
+|---|---|---|---|
+| 1 | One managed block, AOFORGE markers, template v4, routing to `/aoforge:`, rewritten by the global upgrade with a backup | Task 1: markers at lines 24/47 `v=4`, `rg -c` = 1, `/aoforge:` lines 30-46; block-rewrite backup `global-2026-10-09T13-42-43-820Z/CLAUDE.md` holds the v3 block | PASS |
+| 2 | Outside text changed only after the shown diff was approved; `devflowops` and Import Paths unchanged; backup under `~/.claude/aoforge/backups/` | Approval A; `diff` backup vs live = `51c51`, `53c53` only; lines 14 and 16 intact; backup `global-2026-10-09T14-03-31-298Z/CLAUDE.md` (12468 bytes) | PASS |
+| 3 | The user decided the marketplace re-point with the facts in front of them | Task 3 pre-check facts were presented in the checkpoint; reply "skip (Recommended)"; `claude plugin list` shows aoforge@aocyber enabled | PASS |
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Inspect the block, preview the diff | `rg -c 'AOFORGE:START' ~/.claude/CLAUDE.md` (prints `1`) | 0 | PASS |
+| 2: Apply the approved diff | `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --raw` (no outside-block diff) and `rg -n devflowops ~/.claude/CLAUDE.md` (line 16) | 0 | PASS |
+| 3: Marketplace decision | `claude plugin list` (aoforge@aocyber ✔ enabled) | 0 | PASS |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| CLAUDE.md guards (after the "Where we left off" edit) | `node --test rename-guard.repo.test.cjs doc-refs.repo.test.cjs dispatch-completeness.test.cjs` | 0 | PASS: tests 45, pass 45, fail 0 |
+| stack task gates (test/lint/build) | not run | n/a | not_available: no source file changed. The only repo changes are this SUMMARY, CLAUDE.md prose and the planning state |
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 2 - Missing, 72-22 hand-off] Project CLAUDE.md "Where we left off" updated**
+- **Found during:** finishing the TRD. 72-22 asked that each rollout step update this section as it lands.
+- **Fix:** "at TRD 72-22 of 26" became "72-23", and the 72-23 bullet now records the outcome: the block is v4, the two lines were rewritten after approval (with the backup path), and the re-point was skipped. No legacy spelling was added, because the rename guard scans CLAUDE.md line for line.
+- **Files modified:** `CLAUDE.md`
+- **Commit:** the final docs commit
+
+**2. [Dispatch] No explicit WAVE_BASE**
+- The dispatch named no WAVE_BASE, so the preflight used the objective branch tip `feat/stack-profile-loader` (701742cc, the 72-22 completion commit).
+
+Otherwise the TRD ran as written. `~/.claude/CLAUDE.md` was written only by `aof-tools upgrade --global --confirm`. No marketplace command, settings.json edit or push was made.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 3/3
+- Gate failures: none
+- INST-06 stays Pending: 72-24 (vanity PR, Pages), 72-25 (fleet) and 72-26 (checkout move) still carry it.
+
+## Hand-offs
+
+- **72-24..72-26:** the project CLAUDE.md "Where we left off" now reads 72-23 of 26. Update it as each step lands.
+- **Marketplace:** the entry still names the pre-rename slug. If GitHub ever drops the redirect (for example, a new repository created under the old name), `claude plugin marketplace update aocyber` will fail. The re-point sequence is recorded above.
+- **User's call (unchanged from 72-21):** `aof-tools doctor --global --fix` moves the old runtime home into `~/.claude/aoforge/backups/`.
+- Nothing was pushed.
+
+## Self-Check: PASSED
+
+- FOUND: commits 2c92f943 (Task 1 checkpoint) and e355e010 (Task 2 checkpoint), `git cat-file -t` = commit
+- FOUND: `~/.claude/aoforge/backups/global-2026-10-09T14-03-31-298Z/CLAUDE.md` (12468 bytes, pre-confirm) and `global-2026-10-09T13-42-43-820Z/CLAUDE.md` (12465 bytes, pre-block-rewrite)
+- FOUND: `~/.claude/CLAUDE.md` has one `AOFORGE:START v=4`; `rg -c -i devflow` = 1 (line 16, the preserved `devflowops`); `upgrade --global --raw` shows no outside-block diff
+- FOUND: `claude plugin list` shows aoforge@aocyber 3.0.0 enabled; the marketplace source is unchanged (skip)
+- MISSING: none

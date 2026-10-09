@@ -62,7 +62,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
-**Status:** Executing objective 72 — 22/26 TRDs complete
+**Status:** Executing objective 72 — 23/26 TRDs complete
 **Progress:** [██████████] 99%
 
 ## Branch State (post-merge)
@@ -283,6 +283,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 ## Session Continuity
 
-Last session: 2026-10-09T13:59:57.463Z
+Last session: 2026-10-09T14:05:34.541Z
 Resume file: `None`
-Stopped at: Completed 72-22-active-docs-rewrite-TRD.md
+Stopped at: Completed 72-23-global-claude-md-and-marketplace-TRD.md

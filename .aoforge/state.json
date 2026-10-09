@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 22,
+  "current_job": 23,
   "total_jobs": 26,
   "progress_pct": 99,
   "status": "executing",
@@ -1439,6 +1439,11 @@
     {
       "objective": "72",
       "summary": "72-22: CLAUDE.md lost its transition note and its rename-guard ignore-region allowance, so it is now guarded line for line; PROJECT.md github_repo names AO-Cyber-Systems/aoforge-claude",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-23: global CLAUDE.md outside-block rewrite approved and applied once with upgrade --global --confirm (only the two TDD & Quality lines; backup global-2026-10-09T14-03-31-298Z); aocyber marketplace re-point skipped, entry keeps its redirecting source",
       "rationale": null
     }
   ],
