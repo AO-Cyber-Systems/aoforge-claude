@@ -47,6 +47,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const scope = require('./milestone-scope.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 const {
   TWO_MILESTONE_SPEC,
   ROADMAP_TWO_MILESTONES,
@@ -379,7 +380,8 @@ test('D6. a STATE.md the replacement would leave unchanged is not in would_write
 
 const ARCHIVE = '.aoforge/milestones';
 const entryLines = (text, version) => {
-  const digits = version.replace(/^v/, '').replace(/\./g, '\\.');
+  // The shared escape (backslashes and every metacharacter, not just dots): CodeQL js/incomplete-sanitization.
+  const digits = escapeRegExp(version.replace(/^v/, ''));
   return text.split('\n').filter((l) => new RegExp(`^## v?${digits}(?:\\s|$)`).test(l));
 };
 /** The bytes of every file under .aoforge/milestones/, keyed by project-relative path. */

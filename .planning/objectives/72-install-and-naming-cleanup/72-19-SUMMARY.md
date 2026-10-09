@@ -11,7 +11,7 @@ requirements: [INST-05, INST-06]
 ## Progress
 - [x] Task 1: Approval gate: rename the GitHub repository to aoforge-claude: no commit (live GitHub op + local remote config only)
 - [x] Task 2: Approval gate: push feat/stack-profile-loader: no commit (live push only); PUSHED_SHA 02da68293312e1812270259fde88668f72a9c848
-- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. Gap fix (local only, see "Gap fix" below): the hook-coexistence race is fixed (this commit); the `milestone-complete.test.cjs:382` escaping fix is pending. next step: fix `entryLines` in `plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs:382` with the shared `text-escape.cjs` regex escape and commit it; then the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR by the user, a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
+- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. Gap fix (local only, see "Gap fix" below): the hook-coexistence race is fixed in 9f149c8b; the `milestone-complete.test.cjs:382` escaping fix is in (this commit); the full-suite run is pending. next step: run the full suite without micro.test.cjs (`node --test` over package.json's globs), record the counts in "Gap fix", and commit the SUMMARY; then the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR by the user, a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
 
 ## Approvals (literal replies)
 
@@ -153,4 +153,18 @@ The user chose to fix locally, commit locally and push nothing. Main checkout /U
 
 Note: one run of both files under the artificial 12-busy-loop load (suite at nice 19) took 414 s, and 24 tests failed on hook-spawn timeouts. None of them was an ENOENT. That load starves the whole suite, so the race fix was measured with the targeted driver above, not with that run.
 
-Files: `plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js`, `plugins/aoforge/hooks/planning-writes.audit.test.js`, `plugins/aoforge/hooks/hook-coexistence.test.js`. Commit: (this commit).
+Files: `plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js`, `plugins/aoforge/hooks/planning-writes.audit.test.js`, `plugins/aoforge/hooks/hook-coexistence.test.js`. Commit: 9f149c8b `fix(72-19): turn off git auto-maintenance in hook test template repos`.
+
+### Fix 2: CodeQL "Incomplete string escaping or encoding" (js/incomplete-sanitization), milestone-complete.test.cjs:382
+
+**Cause.** 68-01's test helper `entryLines` built `new RegExp` from `version.replace(/^v/, '').replace(/\./g, '\\.')`. That escapes dots only. Backslashes and every other metacharacter reach the RegExp unescaped. `regex-escape.repo.test.cjs` skips test files by design, so the repo gate did not catch it, but CodeQL did.
+
+**Fix.** The helper now uses the shared `escapeRegExp` from `lib/text-escape.cjs` (`const digits = escapeRegExp(version.replace(/^v/, ''))`), the same import that `builtin-status.repo.test.cjs` and `planning-layout.legacy.test.cjs` use. The heading rule is still the test's own (`^## v?<version>(?:\s|$)`). It deliberately does not reuse the production `milestoneHeadingPattern`, so the test stays independent of the writer it checks.
+
+| Check | Result |
+|---|---|
+| old vs new helper on `## v1+0 Plus` / `## v110 Other` / `## v1.0 Real` | `v1.0`: both `["## v1.0 Real"]`. `v1+0`: old `["## v110 Other"]` (wrong line), new `["## v1+0 Plus"]` |
+| `node --test milestone-complete.test.cjs regex-escape.repo.test.cjs` (macOS) | 34/34 pass, exit 0 |
+| CodeQL | not run locally (`codeql` CLI not installed). The alert closes only on the next CodeQL analysis of a pushed head, and nothing is pushed |
+
+Files: `plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs`. Commit: (this commit).
