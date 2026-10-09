@@ -141,8 +141,10 @@ test('4: first run over a hand-written AOForge Routing section writes nothing an
   assert.equal(pending[0].level, 'action');
   assert.match(pending[0].message, /aof-tools upgrade --global --confirm/);
   assert.ok(pending[0].detail.includes('- # AOForge Routing'), 'detail lacks the removed heading line');
+  // The version comes from the template, not a literal (TRD 72-09 bumped it to 4).
+  const v = gu().loadGlobalTemplate(REAL_TEMPLATE).version;
   assert.ok(
-    pending[0].detail.includes('+ <!-- AOFORGE:START v=3 src=global-claude-md -->'),
+    pending[0].detail.includes(`+ <!-- AOFORGE:START v=${v} src=global-claude-md -->`),
     'detail lacks the added START marker line',
   );
   assert.ok(!pending[0].detail.includes('- ## TDD & Quality'), 'the next heading must not be proposed for removal');
@@ -282,9 +284,9 @@ test('12: dryRun reports the plan and writes nothing under the fake home', (t) =
 });
 
 // 13
-test('13: the real global template is version 3 and routes to /aoforge: skills only (TRD 37-10: adopt added; TRD 53-05: doctor added)', () => {
+test('13: the real global template is version 4 and routes to /aoforge: skills only (TRD 37-10: adopt added; TRD 53-05: doctor added; TRD 72-09: AOForge routing)', () => {
   const tpl = gu().loadGlobalTemplate(REAL_TEMPLATE);
-  assert.equal(tpl.version, '3');
+  assert.equal(tpl.version, '4');
   for (const cmd of ['/aoforge:build', '/aoforge:plan-objective', '/aoforge:status', '/aoforge:adopt', '/aoforge:doctor']) {
     assert.ok(tpl.body.includes(cmd), `template body lacks ${cmd}`);
   }
@@ -293,9 +295,13 @@ test('13: the real global template is version 3 and routes to /aoforge: skills o
 });
 
 // 14
-test('14: global-upgrade.cjs requires only Node built-ins, ./managed-block.cjs and ./notices.cjs', () => {
+// TRD 72-09 added ./legacy-rewrite.cjs, ./legacy-names.cjs and ./text-escape.cjs (sync-runtime's test copies them too).
+test('14: global-upgrade.cjs requires only Node built-ins and its listed lib closure', () => {
   const src = fs.readFileSync(MOD_PATH, 'utf-8');
-  const allowed = new Set(['fs', 'path', 'os', 'crypto', './managed-block.cjs', './notices.cjs']);
+  const allowed = new Set([
+    'fs', 'path', 'os', 'crypto', './managed-block.cjs', './notices.cjs',
+    './legacy-rewrite.cjs', './legacy-names.cjs', './text-escape.cjs',
+  ]);
   const required = [...src.matchAll(/require\(\s*(['"`])([^'"`]+)\1\s*\)/g)].map((m) => m[2]);
   assert.ok(required.length > 0, 'found no require calls at all');
   const extra = required.filter((r) => !allowed.has(r));

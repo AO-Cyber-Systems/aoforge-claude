@@ -24,8 +24,9 @@ const PLUGIN_VERSION = JSON.parse(fs.readFileSync(PLUGIN_JSON, 'utf-8')).version
 // /aoforge: or /df: token, so 0007 detects applies:false on the v1 fixture and is left out of
 // AUTO_IDS — it is reported under `skipped`, never `pending` or `applied`. See test 12 below.
 const AUTO_IDS = ['0001', '0002', '0003', '0004', '0005'];
-// v=3 as of TRD 53-05 (v=2 was TRD 37-10, /aoforge:adopt; v=3 adds /aoforge:doctor).
-const MANAGED_START = '<!-- AOFORGE:START v=3 src=global-claude-md -->';
+// The version is read from the template, not pinned (v=3 was TRD 53-05; TRD 72-09 bumped it to 4).
+const GLOBAL_TEMPLATE_VERSION = require('./global-upgrade.cjs').loadGlobalTemplate().version;
+const MANAGED_START = `<!-- AOFORGE:START v=${GLOBAL_TEMPLATE_VERSION} src=global-claude-md -->`;
 
 const cleanup = [];
 afterEach(() => {

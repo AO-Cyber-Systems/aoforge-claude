@@ -886,8 +886,9 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
   const { makeFakeHome } = require('../aoforge/bin/lib/__fixtures__/upgrade-fixtures.cjs');
   const REAL_LIB = path.join(__dirname, '..', 'aoforge', 'bin', 'lib');
   const REAL_TEMPLATE = path.join(__dirname, '..', 'aoforge', 'templates', 'global-claude-md.md');
-  // v=3 as of TRD 53-05 (v=2 was TRD 37-10, /aoforge:adopt; v=3 adds /aoforge:doctor).
-  const START = '<!-- AOFORGE:START v=3 src=global-claude-md -->';
+  // The version is read from the template, not pinned (v=3 was TRD 53-05; TRD 72-09 bumped it to 4).
+  const TEMPLATE_VERSION = /^template_version:[ \t]*["']?([^"'\s]+)/m.exec(fs.readFileSync(REAL_TEMPLATE, 'utf-8'))[1];
+  const START = `<!-- AOFORGE:START v=${TEMPLATE_VERSION} src=global-claude-md -->`;
   // An explicit empty value, so an ambient AOFORGE_SKIP_GLOBAL_UPGRADE cannot mask these cases.
   const RUN = { AOFORGE_SKIP_GLOBAL_UPGRADE: '' };
 
@@ -899,8 +900,13 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
       fs.rmSync(home, { recursive: true, force: true });
     });
     // notices.cjs resolves the planning directory through compat.cjs (TRD 72-05), which reads legacy-names.cjs;
-    // managed-block.cjs builds its dual-tag markers with text-escape.cjs (TRD 72-09)
-    for (const f of ['global-upgrade.cjs', 'managed-block.cjs', 'notices.cjs', 'compat.cjs', 'legacy-names.cjs', 'text-escape.cjs']) {
+    // managed-block.cjs builds its dual-tag markers with text-escape.cjs, and global-upgrade.cjs proposes the
+    // outside-block rewrite with legacy-rewrite.cjs (TRD 72-09)
+    const closure = [
+      'global-upgrade.cjs', 'managed-block.cjs', 'notices.cjs', 'compat.cjs', 'legacy-names.cjs',
+      'text-escape.cjs', 'legacy-rewrite.cjs',
+    ];
+    for (const f of closure) {
       fs.copyFileSync(path.join(REAL_LIB, f), path.join(tmp.aoforgeSrc, 'bin', 'lib', f));
     }
     fs.copyFileSync(REAL_TEMPLATE, path.join(tmp.aoforgeSrc, 'templates', 'global-claude-md.md'));

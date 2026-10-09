@@ -1,6 +1,6 @@
 ---
 template: global-claude-md
-template_version: "3"
+template_version: "4"
 ---
 # AOForge Routing
 
