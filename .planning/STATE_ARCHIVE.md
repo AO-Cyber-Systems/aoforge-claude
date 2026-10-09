@@ -266,6 +266,10 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-17: the real AO emblem (aocyber.ai ao-icon.svg, sha256 12f6c83e...5965) is cached at assets/ao-icon.svg with assets/SOURCES.md; README and site header size it by height only; the old CLI reference URL redirects 301 via site/static/_redirects inside a rename-guard region
 - [Objective 72]: 72-18: CHANGELOG 3.0.0 is inserted under a kept, empty [Unreleased] heading (2.14.0/2.15.0 practice), so the diff is additions only
 - [Objective 72]: 72-18: every sibling plugin changed in objective 72 takes a patch bump, social-media-generator included (1.3.1; aosentry-mcp, eden-ui-flutter, eden-ui-web 1.0.1; monorepo-standards 0.1.1)
+- [Objective 72]: 72-19: red release-PR checks were fixed locally first, then a separate push approval was asked (user: Fix locally, then ask)
+- [Objective 72]: 72-19: E2E1 roadmap drift resolved by ticking 72-19 in ROADMAP.md before the second push (user: Tick 72-19 now)
+- [Objective 72]: 72-19: CodeQL #161/#162, path-change re-flags of #95/#146 dismissed on main, dismissed with the same reasons (user: Dismiss both)
+- [Objective 72]: 72-19: validation of record for 3.0.0 is the green PR #128 CI at 11e98cf4, superseding 72-18's 02da6829 (gap-fix test commits only in between)
 
 ## Performance Metrics
 
@@ -444,4 +448,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P10 | 15min | 3 tasks | 20 files |
 | Objective 72 P17 | 21min | 3 tasks | 15 files |
 | Objective 72 P18 | 9min | 3 tasks | 11 files |
+| Objective 72 P19 | 9h43m | 3 tasks | 5 files |
 
