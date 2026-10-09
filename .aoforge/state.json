@@ -1540,6 +1540,11 @@
       "objective": "73",
       "summary": "73-05: framing lines strip control characters from the handoff id and command (cap 200 chars) so a pending record cannot drive the user's terminal; the command's own output is mirrored verbatim",
       "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-06: the PostToolUse output model follows the hooks reference, which does not require reason with decision block; the Stop registration timeout (150 s) is pinned by a test above the 120 s bounded wait",
+      "rationale": null
     }
   ],
   "blockers": [

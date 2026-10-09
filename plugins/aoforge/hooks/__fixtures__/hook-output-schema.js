@@ -2,7 +2,8 @@
 
 /**
  * A small, cited model of the JSON a Stop or SubagentStop hook may print
- * (objective 70, TRD 70-02, TOOL-08), and of a SessionStart hook's (TRD 72-14).
+ * (objective 70, TRD 70-02, TOOL-08), of a SessionStart hook's (TRD 72-14) and of a PostToolUse
+ * hook's (TRD 73-06).
  *
  * Claude Code validates the JSON a hook prints on exit 0 against a fixed schema, and
  * this file encodes that schema for the two "stop family" events so a test can pin a
@@ -25,6 +26,7 @@
  *
  *   stopFamilyProblems(event, json) -> string[]   (empty means the output is valid)
  *   sessionStartProblems(json)      -> string[]   (SessionStart, TRD 72-14; see below)
+ *   postToolUseProblems(json)       -> string[]   (PostToolUse, TRD 73-06; checked 2026-10-09, see below)
  *
  * Not a test file: no `*.test.js` glob picks it up.
  */
@@ -193,11 +195,95 @@ function sessionStartProblems(json) {
   return problems;
 }
 
+/**
+ * "PostToolUse decision control" (TRD 73-06, same hooks reference, checked 2026-10-09):
+ *   "PostToolUse hooks can provide feedback to Claude after tool execution. In addition to the JSON
+ *   output fields available to all hooks, your hook script can return these event-specific fields":
+ *     decision            "block" adds the reason next to the tool result. Claude still sees the original output;
+ *                         to replace it, use updatedToolOutput
+ *     reason              Explanation shown to Claude when decision is "block"
+ *     additionalContext   String added to Claude's context alongside the tool result
+ *     classifierContext   Short note about this call's result for the auto mode classifier rather than for Claude
+ *     updatedToolOutput   Replaces the tool's output with the provided value before it is sent to Claude. The value
+ *                         must match the tool's output shape
+ *     updatedMCPToolOutput  Replaces the output for MCP tools only. Prefer updatedToolOutput
+ * Where each one lives, from the same page:
+ *   - "Other events like PostToolUse and Stop continue to use top-level `decision` and `reason` as their current
+ *     format", and the decision-pattern table: "UserPromptSubmit, UserPromptExpansion, PostToolUse, ... Top-level
+ *     decision | decision: "block", reason".
+ *   - "Return additionalContext inside hookSpecificOutput alongside the event name" (the example is a PostToolUse
+ *     one), and the PostToolUse examples put classifierContext and updatedToolOutput inside hookSpecificOutput with
+ *     `"hookEventName": "PostToolUse"`.
+ *
+ * Unlike Stop ("Required when `decision` is `"block"`"), the page does not make `reason` required for PostToolUse,
+ * so this model does not either: it is no stricter than the page. A `reason` that is present is "Explanation", a
+ * string. `updatedToolOutput` and `updatedMCPToolOutput` carry "the tool's output shape" (an object for Bash, a
+ * string for some MCP tools), so any value is accepted.
+ */
+const POST_TOOL_USE_FIELDS = {
+  additionalContext: 'string',
+  classifierContext: 'string',
+  updatedToolOutput: 'any',
+  updatedMCPToolOutput: 'any',
+};
+
+/**
+ * Check one PostToolUse hook's parsed JSON output.
+ *
+ * @param {*} json the parsed stdout of the hook
+ * @returns {string[]} one message per problem; [] when the output is valid
+ */
+function postToolUseProblems(json) {
+  if (!isPlainObject(json)) return ['output is not a JSON object'];
+
+  const problems = [];
+
+  // The same schema rule as the stop family: "a parsed object that fails schema validation is a non-blocking
+  // error: the action proceeds", so an unknown key silently loses what the hook meant to say.
+  for (const key of Object.keys(json)) {
+    if (!(key in UNIVERSAL_FIELDS) && key !== 'decision' && key !== 'reason' && key !== 'hookSpecificOutput') {
+      problems.push(`unknown top-level key "${key}"`);
+    }
+  }
+  for (const [key, type] of Object.entries(UNIVERSAL_FIELDS)) {
+    if (key in json && typeof json[key] !== type) problems.push(`${key} must be a ${type}`);
+  }
+
+  // "`decision` | `"block"` adds the reason next to the tool result": block is the only value.
+  if ('decision' in json && json.decision !== 'block') {
+    problems.push(`decision must be "block" (got ${JSON.stringify(json.decision)})`);
+  }
+  if ('reason' in json && typeof json.reason !== 'string') problems.push('reason must be a string');
+
+  if ('hookSpecificOutput' in json) {
+    const hso = json.hookSpecificOutput;
+    if (!isPlainObject(hso)) {
+      problems.push('hookSpecificOutput must be an object');
+    } else {
+      // `hookSpecificOutput` "requires a `hookEventName` field set to the event name."
+      if (hso.hookEventName !== 'PostToolUse') problems.push('hookSpecificOutput.hookEventName must be "PostToolUse"');
+      for (const [key, value] of Object.entries(hso)) {
+        if (key === 'hookEventName') continue;
+        const type = POST_TOOL_USE_FIELDS[key];
+        if (!type) {
+          problems.push(`hookSpecificOutput.${key} is not a PostToolUse field`);
+        } else if (type !== 'any' && typeof value !== type) {
+          problems.push(`hookSpecificOutput.${key} must be a ${type}`);
+        }
+      }
+    }
+  }
+
+  return problems;
+}
+
 module.exports = {
   STOP_FAMILY_EVENTS,
   UNIVERSAL_FIELDS,
   STOP_FIELDS,
   SESSION_START_FIELDS,
+  POST_TOOL_USE_FIELDS,
   stopFamilyProblems,
   sessionStartProblems,
+  postToolUseProblems,
 };
