@@ -6,6 +6,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-08
+
+DevFlow is now AOForge. 3.0.0 is objective 72 (INST-01 to INST-06), the rename, together with objectives 68 to 71,
+which were unreleased since 2.15.0. It is a major release because every name changes, even though the old names keep
+working for one release. Read the [migration guide](docs/MIGRATING-TO-AOFORGE.md) before you upgrade: most of the move
+happens by itself on the first AOForge session, and what is left is a short checklist.
+
+### DevFlow is now AOForge (breaking)
+
+- **Every name changes** (objective 72, INST-02). The plugin `devflow@aocyber` is now `aoforge@aocyber`, and
+  `/devflow:<skill>` is `/aoforge:<skill>`. Agent types are `aoforge:<agent>`, the CLI is
+  `~/.claude/aoforge/bin/aof-tools.cjs` (was `~/.claude/devflow/bin/df-tools.cjs`), the runtime home is
+  `~/.claude/aoforge/` and the `DEVFLOW_*` environment variables are `AOFORGE_*`. A project's planning directory is
+  `.aoforge/` (was `.planning/`), its `config.json` upgrade stamp is `aoforge{}` (was `devflow{}`) and the CLAUDE.md
+  managed block uses the `AOFORGE` markers. The banner is `AOF ►`, the user dot directory `~/.aoforge/`, the watch
+  daemon `aoforge-watch` and the adopt branch `aoforge/adopt`. GitHub labels, hidden markers and check contexts use
+  `aoforge:` and `aoforge/`, and the reusable checks workflow is `aoforge-checks.yml`. The repository is
+  `AO-Cyber-Systems/aoforge-claude`. The migration guide has the full name map.
+- **The old names keep working for one release** (INST-03; `lib/legacy-names.cjs`, `lib/compat.cjs`). `DEVFLOW_*`
+  variables are still read, and the `AOFORGE_*` form wins when both are set. Every tool looks for `.aoforge/` first and
+  falls back to `.planning/`, and `validate health` reports W066 while a project uses the old directory. Readers accept
+  the `devflow{}` stamp, and W067 reports it while it is the only one. A managed block under the `DEVFLOW` markers is
+  updated in place, never duplicated. The gates treat `devflow:<agent>` subagents as their own. Store and mirror reads
+  accept the `devflow:` labels and hidden markers, and the checks post each verdict under both contexts. **These shims
+  are removed in the release after 3.0.0.**
+- **The move happens by itself** (INST-03, INST-04). The first AOForge session copies the runtime state from
+  `~/.claude/devflow/` to `~/.claude/aoforge/` (calibration, estimate run state and history, stack overrides, hook
+  markers; the GitHub outbox and backups are moved, not copied), records it in `.legacy-state-migrated.json` and moves
+  the global CLAUDE.md managed block to the new markers with a backup. Each project's next session start applies
+  migration 0012 (`git mv .planning .aoforge`, committed on its own, deferred while the tree is dirty or an operation
+  is in progress), 0013 (the `config.json` key), 0014 (the project CLAUDE.md block) and 0007 (the old slash command
+  forms). Hand-written CLAUDE.md text outside a managed block is never rewritten silently: `aof-tools upgrade --global`
+  shows it as a diff and `--confirm` writes it. `aof-tools state rekey` carries repo-keyed runtime state to a moved
+  checkout.
+- **The final `devflow@aocyber` release (3.0.0) is a pointer** (INST-05). Each `/devflow:<name>` forwards to
+  `/aoforge:<name>`, or tells you how to install AOForge when it is missing. It ships no agents, gates or runtime, so
+  nothing runs twice beside AOForge. While the old plugin is still enabled, AOForge's `coexistence-guard` SessionStart
+  hook names the command that disables it. The pointer is dropped in the release after 3.0.0.
+- **GitHub repositories move with `aof-tools gh rebrand`** (INST-04), one repository at a time. It is a dry run unless
+  you pass `--apply`, which renames the labels, hidden markers, managed wording and wiki pages, the required check
+  contexts in rulesets, and the checks caller. The re-rendered caller reads the App variable and secret under their
+  `AOFORGE_*` names, which you set yourself.
+- **`doctor` reports what the rename leaves behind** (INST-01): `df-*` skills or agents back under `~/.claude` (check
+  15), the old plugin and runtime home with `--global` (check 16), the legacy planning layout W066/W067 (check 27), and
+  a checks caller under its old name (check 26 names `gh rebrand`). Legacy `df-*` skills and agents are moved to a
+  backup, never deleted.
+- **Old command forms are gated.** The `doc-refs` repository test fails on `/devflow:`, `/df:` and `/df-` in
+  user-facing files (INST-01); changelogs and archives are exempt.
+- **Three things do not carry over**: the old edit-gate override phrases, the old CLI path once the old plugin is
+  disabled, and a running `devflow-watch` daemon. The migration guide says what to use instead.
+- The sibling plugins take a patch release for the repository rename and the AOForge names in their files:
+  `social-media-generator` 1.3.1, `aosentry-mcp`, `eden-ui-flutter` and `eden-ui-web` 1.0.1, `monorepo-standards`
+  0.1.1.
+
+### Objectives 68 to 71
+
 Objective 71 (SDR-09, SDR-10): the stack drafter drafts the gate that actually scans, and `stack verify --run` has a
 stated policy for tests that need services and builds that write artifacts. A `--self-test` step is skipped when the gate
 step exists, a `lint` target that runs the tier default plus unconditional linters such as `buf lint` is kept as the lint

@@ -1,7 +1,7 @@
 {
   "name": "monorepo-standards",
   "description": "Enforce monorepo standards: block binaries from git, validate per-area CLAUDE.md presence, scaffold new monorepos with consistent layout (go/, flutter/, admin/, mobile/, proto/).",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "AO Cyber Systems",
     "email": "dev@aocodex.ai"

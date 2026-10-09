@@ -1,7 +1,7 @@
 {
   "name": "aosentry-mcp",
   "description": "AI media and gateway management tools. Generate images, analyze visuals, convert text to speech, transcribe audio, and manage API keys, spend tracking, guardrails, and model routing through your AOSentry instance.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "AO Cyber Systems",
     "email": "dev@aocodex.ai"

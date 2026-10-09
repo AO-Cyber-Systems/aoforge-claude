@@ -1,7 +1,7 @@
 {
   "name": "eden-ui-flutter",
   "description": "Build, review, and visually inspect Flutter UIs using eden-ui-flutter components. Integrates with flutter-skill MCP for live app inspection, accessibility tree analysis, and interactive testing.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": {
     "name": "AO Cyber Systems",
     "email": "dev@aocodex.ai"
