@@ -20,6 +20,8 @@
 
 **Works on Mac, Windows, and Linux. Installs via Claude Code's `/plugin` command or the Claude Desktop plugin UI.**
 
+**Upgrading from 2.x?** The plugin was renamed in 3.0.0. Read [Migrating to AOForge](docs/MIGRATING-TO-AOFORGE.md).
+
 <br>
 
 **[Documentation → devflow.cloud](https://devflow.cloud)**

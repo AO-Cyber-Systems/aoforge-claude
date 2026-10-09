@@ -88,6 +88,7 @@ const SCAN_INCLUDE = [
   'README.md',
   'CLAUDE.md',
   'docs/USER-GUIDE.md',
+  'docs/MIGRATING-TO-AOFORGE.md', // TRD 72-17: a live guide, not a dated record
   'site/content/**',
   '.github/**',
   'assets/**/*.svg',
@@ -95,7 +96,7 @@ const SCAN_INCLUDE = [
 
 // Not scanned by design (outside SCAN_INCLUDE; test 18 enforces the planning and pointer parts):
 // CHANGELOG.md, .aoforge/** and the legacy planning directory it replaces (LEGACY.planningDir,
-// the same archive under its pre-3.0.0 name), docs/ other than USER-GUIDE (dated PROPOSAL/
+// the same archive under its pre-3.0.0 name), docs/ other than USER-GUIDE and MIGRATING-TO-AOFORGE (dated PROPOSAL/
 // IMPLEMENTATION-PLAN/CODEX-PORT records), site/public (gitignored build output), and the pointer
 // release of the legacy plugin (plugins/<LEGACY.slug>/, also in EXEMPT). The sibling plugins
 // under plugins/ are not in this gate either: their own /<name>: commands are namespaced by

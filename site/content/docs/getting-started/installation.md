@@ -71,6 +71,9 @@ references a file you cannot find, `~/.claude/aoforge/` is where to look.
 
 The next session start re-mirrors the runtime automatically.
 
+Upgrading from a 2.x release, from before the plugin was renamed? Follow
+[Migrating to AOForge](/docs/getting-started/migrating-to-aoforge/).
+
 ## Recommended: skip-permissions mode
 
 AOForge is built for frictionless automation, and its own gates are what keep that
