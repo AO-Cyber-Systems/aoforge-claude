@@ -1,0 +1,257 @@
+---
+objective: 72-install-and-naming-cleanup
+trd: "25"
+subsystem: install
+tags: [install, fleet-sweep, upgrade, approval-gates]
+requirements: [INST-04, INST-06]
+requires:
+  - objective: 72
+    provides: "72-08/72-09/72-13: migrations 0012/0013/0014/0007; 72-16: gh rebrand; 72-21: AOForge 3.0.0 installed"
+provides:
+  - "Fleet table for ~/dev: 33 DevFlow repositories (17 ready, 16 skipped dirty) plus the ambiguous directories, listed for the user"
+  - "10 fleet repositories on AOForge 3.0.0 (.aoforge/, aoforge stamp, CLAUDE.md block where present), one local commit each, nothing pushed: dfip, quanta-local, torrentConsole, aocyber-deploy, EdenDocs, ao-terminal, qrCodeBuilder, aostudio, aofamily, justin-donnaruma-us-go"
+  - "Six todos: gh-client maxBuffer (ENOBUFS), sub-project planning directories, 0008 and .dup-detect-log.jsonl, worktree-branch merges after the move, 0012 failing after 0002 (trades), untracked planning files swept into the upgrade commit"
+affects: [72-26]
+tech-stack:
+  added: []
+  patterns: []
+key-files:
+  created:
+    - .aoforge/todos/pending/2026-10-09-give-gh-client-a-maxbuffer-so-gh-rebrand-can-read-large-repositories.md
+    - .aoforge/todos/pending/2026-10-09-migrate-sub-project-planning-directories-component-planning-below-the-repository-root.md
+    - .aoforge/todos/pending/2026-10-09-make-migration-0008-gitignore-and-untrack-dup-detect-log-jsonl.md
+    - .aoforge/todos/pending/2026-10-09-plan-for-worktree-branches-that-still-have-planning-after-a-repository-moved-to-aoforge.md
+    - .aoforge/todos/pending/2026-10-09-fix-0012-failing-after-0002-in-the-same-upgrade-run-then-finish-or-undo-trades.md
+    - .aoforge/todos/pending/2026-10-09-keep-the-user-s-untracked-planning-files-out-of-the-upgrade-commit.md
+  modified: []
+decisions:
+  - "User approved 16 named repositories in one reply and held github-enterprise-migration: \"Approve 1–16, hold 17 (Recommended)\". The 16 dirty repositories and every ambiguous item were skipped with no action"
+  - "trades: 0012 failed after 0002 in the same run. Step 2 was not run (it would have committed a half-upgrade as 'move to AOForge'). On the user's reply \"Undo it (Recommended)\" trades was returned to 30c2c5b1 with a clean tree; its redo waits for the 0012 fix"
+  - "EdenDocs: on the user's reply \"Untrack them in a new commit (Recommended)\", the two files the upgrade commit swept in were untracked in b10659d1b08 (kept on disk; .gitignore unchanged, since 0008's pattern covers neither file)"
+  - "The approved commit (`--files .aoforge`) also tracks untracked, non-ignored files inside the moved directory. After EdenDocs' commit showed this, the five approved repositories whose commit would sweep untracked planning files were held untouched (devflow, eden-press, aoinference, aoid, navigators) rather than committing beyond 'renames plus ignore and config'"
+requirements-completed: []
+metrics:
+  started: 2026-10-09T15:05:00Z
+  completed: 2026-10-09T15:35:07Z
+  duration: "about 30 min of executor time, plus the approval wait"
+  tasks: 3
+  files: 7
+tokens_input: 29329546
+tokens_output: 124019
+tokens_cache_read: 29098162
+tokens_cache_write: 231060
+token_model: "claude-opus-5-5"
+tokens_source: "live"
+---
+
+# Objective 72 TRD 25: Fleet sweep Summary
+
+**10 of 16 approved fleet repositories moved to AOForge 3.0.0 with one local commit each. trades failed at 0012 (0002 interaction) and was then undone to 30c2c5b1 on the user's reply; five were held because the approved commit would also have tracked the user's untracked planning files; github-enterprise-migration held by the user; nothing pushed.**
+
+## Progress
+- [x] Task 1: Discover the fleet and preview each repository — 52e92ced (read-only, recorded after 72-24 finished)
+- [x] Task 2: Approval gate — d9907148, 093e55c7, 0efd477c, 572ccd13, 1d3c342a, 53b0fdd3, 131c1239, 459db923, 8b6832ce, a088a3f8, 80e4b195 (one checkpoint per repository; the fleet commits are in each repository, see "Task 2 outcomes"). User's literal reply (AskUserQuestion, relayed by the orchestrator): "Approve 1–16, hold 17 (Recommended)", approving by name and in order dfip, quanta-local, torrentConsole, aocyber-deploy, trades, EdenDocs, ao-terminal, devflow, eden-press, qrCodeBuilder, aostudio, aoid, aoinference, aofamily, justin-donnaruma-us-go, navigators; github-enterprise-migration HELD; the 16 dirty repositories and the ambiguous items skipped with no action
+- [x] Task 3: Verify the upgraded repositories — 278ff7a1
+
+## Preflight
+
+- `exec-context check --repo /Users/justin/dev/devflow-claude` (no `--id`/`--base`: the dispatch gave no WAVE_BASE, and a claim would write `.git/aoforge-exec-claims` in the main checkout) -> ok, checkout /Users/justin/dev/devflow-claude, branch feat/stack-profile-loader, HEAD d04c698d, claim null. Base: UNPROVEN (no WAVE_BASE in the dispatch).
+
+## Method (read-only)
+
+- Discovery: one `ls -la ~/dev`, then a scratchpad script (outside every repository): `.git` kind (dir/file), top-level `.planning/`, `.aoforge/` + legacy `devflow` stamp, `-wt-` names, symlinks; per candidate: branch, `git --no-optional-locks status`, in-progress operation files, linked worktrees, skill marker, last commit, `aof-tools upgrade --check --path <repo>` (JSON form, `GIT_OPTIONAL_LOCKS=0`).
+- Store mode: `.planning/config.json` `github.store` read directly. **No repository has store mode on**, so no `gh rebrand --apply` is offered, no outbox flush is needed, and the 72-11 backfill-halt note does not apply (no 0011 pending anywhere). No fleet repository has a legacy or AOForge checks caller under `.github/workflows/`.
+- 0012 blocks on any TRACKED change anywhere in the repository (untracked files never block). A runtime file that 0008 untracks in the same run (`**/.planning/.progress-guard.json`, `.awareness-cache.json`) counts as the upgrade's own change. "Blocking dirt" below applies exactly that rule.
+
+## Fleet table
+
+Ready = no blocking dirt, no operation in progress. Task 2 order = this order (smallest change set first). `0006` (kind, `confirm`) is held per the TRD anti-pattern: `--apply` without `--confirm` never runs it.
+
+| # | Repo | Branch (default) | Upstream behind/ahead | Tree | Mode | Pending (auto) | Note |
+|---|---|---|---|---|---|---|---|
+| 1 | dfip | main (main) | 0/0 | clean | local | 0012 | 0006 held |
+| 2 | quanta-local | main | no remote | clean | local | 0001, 0012 | |
+| 3 | torrentConsole | main | no remote | clean | local | 0001, 0003, 0012 | |
+| 4 | aocyber-deploy | main (main) | 1/14 | clean | local (no config.json) | 0001, 0012 | 14 unpushed commits already |
+| 5 | trades | main (main) | 0/0 | clean | local (no config.json) | 0001, 0002, 0004, 0005, 0007, 0008, 0012, 0014 | CLAUDE.md DEVFLOW block |
+| 6 | EdenDocs | eden-main (main) | 0/0 | 4 untracked | local | 0001, 0007, 0008, 0012 | not on origin's default branch |
+| 7 | ao-terminal | ao-main (ao-main) | 0/0 | 1 untracked | local | 0001, 0005, 0007, 0008, 0012, 0014 | CLAUDE.md DEVFLOW block |
+| 8 | devflow | main (main) | 0/0 | 2 untracked | local | 0001, 0007, 0008, 0012 | |
+| 9 | eden-press | main (main) | 0/0 | 3 untracked | local | 0001, 0003, 0008, 0012 | |
+| 10 | qrCodeBuilder | main (main) | 0/0 | 2 untracked | local (no config.json) | 0001, 0005, 0007, 0012, 0014 | CLAUDE.md DEVFLOW block |
+| 11 | aostudio | main | no remote | 3 untracked | local | 0001, 0003, 0007, 0008, 0012 | |
+| 12 | aoid | main (main) | 0/0 | only `.planning/.awareness-cache.json` M (0008 absorbs it) + 13 untracked | local | 0001, 0004, 0007, 0008, 0012 | 24 linked worktrees |
+| 13 | aoinference | fix/obj31-oci-source-label (main) | 0/0 | 3 untracked | local | 0001, 0003, 0007, 0008, 0012 | commit lands on a feature branch |
+| 14 | aofamily | df/riverpod3-rebase (main) | 0/0 | 4 untracked | local | 0001, 0004, 0005, 0007, 0008, 0012, 0014 | feature branch; component projects ai/browser/connect not covered |
+| 15 | justin-donnaruma-us-go | df/riverpod3-bump (main) | 0/0 | clean | local (no config.json) | 0001, 0004, 0007, 0012 | feature branch; personal remote |
+| 16 | navigators | df/riverpod3-bump (main) | 0/0 | 25 untracked | local | 0001, 0003, 0004, 0008, 0012 | feature branch; 0006 held |
+| 17 | github-enterprise-migration | main | no remote | 2 untracked | local | 0012, 0013 | **active**: commit 11:08 today; live executor worktrees `.df-worktrees/github-enterprise-migration/01-03` (dirty) and `01-04`. Recommend hold |
+| 18 | AOSignal | main | no remote | blocking: `.planning/config.json` M | local | 0001, 0003, 0007, 0012 | skipped: dirty |
+| 19 | aocore | df/110-developer-console (main) | 14/10 | blocking: `.planning/.dup-detect-log.jsonl`, `admin/analysis_options.yaml` | local | 0007, 0012, 0013 | skipped: dirty; 22 linked worktrees; component go/ |
+| 20 | aodex | fix/ci-listtile-material (main) | no upstream | blocking: 27 (CLAUDE.md, flutter/...) | local | 0007, 0012, 0013 | skipped: dirty; 127 linked worktrees; components flutter/, go/ |
+| 21 | aoedge | chore/objective-trusted-client-ip (main) | 0/0 | blocking: `.planning/.dup-detect-log.jsonl`, `.planning/PROJECT.md` | local | 0001, 0004, 0007, 0008, 0012 | skipped: dirty |
+| 22 | devcluster | main (main) | 0/0 | blocking: `config/apps.yaml`, `t2-cluster/ctl.sh` | local (no config.json) | 0001, 0008, 0012 | skipped: dirty |
+| 23 | devflow-test | main | no remote | blocking: `.planning/config.json` M | local | 0001, 0003, 0012 | skipped: dirty |
+| 24 | devflowops | main (main) | 0/0 | blocking: `.planning/.dup-detect-log.jsonl` only | local | 0001, 0003, 0004, 0007, 0008, 0012 | skipped: dirty (one runtime log); 10 linked worktrees |
+| 25 | eden-biz | main (main) | 327/851 | blocking: `.planning/.dup-detect-log.jsonl` only | local | 0007, 0012, 0013 | skipped: dirty; 32 linked worktrees; components flutter/, go/ (GitHub mirror on) |
+| 26 | eden-circle | obj-36-initstate-audit (main) | no upstream | blocking: 4 (.claude/agent-memory, test jpgs) | local | 0001, 0004, 0007, 0008, 0012 | skipped: dirty; 18 linked worktrees |
+| 27 | eden-libs | main (main) | 3/0 | blocking: 4 (`.planning/.micro-description` D, pubspec.lock, .dart_tool) | local (no config.json) | 0001, 0004, 0007, 0008, 0012 | skipped: dirty |
+| 28 | justinforme | df/riverpod3-bump | no remote | blocking: 6 (dup-detect log, two 39-* TRDs) | local | 0001, 0007, 0008, 0012 | skipped: dirty; 0006 held |
+| 29 | opsCluster | main (main) | 0/0 | blocking: `.claude/agent-memory/devflow-verifier/MEMORY.md` only | local | 0007, 0008, 0012, 0013 | skipped: dirty; 68 linked worktrees |
+| 30 | politihub | main (main) | 0/0 | blocking: 6 incl. STAGED (`.gitignore`, `.planning/config.json` MM, new OBJECTIVE.md) | local | 0007, 0012, 0013 | skipped: dirty (staged work) |
+| 31 | recycling-oracle | main (main) | 0/0 | blocking: 202 (.env, bin/dev, ...) | local | 0001, 0002, 0008, 0012 | skipped: dirty; 0006 held |
+| 32 | smartWellness | df/riverpod3-bump | no remote | blocking: `.planning/.micro-description` D only | local | 0001, 0005, 0007, 0008, 0012, 0014 | skipped: dirty |
+| 33 | videoArchive | main (main) | 1/190 | blocking: 4 (ios/Podfile.lock, pbxproj, pubspec.lock) | local | 0001, 0005, 0007, 0008, 0012, 0014 | skipped: dirty |
+
+Rebrand counts: none (no store-mode repository). No operation (merge/rebase/cherry-pick/revert/bisect) is in progress in any candidate. Every skill marker found is expired except videoArchive's `build` marker, which has no expiry.
+
+## Task 2 outcomes (one row per approved repository, in order)
+
+Every row: re-checked against the preview first (same branch, same tracked dirt, no operation in progress, same pending ids), then exactly `aof-tools upgrade --apply --path <repo>` and `aof-tools --cwd <repo> commit "chore: move to AOForge (3.0.0 upgrade)" --files <changed_files>`. Local commits only, nothing pushed. Health codes other than W066/W067 are the repository's own advisories (W001 PROJECT.md sections, W065 requirements-unlisted, W040 only because a held `confirm` migration is pending).
+
+| # | Repo | Re-check | Applied | Commit | Commit contents | `.aoforge/` / `.planning` gone | W066/W067 | Outcome |
+|---|---|---|---|---|---|---|---|---|
+| 1 | dfip | ok (main, 78c10ff) | 0012 (0006 held) | 12bf091 | 27 R100 + config.json R087 (stamp) + .gitignore (+`.aoforge/.skill-active`) | yes / yes | none (W001, W040, W065) | upgraded |
+| 2 | quanta-local | ok (main, 3b9e5d3) | 0001, 0012 | dd98daa | 182 R + config.json D/A (0001 reshape + stamp) + .gitignore (+`.aoforge/.dup-detect-log.jsonl`, `.aoforge/.stack.lock/`) | yes / yes | none (W065) | upgraded |
+| 3 | torrentConsole | ok (main, 3aca26f) | 0001, 0003, 0012 | da3236b | 28 R + state.json A (0003 seed) + config.json D/A (0001 + stamp) + .gitignore (3 `.aoforge/` twins) | yes / yes | none (W006: ROADMAP objectives without a directory) | upgraded |
+| 4 | aocyber-deploy | ok (main, 787937f) | 0001, 0012 | 69e31b3 | 26 R + config.json A (0001 created it + stamp) + .gitignore (+`.aoforge/.skill-active`) | yes / yes | none. Health `broken` E002/E003/E004 predates the upgrade: the legacy directory held only `todos/` (HEAD~1) | upgraded |
+| 5 | trades | ok (main, 30c2c5b1) | 0001, 0002, 0004, 0005, 0007, 0008 applied; **0012 FAILED**: `git mv .planning .aoforge failed: fatal: bad source, source=.planning/objectives/055-post-deploy-refresh-rotation-grace/055-JOB.md`; 0014 not run; no stamp | none (step 2 not run) | working tree left exactly as the failed apply left it: 3 tracked edits (.gitignore, STATE.md, CLAUDE.md), 2 staged removals (0008), 3 unstaged JOB.md deletions (0002), 19 new untracked files (config.json, 3 TRD.md, 15 OBJECTIVE.md). Backup `~/.claude/aoforge/backups/trades-2a5e5779/` | no / no | n/a | **failed; undone** on "Undo it (Recommended)": back to 30c2c5b1, clean tree (see Follow-up) (finding 7) |
+| 6 | EdenDocs | ok (eden-main, 3d6848d0d51) | 0001, 0007, 0008, 0012 | 121d2b35aa8 | 59 R (STATE.md R099, 0007) + config.json D/A + .gitignore (0008 block + `.aoforge/.skill-active`) **plus 2 previously UNTRACKED files the commit picked up: `.aoforge/.dup-detect-log.jsonl` (runtime log) and `.aoforge/state.json`** (finding 8) | yes / yes | none (W006, W065) | upgraded; the two swept files untracked afterwards in b10659d1b08 on "Untrack them in a new commit (Recommended)" (see Follow-up) |
+| 7 | ao-terminal | ok (ao-main, 3db141f6; no untracked planning files) | 0001, 0005, 0007, 0008, 0012, 0014 | d7284005 | 111 R (STATE.md R099) + config.json D/A + .gitignore (0008 block + twins) + CLAUDE.md (block now `AOFORGE:START/END`) | yes / yes | none (W065) | upgraded |
+| 8 | devflow | branch/tracked/pending unchanged (main, 5f79ecf), but the commit would sweep untracked `.planning/journal.jsonl` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 9 | eden-press | branch/tracked/pending unchanged (main, 0d90836), but the commit would sweep untracked `.planning/.dup-detect-log.jsonl` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 10 | qrCodeBuilder | ok (main, d606beb) | 0001, 0005, 0007, 0012, 0014 | 9077470 | 107 R (STATE.md R099) + config.json A (0001 created it) + .gitignore (3 anchored twins) + CLAUDE.md (block now `AOFORGE:START/END`) | yes / yes | none. Health `broken` E002 predates the upgrade (no PROJECT.md at HEAD~1); W064 = the expired 2026-09-23 marker that moved with the directory (ignored); W006 | upgraded |
+| 11 | aostudio | ok (main, 7dd81bd) | 0001, 0003, 0007, 0008, 0012 | fda6af5 | 17 R (STATE.md R098) + state.json A (0003) + config.json D/A + .gitignore A (0008 created it) | yes / yes | none (W006) | upgraded |
+| 12 | aoid | branch/tracked/pending unchanged (main, 143b7fc), but the commit would sweep 19 untracked planning files: `.micro-description`, `objectives/50-.../50-16-SUMMARY.md`, `quick/5-.../5-JOB.md`, 16 files under `reports/` (50-25 baseline logs and PNGs, riverpod3 analyze baselines) | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 13 | aoinference | branch/tracked/pending unchanged (fix/obj31-oci-source-label, 87ea0e1), but the commit would sweep untracked `.planning/.dup-detect-log.jsonl` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 14 | aofamily | ok (df/riverpod3-rebase, 94fb090) | 0001, 0004, 0005, 0007, 0008, 0012, 0014 | 9b15c1e (on the feature branch) | 220 R (STATE.md R099) + 3 OBJECTIVE.md A (0004 backfill) + config.json D/A + .gitignore (0008 block incl. `**/` globs + twins) + CLAUDE.md (block now `AOFORGE:START/END`). Component projects ai/, browser/, connect/ untouched | yes / yes | none (W007: objective 08 not in ROADMAP; W065) | upgraded |
+| 15 | justin-donnaruma-us-go | ok (df/riverpod3-bump, d617eb3) | 0001, 0004, 0007, 0012 | 21e2bb8 (on the feature branch) | 162 R (STATE.md R099) + .gitignore (+`.aoforge/`, twin of the existing `.planning/` line). The repo ignores its planning directory, so 0001's new config.json (with the stamp) and 0004's 3 OBJECTIVE.md stay on disk, ignored, as before | yes / yes | none (W064: the expired 2026-09-13 marker, moved with the directory) | upgraded |
+| 16 | navigators | branch/tracked/pending unchanged (df/riverpod3-bump, c3a8274), but the commit would sweep 3 untracked TRDs: `objectives/02-voter-data-pipeline/02-04-TRD.md`, `objectives/08-tasks-collaboration/08-04-TRD.md`, `objectives/10-volunteer-management-events/10-03-TRD.md` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 17 | github-enterprise-migration | not run | nothing | none | n/a | no / no | n/a | **held by user** ("hold 17") |
+
+## Ambiguous (listed for the user, not swept)
+
+- **eden-platform-go** and **eden-ui-flutter**: symlinks in `~/dev` into `eden-libs/`, but each is its OWN repository (ignored by eden-libs) with a top-level `.planning/`. eden-platform-go (AO-Cyber-Systems/eden-platform-go, fix/cf-email-retry-on-throttle, tracked-clean; pending 0001, 0003, 0004, 0007, 0008, 0012, 0006 held) would be ready. eden-ui-flutter (main, 1 tracked change) would be skipped as dirty.
+- **Component projects inside candidate repositories** (`upgrade --path <repo>` moves only the top-level directory; each is its own project root to `upgrade --check --path <repo>/<dir>`, which shows 0012 pending): aocore/go (149 tracked files), aodex/flutter (129), aodex/go (2), aofamily/ai, browser, connect (15/28/10, 0006 held), eden-biz/flutter (246, github.enabled, 0009 pending), eden-biz/go (1003, github.enabled, 0009 pending), opsCluster/control-plane (only `.progress-guard.json`).
+- **aohealth**: a repository with only component projects (flutter/.planning, 216 tracked; go/.planning, 2) and no top-level planning directory (`upgrade --check --path aohealth` exits 1, "not an AOForge project").
+- **aoCyberSecurity**: `.git` directory but no resolvable HEAD; sub-projects aoducky, aopineapple, aoreport, aoshield each have `.planning/`.
+
+## Excluded
+
+- This repository (devflow-claude).
+- Worktrees (`-wt-` name or a `.git` FILE): aocore-627, aodex-clean, aodex-desktop, aodex-obj56, aodex-prodtest, aodex-wbfix, aodex-wt-654, aoedge-main, aoedge-wt-654, aoid-household, aoid-plans, eden-biz-103, eden-biz-autotrial, gitops-v1.1.305, gitops-v1.1.306, opsCluster-wt-ghscim-dotless, opscluster-gitops-wt-654, opscluster-gitops-wt-ghscim, opscluster-gitops-wt-rel311; in-repo worktrees eden-biz/.worktrees/obj65-reconcile, opsCluster/.worktrees/obj68-retire-tf, eden-libs/eden-ui-flutter-ctxmenu-fix.
+- Worktree containers (not repositories): .df-worktrees, aocore-wave-b through aocore-wave-g.
+- Everything else in `~/dev` has no legacy planning directory.
+
+## Findings
+
+1. **[Defect, not fixed: read-only task] `gh rebrand` cannot read a large repository.** `aof-tools --cwd ~/dev/eden-biz/go gh rebrand` (dry run) -> `could not read the issues of AO-Cyber-Systems/eden-biz: spawnSync gh ENOBUFS`. `gh-client.cjs:49` `defaultRunGh` passes no `maxBuffer` (Node default 1 MiB, timeout 30 s) and `gh-rebrand.cjs:249` reads `repos/<repo>/issues?state=all` paginated in one spawn. Not on this sweep's path (no store-mode repository), but it blocks any rebrand of eden-biz. Todo filed.
+2. **The SessionStart hook can pre-empt the per-repository approval.** `upgrade-project.js` applies the auto migrations (0012 included) and background-commits in any DevFlow repository whose tracked tree is clean when a Claude session opens there. Until the sweep finishes, opening a session in a ready repository upgrades it without its checkpoint (launch with `AOFORGE_SKIP_UPGRADE=1` to avoid that).
+3. **Component planning projects are not covered by any migration.** 0012, 0008's root list and W066 look at the top-level only; component `.planning/` directories keep working through the compat fallback until the release after 3.0.0 removes it. Todo filed.
+4. **`.planning/.dup-detect-log.jsonl` is a tracked runtime log** in aocore, aoedge, devflowops, eden-biz, justinforme, and the only blocker in devflowops and eden-biz. 0008 does not untrack it, and `dup-detect.cjs` still appends to it. Todo filed.
+5. **Linked worktrees keep `.planning/` on their branches** (aodex 127, opsCluster 68, eden-biz 32, aoid 24, aocore 22, eden-circle 18, recycling-oracle 13, devflowops 10). Merging such a branch after the move hits git's directory-rename detection (`merge.directoryRenames` default `conflict`) for files new under `.planning/` on that branch. Todo filed.
+6. **The upgrade commit lands on the current branch.** Task 2 never switches branches: aofamily (9b15c1e, df/riverpod3-rebase) and justin-donnaruma-us-go (21e2bb8, df/riverpod3-bump) were committed on feature branches, and EdenDocs (121d2b35aa8) on eden-main, which is not origin's default branch.
+7. **[Defect, found in Task 2] 0012 fails after 0002 in the same run.** 0002 renames `NN-JOB.md` to `NN-TRD.md` on disk without staging; the index still lists the JOB.md paths, so `git mv .planning .aoforge` stops with `fatal: bad source`. The runner then stops (0014 never runs, no stamp) and leaves every earlier migration's change uncommitted. It hits any repository with 0002 and 0012 pending together (trades; also recycling-oracle, skipped dirty). The SessionStart hook would hit the same failure. Fix direction: 0012 stages the legacy directory's own changes (`git add -A -- <legacy>`) before `git mv`, or 0002 renames with `git mv` when the source is tracked. Todo filed, with the exact finish and undo paths for trades.
+8. **[Found in Task 2] The approved commit step tracks the user's untracked files inside the legacy directory.** 0012 renames the directory, so untracked files move with it, and `aof-tools commit --files .aoforge` stages the whole directory. Ignored files stay out (0008 ignores `.progress-guard.json` and `.awareness-cache.json` first). Task 1's preview counted untracked files as non-blocking but did not say they would be committed. EdenDocs' commit picked up two before this was noticed. From then on, a repository whose commit would sweep untracked planning files was held, untouched (no apply): devflow, eden-press, aoinference, aoid, navigators. Todo filed.
+
+## Task 3: final verification (read-only)
+
+`fleet-verify.cjs` per upgraded repository (`.aoforge/` present, `.planning` gone, `.aoforge/config.json` stamp, `git status --porcelain --untracked-files=no`, `aof-tools --cwd <repo> validate health --raw` for W066/W067) plus `git rev-list --left-right --count @{u}...HEAD`:
+
+| Repo | HEAD | `.aoforge/` | `.planning` gone | Stamp | Tracked dirty | W066/W067 | Upstream behind/ahead (preview -> now) |
+|---|---|---|---|---|---|---|---|
+| dfip | 12bf091 | yes | yes | 3.0.0 | 0 | none | 0/0 -> 0/1 |
+| quanta-local | dd98daa | yes | yes | 3.0.0 | 0 | none | no remote |
+| torrentConsole | da3236b | yes | yes | 3.0.0 | 0 | none | no remote |
+| aocyber-deploy | 69e31b3 | yes | yes | 3.0.0 | 0 | none | 1/14 -> 1/15 |
+| EdenDocs | 121d2b35aa8 | yes | yes | 3.0.0 | 0 | none | 0/0 -> 0/1 |
+| ao-terminal | d7284005 | yes | yes | 3.0.0 | 0 | none | 0/0 -> 0/1 |
+| qrCodeBuilder | 9077470 | yes | yes | 3.0.0 | 0 | none | 0/0 -> 0/1 |
+| aostudio | fda6af5 | yes | yes | 3.0.0 | 0 | none | no remote |
+| aofamily | 9b15c1e | yes | yes | 3.0.0 | 0 | none | 0/0 -> 0/1 |
+| justin-donnaruma-us-go | 21e2bb8 | yes | yes | 3.0.0 (on disk; the repo ignores its planning directory) | 0 | none | 0/0 -> 0/1 |
+
+Every ahead count grew by exactly the one upgrade commit: **nothing was pushed. Pushing is the user's step.** No repository was rebranded (none is in store mode), so the dry-run re-check does not apply.
+
+Untouched since the preview (HEAD and tracked state re-read): devflow 5f79ecf, eden-press 0d90836, aoid 143b7fc (the same one awareness-cache change), aoinference 87ea0e1, navigators c3a8274, github-enterprise-migration f914f92: all still `.planning/`, no `.aoforge/`. trades at Task 3: HEAD 30c2c5b1 with the failed apply's 8 tracked entries and 19 new files, as recorded; undone afterwards (Follow-up).
+
+## Outcome by repository
+
+- **Upgraded (10):** dfip, quanta-local, torrentConsole, aocyber-deploy, EdenDocs, ao-terminal, qrCodeBuilder, aostudio, aofamily, justin-donnaruma-us-go.
+- **Failed, then undone (1):** trades (0012 after 0002; finding 7). Back on 30c2c5b1 with a clean tree, still `.planning/`; the redo waits for the 0012 fix (todo).
+- **Held, untouched, because the approved commit would also track the user's untracked planning files (5):** devflow, eden-press, aoinference, aoid, navigators (finding 8).
+- **Held by the user (1):** github-enterprise-migration.
+- **Skipped dirty, no action, per the reply (16):** AOSignal, aocore, aodex, aoedge, devcluster, devflow-test, devflowops, eden-biz, eden-circle, eden-libs, justinforme, opsCluster, politihub, recycling-oracle, smartWellness, videoArchive.
+- **Ambiguous, no action, per the reply:** eden-platform-go, eden-ui-flutter (nested eden-libs repositories), sub-project planning directories (aocore/go, aodex/flutter+go, aofamily/ai+browser+connect, eden-biz/flutter+go, opsCluster/control-plane), aohealth, aoCyberSecurity.
+- **Deferred (0012 `deferred`):** none. No apply reported a deferral.
+
+## Deviations from Plan
+
+- **Approval shape.** The TRD asks for one checkpoint and one reply per repository. The user answered the Task 1 checkpoint once, naming 16 repositories in order ("Approve 1–16, hold 17 (Recommended)"). Each repository was still re-checked and recorded on its own.
+- **Task 1 record timing.** The table was kept in the planning draft and published/committed (52e92ced) only after the orchestrator reported 72-24 finished: the first dispatch forbade writes in the main checkout.
+- **Preflight** ran without `--id`/`--base` (no WAVE_BASE in the dispatch; a claim would have written into the main checkout's git directory). Base: unproven.
+- **trades not committed** (finding 7). Step 2 would have committed a partial upgrade as "move to AOForge". The instruction was not to improvise, so nothing was re-run or committed. It was reverted only after the user replied "Undo it (Recommended)" (Follow-up).
+- **EdenDocs' upgrade commit is wider than "renames plus ignore and config"**: it added the previously untracked `.aoforge/.dup-detect-log.jsonl` and `.aoforge/state.json`. Not amended. On the user's reply both were untracked in a separate local commit, b10659d1b08 (Follow-up).
+- **Five approved repositories held** (finding 8), a narrower action than approved, because their commit would have tracked the user's untracked planning files (WIP TRDs, an in-progress SUMMARY, report artifacts, runtime logs). This was a protective call: nothing in them was touched.
+- **Two extra todos** beyond the four requested: findings 7 and 8 (Task 3's recovery rule: a repository failing verification gets a todo naming it).
+- **Task 1 preview gap**: it counted untracked files as non-blocking without saying they would be committed. That is the cause of the EdenDocs sweep.
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Discover the fleet | discovery script + `upgrade --check --path` per candidate; one row per repository (33 rows, ambiguous listed) | 0 | PASS |
+| 2: Approval gate, per repository | per repo: `fleet-recheck.cjs` (exit 0 = unchanged), `upgrade --apply --path`, `aof-tools --cwd <repo> commit`, `git -C <repo> log -1 --format=%s` + `test -d <repo>/.aoforge` (in `fleet-verify.cjs`) | 0 for 10 repositories; apply reported `failed` (0012) for trades; re-check exit 1 for the 5 held | PARTIAL: 10 upgraded, 1 failed, 5 held |
+| 3: Verify upgraded repositories | `fleet-verify.cjs` (validate health, status, stamp) + `rev-list --left-right --count @{u}...HEAD` | 0 | PASS for all 10 upgraded |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| per-repo health | `aof-tools --cwd <repo> validate health --raw` (W066/W067 absent) | 0 | PASS (10/10) |
+| task gates (`stack`) | not_available: this TRD changes no code in this repository | n/a | not_available |
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves: 3 met, 1 partly met, 1 not applicable. (1) Fleet listed with pending migrations, tree state and mode: met. (2) Each repository upgraded only after approval, ending on `.aoforge/` with the stamp and its CLAUDE.md block, committed locally, nothing pushed: **partly met**. True for the 10 upgraded, but the approval was one reply naming each repository, not one reply per repository. trades did not end on `.aoforge/`. (3) Store-mode rebrand: not applicable (no store-mode repository). (4) Dirty, mid-operation or declined repositories not touched: met. trades was neither; it was touched by its approved step 1, which failed. (5) No W066/W067 in each upgraded repository: met (10/10).
+- Gate failures: none. Open items: trades (redo after the 0012 fix), five held repositories (decision), github-enterprise-migration (held), six todos.
+
+## Follow-up (user replies after completion, relayed by the orchestrator)
+
+**trades: "Undo it (Recommended)".** Before anything was removed, the state was checked against the record:
+- HEAD 30c2c5b1;
+- the 8 tracked entries;
+- exactly the 19 untracked files the apply reported creating;
+- no other file modified since the apply;
+- `.git/info/exclude` untouched;
+- the three `*-TRD.md` files byte-identical to HEAD's JOB.md blobs;
+- `config.json` absent from HEAD.
+
+Then:
+1. `git restore --staged` on the two 0008 removals.
+2. `git restore --source=HEAD --worktree` on `.gitignore`, `.planning/STATE.md`, `CLAUDE.md`, the two runtime files and the three JOB.md files.
+3. `rm` of the 19 listed files, named one by one. Nothing else was deleted.
+
+Result: `git status --porcelain --untracked-files=all` is empty and HEAD is 30c2c5b1. The backup `~/.claude/aoforge/backups/trades-2a5e5779/` (two snapshots) is kept. The trades todo now records the undo, the redo after the 0012 fix, and that recycling-oracle will hit the same failure through the SessionStart hook once its tree is clean. The STATE blocker for trades was resolved.
+
+**EdenDocs: "Untrack them in a new commit (Recommended)".**
+1. The tree was clean with nothing staged, and both files were tracked.
+2. `git rm --cached -- .aoforge/.dup-detect-log.jsonl .aoforge/state.json`.
+3. `aof-tools --cwd ~/dev/EdenDocs commit "chore: untrack two files the AOForge upgrade commit picked up" --files <both>` -> b10659d1b08.
+
+The commit contains exactly `D .aoforge/.dup-detect-log.jsonl` and `D .aoforge/state.json`. Both files are still on disk and show as untracked, as they were before the upgrade. `.gitignore` was not touched: 0008's pattern (`RUNTIME_STATE_BASENAMES`) covers only `.progress-guard.json` and `.awareness-cache.json`. No amend. Upstream is 0/2, so nothing was pushed.
+
+## Self-Check: PASSED
+
+The SUMMARY's claims are verified. They do not say the sweep is complete.
+- Commits exist: 13 in this repository (52e92ced, d9907148, 093e55c7, 0efd477c, 572ccd13, 1d3c342a, 53b0fdd3, 131c1239, 459db923, 8b6832ce, a088a3f8, 80e4b195, 278ff7a1, fa1155fc), the EdenDocs follow-up b10659d1b08, and the 10 fleet upgrade commits (dfip 12bf091, quanta-local dd98daa, torrentConsole da3236b, aocyber-deploy 69e31b3, EdenDocs 121d2b35aa8, ao-terminal d7284005, qrCodeBuilder 9077470, aostudio fda6af5, aofamily 9b15c1e, justin-donnaruma-us-go 21e2bb8): all FOUND.
+- Files exist: this SUMMARY and the six todos: all FOUND.
+- **Not upgraded, stated explicitly:**
+  - failed, then undone to 30c2c5b1 on the user's reply (clean tree; redo after the 0012 fix): trades;
+  - held untouched (untracked-file sweep): devflow, eden-press, aoinference, aoid, navigators;
+  - held by the user: github-enterprise-migration;
+  - skipped dirty per the reply: AOSignal, aocore, aodex, aoedge, devcluster, devflow-test, devflowops, eden-biz, eden-circle, eden-libs, justinforme, opsCluster, politihub, recycling-oracle, smartWellness, videoArchive;
+  - ambiguous, no action: eden-platform-go, eden-ui-flutter, the sub-project planning directories, aohealth, aoCyberSecurity;
+  - deferred by 0012: none.
+- Nothing was pushed from any repository. No GitHub write was made.

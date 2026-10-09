@@ -3,7 +3,7 @@
 **Defined:** 2026-10-08
 **Coverage:** 0/30 complete
 
-Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-MILESTONE-AUDIT.md`), the eight pending todos in `.planning/todos/pending/`, and the three operational decisions carried since v1.3. Live, outward-facing steps (merge, tag, push, repository settings, secrets, Cloudflare) run only after explicit per-action user approval; DevFlow never enters a secret value.
+Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-MILESTONE-AUDIT.md`), the eight pending todos in `.aoforge/todos/pending/`, and the three operational decisions carried since v1.3. Live, outward-facing steps (merge, tag, push, repository settings, secrets, Cloudflare) run only after explicit per-action user approval; AOForge never enters a secret value.
 
 ## v1.6 Requirements
 
@@ -18,7 +18,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 - [x] **EST-10**: Minutes estimates are recalibrated by a method chosen and frozen before it is scored. The choice, its provenance and its validation protocol are recorded, and nothing is fitted to the objectives it is scored on.
 - [ ] **EST-11**: EST-08's criterion is re-tested prospectively. Across the first five objectives executed after EST-10 ships, each with a run-state estimate recorded before execution, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes. The report gives the honest verdict either way.
 
-### df-tools correctness (TOOL)
+### aof-tools correctness (TOOL)
 
 - [x] **TOOL-01**: `milestone complete` takes `--dry-run`, which reports what it would write and writes nothing. Every df-tools verb that writes rejects unknown flags instead of ignoring them.
 - [x] **TOOL-02**: Re-running `milestone complete` for the same version does not duplicate its MILESTONES.md entry or archive files.
@@ -40,11 +40,11 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 - [ ] **HND-01**: The three documented PTY handoff gaps are closed: the dispatch-wrapper isatty check, the wrapper stdin race and the detector's late match. Each has a regression test.
 - [ ] **HND-02**: Handoff results reach the session without a manual paste. The draft `inject-handoff-results.js` is completed and registered (or replaced), and it is covered by the hook coexistence suite.
-- [ ] **HND-03**: A TTY-required command (auth login, token paste, sudo prompt) goes from detection to handoff to result in context end to end, demonstrated live with the `devflow-watch` daemon.
+- [ ] **HND-03**: A TTY-required command (auth login, token paste, sudo prompt) goes from detection to handoff to result in context end to end, demonstrated live with the `aoforge-watch` daemon.
 
 ### Install, naming and the AOForge rename (INST)
 
-- [ ] **INST-01**: No legacy `df-*` skills or agents remain under `~/.claude` (they are moved to a backup, never deleted), and `doctor` flags any that reappear. Every user-facing reference uses the `/aoforge:<name>` form; a repo test fails on the `/df-`, `/df:` and `/devflow:` command forms in user-facing files, with changelogs and archives exempt.
+- [x] **INST-01**: No legacy `df-*` skills or agents remain under `~/.claude` (they are moved to a backup, never deleted), and `doctor` flags any that reappear. Every user-facing reference uses the `/aoforge:<name>` form; a repo test fails on the `/df-`, `/df:` and `/devflow:` command forms in user-facing files, with changelogs and archives exempt.
 - [x] **INST-02**: DevFlow is renamed AOForge everywhere it is a name: the plugin `aoforge@aocyber`, the `/aoforge:` slash namespace, `aoforge:<agent>` agent types, the `aof-tools` CLI, the `~/.claude/aoforge/` runtime, `AOFORGE_*` environment variables, the `.aoforge/` project directory, the `aoforge{}` config stamp, the `AOF ►` banner and the external names (`aoforge-claude`, `aoforge-docs`, `aoforge-checks.yml`, `aoforge-watch`, `aoforge/adopt`). A repo test fails on a legacy name outside the compatibility module, the history allowlist and the pointer plugin.
 - [x] **INST-03**: Old names keep working for exactly one release: `DEVFLOW_*` variables are honoured (`AOFORGE_*` wins), `~/.claude/devflow/` state migrates to `~/.claude/aoforge/` with a backup first, gates accept `devflow:` agent types, every tool resolves `.aoforge/` first and falls back to `.planning/` with a W-code advisory naming the migration, old CLAUDE.md block markers and GitHub markers and labels are recognised so nothing is duplicated, and readers accept the `devflow{}` config key.
 - [ ] **INST-04**: Projects move forward in place: an auto migration moves `.planning/` to `.aoforge/` with `git mv` from the SessionStart upgrade hook (skipped on a dirty tree or mid-merge/rebase, backup first, store-mode cache handled), config `devflow{}` becomes `aoforge{}`, CLAUDE.md managed blocks and routing text are rewritten to AOForge, and store-mode GitHub artefacts (labels, hidden markers, wiki pages, wording, check contexts) are renamed by a verb that previews with a dry run and applies one repository at a time after approval.
@@ -53,9 +53,9 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Operations (OPS): decisions carried since v1.3
 
-- [ ] **OPS-01**: The CI `ANTHROPIC` secret is configured by the user (DevFlow never handles the value), and the live visual judge runs in CI on `main` (objectives 32/33).
+- [ ] **OPS-01**: The CI `ANTHROPIC` secret is configured by the user (AOForge never handles the value), and the live visual judge runs in CI on `main` (objectives 32/33).
 - [ ] **OPS-02**: Branch protection on `main` is set (required checks, no force-push), applied only after the user approves the exact ruleset.
-- [ ] **OPS-03**: The docs site deploys from `main`. The Cloudflare Pages project `devflow-docs` exists, or the workflow's account and token are corrected, and a push to `main` deploys green.
+- [ ] **OPS-03**: The docs site deploys from `main`. The Cloudflare Pages project `aoforge-docs` exists, or the workflow's account and token are corrected, and a push to `main` deploys green.
 
 ### Todo hygiene (TODO)
 
@@ -71,7 +71,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 - Tuning the estimator to pass EST-11 on the objectives it is scored on. A failed prospective retest is reported as failed.
 - Making the Bash edit gate `strict` by default (v1.5 measured 0.035 > 0.02). It is revisited only on a new measurement.
-- DevFlow entering secrets, tokens or credentials into any system. The user supplies them (OPS-01, OPS-03).
+- AOForge entering secrets, tokens or credentials into any system. The user supplies them (OPS-01, OPS-03).
 
 ## Traceability
 
@@ -93,7 +93,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | TOOL-08 | Objective 70 | Complete |
 | SDR-09 | Objective 71 | Complete |
 | SDR-10 | Objective 71 | Complete |
-| INST-01 | Objective 72 | Pending |
+| INST-01 | Objective 72 | Complete |
 | INST-02 | Objective 72 | Complete |
 | INST-03 | Objective 72 | Complete |
 | INST-04 | Objective 72 | Pending |

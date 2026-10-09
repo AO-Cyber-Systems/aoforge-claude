@@ -1,4 +1,4 @@
-# Roadmap: DevFlow Claude
+# Roadmap: AOForge
 
 ## Milestones
 
@@ -9,7 +9,7 @@
 - ✅ **v1.5 — Gate & Plumbing** — Objectives 55–64 (completed 2026-10-08; 55 in plugin v2.13.2, 56–64 unreleased; EST-08 not met, accepted)
 - 🚧 **v1.6 — Hardening & Release** — Objectives 65–75 (in progress)
 
-Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.planning/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`), `.planning/milestones/v1.4-ROADMAP.md` (v1.4 detail; audit: `milestones/v1.4-MILESTONE-AUDIT.md`), `.planning/milestones/v1.5-ROADMAP.md` (v1.5 detail; audit: `milestones/v1.5-MILESTONE-AUDIT.md`; requirements: `milestones/v1.5-REQUIREMENTS.md`). Milestone history: `.planning/MILESTONES.md`.
+Full archived roadmaps: `.aoforge/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.aoforge/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`), `.aoforge/milestones/v1.4-ROADMAP.md` (v1.4 detail; audit: `milestones/v1.4-MILESTONE-AUDIT.md`), `.aoforge/milestones/v1.5-ROADMAP.md` (v1.5 detail; audit: `milestones/v1.5-MILESTONE-AUDIT.md`; requirements: `milestones/v1.5-REQUIREMENTS.md`). Milestone history: `.aoforge/MILESTONES.md`.
 
 ## Objectives
 
@@ -112,7 +112,7 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 ### 🚧 v1.6 Hardening & Release (In Progress)
 
-Ship v1.5, close what it left open, and clear the backlog. Requirements: `.planning/REQUIREMENTS.md` (30 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; DevFlow never enters a secret value.
+Ship v1.5, close what it left open, and clear the backlog. Requirements: `.aoforge/REQUIREMENTS.md` (30 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; AOForge never enters a secret value.
 
 Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, and each records a run-state estimate (`estimate start`) before it runs. 68-71 are agent-only work; 72 is scored in full, including the wait time of its rollout checkpoints (accepted 2026-10-08). 73 (live handoff demo) and 74 (user-action operations) run after the scored five because their minutes are dominated by human wait time. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
 
@@ -297,12 +297,12 @@ TRDs:
 - [x] 72-17-docs-identity-and-migration-guide-TRD.md — (W9) real gold AO emblem + AOForge wordmark on README and site; migration guide; USER-GUIDE/CLAUDE.md
 - [x] 72-18-release-artifacts-3-0-0-TRD.md — (W10) 3.0.0 versions and CHANGELOG; validation; full upgrade rehearsal on a scratch clone (no live step)
 - [x] 72-19-repo-rename-push-and-pr-TRD.md — (W11) checkpoints: rename repo to aoforge-claude, push, open the 3.0.0 PR
-- [ ] 72-20-merge-tag-and-release-TRD.md — (W12) checkpoints: merge, tag v3.0.0; release and marketplace verified
-- [ ] 72-21-install-aoforge-and-dogfood-migration-TRD.md — (W13) checkpoint install + restart; verify state migration and this repo's `.aoforge/` move; disable devflow
-- [ ] 72-22-active-docs-rewrite-TRD.md — (W14) PROJECT/ROADMAP/STATE/REQUIREMENTS and CLAUDE.md in AOForge terms; transition note removed
-- [ ] 72-23-global-claude-md-and-marketplace-TRD.md — (W15) checkpoints: global CLAUDE.md outside-block diff approval; marketplace re-point decision
-- [ ] 72-24-vanity-pr-and-pages-project-TRD.md — (W16) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
-- [ ] 72-25-fleet-sweep-TRD.md — (W17) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
+- [x] 72-20-merge-tag-and-release-TRD.md — (W12) checkpoints: merge, tag v3.0.0; release and marketplace verified
+- [x] 72-21-install-aoforge-and-dogfood-migration-TRD.md — (W13) checkpoint install + restart; verify state migration and this repo's `.aoforge/` move; disable devflow
+- [x] 72-22-active-docs-rewrite-TRD.md — (W14) PROJECT/ROADMAP/STATE/REQUIREMENTS and CLAUDE.md in AOForge terms; transition note removed
+- [x] 72-23-global-claude-md-and-marketplace-TRD.md — (W15) checkpoints: global CLAUDE.md outside-block diff approval; marketplace re-point decision
+- [x] 72-24-vanity-pr-and-pages-project-TRD.md — (W16) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
+- [x] 72-25-fleet-sweep-TRD.md — (W17) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
 - [ ] 72-26-checkout-move-and-rekey-TRD.md — (W18) checkpoint: user moves checkout to `~/dev/aoforge-claude`; worktrees, memory and keyed state carried over; follow-up PR for the post-merge commits (push and PR gates)
 
 ### Objective 73: Handoff gaps and result injection
@@ -313,7 +313,7 @@ TRDs:
 **Success Criteria** (what must be TRUE):
   1. Each of the three PTY gaps (dispatch-wrapper isatty, wrapper stdin race, detector late match) has a regression test that fails on the old behavior and passes now.
   2. `inject-handoff-results.js` is registered in `hooks.json`, delivers a completed handoff result into the session, and appears in the hook coexistence suite.
-  3. With the `devflow-watch` daemon running, a TTY-required command (auth login, token paste or sudo prompt) is detected, handed off, run by the user, and its result appears in context. The live run is a user checkpoint and DevFlow never types or reads a secret.
+  3. With the `aoforge-watch` daemon running, a TTY-required command (auth login, token paste or sudo prompt) is detected, handed off, run by the user, and its result appears in context. The live run is a user checkpoint and AOForge never types or reads a secret.
 **TRDs**: TBD
 
 ### Objective 74: Operations decisions
@@ -322,9 +322,9 @@ TRDs:
 **Requirements**: OPS-01, OPS-02, OPS-03
 **Depends on**: Objective 65 (branch protection and the docs deploy act on `main`, which must hold the release), Objective 72 (sequencing only)
 **Success Criteria** (what must be TRUE):
-  1. The user has set the `ANTHROPIC` secret (DevFlow never sees the value), and the live visual judge runs in CI on a push to `main`.
+  1. The user has set the `ANTHROPIC` secret (AOForge never sees the value), and the live visual judge runs in CI on a push to `main`.
   2. After the user approves the exact ruleset text, `main` requires the checks and rejects force-push; `gh` reads the ruleset back and it matches what was approved.
-  3. The Cloudflare Pages project `devflow-docs` exists, or the workflow's account and token are corrected by the user, and a push to `main` deploys green.
+  3. The Cloudflare Pages project `aoforge-docs` exists, or the workflow's account and token are corrected by the user, and a push to `main` deploys green.
 **TRDs**: TBD
 
 ### Objective 75: Prospective estimate retest and todo sweep
@@ -356,7 +356,7 @@ TRDs:
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
-| 72. Install and naming cleanup | v1.6 | 19/26 | In Progress | - |
+| 72. Install and naming cleanup | v1.6 | 25/26 | In Progress | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |

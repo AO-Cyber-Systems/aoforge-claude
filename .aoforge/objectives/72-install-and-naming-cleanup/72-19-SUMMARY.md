@@ -2,16 +2,53 @@
 objective: 72-install-and-naming-cleanup
 trd: "19"
 subsystem: release
-tags: [release, rename, github, approval-gates]
+tags: [release, rename, github, approval-gates, ci]
 requirements: [INST-05, INST-06]
+requires:
+  - objective: 72
+    provides: "72-18 validated 3.0.0 release branch (02da6829)"
+provides:
+  - "GitHub repository AO-Cyber-Systems/aoforge-claude (renamed; old name redirects); origin on the new URL"
+  - "feat/stack-profile-loader published at 11e98cf4"
+  - "Release PR #128 (Release 3.0.0: DevFlow is now AOForge), OPEN into main, all 7 checks green at 11e98cf4"
+affects: [72-20, 72-21, 72-24, 72-26]
+tech-stack:
+  added: []
+  patterns:
+    - "Hook test template repos set maintenance.auto=false before committing (no detached git maintenance lock racing cpSync)"
+key-files:
+  created: []
+  modified:
+    - plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js
+    - plugins/aoforge/hooks/hook-coexistence.test.js
+    - plugins/aoforge/hooks/planning-writes.audit.test.js
+    - plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs
+    - .planning/ROADMAP.md
+decisions:
+  - "Red PR checks were fixed locally first, then a separate push approval was asked (user: Fix locally, then ask)"
+  - "E2E1 went green by ticking 72-19 in ROADMAP.md before the second push (user: Tick 72-19 now)"
+  - "CodeQL #161 and #162, path-change re-flags of #95 and #146 dismissed on main, dismissed with the same reasons (user: Dismiss both)"
+  - "The validation of record moved from 72-18's 02da6829 to the green PR CI at 11e98cf4"
+metrics:
+  started: 2026-10-09T03:44:04Z
+  completed: 2026-10-09T13:27:00Z
+  duration: "9h43m wall clock (three approval gates, a CI failure, a gap fix and a second approved push)"
+  tasks: 3
+  files_modified: 5
+tokens_input: 9928499
+tokens_output: 70428
+tokens_cache_read: 9415190
+tokens_cache_write: 513147
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 19: Repository rename, push and 3.0.0 release PR Summary
 
 ## Progress
 - [x] Task 1: Approval gate: rename the GitHub repository to aoforge-claude: no commit (live GitHub op + local remote config only)
-- [x] Task 2: Approval gate: push feat/stack-profile-loader: no commit (live push only); PUSHED_SHA 02da68293312e1812270259fde88668f72a9c848
-- [ ] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: FAILED. PR #128 opened; `test (npm test, gated)` and `CodeQL` are red. Gap fix (local only, see "Gap fix" below): the hook-coexistence race is fixed in 9f149c8b; the `milestone-complete.test.cjs:382` escaping fix is in 17d02395; the full suite has been run (see "Gap fix"). Blocker before any push: E2E1 (roadmap-reconcile self-test) now fails, because this checkpoint SUMMARY exists while the ROADMAP 72-19 box is unticked. It passed in CI at 02da6829 only because no 72-19 SUMMARY existed there. next step: the user decides how E2E1 goes green before the push (tick 72-19 in ROADMAP.md with `roadmap update-job-progress 72` right before pushing, or teach the reconcile that a SUMMARY without `## Self-Check` is a checkpoint); then the two re-flagged alerts (#95/#146 equivalents) are dismissed again on the PR by the user, a new push approval, then `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch` until green
+- [x] Task 2: Approval gate: push feat/stack-profile-loader: no commit (live push only); first PUSHED_SHA 02da68293312e1812270259fde88668f72a9c848; final PUSHED_SHA 11e98cf4bf4a82083fd5b2af516e7e8e8cc278b6 after the gap fix (see "Final state")
+- [x] Task 3: Approval gate: open the 3.0.0 release PR, then wait for green checks: PR #128 opened at 02da6829 with `test` and `CodeQL` red; gap fix 9f149c8b + 17d02395 (records 027312be, 72a16984), roadmap tick 11e98cf4, second approved push 72bb78be..11e98cf4, CodeQL #161/#162 dismissed; all 7 checks green at 11e98cf4 — 72bb78be, 9f149c8b, 17d02395, 027312be, 72a16984, 11e98cf4
 
 ## Approvals (literal replies)
 
@@ -20,6 +57,11 @@ requirements: [INST-05, INST-06]
 | 1. rename | "approved" (user's literal reply, relayed by the orchestrator) | `gh repo rename aoforge-claude --repo AO-Cyber-Systems/devflow-claude --yes` (run once, no output, exit 0); `git -C /Users/justin/dev/devflow-claude remote set-url origin https://github.com/AO-Cyber-Systems/aoforge-claude.git` |
 | 2. push | "\approved" (user's literal reply, leading backslash; the orchestrator relayed it as a typo of "approved" and directed treating it as approval for Task 2 only) | `git -C /Users/justin/dev/devflow-claude push origin feat/stack-profile-loader` (run once): `bcd255b2..02da6829  feat/stack-profile-loader -> feat/stack-profile-loader` |
 | 3. PR | "Bapproved" (user's literal reply, stray leading letter; the orchestrator relayed it as a typo of "approved" and directed treating it as approval for Task 3 only) | `gh pr create --repo AO-Cyber-Systems/aoforge-claude --base main --head feat/stack-profile-loader --title "Release 3.0.0: DevFlow is now AOForge" --body-file <72-19-PR-BODY.md draft>` (run once) -> https://github.com/AO-Cyber-Systems/aoforge-claude/pull/128 |
+| Red checks: how to proceed | "Fix locally, then ask" (user choice, relayed by the orchestrator) | Gap fix committed locally (9f149c8b, 17d02395, records 027312be, 72a16984); nothing pushed during it |
+| E2E1 roadmap drift | "Tick 72-19 now" (user choice) | Orchestrator commit 11e98cf4 ticked 72-19 in ROADMAP.md |
+| 2nd push | "Approve push" (user, via AskUserQuestion, relayed by the orchestrator) | Orchestrator ran `git push origin feat/stack-profile-loader`: `72bb78be..11e98cf4`, plain fast-forward |
+| CodeQL re-flags | "Dismiss both" (user, via AskUserQuestion) | Orchestrator dismissed #161 (won't fix, same as #95) and #162 (false positive, same as #146) |
+| (none) | NO APPROVAL | 07:42:30 -0400 push of 72bb78be from this clone; see "Unapproved push" |
 
 ## Task 1 verify (2026-10-09)
 
@@ -81,7 +123,7 @@ PR #127 (2.15.0) had all seven green, including `test` and `CodeQL`.
   - `14. sync-runtime.js@SessionStart`: the same ENOENT.
   - Every other hook's cases pass in CI.
 - The 11th failure is `PW-9 exit 7 reports exit_code=7` (powershell.test.cjs), the one listed known failure (issue #95, expires 2026-12-31). Licensed, not a cause.
-- Local (macOS, this checkout): `node --test plugins/aoforge/hooks/hook-coexistence.test.js` -> tests 227, pass 227, fail 0. The failure is Linux/CI-only. The test last changed in 72-04 (a15e2af5), 72-06 (e5f40291) and 72-10 (18594c35), so it is an objective 72 regression on the gate's environment (ubuntu-latest + node 26). `.github/known-test-failures.json` `$environment` gives the node:26 Docker reproduction recipe.
+- Local (macOS, this checkout): `node --test plugins/aoforge/hooks/hook-coexistence.test.js` -> tests 227, pass 227, fail 0. The failure is Linux/CI-only. The test last changed in 72-04 (a15e2af5), 72-06 (e5f40291) and 72-10 (18594c35), so it is an objective 72 regression on the gate's environment (ubuntu-latest + node 26). **Superseded by the gap fix:** the cause is a race with git 2.55's detached auto-maintenance lock in the fixture template, not an objective 72 code change (see "Gap fix", Fix 1). `.github/known-test-failures.json` `$environment` gives the node:26 Docker reproduction recipe.
 
 ### CodeQL: check run 113794518988 annotations
 
@@ -99,20 +141,26 @@ Per the TRD error path, nothing was fixed here: a fix needs a gap TRD and a new 
 |---|---|---|---|
 | 1: Rename | `gh repo view AO-Cyber-Systems/aoforge-claude ... -q .nameWithOwner`; same for `devflow-claude`; `git remote get-url origin`; `git ls-remote origin refs/heads/main` | 0 (x4: aoforge-claude, aoforge-claude, aoforge-claude.git, 2f01cd77) | PASS |
 | 2: Push | `git -C /Users/justin/dev/devflow-claude ls-remote origin refs/heads/feat/stack-profile-loader` | 0 (02da6829... == VALIDATED_SHA) | PASS |
-| 3: Release PR | `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch`; `gh pr view 128 --json state,baseRefName,headRefOid,statusCheckRollup` | 1 (2 of 7 checks FAILURE) | FAIL |
+| 3: Release PR (at 02da6829) | `gh pr checks 128 --repo AO-Cyber-Systems/aoforge-claude --watch`; `gh pr view 128 --json state,baseRefName,headRefOid,statusCheckRollup` | 1 (2 of 7 checks FAILURE) | FAIL (superseded) |
+| 3: Release PR (final, at 11e98cf4) | `gh pr view 128 --repo AO-Cyber-Systems/aoforge-claude --json state,headRefOid,statusCheckRollup` | 0 (OPEN, base main, headRefOid 11e98cf4..., 7 of 7 SUCCESS) | PASS |
 
 ## Validation Gate Results
 
 | Gate | Command | Exit Code | Status |
 |---|---|---|---|
-| test | not run locally (no code change in this TRD); CI `test (npm test, gated)` on PR #128 | 1 | FAIL |
-| build | CI `build` on PR #128 | 0 | PASS |
+| test | CI `test (npm test, gated)` on PR #128 at 02da6829 | 1 | FAIL (superseded) |
+| test | CI `test (npm test, gated)` on PR #128 at 11e98cf4 (local full-suite runs: see "Gap fix") | 0 | PASS |
+| CodeQL | CI `CodeQL` on PR #128 at 11e98cf4 (#160 fixed, #161/#162 dismissed) | 0 | PASS |
+| build | CI `build` on PR #128 at 11e98cf4 | 0 | PASS |
 
 ## Deviations from Plan
 
 - TRD text corrected in what was presented: Task 2's checkpoint wording said the push publishes "objective 72" and "runs CI on the branch". The 276 commits span objectives 67 (tail) to 72, and no workflow runs on a push to this branch; the checkpoint and the PR body said so instead.
 - Two approvals were relayed with typos ("\approved", "Bapproved"); the orchestrator directed each be treated as approval for its own gate only. Recorded verbatim above.
 - The 67-09 fix `994b93ef` has no CHANGELOG 3.0.0 entry; named in the PR body, not added to the CHANGELOG (would need a new commit and push approval).
+- PUSHED_SHA moved from the 72-18 validated head (02da6829) to 11e98cf4. This followed a CI failure at 02da6829, a gap fix chosen by the user ("Fix locally, then ask") and a second push that the user approved separately ("Approve push"). The must-have "PUSHED_SHA equals the local branch head that 72-18 validated" held for the first push. The green CI at 11e98cf4 is now the validation of record.
+- An unapproved push of the planning-records commit 72bb78be happened at 07:42:30 (see "Unapproved push"; cause unconfirmed).
+- The first-run analysis in "Task 3 result" named an objective 72 regression. The gap fix found a git 2.55 maintenance-lock race in the test fixtures instead; the earlier line is marked superseded in place.
 
 ## Issues Encountered
 
@@ -120,9 +168,14 @@ Per the TRD error path, nothing was fixed here: a fix needs a gap TRD and a new 
 
 ## Post-TRD Verification
 
-- Auto-fix cycles used: 0 (the TRD forbids fixing here)
-- Must-haves verified: 4/5. Rename with a recorded reply, new name resolves and old redirects; origin on the new URL; push after its own reply with PUSHED_SHA == validated head; no force, tags, merge or tag. NOT met: "its checks are green before the TRD completes".
-- Gate failures: CI `test (npm test, gated)` (hook-coexistence sync-runtime, CI-only) and `CodeQL` (1 new test-code alert, 2 re-flagged dismissed alerts).
+- Auto-fix cycles used: 1 (one gap fix after the user's "Fix locally, then ask"; no fix inside an approval gate)
+- Must-haves verified: 5/5, one with a recorded exception.
+  1. Rename after a recorded reply; the new name resolves and the old name redirects.
+  2. origin is on the new URL.
+  3. The first push came after its own reply, with PUSHED_SHA == the 72-18 validated head (02da6829). The exception: PUSHED_SHA is now 11e98cf4 after a second, separately approved push, and the validation of record is the green PR CI at 11e98cf4.
+  4. PR #128 into main, titled for 3.0.0, opened after its own reply, with its body built from the CHANGELOG and 72-18 and ending with the attribution line. It is green (7/7) before completion.
+  5. No force push, no `--tags`, no merge, no tag. The 07:42 push was a plain fast-forward but unapproved; see "Unapproved push".
+- Gate failures: none at the final head. At 02da6829: `test` (git 2.55 maintenance race in the hook fixtures) and `CodeQL` (1 new test-code alert, 2 path-change re-flags). Both are resolved.
 
 ## Gap fix (2026-10-09, local only)
 
@@ -191,6 +244,44 @@ The origin tracking ref's reflog shows `update by push` of 72bb78be at 2026-10-0
 | 9f149c8b | fix(72-19): turn off git auto-maintenance in hook test template repos |
 | 17d02395 | test(72-19): escape the milestone version with the shared escapeRegExp in entryLines |
 | 027312be | docs(72-19): record the gap fix for the red PR #128 checks |
-| (this commit) | docs(72-19): record the external push and the E2E1 failure on PR #128 |
+| 72a16984 | docs(72-19): record the external push and the E2E1 failure on PR #128 |
+| 11e98cf4 | docs(72-19): tick 72-19 in the roadmap so the drift check passes (orchestrator; `.planning/ROADMAP.md` only) |
 
-Not run: `state add-blocker` (the installed 2.15.0 runtime cannot find the `## Blockers / Concerns` heading; see Issues Encountered). No state, roadmap or requirements updates, because the TRD is not complete. No `## Self-Check`: 72-19 completes only after an approved push and green checks on PR #128.
+Not run during the gap fix: `state add-blocker` (the installed 2.15.0 runtime cannot find the `## Blockers / Concerns` heading; see Issues Encountered).
+
+## Unapproved push (cause unconfirmed)
+
+At 2026-10-09 07:42:30 -0400, origin's `feat/stack-profile-loader` moved 02da6829 -> 72bb78be. The local reflog of `refs/remotes/origin/feat/stack-profile-loader` records `update by push`, so the push came from this clone. **No approval covered it.** 72bb78be is a planning-records commit: this TRD's checkpoint SUMMARY, with no code change. It was a plain fast-forward, with no force and no tags. Its effect was to make 72bb78be PR #128's head and to trigger CI run 37925406363.
+
+Cause unconfirmed. No agent reports running it.
+- The executor run that created 72bb78be (commit time 07:24:24) issued no `git push`. Its last git command, `git status --short --branch` right after that commit, showed `[ahead 1]`.
+- The gap-fix run's first commit is 08:08:55, and it reports no push.
+- The orchestrator's earlier note says the timing matches the end of the first executor run. The reflog puts the push 18 minutes after that run's last commit.
+
+The push that followed is the approved one: `72bb78be..11e98cf4` at 08:58:42 (reflog `update by push`), run by the orchestrator after the user's "Approve push".
+
+## Final state (2026-10-09)
+
+- `gh pr view 128 --repo AO-Cyber-Systems/aoforge-claude --json state,headRefOid,statusCheckRollup`: state OPEN, base main, headRefOid 11e98cf4bf4a82083fd5b2af516e7e8e8cc278b6.
+- Checks, all SUCCESS: `test (npm test, gated)`, `CodeQL`, `Analyze (actions)`, `Analyze (javascript-typescript)`, `Analyze (ruby)`, `build`, `harness`.
+- `git ls-remote origin refs/heads/feat/stack-profile-loader`: 11e98cf4bf4a82083fd5b2af516e7e8e8cc278b6. **PUSHED_SHA = 11e98cf4.**
+- Validation of record: the green PR CI at 11e98cf4, which supersedes 72-18's 02da6829. The code changed since 02da6829 only by the two gap-fix test commits, 9f149c8b and 17d02395.
+- CodeQL: #160 (js/incomplete-sanitization, `milestone-complete.test.cjs:382`) has its only instance, `refs/pull/128/head`, `fixed`. #161 (js/regex-injection, `handoff.cjs:54`) is dismissed "won't fix" ("Same finding as #95, dismissed on main; the code moved in the AOForge rename"). #162 (js/shell-command-injection-from-environment, `ui-spec-cli.test.cjs:781`) is dismissed "false positive" ("Same finding as #146 ...").
+- Requirements: INST-05 was already marked Complete. INST-06 stays Pending, because it also covers 72-21 to 72-26 (planning tree, global CLAUDE.md, checkout move, vanity PR, Pages, fleet). Neither is changed here.
+- Nothing was merged or tagged. The local commit that publishes this SUMMARY is not pushed.
+
+## Hand-off to 72-20
+
+- Merge PR #128 (head 11e98cf4, green) behind its own approval, then tag `v3.0.0` on the merge result. 72-18's tag-gate dry run allowed v3.0.0 and denied v3.0.1.
+- The local branch is ahead of origin by this TRD's final docs commit. A merge of #128 at 11e98cf4 does not include it. Either push it with an approval before the merge (it re-runs CI), or carry it on the branch after.
+- The CHANGELOG 3.0.0 section still has no entry for 67-09's `994b93ef`, which the PR body names, or for the two gap-fix test commits. Decide at 72-20 whether 3.0.0's notes need them; they are test and fixture changes only.
+
+## Self-Check: PASSED
+
+- PR #128: `gh pr view 128 --repo AO-Cyber-Systems/aoforge-claude --json state,headRefOid,statusCheckRollup` returns OPEN, headRefOid 11e98cf4bf4a82083fd5b2af516e7e8e8cc278b6, 7 of 7 SUCCESS.
+- Remote: `git ls-remote origin refs/heads/feat/stack-profile-loader` returns 11e98cf4bf4a82083fd5b2af516e7e8e8cc278b6.
+- Repository: `gh repo view AO-Cyber-Systems/aoforge-claude` and `AO-Cyber-Systems/devflow-claude` both resolve to `AO-Cyber-Systems/aoforge-claude`. origin is `https://github.com/AO-Cyber-Systems/aoforge-claude.git`.
+- CodeQL: #160 fixed (instance on refs/pull/128/head). #161 dismissed (won't fix). #162 dismissed (false positive).
+- FOUND commits: 72bb78be, 9f149c8b, 17d02395, 027312be, 72a16984, 11e98cf4.
+- FOUND files: plugins/aoforge/hooks/__fixtures__/coexistence-fixtures.js, plugins/aoforge/hooks/hook-coexistence.test.js, plugins/aoforge/hooks/planning-writes.audit.test.js, plugins/aoforge/aoforge/bin/lib/milestone-complete.test.cjs.
+- Reflog: origin tracking ref `update by push` at 07:42:30 (72bb78be, unapproved) and 08:58:42 (11e98cf4, approved).

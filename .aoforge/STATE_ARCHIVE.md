@@ -266,6 +266,22 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-17: the real AO emblem (aocyber.ai ao-icon.svg, sha256 12f6c83e...5965) is cached at assets/ao-icon.svg with assets/SOURCES.md; README and site header size it by height only; the old CLI reference URL redirects 301 via site/static/_redirects inside a rename-guard region
 - [Objective 72]: 72-18: CHANGELOG 3.0.0 is inserted under a kept, empty [Unreleased] heading (2.14.0/2.15.0 practice), so the diff is additions only
 - [Objective 72]: 72-18: every sibling plugin changed in objective 72 takes a patch bump, social-media-generator included (1.3.1; aosentry-mcp, eden-ui-flutter, eden-ui-web 1.0.1; monorepo-standards 0.1.1)
+- [Objective 72]: 72-19: red release-PR checks were fixed locally first, then a separate push approval was asked (user: Fix locally, then ask)
+- [Objective 72]: 72-19: E2E1 roadmap drift resolved by ticking 72-19 in ROADMAP.md before the second push (user: Tick 72-19 now)
+- [Objective 72]: 72-19: CodeQL #161/#162, path-change re-flags of #95/#146 dismissed on main, dismissed with the same reasons (user: Dismiss both)
+- [Objective 72]: 72-19: validation of record for 3.0.0 is the green PR #128 CI at 11e98cf4, superseding 72-18's 02da6829 (gap-fix test commits only in between)
+- [Objective 72]: 72-20: PR #128 merged with --match-head-commit 11e98cf4 (merge commit b4a9d870); v3.0.0 annotated tag and release published; 8582fce9 left out of the merge, reaches main via a later approved push and PR
+- [Objective 72]: 72-21: devflow@aocyber disabled (not uninstalled) after the user's approval; ~/.claude/devflow/ left for the user's own doctor --global --fix
+- [Objective 72]: 72-21: only INST-01 marked complete (last TRD for it); INST-04 stays Pending for 72-25 and INST-06 for 72-22..72-26
+- [Objective 72]: 72-22: active planning docs follow a live-vs-history rule: present and future text uses AOForge names; completed requirements and objectives, archives, dated decisions and quick-task rows keep their DevFlow wording; the devflowops platform product keeps its name
+- [Objective 72]: 72-22: CLAUDE.md lost its transition note and its rename-guard ignore-region allowance, so it is now guarded line for line; PROJECT.md github_repo names AO-Cyber-Systems/aoforge-claude
+- [Objective 72]: 72-23: global CLAUDE.md outside-block rewrite approved and applied once with upgrade --global --confirm (only the two TDD & Quality lines; backup global-2026-10-09T14-03-31-298Z); aocyber marketplace re-point skipped, entry keeps its redirecting source
+- [Objective 72]: 72-24: vanity PR deferred by the user until the rename is complete and git.aocyber.ai is configured; mapping plus seed-contract patches preserved in a todo
+- [Objective 72]: 72-24: aoforge-docs Pages project and docs deploy deferred by the user to objective 74 (OPS-03); devflow-docs is in the AOCyber Systems account, so the org CLOUDFLARE_ACCOUNT_ID or token is the unconfirmed lead
+- [Objective 72]: 72-25: user approved 16 fleet repositories in one reply ("Approve 1–16, hold 17 (Recommended)"); 10 upgraded with one local commit each, nothing pushed; github-enterprise-migration held by the user
+- [Objective 72]: 72-25: trades failed at 0012 after 0002 (fs-renamed JOB.md files break git mv); not committed, nothing reverted; finish/undo is the user's call (todo)
+- [Objective 72]: 72-25: devflow, eden-press, aoinference, aoid, navigators held untouched because the approved commit (--files .aoforge) would also track their untracked planning files (todo)
+- [Objective 72]: 72-25 follow-up: trades undone to 30c2c5b1 with a clean tree ("Undo it (Recommended)"); its redo waits for the 0012 fix. EdenDocs: the two swept files untracked in b10659d1b08 ("Untrack them in a new commit (Recommended)"), kept on disk, .gitignore unchanged
 
 ## Performance Metrics
 
@@ -444,4 +460,11 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P10 | 15min | 3 tasks | 20 files |
 | Objective 72 P17 | 21min | 3 tasks | 15 files |
 | Objective 72 P18 | 9min | 3 tasks | 11 files |
+| Objective 72 P19 | 9h43m | 3 tasks | 5 files |
+| Objective 72 P20 | 7m | 3 tasks | 0 files |
+| Objective 72 P21 | 10 min | 3 tasks | 1 files |
+| Objective 72 P22 | 9 min | 2 tasks | 6 files |
+| Objective 72 P23 | 4 min | 3 tasks | 2 files |
+| Objective 72 P24 | 15 min | 3 tasks | 3 files |
+| Objective 72 P25 | 30 min | 3 tasks | 7 files |
 

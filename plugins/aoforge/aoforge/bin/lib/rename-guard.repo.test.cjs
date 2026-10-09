@@ -140,8 +140,9 @@ const MIGRATION_GUIDES = ['docs/MIGRATING-TO-AOFORGE.md', 'site/content/docs/get
 /**
  * The only files allowed to hold an ignore region. `site/static/_redirects` (TRD 72-17) spells the
  * old CLI reference URL so the docs site can redirect it (`#` comments carry the markers).
+ * CLAUDE.md held the objective 72 transition note until TRD 72-22 removed it, and with it this entry.
  */
-const IGNORE_REGION_FILES = ['CLAUDE.md', 'docs/USER-GUIDE.md', 'site/static/_redirects', ...MIGRATION_GUIDES];
+const IGNORE_REGION_FILES = ['docs/USER-GUIDE.md', 'site/static/_redirects', ...MIGRATION_GUIDES];
 
 class RenameGuardError extends Error {}
 
