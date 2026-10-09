@@ -1,9 +1,9 @@
 {
   "current_objective": "72",
-  "current_job": 25,
+  "current_job": 26,
   "total_jobs": 26,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1474,6 +1474,16 @@
     {
       "objective": "72",
       "summary": "72-25 follow-up: trades undone to 30c2c5b1 with a clean tree (\"Undo it (Recommended)\"); its redo waits for the 0012 fix. EdenDocs: the two swept files untracked in b10659d1b08 (\"Untrack them in a new commit (Recommended)\"), kept on disk, .gitignore unchanged",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-26: checkout moved to ~/dev/aoforge-claude; memory and repo-keyed state copied to the new keys (old copies kept); the new-key estimate run state was left in place (72 unscored)",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-26: on relayed user replies (push: approved; PR: approved) pushed 11e98cf4..abc18a9f and opened PR #129 into main; not merged; its unit gate fails only on E2E1 (mid-TRD roadmap self-test, todo filed)",
       "rationale": null
     }
   ],

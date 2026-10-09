@@ -282,6 +282,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-25: trades failed at 0012 after 0002 (fs-renamed JOB.md files break git mv); not committed, nothing reverted; finish/undo is the user's call (todo)
 - [Objective 72]: 72-25: devflow, eden-press, aoinference, aoid, navigators held untouched because the approved commit (--files .aoforge) would also track their untracked planning files (todo)
 - [Objective 72]: 72-25 follow-up: trades undone to 30c2c5b1 with a clean tree ("Undo it (Recommended)"); its redo waits for the 0012 fix. EdenDocs: the two swept files untracked in b10659d1b08 ("Untrack them in a new commit (Recommended)"), kept on disk, .gitignore unchanged
+- [Objective 72]: 72-26: checkout moved to ~/dev/aoforge-claude; memory and repo-keyed state copied to the new keys (old copies kept); the new-key estimate run state was left in place (72 unscored)
+- [Objective 72]: 72-26: on relayed user replies (push: approved; PR: approved) pushed 11e98cf4..abc18a9f and opened PR #129 into main; not merged; its unit gate fails only on E2E1 (mid-TRD roadmap self-test, todo filed)
 
 ## Performance Metrics
 
@@ -467,4 +469,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P23 | 4 min | 3 tasks | 2 files |
 | Objective 72 P24 | 15 min | 3 tasks | 3 files |
 | Objective 72 P25 | 30 min | 3 tasks | 7 files |
+| Objective 72 P26 | 28 min | 3 tasks | 2 files |
 

@@ -11,6 +11,8 @@ provides:
   - "Checkout at /Users/justin/dev/aoforge-claude (moved by the user), origin https://github.com/AO-Cyber-Systems/aoforge-claude.git"
   - "Claude memory (10 files incl. MEMORY.md) copied to ~/.claude/projects/-Users-justin-dev-aoforge-claude/memory/; old copy kept"
   - "Repo-keyed AOForge state copied devflow-claude-d3dccfe9 -> aoforge-claude-df646fc2 (estimate history 8, backups 5276, drafts 14); old key kept"
+  - "Follow-up PR #129 (https://github.com/AO-Cyber-Systems/aoforge-claude/pull/129): the 33 post-release commits into main, open, unmerged"
+  - "Todo: make roadmap reconcile treat a checkpoint SUMMARY (no Self-Check) as incomplete"
 affects: []
 tech-stack:
   added: []
@@ -19,18 +21,37 @@ key-files:
   created:
     - .aoforge/todos/pending/2026-10-09-make-roadmap-reconcile-treat-a-checkpoint-summary-no-self-check-as-incomplete.md
   modified: []
-decisions: []
-requirements-completed: []
+decisions:
+  - "Gate 1 (push): user's reply `approved` (relayed by the orchestrator); pushed 11e98cf4..abc18a9f to feat/stack-profile-loader, 33 commits, no force, no tags"
+  - "Gate 2 (PR): user's reply `approved` (relayed by the orchestrator); opened PR #129 into main at head abc18a9f; not merged"
+  - "The rekey left the new-key estimate run state (written by the new session) in place instead of overwriting it; 72 is unscored, so EST-11 is unaffected and the original start time stays under the old key"
+  - "roadmap reconcile ticking a checkpoint SUMMARY (E2E1 red on PR #129's mid-TRD head) is a code defect: filed as a todo, not fixed in this TRD"
+requirements-completed: [INST-06]
 metrics:
   started: 2026-10-09T15:51:54Z
+  completed: 2026-10-09T16:19:36Z
+  duration: "about 28 min, including two approval waits and the CI watch"
+  tasks: 3
+  files: 2
+tokens_input: 7894500
+tokens_output: 45688
+tokens_cache_read: 7511554
+tokens_cache_write: 382794
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 26: Checkout move and rekey Summary
 
+**The checkout is at `~/dev/aoforge-claude`. Its Claude memory and repo-keyed AOForge state were copied to the new
+keys (old copies kept), health and doctor show no layout or key errors, and the 33 post-release commits are on
+follow-up PR #129, pushed and opened after two separate approvals. PR #129's unit gate fails only on the mid-TRD
+roadmap self-test (E2E1), which is filed as a todo.**
+
 ## Progress
 - [x] Task 1: Approval gate: move the checkout to ~/dev/aoforge-claude and restart there — e2782c2a
 - [x] Task 2: Carry the path-keyed state over and check the new location — abc18a9f
-- [ ] Task 3: Approval gates (push, then PR) — Gate 1 (push) approved and pushed (11e98cf4..abc18a9f); next step: Gate 2 is presented to the user; on `approved` run `gh pr create --repo AO-Cyber-Systems/aoforge-claude --base main --head feat/stack-profile-loader --title "Post-release: AOForge dogfood (.aoforge move, docs, rollout records)" --body-file /private/tmp/claude-501/-Users-justin-dev-aoforge-claude/7904456b-55e6-4fc5-858f-b59289af1567/scratchpad/72-26-pr-body.md`, then `gh pr checks <N> --repo AO-Cyber-Systems/aoforge-claude --watch` and `gh pr view <N> --repo AO-Cyber-Systems/aoforge-claude --json state,baseRefName,headRefOid`
+- [x] Task 3: Approval gates (push, then PR) — Gate 1 push 11e98cf4..abc18a9f recorded in 35f71bf2; Gate 2 opened PR #129 (recorded in the final docs commit)
 
 ## Task 1: move (already done)
 
@@ -145,15 +166,39 @@ de827412, 9dd54b5e, 8582fce9.
     TRD. Consequence: a PR opened on abc18a9f will show a red Unit suite on E2E1 until a later push carries the
     completed 72-26 (its ROADMAP tick).
 
-### Gate 2 (PR): presented
+### Gate 2 (PR): approved, PR #129 open
 
-The PR body is drafted at
-`/private/tmp/claude-501/-Users-justin-dev-aoforge-claude/7904456b-55e6-4fc5-858f-b59289af1567/scratchpad/72-26-pr-body.md`.
-No PR has been opened.
+- Reply: `approved`, the user's literal reply as relayed by the orchestrator. The executor did not receive it from
+  the user directly.
+- Command: `gh pr create --repo AO-Cyber-Systems/aoforge-claude --base main --head feat/stack-profile-loader --title
+  "Post-release: AOForge dogfood (.aoforge move, docs, rollout records)" --body-file
+  /private/tmp/claude-501/-Users-justin-dev-aoforge-claude/7904456b-55e6-4fc5-858f-b59289af1567/scratchpad/72-26-pr-body.md`.
+  The body lists the 33 commits and notes that 3.0.0 shipped in #128. It also gives the local test result with the
+  E2E1 explanation and ends with the Claude Code attribution line.
+- PR: https://github.com/AO-Cyber-Systems/aoforge-claude/pull/129
+- `gh pr view 129 --json state,baseRefName,headRefOid,mergeable`: `OPEN`, base `main`, headRefOid
+  abc18a9fc7db208fbbf060f3b59d425005f18c5a (== the pushed head), `MERGEABLE`.
+- `gh pr checks 129 --watch` (exit 1):
 
-This SUMMARY commit and every later 72-26 record come after the approved push, so they are local only. The
-objective-completion commits made after this TRD (VERIFICATION, final state) are not in this PR either. Both go in
-the next PR.
+| Check | Result |
+|---|---|
+| Analyze (actions) | pass (45s) |
+| Analyze (javascript-typescript) | pass (2m45s) |
+| Analyze (ruby) | pass (47s) |
+| CodeQL | pass |
+| test (npm test, gated) | **fail** (4m35s), as predicted at Gate 2 |
+
+  The CI unit gate reported 11,964 tests, 11,930 executed, 2 failures and 34 skipped. Only one failure is not in
+  `.github/known-test-failures.json`: `roadmap-reconcile.test.cjs` E2E1, the self-test drift on 72-26 explained
+  above. The other, `wrappers/powershell.test.cjs` PW-9, is a known failure. E2E1 clears when a push carries the
+  completed 72-26 (this TRD's final commit ticks its ROADMAP line through `roadmap update-job-progress`). That push
+  is not part of this TRD and needs its own approval. The underlying defect is the filed todo.
+- Not merged. Merging is the user's call.
+
+Not in PR #129: 35f71bf2, the final docs commit of this TRD, and the objective-completion commits made after it
+(VERIFICATION, final state) all come after the approved push. They are local only and go in the next push and PR.
+Unmerged at the end of this TRD: `git log --oneline origin/feat/stack-profile-loader..feat/stack-profile-loader`
+lists 35f71bf2 and the final docs commit.
 
 ## Task Evidence
 
@@ -162,4 +207,68 @@ the next PR.
 | 1: move gate | `pwd -P` -> /Users/justin/dev/aoforge-claude; `ls -d /Users/justin/dev/devflow-claude` | 0 / 1 (absent, correct) | PASS (already done) |
 | 2: keyed state | `aof-tools validate health --raw` (0 errors, 3 expected W006, no W066/W067) | 0 | PASS |
 | 3a: Gate 1 push | `git rev-parse origin/feat/stack-profile-loader` == abc18a9f (local head at push) | 0 | PASS |
-| 3b: Gate 2 PR | waiting on the user's reply | - | PENDING |
+| 3b: Gate 2 PR | `gh pr view 129 --repo AO-Cyber-Systems/aoforge-claude --json state,baseRefName,headRefOid` -> OPEN, main, abc18a9f | 0 | PASS (PR checks: 4 pass, unit gate fails on the expected E2E1) |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| (stack profile `general` defines no task gates) | - | - | not_available |
+| unit suite, local (informational) | `npm --prefix /Users/justin/dev/aoforge-claude test --silent` | 1 | FAIL: E2E1 (expected mid-TRD, todo filed) plus a cleanup flake that passes alone |
+| unit suite, PR #129 CI | `test (npm test, gated)` | 1 | FAIL: E2E1 only beyond the known-failure list |
+
+This TRD changed no code: all its repository writes are planning records. The unit runs were evidence for the PR
+body, not task gates.
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+None. The TRD was executed as written for its actions.
+
+### Execution notes
+
+**1. Task 1 recorded as already done (orchestrator instruction).** The user moved the checkout before this session,
+so no move reply was collected here. The SUMMARY records the evidence instead.
+
+**2. Gate replies relayed by the orchestrator.** Both `approved` replies (push, PR) reached the executor through the
+orchestrator, not from the user directly. They are recorded as relayed.
+
+**3. The estimate run state was not carried over.** The new session's orchestrator had already written a run state
+under the new key, so the rekey skipped it instead of overwriting it, per the TRD's no-overwrite rule. Objective 72
+is unscored (72-01), so EST-11 is unaffected. The original start time stays readable under the old key.
+
+### Deferred Issues
+
+**1. [Code defect] roadmap reconcile ticks a checkpoint SUMMARY.** Found during Task 3's local `npm test`.
+`roadmap-reconcile.cjs` treats any SUMMARY that is not FAILED as complete, including a `summary checkpoint` with no
+`## Self-Check`. As a result, the repository self-test E2E1 fails on any mid-TRD commit, including PR #129's head.
+Per the TRD's recovery rule, a code defect becomes follow-up work, so it was filed as todo
+`2026-10-09-make-roadmap-reconcile-treat-a-checkpoint-summary-no-self-check-as-incomplete` (35f71bf2).
+
+**2. [Housekeeping, user's call] old-key leftovers.** The rekey and the memory copy keep the old copies on purpose.
+They remain under the old key: the old run state, awareness entry (doctor: orphaned), estimate history, backups (85M,
+doubling backup usage to 635.7 MiB over the 500 MiB threshold) and drafts. The old Claude projects directory also
+remains. Pruning them is a later decision, as is moving `~/.claude/devflow` (`doctor --global --fix`).
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 0
+- Must-haves verified: 5/5
+  - The checkout is at the new path with no worktrees to repair; origin is aoforge-claude; the merge driver path
+    exists.
+  - Memory was copied (10 files, MEMORY.md present, old copy kept).
+  - The rekey copied every repo-keyed entry without deleting. On the unscored path the run state was not carried,
+    and that is recorded.
+  - PR #129 is open after two separate approvals, and later commits go in the next PR.
+  - `validate health` and `doctor` report no W066/W067 and no path or key errors.
+- Gate failures: none at the task level. PR #129's unit gate fails on the expected E2E1 (deferred issue 1).
+
+## Self-Check: PASSED
+
+- FOUND: /Users/justin/.claude/projects/-Users-justin-dev-aoforge-claude/memory/MEMORY.md
+- FOUND: /Users/justin/.claude/aoforge/state/estimates/history/aoforge-claude-df646fc2 (8 files)
+- FOUND: /Users/justin/.claude/aoforge/backups/aoforge-claude-df646fc2
+- FOUND: .aoforge/todos/pending/2026-10-09-make-roadmap-reconcile-treat-a-checkpoint-summary-no-self-check-as-incomplete.md
+- FOUND commits: e2782c2a, abc18a9f, 35f71bf2
+- FOUND: PR #129 OPEN, base main, head abc18a9f
