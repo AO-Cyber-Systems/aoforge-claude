@@ -130,7 +130,8 @@ const stateMd = (status) => doc([
   'None.',
 ]);
 
-const CONFIG_JSON = `${JSON.stringify({ mode: 'yolo', github: { enabled: false } }, null, 2)}\n`;
+// workflow.auto_advance is false (the default is true), so a read that reached this file is visible.
+const CONFIG_JSON = `${JSON.stringify({ mode: 'yolo', github: { enabled: false }, workflow: { auto_advance: false } }, null, 2)}\n`;
 
 const OBJECTIVE_MD = doc([
   '---',
@@ -188,8 +189,11 @@ function writeTree(dir, files) {
   }
 }
 
-/** The environment for every git call and every spawned aof-tools: hermetic, no product env prefix. */
-function hermeticEnv(home) {
+/**
+ * The environment for every git call and every spawned aof-tools: hermetic, no product env prefix, and a
+ * TMPDIR inside the fixture (planning drafts live under os.tmpdir(), so cleanup removes them too).
+ */
+function hermeticEnv(home, tmp) {
   const env = { ...process.env };
   for (const key of GIT_REDIRECT_VARS) delete env[key];
   for (const key of Object.keys(env)) {
@@ -199,6 +203,7 @@ function hermeticEnv(home) {
   env.XDG_CONFIG_HOME = path.join(home, '.config');
   env.GIT_CONFIG_NOSYSTEM = '1';
   env.GIT_CONFIG_GLOBAL = path.join(home, '.gitconfig');
+  env.TMPDIR = tmp;
   return env;
 }
 
@@ -230,8 +235,10 @@ function planningProject({ layout = 'aoforge', git: withGit = true, files = {} }
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aof-layout-')));
   const root = path.join(base, 'repo');
   const home = path.join(base, 'home');
+  const tmp = path.join(base, 'tmp');
   fs.mkdirSync(root, { recursive: true });
   fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.mkdirSync(tmp, { recursive: true });
 
   const newDir = path.join(root, NAMES.planningDir);
   const oldDir = path.join(root, LEGACY.planningDir);
@@ -243,7 +250,7 @@ function planningProject({ layout = 'aoforge', git: withGit = true, files = {} }
     writeTree(root, { 'README.md': '# Layout Demo\n', ...files });
   }
 
-  const env = hermeticEnv(home);
+  const env = hermeticEnv(home, tmp);
   if (withGit) {
     git(root, env, ['init', '-q', '-b', 'main']);
     git(root, env, ['config', 'user.name', 'Layout Fixture']);
@@ -269,6 +276,7 @@ function planningProject({ layout = 'aoforge', git: withGit = true, files = {} }
   return {
     root,
     home,
+    tmp,
     dir,
     layout,
     env,
