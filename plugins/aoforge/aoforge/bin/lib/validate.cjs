@@ -827,18 +827,12 @@ function cmdValidateHealth(cwd, options, raw) {
   // ─── Check 22: Legacy config stamp key (objective 72, TRD 72-08, INST-03) ─────────
   // W067: config.json records its upgrades only under the legacy stamp key. The runner still reads it for one release
   // (upgrade.readStamp); migration 0013 renames it. Advisory and never repairable here: the rename is the migration's.
-  // Unreadable or absent config.json is Check 3's (E005/W003), so it is silent here.
-  try {
-    const { NAMES, LEGACY, SHIM_REMOVAL } = require('./legacy-names.cjs');
-    const cfg = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    const has = (k) => cfg && typeof cfg === 'object' && !Array.isArray(cfg) && Object.prototype.hasOwnProperty.call(cfg, k);
-    if (has(LEGACY.configKey) && !has(NAMES.configKey)) {
-      addIssue('warning', 'W067',
-        `legacy-config-key: ${planningRel(cwd, 'config.json')} records its upgrades under the legacy "${LEGACY.configKey}" ` +
-          `key instead of "${NAMES.configKey}"; AOForge reads it for one release (until ${SHIM_REMOVAL})`,
-        'Run `aof-tools upgrade --apply --only 0013` (or start a session: the upgrade hook renames it)', false);
-    }
-  } catch (_) { /* no or unreadable config.json: reported by Check 3 */ }
+  // Unreadable or absent config.json is Check 3's (E005/W003), so it is silent here. The detection is shared with the
+  // doctor's legacy-planning-layout check (planning-layout.cjs legacyConfigKeyIssue, TRD 72-15).
+  {
+    const issue = require('./planning-layout.cjs').legacyConfigKeyIssue(cwd);
+    if (issue) addIssue('warning', issue.code, issue.message, issue.fix, false);
+  }
 
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];

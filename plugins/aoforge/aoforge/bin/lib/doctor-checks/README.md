@@ -33,6 +33,7 @@ ctx = {
                               // safety guards (DOC-06) treat these as the doctor's own, not foreign work
   paths: {                    // all derived from userHome/env — single place to override
     claudeDir, mirrorDir, installedPluginsJson, pluginCacheRoot,   // <home>/.claude/plugins/cache/aocyber/aoforge
+    legacyMirrorDir,         // the pre-rename runtime home under <home>/.claude (compat.legacyRuntimeHome, TRD 72-15)
     progressGuardDir,        // env.AOFORGE_PROGRESS_GUARD_DIR || <mirrorDir>/state/progress-guard
     awarenessDir,            // env.AOFORGE_AWARENESS_DIR || <mirrorDir>/state/awareness
     backupsDir,              // <mirrorDir>/backups
@@ -46,8 +47,8 @@ Reserved so parallel TRDs never collide:
 
 | Range | Owner | Checks |
 |-------|-------|--------|
-| `10-19` | TRD 45-05 | global install checks: `10-runtime-mirror`, `11-plugin-cache`, `12-hooks-registry`, `13-model-profiles` (TRD 61-07; owns W063, which `22` defers), `14-skill-requires` (TRD 61-02; report-only, reads the installed plugin's `requires:` declarations, which the `gate-skill-requires.js` hook enforces) |
-| `20-29` | TRD 45-06 | project checks: `20-legacy-runtime-state`, `21-pending-migrations`, `22-validate-health`, `23-skill-markers` (TRD 69-04: tracked markers too; owns E006/W064, which `22` defers; the tracked fix is an index change behind the DOC-06 guard), `24-store-cache-tracked`, `25-gh-store-sync` (TRD 50-07; owns W057-W061, which `22` defers), `26-checks-workflow-pin` (TRD 61-01; owns W062, which `22` defers) |
+| `10-19` | TRD 45-05 | global install checks: `10-runtime-mirror`, `11-plugin-cache`, `12-hooks-registry`, `13-model-profiles` (TRD 61-07; owns W063, which `22` defers), `14-skill-requires` (TRD 61-02; report-only, reads the installed plugin's `requires:` declarations, which the `gate-skill-requires.js` hook enforces), `15-legacy-df-install` (TRD 72-15, INST-01; legacy-prefixed skills and agents under `~/.claude`; the fix is global-upgrade's mover, into `backups/legacy-<ts>/`, never a delete), `16-legacy-plugin-runtime` (TRD 72-15; the old plugin still enabled (report-only, names the disable command), the old runtime home not migrated (fix: the 72-07 migration) or left after it (fix: moved whole into `backups/legacy-<old runtime dir>-runtime-<ts>/`, refused while the old plugin is enabled), legacy-prefixed environment variables (report-only)) |
+| `20-29` | TRD 45-06 | project checks: `20-legacy-runtime-state`, `21-pending-migrations`, `22-validate-health`, `23-skill-markers` (TRD 69-04: tracked markers too; owns E006/W064, which `22` defers; the tracked fix is an index change behind the DOC-06 guard), `24-store-cache-tracked`, `25-gh-store-sync` (TRD 50-07; owns W057-W061, which `22` defers), `26-checks-workflow-pin` (TRD 61-01; owns W062, which `22` defers; TRD 72-15: a legacy managed caller is reported with the `gh rebrand --dry-run` command, never a re-pin), `27-legacy-planning-layout` (TRD 72-15; owns W066/W067, which `22` defers; report-only, names `upgrade --apply --only 0012` / `--only 0013`) |
 | `30-39` | TRD 45-07 | state-hygiene checks: `30-guard-state`, `31-awareness-state`, `32-backups`, `33-decision-resolution` (TRD 53-06; finds resolved decisions whose multi-line `resolution` the pre-52 writer flattened, and repairs the recoverable ones with a backup. Report-only in store mode) |
 
 ## Rules the engine enforces
