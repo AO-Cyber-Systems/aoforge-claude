@@ -291,6 +291,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks
 - [Objective 73]: 73-03: the live-window filter is fed every chunk of an active dispatch, whether or not a liveOnly listener is attached, so a listener attached mid-dispatch starts in the right phase
 - [Objective 73]: 73-03: MA-6 (doctl against the mock) does not assert status done; doctl rejects the fake token (TUI redraws the prompt on each cursor blink, which the duplicate-prompt guard rightly reads as a rejected value) and a well-formed token is validated against cloud.digitalocean.com, not DIGITALOCEAN_API_URL. Kept asserts: no unknown terminal, no timeout, token redacted
+- [Objective 73]: 73-04: inject-handoff-results delivers on PostToolUse and Stop only; Stop checks the addressed pending record before taking so a result landing between the two is never missed
+- [Objective 73]: 73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook
 
 ## Performance Metrics
 
@@ -481,4 +483,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P01 | 52min | 3 tasks | 6 files |
 | Objective 73 P02 | 15min | 3 tasks | 5 files |
 | Objective 73 P03 | 16min | 3 tasks | 6 files |
+| Objective 73 P04 | 17min | 3 tasks | 4 files |
 

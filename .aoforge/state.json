@@ -1520,6 +1520,16 @@
       "objective": "73",
       "summary": "73-03: MA-6 (doctl against the mock) does not assert status done; doctl rejects the fake token (TUI redraws the prompt on each cursor blink, which the duplicate-prompt guard rightly reads as a rejected value) and a well-formed token is validated against cloud.digitalocean.com, not DIGITALOCEAN_API_URL. Kept asserts: no unknown terminal, no timeout, token redacted",
       "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-04: inject-handoff-results delivers on PostToolUse and Stop only; Stop checks the addressed pending record before taking so a result landing between the two is never missed",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook",
+      "rationale": null
     }
   ],
   "blockers": [

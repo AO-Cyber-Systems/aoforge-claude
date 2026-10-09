@@ -476,3 +476,150 @@ describe('buildDenyReason — PTY messaging (post-TRD-19-03)', () => {
     assert.equal(INTERACTIVE_PATTERNS.filter(p => p.category === 'shell-flow').length, 13);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 73-04: pending records carry the address; the daemon-live reason names the delivery points
+// ---------------------------------------------------------------------------
+//
+// Test list items 15-17:
+//   15. a PreToolUse payload's session_id / agent_id land in the pending record (null for the main loop), and
+//       the done record the daemon builds from it carries both
+//   16. daemon live: the reason says the command waits in the user's aoforge-watch terminal, that its result arrives
+//       after the next tool call or when the turn ends, to tell the user in one line, and not to paste or retry
+//   17. daemon absent: the reason is byte-identical to what it was before this TRD
+
+describe('gate-interactive — handoff address and delivery wording (TRD 73-04)', () => {
+  const { buildDenyReason } = require('./gate-interactive.js');
+  const HIT = { reason: 'gh auth login is interactive without --with-token', category: 'tty' };
+
+  function onlyPendingRecord(tmp) {
+    const pendingDir = path.join(tmp, '.aoforge-handoff', 'pending');
+    const files = fs.readdirSync(pendingDir);
+    assert.equal(files.length, 1, 'expected one pending record');
+    return JSON.parse(fs.readFileSync(path.join(pendingDir, files[0]), 'utf-8'));
+  }
+
+  test('15. a main-loop payload records its session_id and a null agent_id', () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-home-'));
+    try {
+      const { tmp, result } = runHook(
+        { session_id: 's-gate-main', hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command: 'npm login' } },
+        { HOME: fakeHome },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const record = onlyPendingRecord(tmp);
+      assert.equal(record.session_id, 's-gate-main');
+      assert.strictEqual(record.agent_id, null);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('15. a subagent payload records its agent_id', () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-home-'));
+    try {
+      const { tmp, result } = runHook(
+        {
+          session_id: 's-gate-sub',
+          hook_event_name: 'PreToolUse',
+          agent_id: 'a1',
+          agent_type: 'aoforge:executor',
+          tool_name: 'Bash',
+          tool_input: { command: 'npm login' },
+        },
+        { HOME: fakeHome },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const record = onlyPendingRecord(tmp);
+      assert.equal(record.session_id, 's-gate-sub');
+      assert.equal(record.agent_id, 'a1');
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('15. a payload with no session_id records nulls, so any main loop may take the result', () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-home-'));
+    try {
+      const { tmp, result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'npm login' } },
+        { HOME: fakeHome },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const record = onlyPendingRecord(tmp);
+      assert.strictEqual(record.session_id, null);
+      assert.strictEqual(record.agent_id, null);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('15. the done record the daemon builds from the pending record carries session_id and agent_id', () => {
+    const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-home-'));
+    try {
+      const { tmp } = runHook(
+        { session_id: 's-gate-done', agent_id: 'a2', tool_name: 'Bash', tool_input: { command: 'npm login' } },
+        { HOME: fakeHome },
+      );
+      const pendingRecord = onlyPendingRecord(tmp);
+      const { makeDoneRecord } = require('../aoforge/bin/lib/watcher-state.cjs');
+      const doneRecord = makeDoneRecord(pendingRecord, { stdout: 'ok\n', stderr: '', exit_code: 0 });
+      assert.equal(doneRecord.session_id, 's-gate-done');
+      assert.equal(doneRecord.agent_id, 'a2');
+      fs.rmSync(tmp, { recursive: true, force: true });
+    } finally {
+      fs.rmSync(fakeHome, { recursive: true, force: true });
+    }
+  });
+
+  test('16. daemon live: the reason names the aoforge-watch terminal and both delivery points', () => {
+    const reason = buildDenyReason({
+      id: 'h-test1234', cmd: 'gh auth login', hit: HIT, watcherLive: true, watcherInfo: { pid: 12345 },
+    });
+    assert.match(reason, /aoforge-watch terminal/);
+    assert.match(reason, /after your next tool call/);
+    assert.match(reason, /when you end your turn/);
+    assert.match(reason, /Tell the user in one line/);
+    assert.match(reason, /`gh auth login`/, 'the one-line message to the user names the command');
+    assert.match(reason, /Do NOT instruct the user to paste anything/);
+    assert.match(reason, /do NOT retry the Bash tool/);
+    assert.match(reason, /pid 12345/);
+    assert.match(reason, /h-test1234/);
+    assert.doesNotMatch(reason, /into your next turn automatically/);
+    assert.ok(!/\n/.test(reason), 'one paragraph');
+  });
+
+  test('16. daemon live, spawned: the deny JSON carries the new wording', () => {
+    withFakePidFile({ alive: true }, (pidFile) => {
+      const { tmp, result } = runHook(
+        { session_id: 's-gate-live', tool_name: 'Bash', tool_input: { command: 'npm login' } },
+        { AOFORGE_HANDOFF_PID_FILE: pidFile },
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.match(reason, /aoforge-watch terminal/);
+      assert.match(reason, /after your next tool call/);
+      assert.match(reason, /when you end your turn/);
+      assert.doesNotMatch(reason, /into your next turn automatically/);
+      fs.rmSync(tmp, { recursive: true, force: true });
+    });
+  });
+
+  test('17. daemon absent: the reason is byte-identical to the one before TRD 73-04', () => {
+    const reason = buildDenyReason({
+      id: 'h-test1234', cmd: 'gh auth login', hit: HIT, watcherLive: false, watcherInfo: null,
+    });
+    assert.equal(reason,
+      'This command requires the user\'s shell (gh auth login is interactive without --with-token; category: tty). ' +
+      'The Claude Code harness cannot run it directly, and the aoforge-watch daemon is not running. ' +
+      'Tell the user verbatim to paste this in the prompt: `! gh auth login` ' +
+      'The `!` prefix runs the command in their shell so the output returns inline. ' +
+      'Do NOT retry the Bash tool. Wait for the user\'s next message containing the output, then continue. ' +
+      '(handoff id: h-test1234 — record at .aoforge-handoff/pending/h-test1234.json. ' +
+      'Tip: run `aoforge-watch start` in another terminal to skip the paste step in future.) ' +
+      'Escape hatch: set AOFORGE_SKIP_INTERACTIVE_GATE=1 if this is a false positive.');
+  });
+});
