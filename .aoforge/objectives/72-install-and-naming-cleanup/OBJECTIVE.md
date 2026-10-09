@@ -1,5 +1,6 @@
 ---
 work: feature
+status: verifying
 ---
 
 # Install and naming cleanup
