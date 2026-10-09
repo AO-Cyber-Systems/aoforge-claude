@@ -65,6 +65,12 @@ const LEGACY = Object.freeze({
   installPrefix: 'df-',
 });
 
+// Tokens that contain a legacy name but are NOT the renamed product: other products and a
+// domain. A rewrite masks them (case-insensitively) before it maps any LEGACY name. The rename
+// codemod (scripts/aoforge-rename.cjs PRESERVE.global) masks the same tokens; TRD 72-09's
+// consistency test (legacy-rewrite.legacy.test.cjs) keeps the two lists equal.
+const PRESERVE = Object.freeze(['devflowops', 'devFlowOps', 'DevFlowOps', 'devflow-desktop', 'devflow.cloud']);
+
 const SHIM_REMOVAL = 'the release after 3.0.0';
 
-module.exports = { NAMES, LEGACY, SHIM_REMOVAL };
+module.exports = { NAMES, LEGACY, PRESERVE, SHIM_REMOVAL };

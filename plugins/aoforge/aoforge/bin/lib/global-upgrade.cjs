@@ -20,11 +20,21 @@
  *      its heading line up to (not including) the next heading line of ANY level — with the block.
  *    - Neither: the block is appended (the file is created if absent).
  *    - A malformed or duplicate block, or a block owned by another template: no write, one `warn`.
+ *    - A block under the pre-rename markers is read like any other (managed-block, TRD 72-09) and is
+ *      always stale, so the template rewrite moves it to AOFORGE markers in place: never two blocks.
+ *      The hand-written heading is recognised under the old product name too.
  *    Before any write the previous file is copied to `.claude/aoforge/backups/global-<ts>/CLAUDE.md`.
  *
+ * 3. Hand-written text OUTSIDE the block that still names the old product (TRD 72-09, INST-06): it
+ *    is never rewritten silently. The proposal (legacy-rewrite over every byte outside the block, the
+ *    block bytes copied) comes back as `outside: {lines, diff, applied, backup}` and, until approved,
+ *    as one `action` notice whose detail is the unified diff. Only `confirm: true` writes it (backup
+ *    first). sync-runtime never passes `confirm`.
+ *
  * `userHome` is REQUIRED and never defaulted here — only sync-runtime and the CLI resolve the real
- * home. Dependencies: Node built-ins, ./managed-block.cjs and ./notices.cjs only, because the
- * sync-runtime test copies these three files into a fake plugin root.
+ * home. Dependencies: Node built-ins, ./managed-block.cjs, ./notices.cjs, ./legacy-rewrite.cjs and
+ * ./legacy-names.cjs (and what those require: ./compat.cjs, ./text-escape.cjs), because the
+ * sync-runtime test copies exactly that closure into a fake plugin root.
  */
 
 const fs = require('fs');
@@ -32,6 +42,9 @@ const path = require('path');
 const crypto = require('crypto');
 const managedBlock = require('./managed-block.cjs');
 const notices = require('./notices.cjs');
+const { rewriteLegacyNames, diffLines, unifiedDiff } = require('./legacy-rewrite.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const SRC = 'global-claude-md';
 const SOURCE = 'global-upgrade';
@@ -43,12 +56,14 @@ const KEYS = {
   adopt: 'global-claude-md-adopt',
   block: 'global-claude-md-block',
   blocked: 'global-claude-md-blocked',
+  outside: 'global-claude-md-outside',
 };
 
 const HEADING_RE = /^(#{1,6})[ \t]+(.+?)[ \t]*$/;
 const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
 const FENCE_CLOSE_RE = /^ {0,3}(`{3,}|~{3,})[ \t]*$/;
-const ROUTING_RE = /^AOForge Routing\b/i;
+// "AOForge Routing", or the same heading under the pre-rename product name (TRD 72-09).
+const ROUTING_RE = new RegExp(`^(?:${escapeRegExp(NAMES.product)}|${escapeRegExp(LEGACY.product)}) Routing\\b`, 'i');
 const LEGACY_DIRS = ['skills', 'agents'];
 
 // ---------------------------------------------------------------------------
@@ -256,8 +271,8 @@ function headings(text) {
 /**
  * findRoutingSection(text) -> {start, end, heading} | null
  *
- * `start` is the first heading line whose text begins "AOForge Routing" (heading lines only — a
- * sentence mentioning it does not count). `end` is the start of the NEXT heading line of any level,
+ * `start` is the first heading line whose text begins "AOForge Routing", or the pre-rename product
+ * name followed by "Routing" (heading lines only — a sentence mentioning it does not count). `end` is the start of the NEXT heading line of any level,
  * else text.length, so a `## TDD & Quality` subsection under it survives adoption.
  */
 function findRoutingSection(text) {
@@ -339,6 +354,34 @@ function planBlock(text, template, { confirm = false } = {}) {
   return { action: 'created', next: managedBlock.upsert(current, template.body, meta) };
 }
 
+/**
+ * planOutside(text) -> {lines, diff, next}. Pure, no I/O.
+ *
+ * `text` is the file as the block step leaves it. Every byte outside its managed block goes through
+ * legacy-rewrite; the block bytes are copied as they are (the template owns them). `lines` counts the
+ * changed lines, `diff` is a unified diff of `text` -> `next` ('' when nothing changes). A malformed
+ * block, or a null/empty text, proposes nothing.
+ */
+function planOutside(text) {
+  const none = { lines: 0, diff: '', next: text };
+  if (typeof text !== 'string' || text === '') return none;
+  let block;
+  try {
+    block = managedBlock.read(text);
+  } catch {
+    return none; // planBlock already reported the malformed block; never rewrite around it
+  }
+  const next = block
+    ? rewriteLegacyNames(text.slice(0, block.start)) + text.slice(block.start, block.end) + rewriteLegacyNames(text.slice(block.end))
+    : rewriteLegacyNames(text);
+  if (next === text) return none;
+  return {
+    lines: diffLines(text, next).filter((o) => o.op === '-').length,
+    diff: unifiedDiff(text, next, { fromFile: DISPLAY_PATH, toFile: `${DISPLAY_PATH} (proposed)` }),
+    next,
+  };
+}
+
 function backupClaudeMd(userHome, file, now) {
   const dir = uniqueDir(path.join(backupsRoot(userHome), `global-${stamp(now)}`));
   fs.mkdirSync(dir, { recursive: true });
@@ -353,10 +396,12 @@ function backupClaudeMd(userHome, file, now) {
 
 /**
  * runGlobalUpgrade({userHome, pluginVersion, templatePath, confirm, dryRun, now})
- *   -> {dryRun, legacy:{moved, backupDir}, block:{action, backup, from, to}, notices}
+ *   -> {dryRun, legacy:{moved, backupDir}, block:{action, backup, from, to},
+ *       outside:{lines, diff, applied, backup}, notices}
  *
  * `notices` lists what was queued (or, on dryRun, what would be). `pluginVersion` only colours the
- * notice text; block staleness is the template version alone.
+ * notice text; block staleness is the template version alone. `outside` is the proposal for the
+ * hand-written text outside the block: `applied` (and `backup`) only on a non-dry run with `confirm`.
  */
 function runGlobalUpgrade({
   userHome,
@@ -400,6 +445,17 @@ function runGlobalUpgrade({
   const plan = planBlock(current, template, { confirm });
   const block = { action: plan.action, backup: null, from: plan.from == null ? null : plan.from, to: template.version };
 
+  // 3. hand-written text outside the block, as the block step leaves the file. A pending adoption is
+  //    measured on its proposal, so the one `--confirm` the user is told about covers both changes.
+  let base = null;
+  if (plan.action === 'adopt_pending') base = plan.proposed;
+  else if (plan.next !== undefined) base = plan.next;
+  else if (plan.action === 'none') base = current;
+  const proposal = planOutside(base);
+  const outside = { lines: proposal.lines, diff: proposal.diff, applied: false, backup: null };
+  const writeOutside = confirm && proposal.lines > 0;
+  const nextText = writeOutside ? proposal.next : plan.next;
+
   if (plan.action === 'adopt_pending') {
     queue({
       level: 'action',
@@ -415,12 +471,36 @@ function runGlobalUpgrade({
       key: KEYS.blocked,
       message: `${who} left ${DISPLAY_PATH} untouched: ${plan.reason}. Fix the AOFORGE markers by hand to let it update.`,
     });
-  } else if (plan.next !== undefined && !dryRun) {
+  } else if (nextText !== undefined && !dryRun) {
     if (current !== null) block.backup = backupClaudeMd(userHome, file, now);
-    writeFileAtomic(file, plan.next);
+    writeFileAtomic(file, nextText);
+    if (writeOutside) {
+      outside.applied = true;
+      outside.backup = block.backup;
+    }
   }
 
   const backupNote = block.backup ? ` Backup: ${block.backup}.` : '';
+  if (outside.applied) {
+    // Same key as the pending notice, so an unshown "action" notice is superseded rather than left stale.
+    queue({
+      level: 'info',
+      key: KEYS.outside,
+      message: `${who} rewrote ${outside.lines} hand-written line(s) outside the managed block of ${DISPLAY_PATH} `
+        + `from ${LEGACY.product} to ${NAMES.product} names, as approved with --confirm.${backupNote}`,
+      detail: outside.diff,
+    });
+  } else if (outside.lines > 0) {
+    queue({
+      level: 'action',
+      key: KEYS.outside,
+      message: `${DISPLAY_PATH} has ${outside.lines} hand-written line(s) outside the managed block that still name `
+        + `${LEGACY.product}. They are never rewritten silently: review the diff, then run \`aof-tools upgrade --global --confirm\` `
+        + `(node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm) to rewrite them to ${NAMES.product}; `
+        + 'a backup is kept.',
+      detail: outside.diff,
+    });
+  }
   if (plan.action === 'created') {
     queue({
       level: 'info',
@@ -442,7 +522,7 @@ function runGlobalUpgrade({
     });
   }
 
-  return { dryRun, legacy, block, notices: queued };
+  return { dryRun, legacy, block, outside, notices: queued };
 }
 
 module.exports = {
@@ -451,6 +531,7 @@ module.exports = {
   findRoutingSection,
   loadGlobalTemplate,
   planBlock,
+  planOutside,
   runGlobalUpgrade,
   KEYS,
   SRC,
