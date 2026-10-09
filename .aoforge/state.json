@@ -1500,6 +1500,16 @@
       "objective": "73",
       "summary": "73-01: bash/zsh PTY dispatch runs from a private 0600 script sourced with one line; PTY stderr now arrives with stdout (stderr is empty), pipe mode and fish/powershell keep separate streams",
       "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "Handoff results are delivered only by the process that creates done/<id>.claim with O_EXCL; consumed:true is the durable mark after the claim, and a claimed-but-unmarked record is never re-delivered",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks",
+      "rationale": null
     }
   ],
   "blockers": [

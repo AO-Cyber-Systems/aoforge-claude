@@ -278,6 +278,80 @@ describe('hook subprocess', () => {
 });
 
 // ---------------------------------------------------------------------------
+// exactly-once delivery and the catch-all (TRD 73-02)
+// ---------------------------------------------------------------------------
+
+// Hold every child at the starting line: a preload script spins until a start file appears, so the two hook
+// copies begin reading the handoff directory together instead of one finishing before the other has started.
+function startGate(dir) {
+  const gate = path.join(dir, 'start-gate.cjs');
+  fs.writeFileSync(gate, [
+    "const fs = require('fs');",
+    'const nap = new Int32Array(new SharedArrayBuffer(4));',
+    'while (!fs.existsSync(process.env.ROUTE_RESULTS_TEST_START)) Atomics.wait(nap, 0, 0, 2);',
+  ].join('\n'));
+  return gate;
+}
+
+function spawnGated(cwd, gate, startFile) {
+  const { spawn } = require('child_process');
+  return new Promise((resolve, reject) => {
+    const child = spawn('node', ['-r', gate, HOOK_PATH], {
+      cwd,
+      env: { ...process.env, HOME: FAKE_HOME, ROUTE_RESULTS_TEST_START: startFile, AOFORGE_SKIP_NOTICES: '1' },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('error', reject);
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
+  });
+}
+
+describe('exactly-once delivery and the catch-all', () => {
+  let tmp;
+  beforeEach(() => { tmp = mkTmp(); });
+  afterEach(() => rmTmp(tmp));
+
+  test('2: two copies started together emit a record once between them', async () => {
+    const filePath = seedDoneRecord(tmp, 'h-race', { stdout: 'raced output' });
+    const gate = startGate(tmp);
+    const startFile = path.join(tmp, 'start');
+    const copies = [spawnGated(tmp, gate, startFile), spawnGated(tmp, gate, startFile)];
+    await new Promise((r) => setTimeout(r, 400)); // both children are now blocked on the start file
+    fs.writeFileSync(startFile, 'go');
+    const results = await Promise.all(copies);
+
+    for (const r of results) assert.equal(r.status, 0, r.stderr);
+    const emitted = results.filter((r) => r.stdout.includes('h-race'));
+    assert.equal(emitted.length, 1, `emitted by ${emitted.length} copies`);
+    assert.equal(JSON.parse(fs.readFileSync(filePath, 'utf8')).consumed, true);
+    assert.ok(fs.existsSync(path.join(tmp, '.aoforge-handoff', 'done', 'h-race.claim')), 'the claim file exists');
+  });
+
+  test('3: a record addressed to another session and agent is still delivered, and marked by route-results', () => {
+    const filePath = seedDoneRecord(tmp, 'h-addr', {
+      session_id: 'other-session', agent_id: 'a-9', stdout: 'addressed elsewhere',
+    });
+    const r = runHook(tmp);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.additionalContext, /addressed elsewhere/);
+    const after = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    assert.equal(after.consumed, true);
+    assert.equal(after.consumed_by, 'route-results');
+  });
+
+  test('4: a record that has a claim but is not marked consumed (a crash in between) is not delivered', () => {
+    seedDoneRecord(tmp, 'h-claimed', { stdout: 'must not be shown twice' });
+    fs.writeFileSync(path.join(tmp, '.aoforge-handoff', 'done', 'h-claimed.claim'), '{}');
+    const r = runHook(tmp);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, '');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // upgrade notices (TRD 36-05)
 // ---------------------------------------------------------------------------
 

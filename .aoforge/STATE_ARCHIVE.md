@@ -287,6 +287,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-27: gh-client spawn limits live only at the spawn site: every gh spawn gets maxBuffer 256 MiB, a --paginate call 300 s, any other 30 s; caller opts win and fake runners see opts untouched; ENOBUFS/ETIMEDOUT return a named cause and no stdout
 - [Objective 72]: 72-27: INST-04 closed on the read-only eden-biz gh rebrand dry run (exit 0, ok:true, apply:false, 0 ops; eden-biz has no legacy labels or managed text); no --apply run anywhere, a live apply needs the repository owner's own approval
 - [Objective 73]: 73-01: bash/zsh PTY dispatch runs from a private 0600 script sourced with one line; PTY stderr now arrives with stdout (stderr is empty), pipe mode and fish/powershell keep separate streams
+- [Objective 73]: Handoff results are delivered only by the process that creates done/<id>.claim with O_EXCL; consumed:true is the durable mark after the claim, and a claimed-but-unmarked record is never re-delivered
+- [Objective 73]: route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks
 
 ## Performance Metrics
 
@@ -475,4 +477,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P26 | 28 min | 3 tasks | 2 files |
 | Objective 72 P27 | 10 min | 3 tasks | 9 files |
 | Objective 73 P01 | 52min | 3 tasks | 6 files |
+| Objective 73 P02 | 15min | 3 tasks | 5 files |
 
