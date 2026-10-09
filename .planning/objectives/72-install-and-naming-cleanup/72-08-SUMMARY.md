@@ -7,5 +7,5 @@ trd: "08"
 
 ## Progress
 - [x] Task 1: Fixture builder: legacy git projects in each state — b6ae4d34
-- [x] Task 2: Migration 0012 and the 0010 block's legacy markers — c0a7f0ea (RED), (this commit) (GREEN)
-- [ ] Task 3: 0013, the runner, the hook, W067 — next step: write `migrations/0013-config-key-rename.legacy.test.cjs` (tests 10-13) and `hooks/upgrade-project.legacy.test.js` (tests 1-5), run them (RED), commit
+- [x] Task 2: Migration 0012 and the 0010 block's legacy markers — c0a7f0ea (RED), c86531ce (GREEN)
+- [ ] Task 3: 0013, the runner, the hook, W067 — RED (this commit); next step: write `migrations/0013-config-key-rename.cjs`, then `upgrade.cjs` (readStamp both keys, changedSoFar, deferred, collapse), the hook (legacy fast path, deferral notice, dir-aware skipReason, HEAD-aware keep) and validate Check 22 W067; run tests 1-13 (GREEN), commit

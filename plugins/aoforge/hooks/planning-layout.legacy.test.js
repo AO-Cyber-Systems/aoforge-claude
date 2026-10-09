@@ -26,9 +26,9 @@
 // 6. "build the login page": layouts aoforge and legacy get the routing directive naming the
 //    resolved directory; layout none gets nothing.
 // upgrade-project + route-results (SessionStart, UserPromptSubmit)
-// 7. A behind project: notices land in the resolved planning directory (the other name is never
-//    created), info/exclude gains `<planning dir>/.aoforge-notices.json`, and route-results emits the
-//    upgrade notice on the next prompt.
+// 7. A behind project: notices land in `.aoforge/` (a legacy directory is moved there by migration
+//    0012 in the same run, TRD 72-08; the legacy name never remains), info/exclude gains
+//    `.aoforge/.aoforge-notices.json`, and route-results emits the upgrade notice on the next prompt.
 // verify-completion (Stop) and classify-session (SessionStart)
 // 8. Autonomous mode mid-execution: verify-completion blocks and the reason names
 //    `<planning dir>/STATE.md`; classify-session emits the ambient preamble. Both layouts.
@@ -302,15 +302,18 @@ function readNotices(file) {
 
 describe('upgrade-project and route-results', () => {
   for (const layout of SINGLE_LAYOUTS) {
-    test(`7: layout ${layout}, notices land in ${DIR_OF[layout]}/ and info/exclude names it`, () => {
+    // TRD 72-08: migration 0012 (auto) moves a legacy directory to `.aoforge/` in the same hook run, so the notices
+    // of BOTH layouts end up in `.aoforge/` and the legacy directory is gone afterwards.
+    test(`7: layout ${layout}, notices land in ${NAMES.planningDir}/ and info/exclude names it`, () => {
       withProject({ layout }, (p) => {
-        const other = layout === 'aoforge' ? LEGACY.planningDir : NAMES.planningDir;
+        const finalDir = NAMES.planningDir;
+        const other = LEGACY.planningDir;
         const env = hookEnv(p, {
           [`${NAMES.envPrefix}SKIP_PRUNE`]: '1',
           [`${NAMES.envPrefix}SKIP_TRANSCRIPT_EXPORT`]: '1',
         });
-        const noticesRel = `${DIR_OF[layout]}/${NAMES.notices}`;
-        const noticesFile = path.join(p.root, DIR_OF[layout], NAMES.notices);
+        const noticesRel = `${finalDir}/${NAMES.notices}`;
+        const noticesFile = path.join(p.root, finalDir, NAMES.notices);
 
         runHook('upgrade-project.js', { cwd: p.root, env, payload: {} });
         // The hook writes its own notice before it exits; when it did, wait for the detached commit
@@ -324,7 +327,7 @@ describe('upgrade-project and route-results', () => {
           notices.some((n) => n.source === 'upgrade-project'),
           `an upgrade notice in ${noticesRel}: ${JSON.stringify(notices)}`,
         );
-        assert.equal(fs.existsSync(path.join(p.root, other)), false, `${other}/ is never created`);
+        assert.equal(fs.existsSync(path.join(p.root, other)), false, `${other}/ is never created (and a legacy one moved)`);
 
         const exclude = fs.readFileSync(path.join(p.root, '.git', 'info', 'exclude'), 'utf-8');
         assert.ok(exclude.split('\n').includes(noticesRel), exclude);
