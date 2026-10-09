@@ -259,6 +259,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-05: hooks resolve only the legacy planning directory until 72-06, so tests that exercise a hook pin the legacy layout (fixture setPlanningDir, legacy copies); 72-06 removes the pins
 - [Objective 72]: 72-05: W066 legacy-planning-dir (lib/planning-layout.cjs) is reported by validate health Check 21 and both init advisories; migration 0010's store block follows the project's directory, its printed commit steps stay 72-08's
 - [Objective 72]: 72-06: hooks require compat.cjs directly (after the alias line) and print the RESOLVED planning directory in messages and relative paths; the rename guard counts the legacy directory only where the codemod's occurrenceKind says path or regex; the codemod keeps rename-guard ignore regions in both passes
+- [Objective 72]: 72-10: coexistence-guard queues one global notice per session (key coexistence:<session_id>) when the pre-rename plugin is installed and not explicitly disabled; the pointer release (major >= 3) gets an info notice without the double-gate warning
+- [Objective 72]: 72-10: compat.isOwnAgentType requires a non-empty agent name; isOwnExecutor is an exact match for the executor in either namespace; gate-edits, verify-commits and gate-executor-stop use them
+- [Objective 72]: 72-10: session-audit maps the old gate texts, skill/command namespace and override phrases to the unchanged category ids; agent-overhead normalizes aoforge:, the legacy namespace and the df- install prefix
 
 ## Performance Metrics
 
@@ -434,4 +437,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P04 | 40min | 3 tasks | 1003 files |
 | Objective 72 P05 | 53min | 3 tasks | 422 files |
 | Objective 72 P06 | 19min | 3 tasks | 228 files |
+| Objective 72 P10 | 15min | 3 tasks | 20 files |
 

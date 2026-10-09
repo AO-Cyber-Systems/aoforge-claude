@@ -62,7 +62,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
-**Status:** Executing objective 72 — 6/26 TRDs complete
+**Status:** Executing objective 72 — 7/26 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -282,6 +282,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-09T01:17:11.709Z
+Last session: 2026-10-09T01:33:27.031Z
 Resume file: `None`
-Stopped at: Completed 72-06-planning-dir-hooks-and-prose-TRD.md
+Stopped at: Completed 72-10-coexistence-and-legacy-identities-TRD.md
