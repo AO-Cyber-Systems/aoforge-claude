@@ -102,6 +102,9 @@ function ensureTemplate() {
  * opts: skillActive (a live .skill-active marker), routeRecommendation,
  * notices (a pending upgrade notice), editOverride (an armed .edit-override),
  * legacyPlugin (the pre-rename plugin installed and enabled in the fake home),
+ * handoffDone (one completed handoff, id `h-coexist1`, addressed to the payload builders' session
+ * `coexist-session` and its main loop, in `<root>/.aoforge-handoff/done/`; every world holds its own copy,
+ * so each run claims its own),
  * sharedHomeFrom (another world: reuse its HOME, so a warmed runtime mirror is
  * hit on the fast path; that world's dispose then also owns the home).
  *
@@ -174,6 +177,34 @@ function makeWorld(opts = {}) {
         message: 'seeded by the coexistence suite',
       });
     }
+  }
+  if (opts.handoffDone) {
+    // TRD 73-06: a completed handoff for inject-handoff-results.js to deliver. Addressed to the session the payload
+    // builders use (`envelope`) and to the main loop (agent_id null), so PostToolUse and Stop both deliver it.
+    const done = path.join(root, '.aoforge-handoff', 'done');
+    fs.mkdirSync(done, { recursive: true });
+    const at = new Date().toISOString();
+    fs.writeFileSync(
+      path.join(done, 'h-coexist1.json'),
+      JSON.stringify(
+        {
+          id: 'h-coexist1',
+          cmd: 'npm login',
+          cwd: root,
+          status: 'done',
+          exit_code: 0,
+          stdout: 'coexist ok\n',
+          stderr: '',
+          session_id: 'coexist-session',
+          agent_id: null,
+          created_at: at,
+          completed_at: at,
+          consumed: false,
+        },
+        null,
+        2
+      )
+    );
   }
   return { base, root, home, tmp, ownsHome };
 }

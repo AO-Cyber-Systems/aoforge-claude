@@ -26,7 +26,7 @@ const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 
 const runner = require('./__fixtures__/hook-runner.js');
-const { STOP_FAMILY_EVENTS, stopFamilyProblems } = require('./__fixtures__/hook-output-schema.js');
+const { STOP_FAMILY_EVENTS, stopFamilyProblems, postToolUseProblems } = require('./__fixtures__/hook-output-schema.js');
 const fx = require('./__fixtures__/coexistence-fixtures.js');
 const todoTranscripts = require('../aoforge/bin/lib/__fixtures__/todo-transcript-fixtures.cjs');
 
@@ -329,6 +329,63 @@ describe('composition model', () => {
   });
 });
 
+// ─── 1b. The PostToolUse output model (TRD 73-06) ────────────────────────────
+
+describe('PostToolUse output model', () => {
+  const post = (hookSpecificOutput) => ({ hookSpecificOutput });
+  const hso = (extra) => post({ hookEventName: 'PostToolUse', ...extra });
+  const problemsOf = (json) => postToolUseProblems(json);
+  const mentions = (problems, re) => problems.some((p) => re.test(p));
+
+  test('6. valid outputs have no problems', () => {
+    assert.deepEqual(problemsOf({}), []);
+    assert.deepEqual(problemsOf({ systemMessage: 'x' }), []);
+    assert.deepEqual(problemsOf(hso({ additionalContext: 'x' })), []);
+    assert.deepEqual(problemsOf({ decision: 'block', reason: 'x' }), []);
+    // The other fields the "PostToolUse decision control" table lists.
+    assert.deepEqual(problemsOf(hso({ classifierContext: 'ran against staging' })), []);
+    assert.deepEqual(problemsOf(hso({ updatedToolOutput: { stdout: '[redacted]', stderr: '', interrupted: false, isImage: false } })), []);
+    assert.deepEqual(problemsOf(hso({ updatedMCPToolOutput: 'replaced' })), []);
+    assert.deepEqual(problemsOf({ continue: false, stopReason: 's', suppressOutput: true, systemMessage: 'm', terminalSequence: 't' }), []);
+  });
+
+  test('6. the page does not make `reason` required on PostToolUse, so a block without one is not a schema problem', () => {
+    // Unlike Stop ("Required when `decision` is `"block"`"), the PostToolUse table says only "Explanation shown to
+    // Claude when decision is "block"". The model is no stricter than the page.
+    assert.deepEqual(problemsOf({ decision: 'block' }), []);
+  });
+
+  test('7. each invalid output names its problem', () => {
+    assert.ok(mentions(problemsOf(post({ hookEventName: 'Stop', additionalContext: 'x' })), /hookEventName must be "PostToolUse"/));
+    assert.ok(mentions(problemsOf(post({ additionalContext: 'x' })), /hookEventName must be "PostToolUse"/), 'hookEventName is required');
+    assert.ok(mentions(problemsOf(hso({ permissionDecision: 'deny' })), /permissionDecision is not a PostToolUse field/));
+    assert.ok(mentions(problemsOf(hso({ additionalContext: 1 })), /additionalContext must be a string/));
+    assert.ok(mentions(problemsOf(hso({ classifierContext: 1 })), /classifierContext must be a string/));
+    assert.ok(mentions(problemsOf({ decision: 'allow' }), /decision must be "block"/));
+    assert.ok(mentions(problemsOf({ decision: 'block', reason: 1 }), /reason must be a string/));
+    assert.ok(mentions(problemsOf({ bogus: 1 }), /unknown top-level key "bogus"/));
+    // additionalContext lives inside hookSpecificOutput ("Return additionalContext inside hookSpecificOutput alongside the event name").
+    assert.ok(mentions(problemsOf({ additionalContext: 'x' }), /unknown top-level key "additionalContext"/));
+    assert.ok(mentions(problemsOf({ hookSpecificOutput: 'x' }), /hookSpecificOutput must be an object/));
+    assert.ok(mentions(problemsOf({ continue: 'yes' }), /continue must be a boolean/));
+    assert.ok(mentions(problemsOf('text'), /not a JSON object/));
+    assert.ok(mentions(problemsOf([]), /not a JSON object/));
+  });
+
+  test('8. contractProblems applies the model to PostToolUse JSON output and to no other event', () => {
+    const run = (json) => ({ code: 0, stdout: JSON.stringify(json), stderr: '', timedOut: false });
+    assert.deepEqual(contractProblems('PostToolUse', run(hso({ additionalContext: 'x' }))), []);
+    assert.deepEqual(contractProblems('PostToolUse', run({ systemMessage: 'x' })), []);
+    // permissionDecision "deny" is a valid PreToolUse decision, so only the PostToolUse model can object to it.
+    const bad = contractProblems('PostToolUse', run(hso({ permissionDecision: 'deny' })));
+    assert.ok(mentions(bad, /permissionDecision is not a PostToolUse field/), JSON.stringify(bad));
+    const badType = contractProblems('PostToolUse', run(hso({ additionalContext: 1 })));
+    assert.ok(mentions(badType, /additionalContext must be a string/), JSON.stringify(badType));
+    const pre = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'x' } };
+    assert.deepEqual(contractProblems('PreToolUse', run(pre)), []);
+  });
+});
+
 // ─── 2. The matrix ───────────────────────────────────────────────────────────
 
 const { HOOKS_DIR, USER_HOOKS, makeWorld, disposeWorld, hookEnv } = fx;
@@ -406,7 +463,8 @@ function matcherFires(matcher, toolName) {
 // run-dependent text in stdout to a stable form before runs are compared. `readsStdin: false`
 // marks a hook that ignores its payload; it still gets the degraded inputs. `writesState: true`
 // marks a hook that leaves a JSON state file behind, so test 14's "the shared file still parses"
-// check is known to have something to look at.
+// check is known to have something to look at. `singleDelivery: true` marks a hook that hands one shared record to
+// exactly one of two copies running at once (test 14 counts the copies that printed).
 
 /** A PATH with nothing on it, so a skill that requires `gh` is refused whatever this machine has installed. */
 const noToolsOnPath = (world) => ({ PATH: path.join(world.base, 'empty-bin') });
@@ -431,6 +489,9 @@ function todoTranscript(world) {
   );
   return file;
 }
+
+/** The handoff result names when the command completed; each world seeds its own record, so the instant differs per run. */
+const normalizeHandoffTimes = (s) => s.replace(/\*completed \S+\*/g, '*completed <T>*');
 
 const RUNS = {
   'sync-runtime.js@SessionStart': {
@@ -570,6 +631,27 @@ const RUNS = {
     payload: fx.postTool('Bash', {
       command: 'node ~/.claude/aoforge/bin/aof-tools.cjs commit "feat(50-05): x" --files a.js',
     }),
+  },
+  'inject-handoff-results.js@PostToolUse': {
+    label: 'completed handoff addressed to this session, after its next tool call',
+    // TRD 73-06. The world holds one completed handoff, so the hook reaches its delivery branch and the matrix is not
+    // vacuous. It never blocks on PostToolUse: it adds the result as additionalContext, beside whatever the user hooks say.
+    expect: 'context',
+    writesState: true, // the done record (claimed and marked consumed)
+    singleDelivery: true,
+    world: { handoffDone: true },
+    normalize: normalizeHandoffTimes,
+    payload: fx.postTool('Bash', { command: 'ls' }),
+  },
+  'inject-handoff-results.js@Stop': {
+    label: 'completed handoff addressed to this session, at the end of the turn',
+    // The same record, delivered by blocking the stop: a Stop block is the documented way to hand Claude more to do.
+    expect: 'block',
+    writesState: true,
+    singleDelivery: true,
+    world: { handoffDone: true },
+    normalize: normalizeHandoffTimes,
+    payload: fx.stop(),
   },
 };
 
@@ -848,6 +930,9 @@ function stateFilesOf(world) {
   for (const f of walkFiles(world.root)) {
     if (f.includes(`${path.sep}.aoforge${path.sep}`) && PLANNING_STATE_FILES.includes(path.basename(f))) files.push(f);
   }
+  // TRD 73-06: the completed-handoff records inject-handoff-results.js claims. A `<id>.claim` marker beside one is
+  // an empty O_EXCL file, not JSON, so only the records are scanned.
+  files.push(...walkFiles(path.join(world.root, '.aoforge-handoff', 'done')).filter((f) => f.endsWith('.json')));
   return files;
 }
 
@@ -914,6 +999,39 @@ describe('coexistence matrix', () => {
       const gaps = tableGaps(registrations(copy), RUNS);
       assert.deepEqual(gaps.missing, [...already, 'a-future-hook.js@Stop'], 'a second registration of a known script and event is not a new pair');
       assert.deepEqual(tableGaps(REGS, { ...RUNS, 'gone.js@Stop': {} }).stale, ['gone.js@Stop']);
+    });
+
+    test('9. inject-handoff-results.js is registered on PostToolUse * and Stop only, and its Stop timeout outlasts the bounded wait', () => {
+      const found = [];
+      for (const [event, groups] of Object.entries(readHooksJson().hooks)) {
+        for (const group of groups) {
+          for (const h of group.hooks || []) {
+            if (/inject-handoff-results\.js/.test(String(h.command || ''))) {
+              found.push({ event, matcher: group.matcher === undefined ? null : group.matcher, timeout: h.timeout });
+            }
+          }
+        }
+      }
+      // Not UserPromptSubmit (route-results owns it) and not SubagentStop.
+      assert.deepEqual(
+        found.map((f) => `${f.event}:${f.matcher}`).sort(),
+        ['PostToolUse:*', 'Stop:null'],
+        'registered on PostToolUse (matcher *) and Stop, and nowhere else'
+      );
+
+      // "timeout": seconds. The Stop hook waits up to STOP_WAIT_DEFAULT_MS for a queued command, so Claude Code must
+      // not cut it off first: at least 10 s of headroom.
+      const { STOP_WAIT_DEFAULT_MS } = require('./inject-handoff-results.js');
+      const stopReg = found.find((f) => f.event === 'Stop');
+      assert.equal(typeof stopReg.timeout, 'number', 'the Stop registration needs an explicit timeout');
+      assert.ok(
+        stopReg.timeout * 1000 >= STOP_WAIT_DEFAULT_MS + 10000,
+        `Stop timeout ${stopReg.timeout} s must exceed the ${STOP_WAIT_DEFAULT_MS} ms wait by at least 10 s`
+      );
+
+      // PostToolUse never waits, so it keeps the default timeout.
+      const postReg = found.find((f) => f.event === 'PostToolUse');
+      assert.equal(postReg.timeout, undefined, 'the PostToolUse registration has no timeout of its own');
     });
 
     test('9. registrations are read from hooks.json and every script exists', () => {
@@ -1038,6 +1156,11 @@ describe('coexistence matrix', () => {
           for (const r of results) {
             const n = normalized(r, world, run);
             assert.deepEqual(contractProblems(reg.event, n), [], `${reg.key} ${r.name}\nstdout: ${n.stdout}\nstderr: ${n.stderr}`);
+          }
+          if (run.singleDelivery) {
+            // One shared record, two copies: the O_EXCL claim lets exactly one of them print it.
+            const printed = results.filter((r) => String(r.stdout || '').trim() !== '');
+            assert.equal(printed.length, 1, `${reg.key}: expected exactly one copy to deliver, got ${printed.length}\n${results.map((r) => `${r.name}: ${r.stdout}`).join('\n')}`);
           }
           if (run.writesState) {
             assert.ok(stateFilesOf(world).length > 0, `${reg.key}: marked writesState but left no state file to check`);
