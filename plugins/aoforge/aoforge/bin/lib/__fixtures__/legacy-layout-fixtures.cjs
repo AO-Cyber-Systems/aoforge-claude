@@ -1,0 +1,286 @@
+'use strict';
+
+/**
+ * legacy-layout-fixtures.cjs (objective 72, TRD 72-05) — a minimal, valid planning tree in each layout.
+ *
+ *   const p = planningProject({ layout: 'legacy' });   // only the legacy `.planning/`
+ *   p.run(['state', 'load', '--raw']);                  // spawn aof-tools --cwd <root>, hermetic env
+ *   p.cleanup();
+ *
+ * Layouts:
+ *   aoforge   only `.aoforge/` (the new default)
+ *   legacy    only `.planning/` (the one-release fallback)
+ *   both      both directories (an unfinished migration). The legacy copy differs in one line, STATE.md
+ *             `**Status:** Legacy copy`, so a test can tell which tree a read came from.
+ *   none      no planning directory (a repository AOForge has not touched yet)
+ *
+ * Legacy directory names may be spelled in this file: it is one of the `__fixtures__/legacy-*` files the
+ * rename codemod and the rename guard leave alone. The names still come from legacy-names.cjs, so the
+ * fixture follows the map if it ever changes.
+ *
+ * Hermetic: the fake HOME is a fresh temp directory, git runs with no system or global config, a local
+ * identity and commit signing off, and the spawned tools see neither environment prefix (new or legacy)
+ * from the caller.
+ *
+ * Every file below is a hand-written literal. No generated data.
+ */
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const { NAMES, LEGACY } = require('../legacy-names.cjs');
+
+const AOF_TOOLS = path.join(__dirname, '..', '..', 'aof-tools.cjs');
+
+const LAYOUTS = Object.freeze(['aoforge', 'legacy', 'both', 'none']);
+
+// Variables that would point git at the repository the test runner itself is inside.
+const GIT_REDIRECT_VARS = [
+  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_PREFIX', 'GIT_NAMESPACE',
+];
+
+const doc = (lines) => `${lines.join('\n')}\n`;
+
+const PROJECT_MD = doc([
+  '---',
+  'kind: plugin',
+  'default_work: feature',
+  '---',
+  '',
+  '# Layout Demo',
+  '',
+  '## What This Is',
+  '',
+  'A fixture project for the planning-directory layout contract.',
+  '',
+  '## Core Value',
+  '',
+  'Every verb finds its planning tree.',
+  '',
+  '## Requirements',
+  '',
+  '- [ ] T-01: Every verb finds the planning tree',
+]);
+
+const ROADMAP_MD = doc([
+  '# Roadmap: Layout Demo',
+  '',
+  '## Milestones',
+  '',
+  '- 🚧 **v1.0 First** - Objective 1 (in progress)',
+  '',
+  '## Objectives',
+  '',
+  '- [ ] **Objective 1: First** - Prove the layout resolver',
+  '',
+  '## Objective Details',
+  '',
+  '### Objective 1: First',
+  '**Goal**: Every verb finds the planning tree',
+  '**Depends on**: Nothing (first objective)',
+  '**Requirements**: T-01',
+  '**Success Criteria** (what must be TRUE):',
+  '  1. Every verb reads and writes the resolved planning directory',
+  '**Plans**: 1 TRD',
+  '',
+  'TRDs:',
+  '- [ ] 01-01: X',
+  '',
+  '## Progress',
+  '',
+  '| Objective | TRDs Complete | Status | Completed |',
+  '|-----------|---------------|--------|-----------|',
+  '| 1. First | 0/1 | Not started | - |',
+]);
+
+const REQUIREMENTS_MD = doc([
+  '# Requirements: Layout Demo',
+  '',
+  '## v1 Requirements',
+  '',
+  '- [ ] **T-01**: Every verb finds the planning tree',
+  '',
+  '## Traceability',
+  '',
+  '| Requirement | Objective | Status |',
+  '|-------------|-----------|--------|',
+  '| T-01 | Objective 1 | Pending |',
+]);
+
+const stateMd = (status) => doc([
+  '# Project State',
+  '',
+  '## Current Position',
+  '',
+  '**Current Objective:** 1',
+  '**Current Objective Name:** First',
+  '**Current TRD:** 1',
+  '**Total TRDs in Objective:** 1',
+  `**Status:** ${status}`,
+  '**Last Activity:** 2026-10-08',
+  '**Last Activity Description:** Objective 1 planned',
+  '',
+  'Progress: [░░░░░░░░░░] 0%',
+  '',
+  '## Blockers',
+  '',
+  'None.',
+]);
+
+const CONFIG_JSON = `${JSON.stringify({ mode: 'yolo', github: { enabled: false } }, null, 2)}\n`;
+
+const OBJECTIVE_MD = doc([
+  '---',
+  'objective: 01-first',
+  'work: feature',
+  '---',
+  '',
+  '# Objective 1: First',
+  '',
+  '## Goal',
+  '',
+  'Every verb finds the planning tree.',
+]);
+
+const TRD_MD = doc([
+  '---',
+  'objective: 01-first',
+  'trd: "01"',
+  'type: standard',
+  'wave: 1',
+  'depends_on: []',
+  'autonomous: true',
+  'requirements: [T-01]',
+  '---',
+  '',
+  '# TRD 01-01: X',
+  '',
+  '<task type="auto">',
+  '  <name>Task 1: write x.txt</name>',
+  '  <verify>test -f x.txt</verify>',
+  '</task>',
+]);
+
+/** The minimal tree, relative to a planning directory. */
+function tree(status) {
+  return {
+    'PROJECT.md': PROJECT_MD,
+    'ROADMAP.md': ROADMAP_MD,
+    'REQUIREMENTS.md': REQUIREMENTS_MD,
+    'STATE.md': stateMd(status),
+    'config.json': CONFIG_JSON,
+    'objectives/01-first/OBJECTIVE.md': OBJECTIVE_MD,
+    'objectives/01-first/01-01-x-TRD.md': TRD_MD,
+  };
+}
+
+const CURRENT_STATUS = 'Ready to execute';
+const LEGACY_COPY_STATUS = 'Legacy copy';
+
+function writeTree(dir, files) {
+  for (const [rel, text] of Object.entries(files)) {
+    const abs = path.join(dir, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, text);
+  }
+}
+
+/** The environment for every git call and every spawned aof-tools: hermetic, no product env prefix. */
+function hermeticEnv(home) {
+  const env = { ...process.env };
+  for (const key of GIT_REDIRECT_VARS) delete env[key];
+  for (const key of Object.keys(env)) {
+    if (key.startsWith(NAMES.envPrefix) || key.startsWith(LEGACY.envPrefix)) delete env[key];
+  }
+  env.HOME = home;
+  env.XDG_CONFIG_HOME = path.join(home, '.config');
+  env.GIT_CONFIG_NOSYSTEM = '1';
+  env.GIT_CONFIG_GLOBAL = path.join(home, '.gitconfig');
+  return env;
+}
+
+function git(root, env, args) {
+  const r = spawnSync('git', ['-C', root, ...args], { env, encoding: 'utf-8' });
+  if (r.error) throw new Error(`git ${args.join(' ')}: ${r.error.message}`);
+  if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed (${r.status}): ${(r.stderr || '').trim()}`);
+  return r.stdout;
+}
+
+/**
+ * A temp project with a minimal, valid planning tree in `layout`.
+ *
+ * @param {object} [opts]
+ * @param {'aoforge'|'legacy'|'both'|'none'} [opts.layout='aoforge']
+ * @param {boolean} [opts.git=true]   git init with a local identity and one commit of everything
+ * @param {Object<string,string>} [opts.files={}]  extra files, relative to each planning directory
+ *        present (to the root for layout `none`), written before the commit
+ * @returns {{ root: string, home: string, dir: string|null, layout: string, env: object,
+ *             run: function(string[], object=): {status: number, stdout: string, stderr: string, out: string},
+ *             git: function(string[]): string, cleanup: function(): void }}
+ *   `dir` is the absolute planning directory the tools should use: `.aoforge/` for layouts aoforge and both,
+ *   `.planning/` for legacy, null for none.
+ */
+function planningProject({ layout = 'aoforge', git: withGit = true, files = {} } = {}) {
+  if (!LAYOUTS.includes(layout)) {
+    throw new Error(`planningProject: unknown layout ${JSON.stringify(layout)} (expected one of ${LAYOUTS.join(', ')})`);
+  }
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aof-layout-')));
+  const root = path.join(base, 'repo');
+  const home = path.join(base, 'home');
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+
+  const newDir = path.join(root, NAMES.planningDir);
+  const oldDir = path.join(root, LEGACY.planningDir);
+
+  if (layout === 'aoforge' || layout === 'both') writeTree(newDir, { ...tree(CURRENT_STATUS), ...files });
+  if (layout === 'legacy') writeTree(oldDir, { ...tree(CURRENT_STATUS), ...files });
+  if (layout === 'both') writeTree(oldDir, { ...tree(LEGACY_COPY_STATUS), ...files });
+  if (layout === 'none') {
+    writeTree(root, { 'README.md': '# Layout Demo\n', ...files });
+  }
+
+  const env = hermeticEnv(home);
+  if (withGit) {
+    git(root, env, ['init', '-q', '-b', 'main']);
+    git(root, env, ['config', 'user.name', 'Layout Fixture']);
+    git(root, env, ['config', 'user.email', 'layout@example.invalid']);
+    git(root, env, ['config', 'commit.gpgsign', 'false']);
+    git(root, env, ['config', 'tag.gpgsign', 'false']);
+    git(root, env, ['add', '-A']);
+    git(root, env, ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init']);
+  }
+
+  const dir = layout === 'legacy' ? oldDir : layout === 'none' ? null : newDir;
+
+  /** Spawn aof-tools with `--cwd <root>` from a neutral directory, so only `--cwd` can find the project. */
+  const run = (args, { cwd = base, extraEnv = {} } = {}) => {
+    const r = spawnSync(process.execPath, [AOF_TOOLS, '--cwd', root, ...args], {
+      cwd, env: { ...env, ...extraEnv }, encoding: 'utf-8', timeout: 60000,
+    });
+    const stdout = r.stdout || '';
+    const stderr = r.stderr || '';
+    return { status: r.status, stdout, stderr, out: stdout + stderr };
+  };
+
+  return {
+    root,
+    home,
+    dir,
+    layout,
+    env,
+    run,
+    git: (args) => git(root, env, args),
+    cleanup: () => fs.rmSync(base, { recursive: true, force: true }),
+  };
+}
+
+module.exports = {
+  LAYOUTS,
+  CURRENT_STATUS,
+  LEGACY_COPY_STATUS,
+  planningProject,
+};
