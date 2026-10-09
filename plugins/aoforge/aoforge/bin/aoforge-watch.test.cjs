@@ -496,3 +496,252 @@ describe('aoforge-watch multi-project CLI (TRD 20-03)', () => {
     assert.match(r.stderr, /remove-project/);
   });
 });
+
+// ===========================================================================
+// TRD 73-05 — the attended foreground terminal (HND-03)
+//
+// `aoforge-watch start --foreground` in a real terminal mirrors a queued
+// command's live output to that terminal and forwards the keys typed there to
+// the command, so the USER answers the prompt. The tests below play the user:
+// they run the daemon under a node-pty terminal, read what the daemon prints
+// there, and type into it. AOForge injects nothing (no inputs.secrets).
+//
+// Each daemon is torn down by signalling its process group and then PROVING the
+// pid is gone (the same discipline as handoff-e2e.test.cjs stopDaemon, issue
+// #93): a leaked daemon is a hung test file, which is worse than a red one.
+// ===========================================================================
+
+const ATTEND_PTY_AVAILABLE = (() => { try { require('node-pty'); return true; } catch { return false; } })();
+const attendPtySkip = ATTEND_PTY_AVAILABLE ? undefined : { skip: 'node-pty unavailable' };
+// One options object: node:test takes (name, options, fn), so skip and timeout travel together.
+const attendOpts = { ...(attendPtySkip || {}), timeout: 60000 };
+
+const ATTEND_ALLOW_JSON = JSON.stringify({
+  commands: [{ pattern: '^bash\\s+-c\\s+', label: 'test:bash-c' }],
+});
+
+function writeAttendAllowFile(home) {
+  const dir = path.join(home, '.aoforge');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'aoforge-watch-allow.json'), ATTEND_ALLOW_JSON);
+}
+
+function writeAttendPending(projectRoot, id, cmd) {
+  const dir = path.join(projectRoot, '.aoforge-handoff', 'pending');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${id}.json`), JSON.stringify({
+    id,
+    cmd,
+    cwd: projectRoot,
+    status: 'pending',
+    source: 'hook',
+    created_at: new Date().toISOString(),
+  }, null, 2) + '\n');
+}
+
+async function waitForAttendDone(projectRoot, id, timeoutMs = 20000) {
+  const file = path.join(projectRoot, '.aoforge-handoff', 'done', `${id}.json`);
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (fs.existsSync(file)) {
+      try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* half-written */ }
+    }
+    await new Promise((r) => setTimeout(r, 40));
+  }
+  throw new Error(`done record ${id} did not appear within ${timeoutMs}ms`);
+}
+
+/** Poll a function until it returns something matching rx; report the tail on failure. */
+async function waitForScreen(read, rx, timeoutMs, what) {
+  const start = Date.now();
+  let last = '';
+  while (Date.now() - start < timeoutMs) {
+    last = read();
+    if (rx.test(last)) return last;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  throw new Error(`${what} within ${timeoutMs}ms (terminal tail: ${JSON.stringify(last.slice(-600))})`);
+}
+
+/**
+ * Run `aoforge-watch start --foreground` under a pseudo-terminal, as a user's
+ * shell would. `screen()` is everything the daemon has printed there.
+ */
+function spawnDaemonInTerminal({ home, project, args = [], env = {} }) {
+  const pty = require('node-pty');
+  const childEnv = { ...process.env, HOME: home, ...env };
+  if (!('AOFORGE_WATCH_UNATTENDED' in env)) delete childEnv.AOFORGE_WATCH_UNATTENDED;
+  const term = pty.spawn(process.execPath, [
+    CLI, 'start', '--foreground', '--project', project, '--shell', 'bash', ...args,
+  ], { name: 'xterm-256color', cols: 120, rows: 30, cwd: project, env: childEnv });
+  const d = { term, exited: false, text: '' };
+  term.onData((chunk) => { d.text += chunk; });
+  term.onExit(() => { d.exited = true; });
+  d.screen = () => d.text;
+  // What the daemon printed for the command that is running NOW: everything after
+  // the second line of the dispatch frame. The frame's own start line quotes the
+  // command text, so a prompt must be looked for after it, never before.
+  d.afterFrame = () => {
+    const i = d.text.lastIndexOf('Ctrl+C interrupts the command');
+    return i < 0 ? '' : d.text.slice(i);
+  };
+  return d;
+}
+
+/** Signal the daemon's group, escalate, and PROVE the pid is gone. Returns a message or null. */
+async function stopTerminalDaemon(d) {
+  const pid = d.term.pid;
+  const signal = (sig) => {
+    try { process.kill(-pid, sig); } catch { /* group already gone */ }
+    try { process.kill(pid, sig); } catch { /* process already gone */ }
+  };
+  const settle = async (ms) => {
+    const start = Date.now();
+    while (!d.exited && Date.now() - start < ms) await new Promise((r) => setTimeout(r, 50));
+  };
+  if (!d.exited) {
+    signal('SIGTERM');
+    await settle(5000);
+    if (!d.exited) { signal('SIGKILL'); await settle(5000); }
+  }
+  try { d.term.destroy(); } catch { /* already closed */ }
+  if (!d.exited) return `daemon pid ${pid} survived SIGTERM and SIGKILL`;
+  try {
+    process.kill(pid, 0);
+    return `daemon pid ${pid} reported exit but is still addressable`;
+  } catch (e) {
+    return e.code === 'EPERM' ? `daemon pid ${pid} still exists and is not ours to signal` : null;
+  }
+}
+
+async function withTerminalDaemon(opts, fn) {
+  const d = spawnDaemonInTerminal(opts);
+  let primary = null;
+  try {
+    await fn(d);
+  } catch (e) {
+    primary = e;
+  }
+  const leak = await stopTerminalDaemon(d);
+  if (primary) throw primary;
+  if (leak) throw new Error(`${leak}\n--- daemon terminal (tail) ---\n${d.screen().slice(-2000)}`);
+}
+
+describe('aoforge-watch attended terminal (TRD 73-05)', () => {
+  let home, project;
+  beforeEach(() => {
+    home = mkTmp();
+    project = mkTmp();
+    fs.mkdirSync(path.join(project, '.aoforge-handoff', 'pending'), { recursive: true });
+    writeAttendAllowFile(home);
+  });
+  afterEach(() => { rmTmp(home); rmTmp(project); });
+
+  // Test list items 1 and 2.
+  test('AT-E2E-1: the user answers the prompt in the daemon terminal and the answer reaches the command', attendOpts, async () => {
+    await withTerminalDaemon({ home, project }, async (d) => {
+      await waitForScreen(d.screen, /aoforge-watch: attended:/, 15000, 'the attended startup line');
+      assert.match(d.screen(), /aoforge-watch: started \(pid \d+, projects /, 'the started line is unchanged');
+
+      writeAttendPending(project, 'att-1', `bash -c 'printf "Your name: " > /dev/tty; read N; echo "hello $N"'`);
+      await waitForScreen(d.afterFrame, /Your name:/, 20000, 'the command prompt mirrored into the daemon terminal');
+
+      d.term.write('ada\r'); // the user types
+
+      const done = await waitForAttendDone(project, 'att-1');
+      assert.equal(done.status, 'done');
+      assert.equal(done.exit_code, 0);
+      assert.match(done.stdout, /hello ada/);
+
+      const screen = await waitForScreen(d.screen, /att-1 finished: done \(exit 0\)/, 5000, 'the end line');
+      assert.match(screen, /att-1/, 'the start line names the handoff id');
+      assert.ok(screen.includes('\x07'), 'the start line rings the terminal bell');
+
+      // Item 2: the log keeps its dispatch and completion lines and never the keys.
+      const log = fs.readFileSync(path.join(home, '.aoforge', 'aoforge-watch.log'), 'utf8');
+      assert.match(log, /dispatching att-1:/);
+      assert.match(log, /completed att-1 status=done exit=0/);
+      assert.ok(!/\bada\b/.test(log), `the log must not hold the typed keys:\n${log}`);
+    });
+  });
+
+  // Test list item 3.
+  test('AT-E2E-2: Ctrl+C during a dispatch interrupts the command (exit 130) and the daemon keeps serving', attendOpts, async () => {
+    await withTerminalDaemon({ home, project }, async (d) => {
+      await waitForScreen(d.screen, /aoforge-watch: attended:/, 15000, 'the attended startup line');
+
+      writeAttendPending(project, 'att-2', `bash -c 'echo started-73; exec sleep 30'`);
+      await waitForScreen(d.afterFrame, /started-73/, 20000, 'the command output mirrored into the daemon terminal');
+
+      const typedAt = Date.now();
+      d.term.write('\x03');
+      const done = await waitForAttendDone(project, 'att-2', 5000);
+      assert.equal(done.exit_code, 130);
+      assert.ok(Date.now() - typedAt < 5000, 'the interrupt ends the dispatch promptly');
+
+      assert.equal(d.exited, false, 'the daemon is still running');
+      assert.doesNotThrow(() => process.kill(d.term.pid, 0), 'the daemon pid is alive');
+
+      writeAttendPending(project, 'att-3', `bash -c 'echo again-73'`);
+      const again = await waitForAttendDone(project, 'att-3');
+      assert.equal(again.status, 'done');
+      assert.match(again.stdout, /again-73/);
+    });
+  });
+
+  // Test list item 5.
+  test('AT-CLI-3: --no-attend under a terminal runs unattended and the dispatch is not framed', attendOpts, async () => {
+    await withTerminalDaemon({ home, project, args: ['--no-attend'] }, async (d) => {
+      await waitForScreen(d.screen, /aoforge-watch: unattended:/, 15000, 'the unattended startup line');
+      assert.ok(!/aoforge-watch: attended:/.test(d.screen()));
+
+      writeAttendPending(project, 'unatt-1', `bash -c 'echo plain-73'`);
+      const done = await waitForAttendDone(project, 'unatt-1');
+      assert.equal(done.status, 'done');
+      assert.match(done.stdout, /plain-73/);
+      assert.ok(!/finished:/.test(d.screen()), 'an unattended daemon prints no dispatch frame');
+      assert.ok(!d.screen().includes('\x07'), 'and rings no bell');
+    });
+  });
+
+  test('AT-CLI-4: AOFORGE_WATCH_UNATTENDED=1 under a terminal runs unattended', attendOpts, async () => {
+    await withTerminalDaemon({ home, project, env: { AOFORGE_WATCH_UNATTENDED: '1' } }, async (d) => {
+      await waitForScreen(d.screen, /aoforge-watch: unattended:/, 15000, 'the unattended startup line');
+      assert.ok(!/aoforge-watch: attended:/.test(d.screen()));
+    });
+  });
+
+  // Test list item 4: no terminal at all (the detached start, launchd, systemd, CI).
+  test('AT-CLI-1: start --foreground with piped stdio is unattended, and the started line is unchanged', async () => {
+    const child = spawn(process.execPath, [CLI, 'start', '--foreground', '--project', project, '--shell', 'bash'], {
+      env: { ...process.env, HOME: home, AOFORGE_WATCH_UNATTENDED: '' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (c) => { out += c; });
+    child.stderr.resume();
+    let exited = false;
+    child.on('exit', () => { exited = true; });
+    try {
+      await waitForScreen(() => out, /unattended/, 15000, 'the unattended startup line');
+      const lines = out.split('\n').filter(Boolean);
+      assert.match(lines[0], /^aoforge-watch: started \(pid \d+, projects .+\)$/);
+      assert.match(lines[1], /^aoforge-watch: unattended: /);
+      assert.ok(!/aoforge-watch: attended:/.test(out));
+    } finally {
+      try { child.kill('SIGTERM'); } catch { /* gone */ }
+      const start = Date.now();
+      while (!exited && Date.now() - start < 5000) await new Promise((r) => setTimeout(r, 50));
+      if (!exited) { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+      for (const s of [child.stdout, child.stderr]) { try { s.destroy(); } catch { /* closed */ } }
+    }
+  });
+
+  test('AT-CLI-2: the start usage in the header documents --no-attend', () => {
+    const src = fs.readFileSync(CLI, 'utf8');
+    const header = src.slice(0, src.indexOf('const fs = require')); // the usage comment block
+    const startEntry = header.slice(header.indexOf(' *   start ['), header.indexOf(' *   stop'));
+    assert.match(startEntry, /--no-attend/, 'documented under the start entry');
+  });
+});

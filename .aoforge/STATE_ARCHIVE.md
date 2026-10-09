@@ -293,6 +293,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-03: MA-6 (doctl against the mock) does not assert status done; doctl rejects the fake token (TUI redraws the prompt on each cursor blink, which the duplicate-prompt guard rightly reads as a rejected value) and a well-formed token is validated against cloud.digitalocean.com, not DIGITALOCEAN_API_URL. Kept asserts: no unknown terminal, no timeout, token redacted
 - [Objective 73]: 73-04: inject-handoff-results delivers on PostToolUse and Stop only; Stop checks the addressed pending record before taking so a result landing between the two is never missed
 - [Objective 73]: 73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook
+- [Objective 73]: 73-05: the session facade keeps a registry of attached listeners and re-attaches them to a respawned shell, because processOnce attaches its prompt detector before dispatch
+- [Objective 73]: 73-05: framing lines strip control characters from the handoff id and command (cap 200 chars) so a pending record cannot drive the user's terminal; the command's own output is mirrored verbatim
 
 ## Performance Metrics
 
@@ -484,4 +486,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P02 | 15min | 3 tasks | 5 files |
 | Objective 73 P03 | 16min | 3 tasks | 6 files |
 | Objective 73 P04 | 17min | 3 tasks | 4 files |
+| Objective 73 P05 | 14min | 3 tasks | 5 files |
 
