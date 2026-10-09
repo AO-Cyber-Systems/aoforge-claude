@@ -289,6 +289,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-01: bash/zsh PTY dispatch runs from a private 0600 script sourced with one line; PTY stderr now arrives with stdout (stderr is empty), pipe mode and fish/powershell keep separate streams
 - [Objective 73]: Handoff results are delivered only by the process that creates done/<id>.claim with O_EXCL; consumed:true is the durable mark after the claim, and a claimed-but-unmarked record is never re-delivered
 - [Objective 73]: route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks
+- [Objective 73]: 73-04: inject-handoff-results delivers on PostToolUse and Stop only; Stop checks the addressed pending record before taking so a result landing between the two is never missed
+- [Objective 73]: 73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook
 
 ## Performance Metrics
 
@@ -478,4 +480,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P27 | 10 min | 3 tasks | 9 files |
 | Objective 73 P01 | 52min | 3 tasks | 6 files |
 | Objective 73 P02 | 15min | 3 tasks | 5 files |
+| Objective 73 P04 | 17min | 3 tasks | 4 files |
 

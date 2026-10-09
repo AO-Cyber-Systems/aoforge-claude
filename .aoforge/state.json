@@ -1,6 +1,6 @@
 {
   "current_objective": "73",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 8,
   "progress_pct": 99,
   "status": "executing",
@@ -1509,6 +1509,16 @@
     {
       "objective": "73",
       "summary": "route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-04: inject-handoff-results delivers on PostToolUse and Stop only; Stop checks the addressed pending record before taking so a result landing between the two is never missed",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook",
       "rationale": null
     }
   ],
