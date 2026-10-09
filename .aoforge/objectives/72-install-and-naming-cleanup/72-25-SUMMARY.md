@@ -96,6 +96,7 @@ Every row: re-checked against the preview first (same branch, same tracked dirt,
 | 7 | ao-terminal | ok (ao-main, 3db141f6; no untracked planning files) | 0001, 0005, 0007, 0008, 0012, 0014 | d7284005 | 111 R (STATE.md R099) + config.json D/A + .gitignore (0008 block + twins) + CLAUDE.md (block now `AOFORGE:START/END`) | yes / yes | none (W065) | upgraded |
 | 8 | devflow | branch/tracked/pending unchanged (main, 5f79ecf), but the commit would sweep untracked `.planning/journal.jsonl` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
 | 9 | eden-press | branch/tracked/pending unchanged (main, 0d90836), but the commit would sweep untracked `.planning/.dup-detect-log.jsonl` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 10 | qrCodeBuilder | ok (main, d606beb) | 0001, 0005, 0007, 0012, 0014 | 9077470 | 107 R (STATE.md R099) + config.json A (0001 created it) + .gitignore (3 anchored twins) + CLAUDE.md (block now `AOFORGE:START/END`) | yes / yes | none. Health `broken` E002 predates the upgrade (no PROJECT.md at HEAD~1); W064 = the expired 2026-09-23 marker that moved with the directory (ignored); W006 | upgraded |
 
 ## Ambiguous (listed for the user, not swept)
 
