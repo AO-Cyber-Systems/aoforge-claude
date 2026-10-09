@@ -323,7 +323,7 @@ TRDs:
 - [x] 73-03-live-window-listeners-TRD.md — (W2) `attachDataListener(fn, { liveOnly })`: the detector sees only the live command (gap 3, late match); MA-6-synth / MA-7 / MA-6 assert instead of skipping
 - [x] 73-04-inject-handoff-results-TRD.md — (W2) the DRAFT hook completed: PostToolUse context, Stop block with a bounded wait; gate-interactive records session/agent and names the aoforge-watch terminal
 - [ ] 73-05-attended-watch-terminal-TRD.md — (W3) attended `aoforge-watch start --foreground`: live output mirrored, the user's keys forwarded during a dispatch; respawning shell facade; PTY e2e test that plays the user
-- [ ] 73-06-hook-registration-and-coexistence-TRD.md — (W3) hooks.json PostToolUse `*` + Stop (timeout 150); coexistence RUNS entries; cited PostToolUse schema model; CLAUDE.md bullet out of Draft
+- [x] 73-06-hook-registration-and-coexistence-TRD.md — (W3) hooks.json PostToolUse `*` + Stop (timeout 150); coexistence RUNS entries; cited PostToolUse schema model; CLAUDE.md bullet out of Draft
 - [ ] 73-07-live-tty-demonstration-TRD.md — (W4, checkpoint) live run: ssh-keygen passphrase prompt answered by the user in the aoforge-watch terminal, result in context with no paste; evidence and cleanup
 - [ ] 73-08-docs-and-close-out-TRD.md — (W5) CHANGELOG [Unreleased], USER-GUIDE, site handoff guide, handoff skill, CLAUDE.md, HOOK_DOCS + docs data; todo complete; full suite
 
@@ -368,6 +368,6 @@ TRDs:
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
-| 73. Handoff gaps and result injection | v1.6 | 4/8 | In Progress | - |
+| 73. Handoff gaps and result injection | v1.6 | 5/8 | In Progress | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |

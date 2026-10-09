@@ -1,6 +1,6 @@
 {
   "current_objective": "73",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 8,
   "progress_pct": 99,
   "status": "executing",
@@ -1529,6 +1529,11 @@
     {
       "objective": "73",
       "summary": "73-04: the DRAFT marker was removed from inject-handoff-results.js per the TRD, so doctor check 12 test 11 stays red until 73-06 registers the hook",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-06: the PostToolUse output model follows the hooks reference, which does not require reason with decision block; the Stop registration timeout (150 s) is pinned by a test above the 120 s bounded wait",
       "rationale": null
     }
   ],
