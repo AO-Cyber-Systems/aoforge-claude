@@ -1,9 +1,9 @@
 {
-  "current_objective": "72",
-  "current_job": 27,
-  "total_jobs": 27,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "73",
+  "current_job": 1,
+  "total_jobs": 8,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1494,6 +1494,16 @@
     {
       "objective": "72",
       "summary": "72-27: INST-04 closed on the read-only eden-biz gh rebrand dry run (exit 0, ok:true, apply:false, 0 ops; eden-biz has no legacy labels or managed text); no --apply run anywhere, a live apply needs the repository owner's own approval",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "Handoff results are delivered only by the process that creates done/<id>.claim with O_EXCL; consumed:true is the durable mark after the claim, and a claimed-but-unmarked record is never re-delivered",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks",
       "rationale": null
     }
   ],

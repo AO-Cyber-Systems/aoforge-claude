@@ -51,6 +51,12 @@ verification:
 
 duration: 15min
 completed: 2026-10-09
+tokens_input: 10439548
+tokens_output: 80382
+tokens_cache_read: 10122696
+tokens_cache_write: 316712
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 73 TRD 02: One delivery library for handoff results Summary
@@ -60,7 +66,7 @@ completed: 2026-10-09
 ## Progress
 - [x] Task 1: Fixture builders and the RED test list for the library — a61bb9ef
 - [x] Task 2: GREEN, handoff-results.cjs — aa86ade5
-- [x] Task 3: route-results on the library, the concurrency tests, and the scoped gate — (this commit)
+- [x] Task 3: route-results on the library, the concurrency tests, and the scoped gate — adf3a2e8
 
 ## Performance
 
@@ -82,7 +88,7 @@ completed: 2026-10-09
 
 1. **Task 1: fixtures and RED tests** - `a61bb9ef` (test)
 2. **Task 2: handoff-results.cjs GREEN** - `aa86ade5` (feat)
-3. **Task 3: route-results on the library** - this commit (feat)
+3. **Task 3: route-results on the library** - `adf3a2e8` (feat)
 
 ## Files Created/Modified
 
@@ -114,13 +120,20 @@ See `key-decisions` above. Two worth restating for 73-04 and 73-06:
 
 - The worktree has no `node_modules`, so the daemon cannot load `node-pty` and `handoff-e2e.test.cjs` times out on `node-pty not installed` (5 failures) in a bare worktree, with or without these changes. Verification ran with `NODE_PATH=/Users/justin/dev/aoforge-claude/node_modules` (the main checkout's), under which the e2e file passes: 10 pass, 3 skipped (node-pty PTY-path mock auth), 0 fail.
 
+### Requirement bookkeeping
+
+- `requirements mark-complete HND-02` was run because this TRD's frontmatter lists `requirements: [HND-02]`. HND-02's text also covers completing and registering `inject-handoff-results.js` and the coexistence suite, which are 73-04 and 73-06. This TRD delivers only the shared library and the route-results half; the orchestrator may want to reopen HND-02 until 73-06 lands.
+
 ### Observation for 73-04 (left unchanged on purpose)
 
 - A `handoff complete` record written without `--exit-code` has no `exit_code`, so `renderRecord` titles it `✗ exit ?` although its status is `done`. The TRD requires the rendered text for existing records to stay unchanged, so the header is untouched; 73-04 owns the draft hook and the `handoff complete` contract.
 
 ## Issues Encountered
 
-None beyond the above.
+The full suite (11,997 tests: 11,961 pass, 2 fail, 34 skipped) had two failures, neither caused by this TRD:
+
+- `planning-writes.audit.test.js` test 10 (`classify-session.js [session start]`) failed with `spawnSync node EPIPE` while another executor's `npm test` ran in parallel on the same machine. Run alone it passes 61/61.
+- `roadmap-reconcile.test.cjs` E2E1 (self-test: this repo's ROADMAP shows zero drift) reported one `trd_summary_exists` drift for 73-02: the in-progress SUMMARY checkpoint exists while ROADMAP still shows the 73-02 box unchecked. `roadmap update-job-progress 73` ticked the 73-02 box and `roadmap-reconcile.test.cjs` then passes 63/63 (E2E1 included).
 
 ## User Setup Required
 
@@ -167,3 +180,10 @@ None: every command came from `.aoforge/STACK.md` or the TRD.
 - Auto-fix cycles used: 0
 - Must-haves verified: 7/7 (claim by O_EXCL, address rule, catch-all, `output` rendering, 9,000 cap with pointer, `pendingAddressedTo` and `watcherWatching`, two route-results processes emit once)
 - Gate failures: None
+
+## Self-Check: PASSED
+
+- Created files exist: `handoff-results.cjs`, `handoff-results.test.cjs`, `handoff-fixtures.cjs` (all FOUND), `route-results.js` and `route-results.test.js` modified.
+- Commits exist: `a61bb9ef`, `aa86ade5`, `adf3a2e8` (all FOUND).
+- TRD verification greps: `'wx'` found at `handoff-results.cjs:166`; `handoff-results.cjs` required by `route-results.js`; no `function renderRecord` left in `route-results.js`.
+- Both full-suite failures were accounted for (see Issues Encountered); the full-suite baseline in the TRD was 11,955 tests, 11,919 pass, 35 skipped, and this run added 42 tests (39 library, 3 route-results) with no new failure.
