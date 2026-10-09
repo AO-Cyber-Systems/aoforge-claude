@@ -30,9 +30,16 @@ const VERB_DETAILS = [
 // name → { usage, summary, mutates?, details? }
 const COMMANDS = {
   'state': {
-    usage: 'aof-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session] [--raw]',
+    usage: 'aof-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session|rekey --from <old checkout path> [--to <new path>] [--dry-run]] [--raw]',
     summary: 'Read or update .aoforge/STATE.md.',
     mutates: true,
+    details: [
+      '  rekey     Copy repo-keyed runtime state from a moved checkout\'s old key to its new key; never deletes.',
+      '            Estimate run state and history, awareness cache, hook markers, outbox files (not the lock),',
+      '            backups and their registry entry, planning drafts. Nothing at the new key is overwritten;',
+      '            --to defaults to the current project root; --dry-run prints the plan and writes nothing.',
+      '            The old path need not exist any more (TRD 72-07).',
+    ],
   },
   'resolve-model': {
     usage: 'aof-tools resolve-model <agent-type> [--raw]',

@@ -406,4 +406,7 @@ module.exports = {
   runPrune,
   runThrottled,
   register,
+  // TRD 72-07: `state rekey` (state-rekey.cjs) locates a repository's backups and registry entry through these.
+  backupsRoot,
+  registryPath,
 };

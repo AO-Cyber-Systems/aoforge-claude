@@ -110,6 +110,16 @@ function copyTree(src, dst, rel, ctx) {
   ctx.copied.push(rel);
 }
 
+/**
+ * Copy `src` (a file, a symlink or a directory) to `dst` without replacing anything already at `dst`; a directory is
+ * merged. Returns the copied and skipped paths, named relative to `src` under `rel`. Shared with state-rekey.cjs.
+ */
+function copyNoClobber(src, dst, { fsImpl = fs, rel = '.' } = {}) {
+  const ctx = { fsImpl, leaveOut: new Set(), copied: [], skipped: [] };
+  copyTree(src, dst, rel, ctx);
+  return { copied: ctx.copied, skipped: ctx.skipped };
+}
+
 /** Sorted `[rel, kind, size]` of everything under `p` (p itself included), for the EXDEV verification. */
 function listing(p, fsImpl) {
   const out = [];
@@ -128,8 +138,7 @@ function listing(p, fsImpl) {
 /** EXDEV fallback: copy `src` to the absent `dst`, verify the copy, then remove `src`. A bad copy is removed again. */
 function moveByCopy(src, dst, rel, ctx) {
   const { fsImpl } = ctx;
-  const sink = { fsImpl, leaveOut: new Set(), copied: [], skipped: [] };
-  copyTree(src, dst, rel, sink);
+  copyNoClobber(src, dst, { fsImpl, rel });
   if (JSON.stringify(listing(src, fsImpl)) !== JSON.stringify(listing(dst, fsImpl))) {
     fsImpl.rmSync(dst, { recursive: true, force: true });
     throw new Error(`moving ${rel} across devices: the copy did not match the source, nothing was removed`);
@@ -204,4 +213,4 @@ function migrateLegacyRuntime({ userHome, now = new Date(), fsImpl = fs } = {}) 
   return { ran: true, ...record, moved_by_copy: movedByCopy, marker };
 }
 
-module.exports = { migrateLegacyRuntime, migrationPending, COPY_ENTRIES, MOVE_ENTRIES, MARKER_FILE };
+module.exports = { migrateLegacyRuntime, migrationPending, copyNoClobber, COPY_ENTRIES, MOVE_ENTRIES, MARKER_FILE };

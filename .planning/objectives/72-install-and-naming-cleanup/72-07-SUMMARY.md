@@ -8,5 +8,5 @@ subsystem: runtime
 
 ## Progress
 - [x] Task 1: Fixture builder: a populated legacy runtime home — a99024be
-- [x] Task 2: Runtime state migration and its sync-runtime wiring — RED 4de991ff, GREEN (this commit)
-- [ ] Task 3: `aof-tools state rekey` — next step: write state-rekey.test.cjs (tests 12-15, plus a test pinning KEYED_STATE to each store's own path function), run RED, commit; then state-rekey.cjs, export backupsRoot/registryPath from backup-prune.cjs, dispatch in aof-tools.cjs state arm, help.cjs + flag-spec.cjs + flag-guard-fixtures PROBES
+- [x] Task 2: Runtime state migration and its sync-runtime wiring — 4de991ff (RED), 548f6d9c (GREEN)
+- [x] Task 3: `aof-tools state rekey` — c3e4da2a (RED), (this commit) (GREEN)

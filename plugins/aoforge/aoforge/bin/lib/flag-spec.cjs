@@ -49,6 +49,8 @@ const FLAG_SPEC = deepFreeze({
       'add-blocker': { values: ['--text'] },
       'resolve-blocker': { values: ['--text'] },
       'record-session': { values: ['--stopped-at', '--resume-file'] },
+      // TRD 72-07: copies repo-keyed runtime state from a moved checkout's old key (state-rekey.cjs).
+      rekey: { values: ['--from', '--to'], bools: ['--dry-run'] },
     },
     default: {},
   },
