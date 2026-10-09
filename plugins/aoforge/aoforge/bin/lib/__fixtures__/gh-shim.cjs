@@ -14,7 +14,9 @@
  *   - for an unmatched argv prints `[gh-shim] no match: <argv>` to stderr and exits with
  *     `defaultCode` (1), so an unanticipated call fails loudly instead of reaching GitHub.
  *
- * Table entries look like `{ code: 0, stdout: '{"number":7}', stderr: '' }`.
+ * Table entries look like `{ code: 0, stdout: '{"number":7}', stderr: '' }`. `delay_ms` (optional)
+ * waits that long before answering, so a test can drive a timeout (TRD 72-27); only a positive
+ * integer waits.
  *
  * Use `shim.env()` as the child's environment: it puts the shim first on PATH (so a real `gh`
  * on the machine is never reached) and points HOME and AOFORGE_GH_CACHE_DIR at temp dirs
@@ -61,6 +63,10 @@ function shimMain(defaultCode) {
     process.exitCode = defaultCode;
     return;
   }
+  // Wait before writing anything, so a caller's timeout kills the shim with nothing read (TRD 72-27).
+  if (Number.isInteger(entry.delay_ms) && entry.delay_ms > 0) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, entry.delay_ms);
+  }
   if (entry.stdout) process.stdout.write(String(entry.stdout));
   if (entry.stderr) process.stderr.write(String(entry.stderr));
   process.exitCode = Number.isInteger(entry.code) ? entry.code : 0;
@@ -71,7 +77,7 @@ function shimSource(defaultCode) {
 }
 
 /**
- * @param {{dir?: string, table?: Record<string, {code?: number, stdout?: string, stderr?: string}>, defaultCode?: number}} [opts]
+ * @param {{dir?: string, table?: Record<string, {code?: number, stdout?: string, stderr?: string, delay_ms?: number}>, defaultCode?: number}} [opts]
  * @returns {{dir:string, binDir:string, callsFile:string, tableFile:string,
  *            readCalls:()=>string[][], setTable:(t:object)=>void,
  *            env:(extra?:object)=>object, cleanup:()=>void}}

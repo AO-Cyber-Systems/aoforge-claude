@@ -9,8 +9,8 @@ requirements: [INST-04]
 # Objective 72 TRD 27: gh-client read buffer for `gh rebrand`, proven on eden-biz (gap closure) Summary
 
 ## Progress
-- [ ] Task 1: Hand-built fixtures: a delaying gh shim entry and a sized, slurped issues answer — next step: RED committed (this commit); add the `delay_ms` Atomics.wait in `shimMain` (__fixtures__/gh-shim.cjs) and `buildGhResponse_issuesSlurp` in __fixtures__/gh-fixtures.cjs, then run gh-shim.test.cjs green
-- [ ] Task 2: gh-client spawn runner: 256 MiB buffer, 300 s paginated timeout, named ENOBUFS/ETIMEDOUT causes
+- [x] Task 1: Hand-built fixtures: a delaying gh shim entry and a sized, slurped issues answer — f9d41715 (RED), (this commit) (GREEN)
+- [ ] Task 2: gh-client spawn runner: 256 MiB buffer, 300 s paginated timeout, named ENOBUFS/ETIMEDOUT causes — next step: add `describe('72-27 spawn runner limits')` with R1-R4 and U1-U4 to plugins/aoforge/aoforge/bin/lib/gh-client.test.cjs (shims cleaned in the existing afterEach), watch R1 fail with `spawnSync gh ENOBUFS`, commit RED
 - [ ] Task 3: Prove it on eden-biz (read-only dry run), record the plan, then CHANGELOG, USER-GUIDE and the tracker
 
 ## Estimate

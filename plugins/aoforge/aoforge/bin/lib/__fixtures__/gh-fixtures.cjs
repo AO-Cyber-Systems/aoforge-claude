@@ -428,6 +428,31 @@ function buildGhResponse_subIssuesByTrackedIssues({ subIssues = [] } = {}) {
   });
 }
 
+// ─── TRD 72-27: sized list answers ───────────────────────────────────────────
+
+/**
+ * Hand-built answer of `gh api --paginate --slurp repos/<o>/<r>/issues?state=all`: one outer
+ * array, one inner array per page of `perPage` issues. Issue n (1-based) is
+ * `{ number: n, id: 1000 + n, title: 'Issue <n>', body: 'x' * bodyBytes, labels: [], updated_at }`,
+ * so the stdout is deterministic and roughly `count * (bodyBytes + 120)` bytes long. Used to drive
+ * gh-client's spawn runner past Node's 1 MiB default buffer.
+ */
+function buildGhResponse_issuesSlurp({ count = 3, bodyBytes = 64, perPage = 100 } = {}) {
+  const pages = [];
+  for (let n = 1; n <= count; n++) {
+    if ((n - 1) % perPage === 0) pages.push([]);
+    pages[pages.length - 1].push({
+      number: n,
+      id: 1000 + n,
+      title: `Issue ${n}`,
+      body: 'x'.repeat(bodyBytes),
+      labels: [],
+      updated_at: '2026-10-09T00:00:00Z',
+    });
+  }
+  return { ok: true, status: 0, stdout: JSON.stringify(pages), stderr: '' };
+}
+
 /**
  * Helper: build an Issue body string with task-list bullet items for fallback parsing.
  * `entries`: [{ ref, title?, checked? }]
@@ -465,4 +490,6 @@ module.exports = {
   buildGhResponse_projectItemsList,
   buildGhResponse_subIssuesByTrackedIssues,
   buildGhResponse_subIssuesByTaskList,
+  // TRD 72-27:
+  buildGhResponse_issuesSlurp,
 };
