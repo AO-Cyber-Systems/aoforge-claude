@@ -255,6 +255,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings
 - [Objective 72]: 72-04: hooks alias the legacy env prefix inside a try that tolerates only MODULE_NOT_FOUND (stub plugin trees fail open); aof-tools and aoforge-watch use a plain require
 - [Objective 72]: 72-04: docs/built-in-sweep.md and docs/built-in-integration-status.md are live docs (codemod LIVE_DOCS); changelog-on-tag falls back to the legacy plugin manifest path on pre-rename commits
+- [Objective 72]: 72-05: copies keep the source's planning-directory name (backup, workstreams provision, archive), so a legacy project never grows a second directory
+- [Objective 72]: 72-05: hooks resolve only the legacy planning directory until 72-06, so tests that exercise a hook pin the legacy layout (fixture setPlanningDir, legacy copies); 72-06 removes the pins
+- [Objective 72]: 72-05: W066 legacy-planning-dir (lib/planning-layout.cjs) is reported by validate health Check 21 and both init advisories; migration 0010's store block follows the project's directory, its printed commit steps stay 72-08's
 
 ## Performance Metrics
 
@@ -428,4 +431,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P02 | 7min | 3 tasks | 5 files |
 | Objective 72 P03 | 30min | 3 tasks | 3 files |
 | Objective 72 P04 | 40min | 3 tasks | 1003 files |
+| Objective 72 P05 | 53min | 3 tasks | 422 files |
 

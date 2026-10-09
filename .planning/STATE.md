@@ -62,7 +62,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
-**Status:** Executing objective 72 — 4/26 TRDs complete
+**Status:** Executing objective 72 — 5/26 TRDs complete
 
 ## Branch State (post-merge)
 
@@ -282,6 +282,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-08T23:58:52.287Z
+Last session: 2026-10-09T00:55:12.073Z
 Resume file: `None`
-Stopped at: Completed 72-04-apply-name-rename-TRD.md
+Stopped at: Completed 72-05-planning-dir-resolver-libs-TRD.md

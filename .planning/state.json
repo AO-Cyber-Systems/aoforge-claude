@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 26,
   "progress_pct": 96,
   "status": "executing",
@@ -1339,6 +1339,21 @@
     {
       "objective": "72",
       "summary": "72-04: docs/built-in-sweep.md and docs/built-in-integration-status.md are live docs (codemod LIVE_DOCS); changelog-on-tag falls back to the legacy plugin manifest path on pre-rename commits",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-05: copies keep the source's planning-directory name (backup, workstreams provision, archive), so a legacy project never grows a second directory",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-05: hooks resolve only the legacy planning directory until 72-06, so tests that exercise a hook pin the legacy layout (fixture setPlanningDir, legacy copies); 72-06 removes the pins",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-05: W066 legacy-planning-dir (lib/planning-layout.cjs) is reported by validate health Check 21 and both init advisories; migration 0010's store block follows the project's directory, its printed commit steps stay 72-08's",
       "rationale": null
     }
   ],
