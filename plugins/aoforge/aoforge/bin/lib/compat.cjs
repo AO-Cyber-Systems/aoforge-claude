@@ -178,11 +178,14 @@ function isOwnExecutor(t) {
 /**
  * Path of a file under the user's dot directory: the new location when the file
  * exists there, else the old one when it exists there, else the new location.
+ * `legacyName` is the file's name under the old directory when the name itself was
+ * renamed too (the watch daemon's files); it defaults to `name`. A read-path resolver
+ * only: a writer joins the new directory itself and never writes the old one.
  */
-function userDotFile(home, name, fsImpl = fs) {
+function userDotFile(home, name, fsImpl = fs, legacyName = name) {
   const current = path.join(home, NAMES.userDotDir, name);
   if (isFile(current, fsImpl)) return current;
-  const legacy = path.join(home, LEGACY.userDotDir, name);
+  const legacy = path.join(home, LEGACY.userDotDir, legacyName);
   if (isFile(legacy, fsImpl)) return legacy;
   return current;
 }

@@ -9,7 +9,7 @@ const { planningMode } = require('./planning-mode.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
 const { getMilestoneInfo, getRoadmapObjectiveInternal } = require('./roadmap.cjs');
 const { bootstrapProjectMd, bootstrapObjectiveMd } = require('./project-bootstrap.cjs');
-const { planningRoot, planningRel, planningDirName, planningDirLabel, PLANNING_DIR_NAMES } = require('./compat.cjs');
+const { planningRoot, planningRel, planningDirName, planningDirLabel, PLANNING_DIR_NAMES, userDotFile } = require('./compat.cjs');
 
 // ─── Git plumbing (TRD 22-01) ─────────────────────────────────────────────────
 //
@@ -678,9 +678,9 @@ function cmdInitNewProject(cwd, raw, args = []) {
   const branchSpec = _resolveBranch(args, cwd);
   const config = loadConfig(cwd);
 
-  // Detect Brave Search API key availability
+  // Detect Brave Search API key availability (~/.aoforge/ first, the legacy dot directory second)
   const homedir = require('os').homedir();
-  const braveKeyFile = path.join(homedir, '.aoforge', 'brave_api_key');
+  const braveKeyFile = userDotFile(homedir, 'brave_api_key');
   const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
 
   // 37-04 (ADP-01): one detector call replaces the `find -maxdepth 3` shell-out, the org-marker

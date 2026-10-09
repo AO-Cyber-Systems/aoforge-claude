@@ -386,8 +386,9 @@ function runLoop(opts) {
     // TRD 20-03: re-read watching:[] from PID file each tick. Empty / missing
     // PID file falls back to opts.projectRoot (back-compat for unit tests
     // that construct runLoop directly without a PID file).
+    // A `legacy` record is the pre-rename daemon's file, never this daemon's watch list.
     const pidInfo = state.readPidFile();
-    const watching = (pidInfo && Array.isArray(pidInfo.watching) && pidInfo.watching.length > 0)
+    const watching = (pidInfo && !pidInfo.legacy && Array.isArray(pidInfo.watching) && pidInfo.watching.length > 0)
       ? pidInfo.watching
       : [projectRoot];
     for (const projRoot of watching) {

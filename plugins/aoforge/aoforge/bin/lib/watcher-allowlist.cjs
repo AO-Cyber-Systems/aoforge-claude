@@ -5,7 +5,8 @@
  *
  * Default = the curated interactive + shell-flow patterns. Users may extend
  * via ~/.aoforge/aoforge-watch-allow.json (override:
- * $AOFORGE_WATCH_ALLOW_FILE). The daemon NEVER runs anything outside the
+ * $AOFORGE_WATCH_ALLOW_FILE; the legacy daemon's file is read when the new
+ * one is missing, for one release). The daemon NEVER runs anything outside the
  * combined allowlist; the deny-list is a belt-and-braces sanity check.
  *
  * NOTE: regex semantics here mirror gate-interactive.js (CMD_POS prefix so
@@ -15,8 +16,10 @@
  */
 
 const fs = require('fs');
-const path = require('path');
 const os = require('os');
+
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { userDotFile } = require('./compat.cjs');
 
 const MAX_CMD_LEN = 4096;
 
@@ -120,12 +123,17 @@ function validateCommand(cmd, allowlist) {
   return { ok: false, reason: 'command does not match the daemon allowlist' };
 }
 
+/**
+ * The user allowlist file: ~/.aoforge/aoforge-watch-allow.json, else (for one release,
+ * objective 72 INST-03) the legacy daemon's file under the legacy dot directory, else
+ * the ~/.aoforge/ path. Read only; the daemon never writes it.
+ */
 function userAllowFilePath() {
   if (process.env.AOFORGE_WATCH_ALLOW_FILE) {
     return process.env.AOFORGE_WATCH_ALLOW_FILE;
   }
   const home = process.env.HOME || os.homedir();
-  return path.join(home, '.aoforge', 'aoforge-watch-allow.json');
+  return userDotFile(home, `${NAMES.watch}-allow.json`, fs, `${LEGACY.watch}-allow.json`);
 }
 
 /**

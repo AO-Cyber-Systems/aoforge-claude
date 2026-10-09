@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
-const { planningRoot, planningRel } = require('./compat.cjs');
+const { planningRoot, planningRel, userDotFile } = require('./compat.cjs');
 
 function loadConfig(cwd) {
   const configPath = path.join(planningRoot(cwd), 'config.json');
@@ -91,13 +91,14 @@ function cmdConfigEnsureSection(cwd, raw) {
     return;
   }
 
-  // Detect Brave Search API key availability
+  // Detect Brave Search API key availability. User files are read from ~/.aoforge/ first and,
+  // for one release (objective 72, INST-03), from the legacy dot directory second.
   const homedir = require('os').homedir();
-  const braveKeyFile = path.join(homedir, '.aoforge', 'brave_api_key');
+  const braveKeyFile = userDotFile(homedir, 'brave_api_key');
   const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
 
-  // Load user-level defaults from ~/.aoforge/defaults.json if available
-  const globalDefaultsPath = path.join(homedir, '.aoforge', 'defaults.json');
+  // Load user-level defaults from ~/.aoforge/defaults.json (else the legacy one) if available
+  const globalDefaultsPath = userDotFile(homedir, 'defaults.json');
   let userDefaults = {};
   try {
     if (fs.existsSync(globalDefaultsPath)) {
