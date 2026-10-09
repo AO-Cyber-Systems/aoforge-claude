@@ -21,7 +21,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { ShellSession, ShellSessionClosed } = require('./watcher-shell.cjs');
+const { ShellSession, ShellSessionClosed, sentinelMarkers } = require('./watcher-shell.cjs');
 
 // Unit tests use non-interactive bash for speed and CI reliability.
 // The interactive=true path (loading user rc files for mise/nvm/conda/aliases)
@@ -646,4 +646,186 @@ describe('watcher-shell — PTY readiness handshake (issue #93)', () => {
       'spawn() must wait on the readiness handshake'
     );
   });
+});
+
+// =============================================================================
+// Objective 73, TRD 73-01: the PTY dispatch script (gaps 1 and 2, Ctrl+C)
+// =============================================================================
+// Objective 19 parked three handoff gaps (19-05-mock-auth-e2e-SUMMARY.md,
+// "Architectural Findings"). Two of them are properties of how the bash/zsh
+// wrapper runs a command in the daemon's PTY:
+//   gap 1  the command's stdout/stderr were redirected to temp files, so
+//          isatty(1) / isatty(2) were false (doctl's TUI: "unknown terminal");
+//   gap 2  all wrapper lines were queued on the tty in one write, so a command
+//          that reads stdin consumed the next wrapper line as its answer.
+// A third symptom: Ctrl+C makes the tty driver flush the queued wrapper lines,
+// so END is never printed and the dispatch runs to its 10-minute timeout.
+//
+// Test list (each of 1-9 runs under bash and, when installed, zsh):
+//   1  gap 1: [ -t 1 ] and [ -t 2 ] both hold; stderr is ''
+//   2  gap 2: a listener-injected answer reaches `read`
+//   3  Ctrl+C mid-command still yields END (exit 130) and a live session
+//   4  a trailing `# comment` does not swallow the wrapper
+//   5  a two-line command completes
+//   6  one input line per dispatch: `. '<script>'` + CR
+//   7  the script file is 0600 in a 0700 dir, removed on settle, dir removed on kill
+//   8  both fds are the terminal in PTY mode: stderr arrives with stdout
+//   9  the PTY shell never persists history
+//   SM sentinelMarkers(id) names BEGIN / DELIM / END
+// Readiness, not sleeps: injections fire on text seen in the stream (issue #93).
+// =============================================================================
+
+const { spawnSync: spawnSync73 } = require('node:child_process');
+
+const ZSH_AVAILABLE_73 = (() => {
+  try { return spawnSync73('zsh', ['-c', 'exit 0'], { timeout: 3000 }).status === 0; } catch { return false; }
+})();
+const SHELLS_73 = ['bash', 'zsh'];
+
+function skipFor73(shell) {
+  if (!PTY_AVAILABLE) return { skip: 'node-pty unavailable' };
+  if (shell === 'zsh' && !ZSH_AVAILABLE_73) return { skip: 'zsh not installed' };
+  return undefined;
+}
+
+/**
+ * Attach a listener that accumulates the stream and calls `onSeen` exactly once,
+ * the first time the accumulated text contains `text`.
+ */
+function listenUntil(session, text, onSeen) {
+  let buf = '';
+  let fired = false;
+  session.attachDataListener((chunk) => {
+    buf += chunk;
+    if (!fired && buf.includes(text)) {
+      fired = true;
+      onSeen();
+    }
+  });
+}
+
+const TTY_PROBE =
+  'if [ -t 1 ]; then echo out=tty; else echo out=file; fi; ' +
+  'if [ -t 2 ]; then echo err=tty >&2; else echo err=file >&2; fi';
+const READ_PROBE = "printf 'Enter value: ' > /dev/tty; read V; echo \"got=$V\"";
+const INT_PROBE = "sh -c 'echo started-73; exec sleep 5'";
+// GNU stat first (BSD stat rejects -c), then BSD.
+const SCRIPT_PROBE = [
+  'echo "script=$AOFW_SCRIPT"',
+  'ls -ld "$(dirname "$AOFW_SCRIPT")"',
+  'stat -c %a "$AOFW_SCRIPT" 2>/dev/null || stat -f %Lp "$AOFW_SCRIPT"',
+].join('\n');
+
+describe('watcher-shell — objective 73: PTY dispatch script', () => {
+  test('SM-1: sentinelMarkers(id) names the BEGIN / DELIM / END sentinels', () => {
+    assert.deepStrictEqual(sentinelMarkers('x-1'), {
+      begin: '__DFW_BEGIN_x-1__',
+      delim: '__DFW_DELIM_x-1__',
+      end: '__DFW_END_x-1__',
+    });
+  });
+
+  for (const shell of SHELLS_73) {
+    const skip = skipFor73(shell);
+
+    test(`73-PTY-1 [${shell}] gap 1: the dispatched command sees a terminal on fd 1 and fd 2`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        const r = await s.dispatch('g1-1', TTY_PROBE, { timeout_ms: 8000 });
+        assert.match(r.stdout, /out=tty/, `stdout was ${JSON.stringify(r.stdout)}`);
+        assert.match(r.stdout, /err=tty/, `stdout was ${JSON.stringify(r.stdout)}`);
+        assert.equal(r.stderr, '');
+        assert.equal(r.exit_code, 0);
+      });
+    });
+
+    test(`73-PTY-2 [${shell}] gap 2: an answer injected after the prompt reaches \`read\``, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        listenUntil(s, 'Enter value:', () => s.injectInput('answer-73\r'));
+        const r = await s.dispatch('g2-1', READ_PROBE, { timeout_ms: 8000 });
+        assert.equal(r.status, 'done');
+        assert.equal(r.exit_code, 0);
+        assert.match(r.stdout, /got=answer-73/, `stdout was ${JSON.stringify(r.stdout)}`);
+      });
+    });
+
+    test(`73-PTY-3 [${shell}] Ctrl+C mid-command still produces END (exit 130) and the session survives`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        listenUntil(s, 'started-73', () => s.injectInput('\x03'));
+        const t0 = Date.now();
+        const r = await s.dispatch('int-1', INT_PROBE, { timeout_ms: 8000 });
+        const elapsed = Date.now() - t0;
+        assert.ok(elapsed < 4000, `expected the dispatch to settle in under 4000 ms, took ${elapsed} ms (status ${r.status})`);
+        assert.equal(r.exit_code, 130);
+        assert.equal(r.status, 'failed');
+        const next = await s.dispatch('int-2', 'echo still-alive', { timeout_ms: 8000 });
+        assert.equal(next.stdout, 'still-alive\n');
+      });
+    });
+
+    test(`73-PTY-4 [${shell}] a command ending in a # comment completes`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        const r = await s.dispatch('cm-1', 'echo a-73 # trailing comment', { timeout_ms: 5000 });
+        assert.equal(r.stdout, 'a-73\n');
+        assert.equal(r.exit_code, 0);
+      });
+    });
+
+    test(`73-PTY-5 [${shell}] a command containing a newline completes`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        const r = await s.dispatch('nl-1', 'echo l1\necho l2', { timeout_ms: 5000 });
+        assert.equal(r.stdout, 'l1\nl2\n');
+        assert.equal(r.exit_code, 0);
+      });
+    });
+
+    test(`73-PTY-6 [${shell}] one dispatch writes exactly one line to the PTY: . '<script>' + CR`, skip, async () => {
+      const session = new ShellSession({ shell, interactive: true });
+      await session.spawn();
+      try {
+        const writes = [];
+        const origWrite = session.proc.write.bind(session.proc);
+        session.proc.write = (s) => { writes.push(s); return origWrite(s); };
+        await session.dispatch('p-one', 'echo one', { timeout_ms: 5000 });
+        assert.equal(writes.length, 1, `expected one write, got ${JSON.stringify(writes)}`);
+        assert.match(writes[0], /^\. '.+'\r$/, `write was ${JSON.stringify(writes[0])}`);
+      } finally {
+        try { await session.kill(); } catch {}
+      }
+    });
+
+    test(`73-PTY-7 [${shell}] the script is 0600 in a 0700 dir, removed on settle; kill() removes the dir`, skip, async () => {
+      const session = new ShellSession({ shell, interactive: true });
+      await session.spawn();
+      let dir = null;
+      try {
+        const r = await session.dispatch('sc-1', SCRIPT_PROBE, { timeout_ms: 5000 });
+        const m = r.stdout.match(/^script=(.+)$/m);
+        assert.ok(m, `AOFW_SCRIPT was not exported to the command; stdout was ${JSON.stringify(r.stdout)}`);
+        assert.match(r.stdout, /^drwx------/m, 'script directory must be 0700');
+        assert.match(r.stdout, /^600$/m, 'script file must be 0600');
+        assert.equal(fs.existsSync(m[1]), false, 'script file must be removed once the dispatch settles');
+        dir = session._scriptDir;
+        assert.ok(dir, 'expected the session to record its private script directory');
+      } finally {
+        try { await session.kill(); } catch {}
+      }
+      assert.equal(fs.existsSync(dir), false, 'kill() must remove the script directory');
+    });
+
+    test(`73-PTY-8 [${shell}] both fds are the terminal in PTY mode: stderr arrives with stdout`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        const r = await s.dispatch('er-1', 'echo err 1>&2', { timeout_ms: 5000 });
+        assert.equal(r.stdout, 'err\n');
+        assert.equal(r.stderr, '');
+        assert.equal(r.exit_code, 0);
+      });
+    });
+
+    test(`73-PTY-9 [${shell}] the PTY shell never persists history (HISTFILE is unset)`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        const r = await s.dispatch('hi-1', 'echo "${HISTFILE-unset}"', { timeout_ms: 5000 });
+        assert.equal(r.stdout, 'unset\n');
+      });
+    });
+  }
 });

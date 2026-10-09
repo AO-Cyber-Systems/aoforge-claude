@@ -119,6 +119,73 @@ describe('wrappers/bash.cjs — Group BW', () => {
   });
 });
 
+// Objective 73, TRD 73-01: the PTY script protocol (gaps 1 and 2, Ctrl+C).
+// Hand-built markers, no id plumbing: ptyScript only sees the three sentinel
+// names the session hands it.
+describe('wrappers/bash.cjs — objective 73 PTY script', () => {
+  const markers = {
+    begin: '__DFW_BEGIN_t-73__',
+    delim: '__DFW_DELIM_t-73__',
+    end: '__DFW_END_t-73__',
+  };
+
+  test('73-W-1 ptyScript lays out trap, BEGIN, the command on its own line, the fence, the restore and END', () => {
+    const text = bash.ptyScript('doctl auth init', markers, { scriptPath: '/tmp/d/t-73.sh' });
+    const lines = text.split('\n');
+    const at = (needle, from = 0) => {
+      const i = lines.findIndex((l, n) => n >= from && l === needle);
+      assert.ok(i >= from, `expected line ${JSON.stringify(needle)} in ${JSON.stringify(lines)}`);
+      return i;
+    };
+    const trap = at("trap ':' INT");
+    const begin = at('echo __DFW_BEGIN_t-73__', trap);
+    const open = at('{', begin);
+    const cmd = at('doctl auth init', open);
+    const close = at('}', cmd);
+    const rc = at('__DFW_RC=$?', close);
+    const restore = lines.findIndex((l, n) => n > rc && /^stty sane\b.*;\s*stty -echo\b/.test(l));
+    assert.ok(restore > rc, 'expected the terminal restore (stty sane; stty -echo) after the RC capture');
+    const delim = at('echo __DFW_DELIM_t-73__', restore);
+    const end = at('echo __DFW_END_t-73__:$__DFW_RC', delim);
+    at('trap - INT', end);
+    assert.ok(open === begin + 1 && cmd === open + 1 && close === cmd + 1, 'the command sits alone between { and }');
+  });
+
+  test('73-W-2 ptyScript exports its own path as AOFW_SCRIPT, before anything runs', () => {
+    const text = bash.ptyScript('true', markers, { scriptPath: '/tmp/a b/t-73.sh' });
+    const lines = text.split('\n');
+    assert.equal(lines[0], "AOFW_SCRIPT='/tmp/a b/t-73.sh'");
+  });
+
+  test('73-W-3 ptyScript keeps a trailing comment and an embedded newline on the command\'s own lines', () => {
+    const text = bash.ptyScript('echo a # note\necho b', markers, { scriptPath: '/tmp/d/t.sh' });
+    const lines = text.split('\n');
+    const open = lines.indexOf('{');
+    assert.deepStrictEqual(lines.slice(open + 1, open + 4), ['echo a # note', 'echo b', '}']);
+  });
+
+  test('73-W-4 sourceLine quotes the path: . \'<path>\'', () => {
+    assert.equal(bash.sourceLine('/tmp/a b/x.sh'), ". '/tmp/a b/x.sh'");
+  });
+
+  test('73-W-5 sourceLine escapes a single quote in the path as \'\\\'\'', () => {
+    assert.equal(bash.sourceLine("/tmp/it's/x.sh"), ". '/tmp/it'\\''s/x.sh'");
+  });
+
+  test('73-W-6 initLines("pty") never persists history; initLines("pipe") is unchanged', () => {
+    const pty = bash.initLines('pty');
+    assert.ok(pty.includes('unset HISTFILE 2>/dev/null'), 'pty init must unset HISTFILE');
+    assert.ok(pty.includes('set +o history 2>/dev/null'), 'pty init must turn history off');
+    assert.deepStrictEqual(bash.initLines('pipe'), [
+      'set +o monitor 2>/dev/null',
+      "PS1=''",
+      "PS2=''",
+      "PROMPT_COMMAND=''",
+      'unset PROMPT_DIRTRIM',
+    ]);
+  });
+});
+
 describe('wrappers/bash.cjs — Group EX', () => {
   test('EX-2 module.exports keys are exactly the locked surface', () => {
     const keys = Object.keys(bash).sort();
