@@ -62,6 +62,12 @@ verification:
 
 duration: 26min
 completed: 2026-10-08
+tokens_input: 22099516
+tokens_output: 109876
+tokens_cache_read: 21597957
+tokens_cache_write: 501333
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 14: The final devflow@aocyber release, a pointer to AOForge Summary
@@ -71,7 +77,7 @@ completed: 2026-10-08
 ## Progress
 - [x] Task 1: Fixture skills dirs for the generator — e166c226
 - [x] Task 2: The generator and the forwarding skills — RED 077d4402, GREEN 67576e98
-- [x] Task 3: The notice hook, the manifests, the marketplace entry — RED ee5324e4, GREEN (this commit)
+- [x] Task 3: The notice hook, the manifests, the marketplace entry — RED ee5324e4, GREEN e7a715ba
 
 ## Estimate
 
@@ -175,3 +181,9 @@ completed: 2026-10-08
 - **The release after 3.0.0** removes `plugins/devflow/`, `scripts/gen-pointer-skills*`, `scripts/__fixtures__/legacy-pointer-fixtures.cjs`, the marketplace entry, the package.json glob and the four ALLOW entries (test 4 reports each one dead once its files or spans are gone).
 - `hook-coexistence.test.js` could check AOForge's own SessionStart hooks with `sessionStartProblems`; not wired here because sibling TRDs edit that file.
 - `claude plugin validate` advises a `/plugin install devflow` line in the pointer README; deliberately absent (the README tells users to install AOForge instead). Advice only, not a warning.
+
+## Self-Check: PASSED
+
+- FOUND: scripts/gen-pointer-skills.cjs, scripts/gen-pointer-skills.legacy.test.cjs, scripts/__fixtures__/legacy-pointer-fixtures.cjs, plugins/devflow/.claude-plugin/plugin.json, plugins/devflow/README.md, plugins/devflow/hooks/hooks.json, plugins/devflow/hooks/pointer-notice.js, plugins/devflow/hooks/pointer-notice.legacy.test.js, plugins/devflow/skills (34 SKILL.md)
+- FOUND commits (`git log --oneline 412dcca3..HEAD`): e166c226, 077d4402, 67576e98, ee5324e4, e7a715ba
+- Worktree clean after e7a715ba; both new test files and the guard pass; the full suite fails only on the documented baseline.
