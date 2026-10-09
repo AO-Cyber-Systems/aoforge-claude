@@ -13,8 +13,11 @@
 //   Q5 — no telemetry env claims. A managed entry's env is exactly the ownership marker
 //        `{ AOFORGE_MANAGED: 'stack' }`; any `env` a profile entry carries is ignored.
 //
-// Ownership: an entry is AOForge's iff `env.AOFORGE_MANAGED === 'stack'`. Only those are ever
-// replaced or removed; every other entry is carried over untouched, in its original position.
+// Ownership: an entry is AOForge's iff `env.AOFORGE_MANAGED === 'stack'`, or, for one release
+// (objective 72, INST-03; removed in SHIM_REMOVAL), the legacy prefix's `..._MANAGED === 'stack'` that
+// earlier versions wrote. Only those are ever replaced or removed: a rewritten entry carries the
+// AOForge key alone, so the legacy key is dropped. Every other entry is carried over untouched, in its
+// original position.
 //
 // Deterministic and offline: no MCP server is started or called here. Confirming a draft through
 // the gopls/dart MCP tools is agent-side workflow text (`confirm_stack_profile`).
@@ -24,8 +27,13 @@ const os = require('os');
 const path = require('path');
 
 const { resolveBinary } = require('./stack-verify.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const MANAGED_VALUE = 'stack';
+// The key a managed entry is written with, and every key that marks an entry as owned (the legacy
+// one read for one release only).
+const MANAGED_KEY = `${NAMES.envPrefix}MANAGED`;
+const OWNED_KEYS = Object.freeze([MANAGED_KEY, `${LEGACY.envPrefix}MANAGED`]);
 const MCP_FILE = '.mcp.json';
 // The probe file a component view is resolved at (the same idiom stack-verify uses): any path
 // under the component prefix selects the component's layer.
@@ -35,10 +43,10 @@ const PROBE_FILE = '__probe__';
 const PLUGIN_SCAN_DEPTH = 5;
 const SKIP_DIRS = new Set(['node_modules', '.git']);
 
-/** True when a `.mcp.json` server entry is owned by `stack mcp`. */
+/** True when a `.mcp.json` server entry is owned by `stack mcp` (under the AOForge key or the legacy one). */
 function isManaged(entry) {
   return Boolean(entry && typeof entry === 'object' && entry.env && typeof entry.env === 'object'
-    && entry.env.AOFORGE_MANAGED === MANAGED_VALUE);
+    && OWNED_KEYS.some((key) => entry.env[key] === MANAGED_VALUE));
 }
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -210,7 +218,7 @@ function buildServers(views, { which = null, env = process.env, userHome = null,
       skipped.push({ name, reason: 'binary_missing', note: `${spec.command} not found on PATH or in the well-known tool dirs` });
       continue;
     }
-    servers[name] = { command: spec.command, args: spec.args, env: { AOFORGE_MANAGED: MANAGED_VALUE } };
+    servers[name] = { command: spec.command, args: spec.args, env: { [MANAGED_KEY]: MANAGED_VALUE } };
   }
   return { servers, skipped };
 }
@@ -358,6 +366,7 @@ function cli(cwd, args, raw, { userHome = null } = {}) {
 
 module.exports = {
   MANAGED_VALUE,
+  MANAGED_KEY,
   isManaged,
   findPluginServers,
   buildServers,

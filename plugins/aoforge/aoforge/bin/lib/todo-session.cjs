@@ -19,8 +19,13 @@
 //   TodoWrite   result { oldTodos, newTodos }  (oldTodos forgets an all-completed list, so it is never read)
 
 const { generateSlugInternal } = require('./helpers.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const TODO_PREFIX = 'Todo: '; // case-sensitive
+// TaskCreate metadata keys that carry a todo's stem, in precedence order: the AOForge key, then (for
+// one release, objective 72 INST-03, removed in SHIM_REMOVAL) the legacy key that transcripts written
+// before the rename carry. Only read here; nothing writes metadata back.
+const TODO_META_KEYS = Object.freeze([`${NAMES.slug}_todo`, `${LEGACY.slug}_todo`]);
 const STEM_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SUFFIX_RE = /\s*\[todo:([^\]\s]+)\]\s*$/;
 const CREATED_TEXT_RE = /^Task #(\S+) created successfully/;
@@ -114,6 +119,15 @@ function itemOf({ key, source, taskId = null, title, stem, stemSource, status, d
   };
 }
 
+/** The stem a TaskCreate's metadata carries: the first TODO_META_KEYS key that is present (undefined for none). */
+function metadataStem(metadata) {
+  if (!isObject(metadata)) return undefined;
+  for (const key of TODO_META_KEYS) {
+    if (metadata[key] !== undefined) return metadata[key];
+  }
+  return undefined;
+}
+
 /** The identity of a task-tool todo: an explicit metadata stem, then the subject's suffix, then the derived name. */
 function stemForTask(meta, parsed, title, at) {
   if (typeof meta === 'string' && STEM_RE.test(meta)) return { stem: meta, stemSource: 'metadata' };
@@ -145,7 +159,7 @@ function replayInto(text, stats) {
       return;
     }
     const subject = typeof use.input.subject === 'string' ? use.input.subject : '';
-    const meta = isObject(use.input.metadata) ? use.input.metadata.aoforge_todo : undefined;
+    const meta = metadataStem(use.input.metadata);
     const parsed = parseTodoSubject(subject);
     if (typeof meta !== 'string' && parsed === null) {
       tasks.set(id, { item: null });
@@ -296,4 +310,4 @@ function replayTranscript(text) {
   }
 }
 
-module.exports = { TODO_PREFIX, STEM_RE, parseTodoSubject, formatTodoSubject, deriveStem, replayTranscript };
+module.exports = { TODO_PREFIX, TODO_META_KEYS, STEM_RE, parseTodoSubject, formatTodoSubject, deriveStem, replayTranscript };
