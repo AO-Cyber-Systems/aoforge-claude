@@ -20,15 +20,28 @@
  *     caller that writes the result never writes on the malformed path.
  *   - `v` is the TEMPLATE version (the template's `template_version`), not the plugin version.
  *
- * Deliberately generic: no CLAUDE.md knowledge lives here (objective 38 reuses it), and it requires
- * no module at all — sync-runtime tests copy it into a fake plugin root (36-06).
+ * Pre-rename markers (TRD 72-09, INST-03): until the shims go (legacy-names SHIM_REMOVAL) a block under
+ * the legacy tag (LEGACY.blockTag) is read exactly like an AOFORGE one, so an upsert replaces it in place
+ * and never adds a second block. `read` reports which tag it found as `tag`; `render` writes only
+ * NAMES.blockTag, and `isStale` is true for any block under the legacy tag. One block under each tag is
+ * the ordinary "multiple blocks" error.
+ *
+ * Deliberately generic: no CLAUDE.md knowledge lives here (objective 38 reuses it). Its only
+ * dependencies are ./legacy-names.cjs and ./text-escape.cjs (neither requires anything), which
+ * sync-runtime's test copies into its fake plugin root beside it (36-06).
  */
 
-const START_RE = /<!--\s*AOFORGE:START\b([^>]*?)\s*-->/g;
-const END_RE = /<!--\s*AOFORGE:END\s*-->/g;
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
+
+// Capturing alternation of both block tags: group 1 of every marker regex is the tag found.
+const TAGS = `(${escapeRegExp(NAMES.blockTag)}|${escapeRegExp(LEGACY.blockTag)})`;
+
+const START_RE = new RegExp(`<!--\\s*${TAGS}:START\\b([^>]*?)\\s*-->`, 'g');
+const END_RE = new RegExp(`<!--\\s*${TAGS}:END\\s*-->`, 'g');
 const V_ATTR_RE = /(?:^|\s)v=([^\s>]+)/;
 const SRC_ATTR_RE = /(?:^|\s)src=([^\s>]+)/;
-const SINGLE_START_RE = /^<!--\s*AOFORGE:START\b([^>]*?)\s*-->$/;
+const SINGLE_START_RE = new RegExp(`^<!--\\s*${TAGS}:START\\b([^>]*?)\\s*-->$`);
 const ATTR_VALUE_RE = /^[^\s>]+$/;
 
 class ManagedBlockError extends Error {
@@ -47,12 +60,12 @@ function metaFromAttrs(attrs) {
 
 /**
  * Parse a single START marker string. Returns `{v, src, legacy}` or null when the string is not a
- * AOFORGE:START marker. A marker without `v=` is legacy.
+ * START marker (under either tag). A marker without `v=` is legacy.
  */
 function parseStartMarker(marker) {
   if (typeof marker !== 'string') return null;
   const m = SINGLE_START_RE.exec(marker.trim());
-  return m ? metaFromAttrs(m[1]) : null;
+  return m ? metaFromAttrs(m[2]) : null;
 }
 
 function allMatches(re, text) {
@@ -66,25 +79,28 @@ function allMatches(re, text) {
 /**
  * Locate the managed block in `text`.
  *
- * @returns {null | {start:number, end:number, content:string, meta:{v, src, legacy}}}
+ * @returns {null | {start:number, end:number, content:string, meta:{v, src, legacy}, tag:string}}
  *   `start` is the index of the START marker, `end` the index just past the END marker.
  *   `content` is the text between the markers minus exactly one leading and one trailing newline
- *   (`\n` or `\r\n`).
- * @throws {ManagedBlockError} on more than one START, or a START with no END after it.
+ *   (`\n` or `\r\n`). `tag` is the START marker's tag: NAMES.blockTag, or LEGACY.blockTag for a block
+ *   written before the rename.
+ * @throws {ManagedBlockError} on more than one START (either tag), or a START with no END after it.
  */
 function read(text) {
   if (typeof text !== 'string') throw new TypeError('managed-block read: text must be a string');
   const starts = allMatches(START_RE, text);
   if (starts.length === 0) return null; // an END with no START is not a block
   if (starts.length > 1) {
-    throw new ManagedBlockError(`multiple AOFORGE blocks (${starts.length} START markers); refusing to edit`);
+    throw new ManagedBlockError(
+      `multiple ${NAMES.blockTag} blocks (${starts.length} START markers, legacy ${LEGACY.blockTag} ones included); refusing to edit`,
+    );
   }
   const s = starts[0];
   const innerStart = s.index + s[0].length;
   const endRx = new RegExp(END_RE.source, 'g');
   endRx.lastIndex = innerStart; // only an END after the START closes it
   const e = endRx.exec(text);
-  if (!e) throw new ManagedBlockError('unterminated AOFORGE block (START marker without a following END)');
+  if (!e) throw new ManagedBlockError(`unterminated ${s[1]} block (START marker without a following END)`);
 
   let content = text.slice(innerStart, e.index);
   if (content.startsWith('\r\n')) content = content.slice(2);
@@ -92,7 +108,7 @@ function read(text) {
   if (content.endsWith('\r\n')) content = content.slice(0, -2);
   else if (content.endsWith('\n')) content = content.slice(0, -1);
 
-  return { start: s.index, end: e.index + e[0].length, content, meta: metaFromAttrs(s[1]) };
+  return { start: s.index, end: e.index + e[0].length, content, meta: metaFromAttrs(s[2]), tag: s[1] };
 }
 
 function attrValue(name, value, required) {
@@ -116,7 +132,7 @@ function render(content, meta = {}) {
   const src = attrValue('src', meta.src, false);
   const body = String(content == null ? '' : content).replace(/(?:\r?\n)+$/, '');
   const attrs = src ? `v=${v} src=${src}` : `v=${v}`;
-  return `<!-- AOFORGE:START ${attrs} -->\n${body}\n<!-- AOFORGE:END -->`;
+  return `<!-- ${NAMES.blockTag}:START ${attrs} -->\n${body}\n<!-- ${NAMES.blockTag}:END -->`;
 }
 
 function appendSeparator(text) {
@@ -165,12 +181,14 @@ function compareVersions(a, b) {
 }
 
 /**
- * True when the block is legacy or its `v` is lower than `ver`. Accepts a block object (from
- * `read`) or raw text. No block → false (there is nothing stale to rewrite).
+ * True when the block is legacy (unversioned, or under the pre-rename tag) or its `v` is lower than
+ * `ver`. Accepts a block object (from `read`) or raw text. No block → false (there is nothing stale to
+ * rewrite).
  */
 function isStale(blockOrText, ver) {
   const block = typeof blockOrText === 'string' ? read(blockOrText) : blockOrText;
   if (!block) return false;
+  if (block.tag === LEGACY.blockTag) return true;
   if (!block.meta || block.meta.legacy || block.meta.v == null) return true;
   return compareVersions(block.meta.v, ver) < 0;
 }

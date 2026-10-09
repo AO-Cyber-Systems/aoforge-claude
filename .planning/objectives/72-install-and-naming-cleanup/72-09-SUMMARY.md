@@ -9,5 +9,5 @@ tags: [aoforge-rename, claude-md, managed-block, migrations, global-upgrade, shi
 
 ## Progress
 - [x] Task 1: Fixture builder: legacy CLAUDE.md shapes; PRESERVE in legacy-names — 7ca9b197
-- [ ] Task 2: legacy-rewrite, managed-block dual markers, migration 0014 — RED (this commit); next step: GREEN — write bin/lib/legacy-rewrite.cjs (mask PRESERVE, pairs longest first, unifiedDiff/diffLines), dual-tag regexes plus `tag` and legacy-tag isStale in managed-block.cjs, migrations/0014-claude-md-rebrand.cjs; run the five suites in the TRD verify line
-- [ ] Task 3: Global template v4 and diff-then-confirm for outside text
+- [x] Task 2: legacy-rewrite, managed-block dual markers, migration 0014 — 120812b6 (RED), (this commit) (GREEN)
+- [ ] Task 3: Global template v4 and diff-then-confirm for outside text — next step: commit the RED suite global-upgrade.legacy.test.cjs (tests 1-6, already written and failing), then GREEN: template_version "4", ROUTING_RE from NAMES/LEGACY product, planOutside + `outside` result + KEYS.outside notice in global-upgrade.cjs, outside_diff + prose diff in upgrade-cli.cjs, unpin v=3 in global-upgrade.test/upgrade-cli.test/sync-runtime.test and copy legacy-rewrite.cjs there
