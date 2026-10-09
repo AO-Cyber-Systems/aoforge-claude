@@ -16,11 +16,17 @@
 //
 // REPORT-ONLY. It never exports `fix`: re-pinning is `gh setup --apply` plus merging the pull request it prints, and
 // an @ref in github.checks_workflow re-pins that same ref until the config is changed. Both are a person's call.
+//
+// A legacy managed caller (TRD 72-15; checks-pin's `legacy` flag, TRD 72-11) is the pre-rename caller file. It is
+// always a warning, stale or not, and its fix_command is the rebrand dry run (TRD 72-16), which rewrites the slug,
+// workflow file, input name and pin together. It is never offered the gh setup re-pin: setup would add a second
+// caller beside it.
 
 const helpers = require('../helpers.cjs');
 const checksPin = require('../checks-pin.cjs');
 
 const FIX_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs gh setup --apply';
+const REBRAND_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs gh rebrand --dry-run';
 const CONFIG_NOTE = 'an @ref in github.checks_workflow re-pins that ref: update it first';
 const WORKFLOW = checksPin.WORKFLOW_PATH;
 
@@ -38,9 +44,17 @@ function comparisonVersion(ctx) {
 
 const refsOf = (entries) => [...new Set(entries.map((e) => e.ref))].join(', ');
 
-/** The one-line finding for each ok state. */
+/** The one-line finding for a legacy managed caller, stale or not. */
+function legacyFinding(r) {
+  const stale = r.findings.length ? `; ${r.findings[0].message}` : '';
+  return `legacy caller workflow ${r.path} predates the AOForge rename${stale}. `
+    + 'Rebrand it (a dry run first) rather than re-pinning with gh setup, which would add a second caller beside it';
+}
+
+/** The one-line finding for each ok state, naming the caller file actually read. */
 function okFinding(r, version) {
   const pins = r.pins || {};
+  const WORKFLOW = r.path || checksPin.WORKFLOW_PATH;
   switch (r.state) {
     case 'not-managed':
       return `${WORKFLOW} is not managed by gh setup (no "# aoforge:managed" header), so its pins are not checked`;
@@ -95,7 +109,19 @@ function run(ctx) {
     version_source: source,
     compared: r.compared,
     stale: r.stale,
+    legacy: r.legacy === true,
   };
+
+  if (details.legacy && r.pins && r.pins.managed) {
+    const legacyDetails = r.findings.length ? { ...details, code: r.findings[0].code, fix: r.findings[0].fix } : details;
+    return {
+      severity: 'warn',
+      finding: legacyFinding(r),
+      fixable: false,
+      fix_command: REBRAND_COMMAND,
+      details: legacyDetails,
+    };
+  }
 
   if (r.findings.length === 0) {
     return { severity: 'ok', finding: okFinding(r, version), fixable: false, details };

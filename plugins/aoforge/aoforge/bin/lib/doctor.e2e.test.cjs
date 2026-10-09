@@ -124,7 +124,7 @@ const GLOBAL_IDS = [
   'awareness-state',
   'backups',
 ];
-const PROJECT_IDS = ['legacy-runtime-state', 'pending-migrations', 'validate-health', 'skill-markers'];
+const PROJECT_IDS = ['legacy-runtime-state', 'pending-migrations', 'validate-health', 'skill-markers', 'legacy-planning-layout'];
 
 const RUNTIME_PATHS = [...fixtures.AODEX_TRACKED_RUNTIME, ...fixtures.AODEX_UNTRACKED_RUNTIME];
 
