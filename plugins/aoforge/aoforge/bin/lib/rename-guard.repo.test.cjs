@@ -15,6 +15,11 @@
 // 3. Lines inside an ignore region (the rename-guard ignore-start ... ignore-end markers) are not
 //    scanned; only files in IGNORE_REGION_FILES may contain such a region, and every region in
 //    the repository is closed (an unclosed region throws).
+// 3d. Every IGNORE_REGION_FILES entry is a tracked file in the scan set (TRD 72-17): an entry for a
+//    file that is gone, or that the codemod's SKIP hides, is a dead or unguarded allowance.
+// 3e. The migration guides (TRD 72-17, repo and site copies) are clean as written only because of
+//    their regions (with the markers removed they have findings), and on a temp copy one legacy
+//    word appended outside every region is exactly one finding on that line.
 // 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path; an entry with
 //    `spans` (test 9) is a global RegExp that matches >= 1 span in a tracked file it names.
 // 5. Sensitivity: a sample text with one of each token yields three findings; the preserved
@@ -129,11 +134,14 @@ const ALLOW = [
 const IGNORE_START = ['rename-guard', 'ignore-start'].join(':');
 const IGNORE_END = ['rename-guard', 'ignore-end'].join(':');
 
+/** The 3.0.0 migration guide (TRD 72-17): it names every old spelling, each inside an ignore region. */
+const MIGRATION_GUIDES = ['docs/MIGRATING-TO-AOFORGE.md', 'site/content/docs/getting-started/migrating-to-aoforge.md'];
+
 /**
  * The only files allowed to hold an ignore region. `site/static/_redirects` (TRD 72-17) spells the
  * old CLI reference URL so the docs site can redirect it (`#` comments carry the markers).
  */
-const IGNORE_REGION_FILES = ['CLAUDE.md', 'docs/USER-GUIDE.md', 'site/static/_redirects'];
+const IGNORE_REGION_FILES = ['CLAUDE.md', 'docs/USER-GUIDE.md', 'site/static/_redirects', ...MIGRATION_GUIDES];
 
 class RenameGuardError extends Error {}
 
@@ -360,6 +368,58 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
       }
       const stray = holders.filter((rel) => !IGNORE_REGION_FILES.includes(rel));
       assert.deepEqual(stray, [], `ignore regions outside IGNORE_REGION_FILES: ${stray.join(', ')}`);
+    });
+
+    test('3d: every IGNORE_REGION_FILES entry is a tracked file the guard scans', () => {
+      const scanned = new Set(scanSet(REPO_ROOT));
+      const missing = IGNORE_REGION_FILES.filter((rel) => !scanned.has(rel));
+      assert.deepEqual(
+        missing,
+        [],
+        `IGNORE_REGION_FILES entries that are not tracked or not scanned (a dead or unguarded entry): ${missing.join(', ')}`,
+      );
+    });
+
+    describe('3e: the migration guides (TRD 72-17): a legacy name outside a region still fails', () => {
+      for (const rel of MIGRATION_GUIDES) {
+        test(rel, () => {
+          const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf8');
+          const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rename-guard-guide-'));
+          try {
+            const git = (...args) => {
+              const r = spawnSync('git', args, { cwd: tmp, encoding: 'utf8' });
+              assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+            };
+            const write = (body) => {
+              fs.mkdirSync(path.join(tmp, path.dirname(rel)), { recursive: true });
+              fs.writeFileSync(path.join(tmp, rel), body);
+            };
+            git('init', '-q');
+
+            // As written: clean, and only because of its regions.
+            write(text);
+            git('add', '--', rel);
+            assert.deepEqual(scanRepo(tmp, { allow: [] }), [], `${rel} as written has findings`);
+            const unmarked = text
+              .split('\n')
+              .filter((l) => !l.includes(IGNORE_START) && !l.includes(IGNORE_END))
+              .join('\n');
+            assert.ok(scanText(unmarked, rel).length > 0, `${rel} names no legacy spelling inside a region`);
+
+            // One legacy word appended outside every region: exactly that line is a finding.
+            const stray = `${text.replace(/\n*$/, '\n')}\nA stray ${LEGACY.product} mention.\n`;
+            write(stray);
+            git('add', '--', rel);
+            const lastLine = stray.split('\n').length - 1;
+            assert.deepEqual(
+              scanRepo(tmp, { allow: [] }).map((f) => `${f.file}:${f.line}`),
+              [`${rel}:${lastLine}`],
+            );
+          } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+          }
+        });
+      }
     });
   });
 
