@@ -1,6 +1,6 @@
 {
   "current_objective": "73",
-  "current_job": 2,
+  "current_job": 3,
   "total_jobs": 8,
   "progress_pct": 99,
   "status": "executing",
@@ -1509,6 +1509,16 @@
     {
       "objective": "73",
       "summary": "route-results stays the UserPromptSubmit catch-all (takeResults mode 'all', never reads the payload); addressed delivery by session_id and agent_id is for the PostToolUse and Stop hooks",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-03: the live-window filter is fed every chunk of an active dispatch, whether or not a liveOnly listener is attached, so a listener attached mid-dispatch starts in the right phase",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-03: MA-6 (doctl against the mock) does not assert status done; doctl rejects the fake token (TUI redraws the prompt on each cursor blink, which the duplicate-prompt guard rightly reads as a rejected value) and a well-formed token is validated against cloud.digitalocean.com, not DIGITALOCEAN_API_URL. Kept asserts: no unknown terminal, no timeout, token redacted",
       "rationale": null
     }
   ],

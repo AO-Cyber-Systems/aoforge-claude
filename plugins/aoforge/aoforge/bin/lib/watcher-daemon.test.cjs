@@ -281,9 +281,10 @@ function makeTokenSession(opts) {
   const o = opts || {};
   const session = {
     _listeners: [],
+    _listenerOpts: [], // TRD 73-03: the second argument of each attachDataListener call
     _injectedInputs: [],
     _dispatchedCmds: [],
-    attachDataListener(fn) { this._listeners.push(fn); },
+    attachDataListener(fn, opts) { this._listeners.push(fn); this._listenerOpts.push(opts); },
     detachDataListener(fn) { this._listeners = this._listeners.filter((x) => x !== fn); },
     injectInput(s) { this._injectedInputs.push(s); },
     _emitData(chunk) {
@@ -1009,5 +1010,147 @@ describe('runLoop — Group D: multi-project iteration (TRD 20-03)', () => {
     await loop.stop();
     assert.ok(dispatchStarted, 'dispatch started');
     assert.ok(dispatchCompleted, 'dispatch completed despite mid-dispatch removal');
+  });
+});
+
+// ===========================================================================
+// TRD 73-03 — gap 3: the prompt detector must only see the live command
+// ===========================================================================
+// Before objective 73 the detector scanned every byte the shell emitted during
+// a dispatch, including the replay of captured stderr that follows the command's
+// exit. A tool's error text such as "unable to read access token" matches a
+// `access token` prompt regex, so the detector "answered" a prompt that was
+// already gone: Ctrl+C plus a false `secret resolution failed`, or the resolved
+// secret written to the shell's input.
+//
+//   LM-1   pipe session, unresolvable secret, error text only in the replay:
+//          no Ctrl+C, no false `secret resolution failed`, the real exit code
+//   LM-2   pipe session, resolved secret, same: nothing is injected at all
+//   LM-3   processOnce attaches the detector with { liveOnly: true }
+//   LM-4   PTY bash, resolved secret at a live prompt: consumed, redacted
+//   LM-5   PTY bash, unresolvable secret at a live prompt: fails promptly
+// ===========================================================================
+
+describe('processOnce — objective 73: late match (gap 3)', () => {
+  const { ShellSession } = require('./watcher-shell.cjs');
+  const ptyAvailable73 = (() => { try { require('node-pty'); return true; } catch { return false; } })();
+  const ptySkip73 = ptyAvailable73 ? undefined : { skip: 'node-pty unavailable' };
+
+  let root;
+  beforeEach(() => { root = mkTmpProject(); });
+  afterEach(() => {
+    rmTmp(root);
+    delete process.env.AOFORGE_T73_UNSET;
+    delete process.env.AOFORGE_T73_SET;
+  });
+
+  /** A real session whose injectInput is wrapped by a spy that records every write. */
+  async function spiedSession(opts) {
+    const session = new ShellSession({ shell: 'bash', ...opts });
+    await session.spawn();
+    const injected = [];
+    const real = session.injectInput.bind(session);
+    session.injectInput = (s) => { injected.push(s); return real(s); };
+    return { session, injected };
+  }
+
+  const ACCESS_TOKEN_SECRET = (ref) => ({
+    inputs: {
+      secrets: [{ prompt_match: 'access token', value_source: 'env', value_ref: ref }],
+    },
+  });
+
+  // `(exit 3)`, not `exit 3`: the dispatch wrapper runs the command in the shell's own
+  // process, so a bare exit would end the shell and there would be no replay to test.
+  const LATE_ERROR_CMD = 'echo "Error: unable to read access token" 1>&2; (exit 3)';
+
+  test('LM-1: error text matching the prompt regex only in the replay is never answered (unresolvable secret)', async () => {
+    delete process.env.AOFORGE_T73_UNSET;
+    writePending(root, 'h-lm1', LATE_ERROR_CMD, ACCESS_TOKEN_SECRET('AOFORGE_T73_UNSET'));
+    const { session, injected } = await spiedSession({ interactive: false });
+    try {
+      const done = await daemon.processOnce(daemon.readPending(root)[0], {
+        session, allowlist: [{ label: 'test:echo', match: /^echo\b/ }], projectRoot: root,
+      });
+      assert.equal(done.status, 'failed');
+      assert.equal(done.exit_code, 3, `exit_code was ${done.exit_code}; stderr ${JSON.stringify(done.stderr)}`);
+      assert.match(done.stderr, /unable to read access token/);
+      assert.doesNotMatch(done.stderr, /secret resolution failed/);
+      assert.ok(!injected.includes('\x03'), `Ctrl+C was injected: ${JSON.stringify(injected)}`);
+    } finally {
+      await session.kill();
+    }
+  });
+
+  test('LM-2: error text matching the prompt regex only in the replay never makes the daemon write the secret (resolved secret)', async () => {
+    process.env.AOFORGE_T73_SET = 't73-token-abcdef123';
+    writePending(root, 'h-lm2', LATE_ERROR_CMD, ACCESS_TOKEN_SECRET('AOFORGE_T73_SET'));
+    const { session, injected } = await spiedSession({ interactive: false });
+    try {
+      const done = await daemon.processOnce(daemon.readPending(root)[0], {
+        session, allowlist: [{ label: 'test:echo', match: /^echo\b/ }], projectRoot: root,
+      });
+      assert.equal(done.exit_code, 3);
+      assert.deepStrictEqual(injected, [], `the daemon wrote to the shell: ${JSON.stringify(injected)}`);
+    } finally {
+      await session.kill();
+    }
+  });
+
+  test('LM-3: processOnce attaches the prompt detector for the live window only', async () => {
+    process.env.AOFORGE_T73_SET = 't73-token-abcdef123';
+    writePending(root, 'h-lm3', 'doctl auth init', ACCESS_TOKEN_SECRET('AOFORGE_T73_SET'));
+    const session = makeTokenSession({ stream: ['Enter your access token: '] });
+    await daemon.processOnce(daemon.readPending(root)[0], {
+      session, allowlist: allowlistLib.defaultAllowlist(), projectRoot: root,
+    });
+    assert.deepStrictEqual(session._listenerOpts, [{ liveOnly: true }]);
+  });
+
+  // The two guards below pin the other half of the fix: a prompt that really is
+  // live is still answered, and a failure to resolve it still stops the dispatch
+  // promptly. They passed on the first run against the new code, as designed.
+  const LIVE_PROMPT_CMD = "printf 'Enter your access token: ' > /dev/tty; read TOK; echo \"got=$TOK\"";
+
+  test('LM-4: a resolved secret at a live PTY prompt is consumed by the command and redacted from the done record', ptySkip73, async () => {
+    const token = 't73-token-abcdef123';
+    process.env.AOFORGE_T73_SET = token;
+    writePending(root, 'h-lm4', LIVE_PROMPT_CMD, ACCESS_TOKEN_SECRET('AOFORGE_T73_SET'));
+    const { session, injected } = await spiedSession({ interactive: true });
+    try {
+      const done = await daemon.processOnce(daemon.readPending(root)[0], {
+        session, allowlist: [{ label: 'test:printf', match: /^printf\b/ }], projectRoot: root,
+      });
+      assert.equal(done.status, 'done', `stderr ${JSON.stringify(done.stderr)}`);
+      assert.match(done.stdout, /got=\*\*\*REDACTED\*\*\*/);
+      assert.ok(!JSON.stringify(done).includes(token), 'the raw token appears nowhere in the done record');
+      assert.ok(injected.includes(token + '\r'), `the token was not injected: ${injected.length} writes`);
+    } finally {
+      await session.kill();
+    }
+  });
+
+  test('LM-5: an unresolvable secret at a live PTY prompt fails the dispatch promptly, without waiting for a timeout', ptySkip73, async () => {
+    delete process.env.AOFORGE_T73_UNSET;
+    // The prompt and the reader are a child process, as a real tool (doctl, gh) is. Ctrl+C then
+    // kills the child, and nothing is in flight in the shell when it arrives. The shell's own
+    // `read` builtin would swallow it (the dispatch script holds `trap ':' INT` and bash 3.2,
+    // macOS /bin/bash, does not interrupt `read` for a trapped signal), and a prompt printed by
+    // the shell itself races the fork of the reader.
+    const childReader = `sh -c 'printf "Enter your access token: " > /dev/tty; read TOK; echo got=$TOK'`;
+    writePending(root, 'h-lm5', childReader, ACCESS_TOKEN_SECRET('AOFORGE_T73_UNSET'));
+    const { session } = await spiedSession({ interactive: true });
+    try {
+      const t0 = Date.now();
+      const done = await daemon.processOnce(daemon.readPending(root)[0], {
+        session, allowlist: [{ label: 'test:sh', match: /^sh\b/ }], projectRoot: root, timeoutMs: 8000,
+      });
+      const elapsed = Date.now() - t0;
+      assert.ok(elapsed < 5000, `expected a failure in under 5 s, took ${elapsed} ms (status ${done.status})`);
+      assert.equal(done.status, 'failed');
+      assert.match(done.stderr, /secret resolution failed/);
+    } finally {
+      await session.kill();
+    }
   });
 });
