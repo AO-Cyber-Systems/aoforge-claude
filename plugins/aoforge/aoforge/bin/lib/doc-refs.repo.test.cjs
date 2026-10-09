@@ -2,7 +2,8 @@
 
 // Test list (TDD Playbook habit #2 — reviewable artifact, written before implementation;
 // TRD 38-09, objective 38-doc-auto-correction). This is the CI gate: it walks the repo's own
-// live text and fails when a stale or unknown /aoforge:/df: command reference ships.
+// live text and fails when a stale or unknown /aoforge: command reference ships, or any legacy
+// command form (every NAMESPACE_RENAMES namespace, and the short namespace's dash form; TRD 72-13).
 //
 // 1. The scan set (before EXEMPT) is non-empty (> 150 files) and includes README.md,
 //    plugins/aoforge/aoforge/bin/lib/validate.cjs and plugins/aoforge/hooks/statusline.js.
@@ -38,6 +39,25 @@
 //     status: legacy workflows and the shared EXEMPT patterns (tests, __fixtures__/**) are
 //     excluded exactly as for the command-reference gate.
 //
+// TRD 72-13 (objective 72-install-and-naming-cleanup, INST-01) — the legacy command forms. The
+// resolver reads every NAMESPACE_RENAMES namespace in the colon form and the legacy short
+// namespace's dash form (`/<short>-<known command>`), so test 2 above now fails on any of them in
+// the scan set. These tests spell no legacy name: samples come from the legacy-command fixture and
+// paths are built from LEGACY.
+// 15. Sensitivity (c): the legacy sample "/<short>:quick /<legacy>:health /aoforge:update
+//     /aoforge:nope /aoforge:status /<legacy>:quick" -> kinds [prefix, renamed, removed, unknown,
+//     prefix] (status ok, filtered), and the dash-form sample yields exactly one finding.
+// 16. Sibling plugins (plugins/eden-ui-*, monorepo-standards, aosentry-mcp, social-media-generator,
+//     minus EXEMPT): zero prefix/renamed/removed findings. Unknown names there are those plugins'
+//     own commands and are ignored. The sibling scan set is non-empty and covers each sibling.
+// 17. EXEMPT names the pointer release of the legacy plugin explicitly (`plugins/<legacy>/**`) and
+//     the one legacy-name module (`**/legacy-names.cjs`, which is in the raw scan set); the legacy
+//     fixtures need no entry of their own (every one in the raw scan set is already exempt). The
+//     main gate (test 2) is green with them.
+// 18. The raw scan set holds no path under the current or the legacy planning directory or under
+//     the pointer plugin, and the "Not scanned by design" comment names the current planning
+//     directory beside the legacy one.
+//
 // Runtime model (binding, TRD 38-09): this test is read-only — it never writes to the repo.
 // Repo root is path.resolve(__dirname, '..', '..', '..', '..', '..'); a mirror install (no
 // README.md there) skips the whole file rather than failing on paths that can't exist.
@@ -49,6 +69,8 @@ const path = require('path');
 
 const { scanText, liveSkillNames, walkFiles, scanLegacyAgentPaths } = require('./doc-refs.cjs');
 const { DEPRECATION_MAP } = require('./skill-route.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { legacyCommandText } = require('./__fixtures__/legacy-command-fixtures.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
@@ -71,10 +93,13 @@ const SCAN_INCLUDE = [
   'assets/**/*.svg',
 ];
 
-// Not scanned by design (outside SCAN_INCLUDE — documented here, not enforced by a test):
-// CHANGELOG.md, .aoforge/**, docs/ other than USER-GUIDE (dated PROPOSAL/IMPLEMENTATION-PLAN/
-// CODEX-PORT records), site/public (gitignored build output), and the sibling plugins under
-// plugins/ (their /<name>: commands are namespaced by their own plugin, not aoforge/df).
+// Not scanned by design (outside SCAN_INCLUDE; test 18 enforces the planning and pointer parts):
+// CHANGELOG.md, .aoforge/** and the legacy planning directory it replaces (LEGACY.planningDir,
+// the same archive under its pre-3.0.0 name), docs/ other than USER-GUIDE (dated PROPOSAL/
+// IMPLEMENTATION-PLAN/CODEX-PORT records), site/public (gitignored build output), and the pointer
+// release of the legacy plugin (plugins/<LEGACY.slug>/, also in EXEMPT). The sibling plugins
+// under plugins/ are not in this gate either: their own /<name>: commands are namespaced by
+// their own plugin. Test 16 scans them separately for legacy or stale AOForge command forms.
 
 // ─── EXEMPT (must_haves truth 2-5) ─────────────────────────────────────────────────
 // Every entry: a reason of >= 20 chars, and a pattern that matches >= 1 real path (test 3) —
@@ -108,8 +133,21 @@ const EXEMPT = [
   {
     pattern: 'plugins/aoforge/aoforge/bin/lib/doc-refs.cjs',
     reason:
-      'declares the doc-refs:ignore-start/-end marker strings and the /df: prefix rule this ' +
-      'very gate depends on',
+      'declares the doc-refs:ignore-start/-end marker strings and the legacy namespace and dash-form ' +
+      'rules this very gate depends on',
+  },
+  // TRD 72-13 (test 17).
+  {
+    pattern: `plugins/${LEGACY.slug}/**`,
+    reason:
+      'the final pointer release of the legacy plugin must spell the legacy namespace to forward it; ' +
+      'removed with that plugin in the release after 3.0.0 (outside SCAN_INCLUDE too: test 18)',
+  },
+  {
+    pattern: '**/legacy-names.cjs',
+    reason:
+      'the one module that spells every legacy name, the legacy command namespaces and the dash ' +
+      'form included; every other module builds them from LEGACY',
   },
 ];
 
@@ -185,6 +223,37 @@ function formatFailureMessage(findings) {
     'EXEMPT:',
     ...exemptLines,
   ].join('\n');
+}
+
+// ─── sibling plugins (TRD 72-13, test 16) ─────────────────────────────────────────
+// The other plugins this marketplace ships. Their own `/<plugin>:<name>` commands are never
+// matched (the resolver reads only the AOForge namespaces); what must not ship there is a legacy
+// AOForge command form, or a stale reference to an AOForge command.
+
+const SIBLING_PLUGINS = [
+  'plugins/eden-ui-*/**',
+  'plugins/monorepo-standards/**',
+  'plugins/aosentry-mcp/**',
+  'plugins/social-media-generator/**',
+];
+
+/** The sibling plugins' files minus EXEMPT (their tests feed inputs, as ours do). */
+function siblingScanSet() {
+  return walkFiles(REPO_ROOT, { include: SIBLING_PLUGINS, exclude: EXEMPT.map((e) => e.pattern) });
+}
+
+/** Every finding in the sibling plugins except `unknown` (another plugin's command name). */
+function findSiblingFindings() {
+  const liveSkills = liveSkillNames(path.join(REPO_ROOT, 'plugins/aoforge/skills'));
+  const findings = [];
+  for (const rel of siblingScanSet()) {
+    const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
+    for (const r of scanText(text, { liveSkills })) {
+      if (r.kind === 'unknown') continue;
+      findings.push({ file: rel, line: r.line, token: r.token, kind: r.kind, replacement: r.replacement });
+    }
+  }
+  return findings;
 }
 
 /** The legacy agent-path gate's scan set: the effective scan set minus LEGACY_AGENT_EXEMPT. */
@@ -451,6 +520,90 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
       ]) {
         assert.ok(scanned.includes(rel), `${rel} must be in the LEGACY scan set`);
       }
+    });
+  });
+
+  describe('LEGACY COMMAND FORMS (TRD 72-13, INST-01)', () => {
+    const T = legacyCommandText();
+
+    test('15: (c) sensitivity — the legacy namespaces and the dash form in hand-built samples', () => {
+      const liveSkills = liveSkillNames(path.join(REPO_ROOT, 'plugins/aoforge/skills'));
+      const results = scanText(T.sensitivity, { liveSkills });
+      assert.deepStrictEqual(results.map((r) => r.kind), [...T.sensitivityKinds]);
+      assert.deepStrictEqual(results.map((r) => r.replacement), [
+        `${NAMES.commandNs}quick`,
+        `${NAMES.commandNs}status check`,
+        null,
+        null,
+        `${NAMES.commandNs}quick`,
+      ]);
+
+      const dash = scanText(T.dashMix, { liveSkills });
+      assert.deepStrictEqual(dash.map((r) => [r.col, r.token, r.kind]), [[T.dashMixFindingCol, 'quick', 'prefix']]);
+    });
+
+    test('16: the sibling plugins carry no legacy or stale AOForge command form', () => {
+      const files = siblingScanSet();
+      for (const glob of SIBLING_PLUGINS) {
+        const prefix = glob.replace(/\*\*$/, '').replace(/\*\/$/, '');
+        assert.ok(
+          files.some((rel) => rel.startsWith(prefix)),
+          `the sibling scan set must cover ${glob} (else this test is vacuous)`,
+        );
+      }
+      const findings = findSiblingFindings();
+      assert.deepStrictEqual(
+        findings,
+        [],
+        'legacy or stale command references in a sibling plugin (an AOForge command: rewrite it to ' +
+          `${NAMES.commandNs}<name>; the plugin's own command: use its own namespace):\n` +
+          findings.map((f) => `  ${f.file}:${f.line}  ${f.token} → ${f.replacement || f.kind}`).join('\n'),
+      );
+    });
+
+    test('17: EXEMPT names the pointer plugin and the legacy-name module; legacy fixtures are already exempt', () => {
+      const patterns = EXEMPT.map((e) => e.pattern);
+      const pointer = `plugins/${LEGACY.slug}/**`;
+      assert.ok(patterns.includes(pointer), `EXEMPT must name ${pointer} explicitly`);
+      assert.ok(walkFiles(REPO_ROOT, { include: [pointer] }).length >= 1, `${pointer} must match real files`);
+
+      const raw = rawScanSet();
+      const effective = effectiveScanSet();
+      const namesModule = 'plugins/aoforge/aoforge/bin/lib/legacy-names.cjs';
+      assert.ok(patterns.includes('**/legacy-names.cjs'), 'EXEMPT must name **/legacy-names.cjs');
+      assert.ok(raw.includes(namesModule), `${namesModule} is in the raw scan set (so its entry does real work)`);
+      assert.ok(!effective.includes(namesModule), `${namesModule} must be exempt`);
+
+      // The legacy fixtures in the raw scan set are all exempt already (bin/lib/__fixtures__/**), so
+      // they need no entry of their own.
+      const legacyFixtures = raw.filter((rel) => /(?:^|\/)__fixtures__\/legacy-[^/]*$/.test(rel));
+      assert.ok(legacyFixtures.length >= 1, 'expected legacy fixtures in the raw scan set');
+      for (const rel of legacyFixtures) {
+        assert.ok(!effective.includes(rel), `${rel} must be outside the effective scan set`);
+      }
+    });
+
+    test('18: the raw scan set stays out of both planning directories and the pointer plugin', () => {
+      const banned = [`${NAMES.planningDir}/`, `${LEGACY.planningDir}/`, `plugins/${LEGACY.slug}/`];
+      const raw = rawScanSet();
+      for (const prefix of banned) {
+        const hits = raw.filter((rel) => rel.startsWith(prefix));
+        assert.deepStrictEqual(hits, [], `the scan set must not include ${prefix}`);
+      }
+      // Not vacuous: a planning directory and the pointer plugin exist in this checkout.
+      const planningFiles = walkFiles(REPO_ROOT, {
+        include: [`${NAMES.planningDir}/**`, `${LEGACY.planningDir}/**`],
+      });
+      assert.ok(planningFiles.length >= 1, 'expected a planning directory in this checkout');
+      assert.ok(walkFiles(REPO_ROOT, { include: [`plugins/${LEGACY.slug}/**`] }).length >= 1);
+
+      // The "Not scanned by design" comment names the current planning directory beside the legacy one.
+      const src = fs.readFileSync(__filename, 'utf-8');
+      const start = src.indexOf('// Not scanned by design');
+      assert.ok(start >= 0, 'the "Not scanned by design" comment must exist');
+      const comment = src.slice(start).split('\n').filter((l, i, all) => all.slice(0, i + 1).every((x) => x.startsWith('//'))).join('\n');
+      assert.ok(comment.includes(`${NAMES.planningDir}/**`), `the comment must name ${NAMES.planningDir}/**:\n${comment}`);
+      assert.ok(comment.includes('LEGACY.planningDir'), `the comment must name the legacy planning directory:\n${comment}`);
     });
   });
 });

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
 const { planningRoot } = require('./compat.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 // ─── fs injection (for deprecation logger testability) ────────────────────────
 
@@ -103,9 +104,10 @@ const SKILL_ROUTES = {
 // ─── DEPRECATION_MAP ──────────────────────────────────────────────────────────
 // Only objective-related entries in TRD 12-01.
 //
-// DEPRECATION_MAP (below) and REMOVED_COMMANDS (below it) are together the single source of
-// truth for command renames (objective 38). doc-refs.cjs imports both and declares no mapping
-// of its own — every later doc-correction TRD calls into doc-refs rather than re-declaring one.
+// DEPRECATION_MAP (below), REMOVED_COMMANDS and NAMESPACE_RENAMES (below it) are together the
+// single source of truth for command renames (objectives 38 and 72). doc-refs.cjs imports all
+// three and declares no mapping of its own — every later doc-correction TRD calls into doc-refs
+// rather than re-declaring one.
 
 const DEPRECATION_MAP = {
   'add-objective': 'objective add',
@@ -133,6 +135,17 @@ const DEPRECATION_MAP = {
 // nothing rewrites them, because there is nothing to rewrite them to. Updates arrive through
 // the plugin marketplace, so /aoforge:update and /aoforge:reapply-patches have no successor.
 const REMOVED_COMMANDS = ['update', 'reapply-patches'];
+
+// Slash-namespace renames (objective 72, TRD 72-13): part of the single rename source above.
+// Every legacy namespace a command was ever typed under maps to the current one, so doc-refs
+// reads `/<legacy>:<name>` as `/aoforge:<name>` (or as the DEPRECATION_MAP successor of <name>).
+// The keys come from legacy-names.cjs: the legacy plugin namespace and the short namespace of
+// the pre-plugin install (whose `/<short>-<name>` dash form doc-refs also reads). Removed with
+// the other one-release shims in the release after 3.0.0.
+const NAMESPACE_RENAMES = Object.freeze({
+  [LEGACY.slug]: NAMES.slug,
+  [LEGACY.commandNsShort.slice(1, -1)]: NAMES.slug,
+});
 
 // aof-tools SUBCOMMAND renames (TRD 46-08). Kept beside DEPRECATION_MAP so this module stays the single
 // source of rename truth, but in its own map: DEPRECATION_MAP is keyed by slash-command names and
@@ -321,7 +334,8 @@ function cmdDeprecationLog(cwd, oldName, raw) {
 }
 
 // ─── module.exports — LOCKED by TRD 12-01 (10-entry surface; SC-G1, SC-G2) ───
-//     REMOVED_COMMANDS added by TRD 38-01 (objective 38); DF_TOOLS_DEPRECATIONS by TRD 46-08.
+//     REMOVED_COMMANDS added by TRD 38-01 (objective 38); DF_TOOLS_DEPRECATIONS by TRD 46-08;
+//     NAMESPACE_RENAMES by TRD 72-13.
 //     DO NOT MODIFY without updating the EX export-lock tests atomically.
 module.exports = {
   routeSkill,
@@ -331,6 +345,7 @@ module.exports = {
   SKILL_ROUTES,
   DEPRECATION_MAP,
   REMOVED_COMMANDS,
+  NAMESPACE_RENAMES,
   DF_TOOLS_DEPRECATIONS,
   _setRunFs,
   _resetMocks,

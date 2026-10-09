@@ -271,9 +271,11 @@ describe('guard', () => {
 describe('TOKEN_RE', () => {
   test('RE1: is exported as a RegExp with the expected source', () => {
     assert.ok(TOKEN_RE instanceof RegExp);
+    // TRD 72-13: the namespaces are the current one plus every NAMESPACE_RENAMES key (built from LEGACY).
+    const { LEGACY } = require('./legacy-names.cjs');
     assert.strictEqual(
       TOKEN_RE.source,
-      '(?<![A-Za-z0-9_])\\/(aoforge|df):([a-z][a-z0-9-]*)',
+      `(?<![A-Za-z0-9_])\\/(aoforge|${LEGACY.slug}|df):([a-z][a-z0-9-]*)`,
     );
   });
 });
