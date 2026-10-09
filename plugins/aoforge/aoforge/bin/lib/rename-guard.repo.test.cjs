@@ -88,6 +88,15 @@ const ALLOW = [
     pattern: 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js',
     reason: 'skips directories by name: its skip lists name the legacy planning and product directories beside the new ones',
   },
+  // TRD 72-14: the final release of the old plugin, a pointer to the new one.
+  {
+    pattern: `plugins/${LEGACY.slug}/**`,
+    reason: 'the final pointer release of the legacy plugin keeps its name; removed in the release after 3.0.0',
+  },
+  {
+    pattern: 'scripts/gen-pointer-skills*',
+    reason: 'generates the pointer plugin, which must use the legacy plugin name',
+  },
 ];
 
 // ─── ignore regions ───────────────────────────────────────────────────────────────

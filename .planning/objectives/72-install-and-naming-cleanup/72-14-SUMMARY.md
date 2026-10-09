@@ -7,5 +7,5 @@ trd: "14"
 
 ## Progress
 - [x] Task 1: Fixture skills dirs for the generator — e166c226
-- [ ] Task 2: The generator and the forwarding skills — next step: RED committed (tests 1-4 in scripts/gen-pointer-skills.legacy.test.cjs); write scripts/gen-pointer-skills.cjs (renderPointerSkill, parseSkill, plan, main with --write/--check/--source/--dest), run `node scripts/gen-pointer-skills.cjs --write`, then the test file and `--check`, commit GREEN with plugins/devflow/skills
-- [ ] Task 3: The notice hook, the manifests, the marketplace entry
+- [x] Task 2: The generator and the forwarding skills — RED 077d4402, GREEN (this commit)
+- [ ] Task 3: The notice hook, the manifests, the marketplace entry — next step: write plugins/devflow/hooks/pointer-notice.legacy.test.js (tests 5-9 plus the SessionStart schema cases) and the span-scoped ALLOW tests 9a-9c in rename-guard.repo.test.cjs, run both and see them fail, commit RED
