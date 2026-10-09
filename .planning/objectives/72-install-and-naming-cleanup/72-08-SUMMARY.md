@@ -7,5 +7,5 @@ trd: "08"
 
 ## Progress
 - [x] Task 1: Fixture builder: legacy git projects in each state — b6ae4d34
-- [ ] Task 2: Migration 0012 and the 0010 block's legacy markers — RED (this commit); next step: write `migrations/0012-planning-dir-move.cjs` and `lib/git-busy.cjs`, teach 0010 `readBlock` both slugs, run the 0012 + 0010 suites (GREEN), commit
-- [ ] Task 3: 0013, the runner, the hook, W067
+- [x] Task 2: Migration 0012 and the 0010 block's legacy markers — c0a7f0ea (RED), (this commit) (GREEN)
+- [ ] Task 3: 0013, the runner, the hook, W067 — next step: write `migrations/0013-config-key-rename.legacy.test.cjs` (tests 10-13) and `hooks/upgrade-project.legacy.test.js` (tests 1-5), run them (RED), commit
