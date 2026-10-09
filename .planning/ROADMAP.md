@@ -284,14 +284,14 @@ TRDs:
 - [x] 72-04-apply-name-rename-TRD.md — (W3) names pass with `git mv` (plugins/aoforge, aof-tools, ...), entry points alias legacy env, rename guard repo test, CLAUDE.md transition note
 - [x] 72-05-planning-dir-resolver-libs-TRD.md — (W4) libs resolve `.aoforge/` then legacy `.planning/`; legacy-layout contract suite; W066
 - [x] 72-06-planning-dir-hooks-and-prose-TRD.md — (W5) hooks resolve both layouts; prose names `.aoforge/`; guard covers the planning dir name
-- [ ] 72-07-runtime-home-move-and-rekey-TRD.md — (W7) `~/.claude/devflow` state to `~/.claude/aoforge` (copy, outbox/backups move) from sync-runtime; `aof-tools state rekey`
-- [ ] 72-08-planning-dir-and-config-key-migrations-TRD.md — (W7) migrations 0012 (`git mv` to `.aoforge/`) and 0013 (config key); runner re-resolution; hook commit/defer; W067
-- [ ] 72-09-claude-md-markers-and-global-block-TRD.md — (W7) dual block markers, migration 0014, global template v4, outside-block diff applied only with `--confirm`
+- [x] 72-07-runtime-home-move-and-rekey-TRD.md — (W7) `~/.claude/devflow` state to `~/.claude/aoforge` (copy, outbox/backups move) from sync-runtime; `aof-tools state rekey`
+- [x] 72-08-planning-dir-and-config-key-migrations-TRD.md — (W7) migrations 0012 (`git mv` to `.aoforge/`) and 0013 (config key); runner re-resolution; hook commit/defer; W067
+- [x] 72-09-claude-md-markers-and-global-block-TRD.md — (W7) dual block markers, migration 0014, global template v4, outside-block diff applied only with `--confirm`
 - [x] 72-10-coexistence-and-legacy-identities-TRD.md — (W6) coexistence-guard SessionStart hook; gates accept `devflow:` agent types; transcript readers keep old names
-- [ ] 72-11-gh-markers-labels-and-checks-TRD.md — (W7) GitHub markers and labels read both namespaces; both status contexts posted; legacy caller flagged
-- [ ] 72-12-file-level-legacy-identities-TRD.md — (W7) `.mcp.json` ownership key, todo metadata key, `~/.devflow/` file fallback, legacy adopt branch
+- [x] 72-11-gh-markers-labels-and-checks-TRD.md — (W7) GitHub markers and labels read both namespaces; both status contexts posted; legacy caller flagged
+- [x] 72-12-file-level-legacy-identities-TRD.md — (W7) `.mcp.json` ownership key, todo metadata key, `~/.devflow/` file fallback, legacy adopt branch
 - [ ] 72-13-legacy-command-forms-gate-TRD.md — (W8) INST-01 repo test: `/df-`, `/df:`, `/devflow:` via NAMESPACE_RENAMES in skill-route; 0007 rewrites projects
-- [ ] 72-14-devflow-pointer-plugin-TRD.md — (W7) final `devflow@aocyber` 3.0.0 pointer: notice hook (no-op beside AOForge) and generated forwarding skills
+- [x] 72-14-devflow-pointer-plugin-TRD.md — (W7) final `devflow@aocyber` 3.0.0 pointer: notice hook (no-op beside AOForge) and generated forwarding skills
 - [ ] 72-15-doctor-legacy-checks-TRD.md — (W8) doctor 15 (df-* reappearance), 16 (devflow leftovers), 27 (W066/W067); check 26 legacy callers
 - [ ] 72-16-gh-rebrand-verb-TRD.md — (W8) `aof-tools gh rebrand`: dry-run preview, per-repo apply, idempotent, resumable
 - [ ] 72-17-docs-identity-and-migration-guide-TRD.md — (W9) real gold AO emblem + AOForge wordmark on README and site; migration guide; USER-GUIDE/CLAUDE.md
@@ -356,7 +356,7 @@ TRDs:
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
-| 72. Install and naming cleanup | v1.6 | 7/26 | In Progress | - |
+| 72. Install and naming cleanup | v1.6 | 13/26 | In Progress | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
