@@ -169,13 +169,13 @@ The estimation engine works, but its minute estimates run high: 1.24× actual af
 Open decisions carried to the next milestone:
 - the CI Anthropic secret for the live visual judge;
 - `main` branch protection;
-- the Docs site deploy (the Cloudflare Pages project `devflow-docs` was never found; the deploy now targets `aoforge-docs`, which TRD 72-24 creates behind a checkpoint, and OPS-03 closes).
+- the Docs site deploy (the Cloudflare Pages project `devflow-docs` was never found; the deploy now targets `aoforge-docs`, which Objective 74 OPS-03 creates; TRD 72-24 deferred it there).
 
 DECISION-001 (edit-gate posture) was resolved in v1.5 (Objective 60, option-a, with a measured `warn` default).
 
-Objective 72 renamed the plugin to AOForge and released it as 3.0.0 (tag `v3.0.0` on `main` b4a9d870, 2026-10-09). This repository runs on the installed AOForge 3.0.0 with its planning tree at `.aoforge/` (TRD 72-21); the rollout steps 72-23 to 72-26 are still open.
+Objective 72 renamed the plugin to AOForge and released it as 3.0.0 (tag `v3.0.0` on `main` b4a9d870, 2026-10-09). This repository runs on the installed AOForge 3.0.0 with its planning tree at `.aoforge/` (TRD 72-21); the rollout finished on 2026-10-09: global CLAUDE.md block v4 (72-23), vanity PR prepared but held until git.aocyber.ai exists (72-24), 10 fleet repositories upgraded behind per-repo approvals (72-25), and the checkout moved to `~/dev/aoforge-claude` with memory and keyed state copied, the post-release commits on follow-up PR #129 (72-26). Gap closure 72-27 gave the gh client a 256 MiB read buffer so `gh rebrand` reads large repositories; a live `gh rebrand --apply` waits for the first store-mode repository. Objective 72 verified 6/6.
 
 Objective 26 (GitHub issue auto-build monitor) was killed on 2026-10-01 (resolved; GMD-04).
 
 ---
-*Last updated: 2026-10-09 — AOForge wording after the 3.0.0 rename (TRD 72-22)*
+*Last updated: 2026-10-09 after Objective 72*

@@ -6,7 +6,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 **Building:** AOForge (formerly DevFlow Claude) — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.6 Hardening & Release: Objectives 65-71 complete; Objective 72 (rename to AOForge, 3.0.0 released) is at TRD 72-22, with the rollout TRDs 72-23 to 72-26 open
+**Current focus:** Objective 73: Handoff gaps and result injection
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + AOForge (this — Claude Code plugin, formerly DevFlow Claude)
 
 ## Current Position
