@@ -100,6 +100,7 @@ Every row: re-checked against the preview first (same branch, same tracked dirt,
 | 11 | aostudio | ok (main, 7dd81bd) | 0001, 0003, 0007, 0008, 0012 | fda6af5 | 17 R (STATE.md R098) + state.json A (0003) + config.json D/A + .gitignore A (0008 created it) | yes / yes | none (W006) | upgraded |
 | 12 | aoid | branch/tracked/pending unchanged (main, 143b7fc), but the commit would sweep 19 untracked planning files: `.micro-description`, `objectives/50-.../50-16-SUMMARY.md`, `quick/5-.../5-JOB.md`, 16 files under `reports/` (50-25 baseline logs and PNGs, riverpod3 analyze baselines) | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
 | 13 | aoinference | branch/tracked/pending unchanged (fix/obj31-oci-source-label, 87ea0e1), but the commit would sweep untracked `.planning/.dup-detect-log.jsonl` | nothing (no apply) | none | n/a | no / no | n/a | **held: untouched** (finding 8) |
+| 14 | aofamily | ok (df/riverpod3-rebase, 94fb090) | 0001, 0004, 0005, 0007, 0008, 0012, 0014 | 9b15c1e (on the feature branch) | 220 R (STATE.md R099) + 3 OBJECTIVE.md A (0004 backfill) + config.json D/A + .gitignore (0008 block incl. `**/` globs + twins) + CLAUDE.md (block now `AOFORGE:START/END`). Component projects ai/, browser/, connect/ untouched | yes / yes | none (W007: objective 08 not in ROADMAP; W065) | upgraded |
 
 ## Ambiguous (listed for the user, not swept)
 
