@@ -157,6 +157,10 @@ function projectSummary(report, mode) {
     if (report.backup) parts.push(`backup ${report.backup}`);
   }
   if (report.pending.length) parts.push(`${report.pending.length} pending (${idList(report.pending)})`);
+  // TRD 72-08: a migration that declined to run on this tree (0012 on a dirty or busy one) says why.
+  if (Array.isArray(report.deferred) && report.deferred.length) {
+    parts.push(`deferred ${report.deferred.map((d) => `${d.id} (${d.reason}): ${d.notes}`).join(' | ')}`);
+  }
   if (report.pending_confirm.length) {
     const n = report.pending_confirm.length;
     parts.push(`${n} ${n === 1 ? 'needs' : 'need'} confirmation (${idList(report.pending_confirm)})`);

@@ -330,7 +330,8 @@ describe('loadRegistry', () => {
 const PV = '2.11.0';
 const NOW = new Date('2026-09-27T12:00:00.000Z');
 const NOW_DIR = '2026-09-27T12-00-00-000Z';
-const REPORT_KEYS = ['applied', 'backup', 'changed_files', 'failed', 'from', 'pending', 'pending_confirm',
+// TRD 72-08 added `deferred` (migrations that declined to run on this tree, e.g. 0012 on a dirty one).
+const REPORT_KEYS = ['applied', 'backup', 'changed_files', 'deferred', 'failed', 'from', 'pending', 'pending_confirm',
   'skipped', 'to', 'up_to_date'];
 
 // Idempotent marker migration: applies while `.aoforge/MIGRATED-<id>` is absent, honours dryRun.
@@ -712,18 +713,20 @@ describe('apply', () => {
     assert.deepEqual(after.aoforge, { version: '2.10.1', migrations_applied: ['0001'], upgraded_at: NOW.toISOString() });
   });
 
-  test('24: ctx is exactly {projectRoot, userHome, pluginVersion, dryRun, options}', () => {
+  // TRD 72-08 added `changedSoFar`: the paths earlier migrations of the same run changed ([] for the first one).
+  test('24: ctx is exactly {projectRoot, userHome, pluginVersion, dryRun, options, changedSoFar}', () => {
     const project = v1();
     const h = home();
     const reg = registry({ '0001-probe.cjs': probeMigration('0001') });
     const options = { kind: 'plugin', defaultWork: 'feature' };
-    const expected = { projectRoot: project, userHome: h, pluginVersion: PV, dryRun: false, options };
+    const expected = { projectRoot: project, userHome: h, pluginVersion: PV, dryRun: false, options, changedSoFar: [] };
 
     globalThis.__df36Probe = [];
     upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, registryDir: reg, now: NOW, options });
     assert.deepEqual(globalThis.__df36Probe.map((p) => p.phase), ['detect', 'apply']);
     for (const { ctx } of globalThis.__df36Probe) {
-      assert.deepEqual(Object.keys(ctx).sort(), ['dryRun', 'options', 'pluginVersion', 'projectRoot', 'userHome']);
+      assert.deepEqual(Object.keys(ctx).sort(),
+        ['changedSoFar', 'dryRun', 'options', 'pluginVersion', 'projectRoot', 'userHome']);
       assert.deepEqual(ctx, expected);
     }
 
@@ -733,7 +736,7 @@ describe('apply', () => {
     upgrade.check({ projectRoot: fresh, userHome: h, pluginVersion: PV, registryDir: reg });
     assert.equal(globalThis.__df36Probe.length, 1);
     assert.deepEqual(globalThis.__df36Probe[0].ctx,
-      { projectRoot: fresh, userHome: h, pluginVersion: PV, dryRun: true, options: {} });
+      { projectRoot: fresh, userHome: h, pluginVersion: PV, dryRun: true, options: {}, changedSoFar: [] });
   });
 
   test('24b: apply/check without an absolute userHome throw before touching anything', () => {

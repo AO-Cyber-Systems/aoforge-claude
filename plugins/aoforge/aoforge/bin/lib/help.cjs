@@ -236,7 +236,7 @@ const COMMANDS = {
     usage: 'aof-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]> [--raw]',
     summary: 'Check .aoforge/ integrity, objective numbering, documentation staleness, and SUMMARY/VERIFICATION requirement agreement.',
     mutates: true,
-    details: 'health reports W066 legacy-planning-dir when the project still uses the legacy planning directory (AOForge reads it for one release; fix: aof-tools upgrade --apply --only 0012) or holds both directories (the legacy one is ignored).',
+    details: 'health reports W066 legacy-planning-dir when the project still uses the legacy planning directory (AOForge reads it for one release; fix: aof-tools upgrade --apply --only 0012) or holds both directories (the legacy one is ignored), and W067 legacy-config-key when config.json records its upgrades only under the legacy stamp key (read for one release; fix: aof-tools upgrade --apply --only 0013).',
   },
   'doctor': {
     usage: 'aof-tools doctor [--fix] [--json] [--path <dir>] [--global]',

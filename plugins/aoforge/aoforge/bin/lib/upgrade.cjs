@@ -2,11 +2,20 @@
 
 // Upgrade runner (objective 36). Migrations live in ./migrations/NNNN-<slug>.cjs and export
 //   { id, title, since, safety: 'auto'|'confirm', detect(ctx) -> {applies, reason},
-//     apply(ctx) -> {changed: [relative posix paths], notes} }.
-// ctx = { projectRoot, userHome, pluginVersion, dryRun, options }.
+//     apply(ctx) -> {changed: [relative posix paths], notes, deferred?: <reason code>} }.
+// ctx = { projectRoot, userHome, pluginVersion, dryRun, options, changedSoFar }.
+// `changedSoFar` (TRD 72-08): the paths earlier migrations of this run changed, so a migration that refuses to run on
+// a dirty tree (0012) can tell the run's own changes from the user's.
+//
+// An apply that returns `deferred` did not run and wrote nothing (0012 on a dirty or busy tree): the migration stays
+// pending, later writes are held as after a failure, the stamp is not advanced, and `report.deferred` names it. A
+// backup the runner claimed only for it is removed.
 //
 // Migrations are detection-based and idempotent: `detect` reads the files and decides; the
-// config.json `aoforge` stamp is only a record of what ran.
+// config.json `aoforge` stamp is only a record of what ran. For one release (until SHIM_REMOVAL) the stamp is also
+// read from the legacy key (LEGACY.configKey) when the new one is absent; every stamp write leaves only the new key
+// (migration 0013 renames it outright). The planning directory is never cached: every migration, and the final stamp
+// write, resolves it afresh, so after 0012 moves a legacy directory everything lands in `.aoforge/`.
 //
 // `userHome` is always injected by the caller (CLI, hook, tests). This module never resolves the
 // operator's home directory itself, so a test can never touch the real one.
@@ -15,6 +24,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { planningRoot, planningRel } = require('./compat.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+
+const STAMP_KEY = NAMES.configKey;
+const LEGACY_STAMP_KEY = LEGACY.configKey;
 
 const DEFAULT_REGISTRY_DIR = path.join(__dirname, 'migrations');
 
@@ -151,14 +164,26 @@ function readConfig(projectRoot) {
   }
 }
 
+const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * The stamp object in a parsed config: the `aoforge` object, else (for one release) the legacy key's object, else null.
+ */
+function stampObject(config) {
+  if (!config) return null;
+  if (isPlainObject(config[STAMP_KEY])) return config[STAMP_KEY];
+  if (isPlainObject(config[LEGACY_STAMP_KEY])) return config[LEGACY_STAMP_KEY];
+  return null;
+}
+
 /**
  * readStamp(projectRoot) -> null | { version, migrations_applied, upgraded_at }
- * null when config.json is absent, unreadable, or carries no `aoforge` object.
+ * null when config.json is absent, unreadable, or carries no stamp object under either key (`aoforge` first).
  */
 function readStamp(projectRoot) {
   const { config } = readConfig(projectRoot);
-  const d = config && config.aoforge;
-  if (!d || typeof d !== 'object' || Array.isArray(d)) return null;
+  const d = stampObject(config);
+  if (!d) return null;
   return {
     version: typeof d.version === 'string' ? d.version : null,
     migrations_applied: Array.isArray(d.migrations_applied) ? d.migrations_applied.map(String) : [],
@@ -169,13 +194,26 @@ function readStamp(projectRoot) {
 /**
  * writeStamp(projectRoot, stamp) — sets config.json `aoforge` to `stamp`, preserving every other
  * key and the key order; 2-space JSON + trailing newline. Creates `{ "aoforge": ... }` when
- * config.json is absent. Throws when config.json exists but is not a JSON object.
+ * config.json is absent. Throws when config.json exists but is not a JSON object. A legacy stamp key is removed; when
+ * it was the only one, the new key takes its place in the key order.
  */
 function writeStamp(projectRoot, stamp) {
   const { exists, config, error } = readConfig(projectRoot);
   if (error) throw new Error(error);
-  const next = exists ? config : {};
-  next.aoforge = stamp;
+  const current = exists ? config : {};
+  let next = current;
+  if (Object.prototype.hasOwnProperty.call(current, LEGACY_STAMP_KEY)) {
+    const inPlace = !Object.prototype.hasOwnProperty.call(current, STAMP_KEY);
+    next = {};
+    for (const key of Object.keys(current)) {
+      if (key === LEGACY_STAMP_KEY) {
+        if (inPlace) next[STAMP_KEY] = null;
+        continue;
+      }
+      next[key] = current[key];
+    }
+  }
+  next[STAMP_KEY] = stamp;
   fs.mkdirSync(path.dirname(configPath(projectRoot)), { recursive: true });
   fs.writeFileSync(configPath(projectRoot), JSON.stringify(next, null, 2) + '\n', 'utf-8');
 }
@@ -281,9 +319,16 @@ function emptyReport(from, to) {
     pending_confirm: [],
     skipped: [],
     failed: [],
+    deferred: [],
     changed_files: [],
     backup: null,
   };
+}
+
+/** `paths` without any path that lies under another listed path (a moved directory covers its contents). */
+function collapseUnderDirectories(paths) {
+  const all = [...new Set(paths)];
+  return all.filter((p) => !all.some((q) => q !== p && p.startsWith(`${q}/`)));
 }
 
 function normalizeOnly(only) {
@@ -304,8 +349,10 @@ function errorText(e) {
   return e && e.message ? e.message : String(e);
 }
 
-function makeCtx({ projectRoot, userHome, pluginVersion, dryRun, options }) {
-  return { projectRoot, userHome, pluginVersion, dryRun, options: { ...(options || {}) } };
+function makeCtx({ projectRoot, userHome, pluginVersion, dryRun, options, changedSoFar }) {
+  return {
+    projectRoot, userHome, pluginVersion, dryRun, options: { ...(options || {}) }, changedSoFar: [...(changedSoFar || [])],
+  };
 }
 
 // -> { applies, reason } or throws with a message suitable for `failed`.
@@ -332,7 +379,8 @@ function normalizeChanged(p) {
   return norm;
 }
 
-// -> { changed, notes } or throws with a message suitable for `failed`.
+// -> { changed, notes, deferred } or throws with a message suitable for `failed`. `deferred` is a non-empty reason
+// code or null.
 function runApply(migration, ctx) {
   const res = migration.apply(ctx);
   if (res && typeof res.then === 'function') throw new Error('apply must be synchronous');
@@ -340,7 +388,9 @@ function runApply(migration, ctx) {
     throw new Error('apply must return { changed: [relative paths], notes }');
   }
   const changed = [...new Set(res.changed.map(normalizeChanged))];
-  return { changed, notes: res.notes === undefined ? null : res.notes };
+  const deferred = typeof res.deferred === 'string' && res.deferred ? res.deferred : null;
+  if (deferred && changed.length) throw new Error(`a deferred apply must change nothing (got ${changed.join(', ')})`);
+  return { changed, notes: res.notes === undefined ? null : res.notes, deferred };
 }
 
 /**
@@ -406,7 +456,9 @@ function apply({
     halted = true;
   }
 
-  const ctxFor = () => makeCtx({ projectRoot: root, userHome, pluginVersion, dryRun: !!dryRun, options });
+  const ctxFor = () => makeCtx({
+    projectRoot: root, userHome, pluginVersion, dryRun: !!dryRun, options, changedSoFar: [...changed],
+  });
   const leavePending = (m, reason) => {
     if (m.safety === 'auto') report.pending.push({ id: m.id, title: m.title, safety: 'auto', reason });
     else report.pending_confirm.push({ id: m.id, title: m.title, reason });
@@ -433,9 +485,11 @@ function apply({
       continue;
     }
 
+    let backupClaimedHere = false;
     if (!dryRun && report.backup === null) {
       try {
         report.backup = backup({ projectRoot: root, userHome, now });
+        backupClaimedHere = true;
       } catch (e) {
         report.failed.push({ id: 'backup', phase: 'backup', error: errorText(e) });
         halted = true;
@@ -446,6 +500,18 @@ function apply({
 
     try {
       const res = runApply(m, ctxFor());
+      if (res.deferred) {
+        // Nothing was written: hold the later writes (they may assume this one ran) and keep it pending.
+        const notes = res.notes === null ? '' : String(res.notes);
+        report.deferred.push({ id: m.id, title: m.title, reason: res.deferred, notes });
+        leavePending(m, notes || `deferred: ${res.deferred}`);
+        halted = true;
+        if (backupClaimedHere && report.applied.length === 0) {
+          fs.rmSync(report.backup, { recursive: true, force: true });
+          report.backup = null;
+        }
+        continue;
+      }
       report.applied.push({ id: m.id, title: m.title, changed: res.changed, notes: res.notes });
       for (const f of res.changed) changed.add(f);
     } catch (e) {
@@ -467,8 +533,7 @@ function apply({
     if (current.error) {
       report.failed.push({ id: 'stamp', phase: 'stamp', error: current.error });
     } else {
-      const prev = current.config && current.config.aoforge && typeof current.config.aoforge === 'object' &&
-        !Array.isArray(current.config.aoforge) ? current.config.aoforge : {};
+      const prev = stampObject(current.config) || {};
       const prevApplied = Array.isArray(prev.migrations_applied) ? prev.migrations_applied.map(String) : [];
       const next = { ...prev };
       if (newVersion) next.version = newVersion; else delete next.version;
@@ -494,7 +559,8 @@ function apply({
     }
   }
 
-  report.changed_files = [...changed].sort();
+  // A path under a directory the run moved (0012 lists both directory names) is covered by that directory.
+  report.changed_files = collapseUnderDirectories([...changed]).sort();
   report.up_to_date = report.failed.length === 0 && report.pending.length === 0 &&
     report.pending_confirm.length === 0 && versionAfter === pluginVersion &&
     !(dryRun && report.applied.length > 0);

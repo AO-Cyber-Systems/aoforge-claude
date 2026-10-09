@@ -998,7 +998,7 @@ function migrate(ctx) {
       drainNote(d),
       ...v.notes,
       `0010: ${tenNotes}`,
-      ...(tenNotes.includes(m0010().STORE_COMMIT_STEPS) ? [] : [m0010().STORE_COMMIT_STEPS]),
+      ...(tenNotes.includes(m0010().storeCommitSteps(ctx.projectRoot)) ? [] : [m0010().storeCommitSteps(ctx.projectRoot)]),
       SETUP_NOTE,
       ...notes,
     ].join('\n'),
