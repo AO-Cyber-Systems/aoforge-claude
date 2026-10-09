@@ -15,7 +15,8 @@
 // 3. Lines inside an ignore region (the rename-guard ignore-start ... ignore-end markers) are not
 //    scanned; only files in IGNORE_REGION_FILES may contain such a region, and every region in
 //    the repository is closed (an unclosed region throws).
-// 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path.
+// 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path; an entry with
+//    `spans` (test 9) is a global RegExp that matches >= 1 span in a tracked file it names.
 // 5. Sensitivity: a sample text with one of each token yields three findings; the preserved
 //    product names (the ...ops product and the .cloud domain) yield none.
 // 5b. Planning-tree exemption: in a scratch git repo with tracked `<new planning dir>/x.md` and
@@ -28,6 +29,10 @@
 //    (`planningDir`, built from LEGACY.planningDir), counted only where the codemod would call it a
 //    directory (not member access such as a config key); a sample line naming the legacy STATE.md
 //    yields one finding; the tree passes with ALLOW entries for .gitignore and the monorepo doctor.
+// 9. Span-scoped ALLOW (TRD 72-14): an entry with `spans` keeps its file in the scan set and masks
+//    only those spans (a JSON file cannot hold an ignore region). In the marketplace, the pointer
+//    entry's lines are masked and another legacy word on another line is still found; the same
+//    text under another path yields every finding. Masking keeps line numbers.
 //
 // Runtime model: read-only against the repository (5b writes only to its own tmp dir). Repo
 // root is path.resolve(__dirname, '..', '..', '..', '..', '..'); a mirror install (no README.md
@@ -55,9 +60,14 @@ function codemod() {
   return _codemod;
 }
 
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 // ─── ALLOW (on top of the codemod's SKIP) ──────────────────────────────────────────
 // Every entry: a reason of >= 20 chars, and a pattern that matches >= 1 tracked path (test 4).
 // A dead entry is a bug, so it fails the gate rather than sitting there silently.
+// An entry with `spans` (a /g RegExp, test 9) keeps its files in the scan set and masks only
+// those spans: for a file that must name the old plugin in a few places and cannot hold an
+// ignore region (JSON). Its spans must match in the file, or it is dead too.
 
 const ALLOW = [
   {
@@ -87,6 +97,29 @@ const ALLOW = [
   {
     pattern: 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js',
     reason: 'skips directories by name: its skip lists name the legacy planning and product directories beside the new ones',
+  },
+  // TRD 72-14: the final release of the old plugin, a pointer to the new one.
+  {
+    pattern: `plugins/${LEGACY.slug}/**`,
+    reason: 'the final pointer release of the legacy plugin keeps its name; removed in the release after 3.0.0',
+  },
+  {
+    pattern: 'scripts/gen-pointer-skills*',
+    reason: 'generates the pointer plugin, which must use the legacy plugin name',
+  },
+  {
+    pattern: '.claude-plugin/marketplace.json',
+    spans: new RegExp(
+      `"(?:name|source)": "(?:\\./plugins/)?${esc(LEGACY.slug)}"` +
+        `|"description": "${esc(LEGACY.product)} is now ${esc(NAMES.product)}[^"\\n]*"`,
+      'g',
+    ),
+    reason: 'the marketplace entry of the pointer release keeps the legacy plugin name until the release after 3.0.0',
+  },
+  {
+    pattern: 'package.json',
+    spans: new RegExp(`'plugins/${esc(LEGACY.slug)}/\\*\\*/\\*\\.test\\.js'`, 'g'),
+    reason: 'npm test runs the tests of the pointer release, which live under the legacy plugin directory',
   },
 ];
 
@@ -127,8 +160,6 @@ function ignoredLines(lines) {
 }
 
 // ─── tokens (built from LEGACY, test 6) ───────────────────────────────────────────
-
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const TOKENS = [
   { id: 'product', re: new RegExp(esc(LEGACY.slug), 'gi') },
@@ -216,11 +247,28 @@ function trackedFiles(root) {
 
 const allowRes = (allow) => allow.map((a) => globToRegExp(a.pattern));
 
-/** `git ls-files` minus the codemod's SKIP minus `allow`. */
+/** `git ls-files` minus the codemod's SKIP minus the whole-file entries of `allow`. */
 function scanSet(root, { allow = ALLOW } = {}) {
   const { isSkipped } = codemod();
-  const res = allowRes(allow);
+  const res = allowRes(allow.filter((a) => !a.spans));
   return trackedFiles(root).filter((rel) => !isSkipped(rel) && !res.some((re) => re.test(rel)));
+}
+
+/**
+ * `text` with every span a span-scoped `allow` entry names for `rel` swapped for same-length
+ * filler; line breaks are kept, so line numbers stay true (test 9c).
+ */
+function maskAllowedSpans(text, rel, allow = ALLOW) {
+  for (const a of allow) {
+    if (!a.spans || !globToRegExp(a.pattern).test(rel)) continue;
+    text = text.replace(a.spans, (m) => m.replace(/[^\n]/g, '\u0000'));
+  }
+  return text;
+}
+
+/** Every legacy token in the content of one scanned file, after its span-scoped allowances. */
+function scanFile(text, rel, allow = ALLOW) {
+  return scanText(maskAllowedSpans(text, rel, allow), rel);
 }
 
 /** Text of a file, or null when it is binary or not valid UTF-8 (the codemod skips those too). */
@@ -233,12 +281,13 @@ function readText(root, rel) {
 
 /** Every finding across the scan set of `root`: [{ file, line, token }]. */
 function scanRepo(root, opts = {}) {
+  const allow = opts.allow || ALLOW;
   const findings = [];
-  for (const rel of scanSet(root, opts)) {
+  for (const rel of scanSet(root, { allow })) {
     for (const f of scanPath(rel)) findings.push({ file: rel, ...f });
     const text = readText(root, rel);
     if (text === null) continue;
-    for (const f of scanText(text, rel)) findings.push({ file: rel, ...f });
+    for (const f of scanFile(text, rel, allow)) findings.push({ file: rel, ...f });
   }
   return findings;
 }
@@ -323,6 +372,13 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
         tracked.some((rel) => re.test(rel)),
         `ALLOW ${entry.pattern} matches no tracked path (a dead entry)`,
       );
+      if (entry.spans === undefined) continue;
+      assert.ok(entry.spans instanceof RegExp && entry.spans.global, `ALLOW ${entry.pattern}: spans must be a /g RegExp`);
+      const files = tracked.filter((rel) => re.test(rel));
+      assert.ok(
+        files.some((rel) => new RegExp(entry.spans.source, entry.spans.flags).test(readText(REPO_ROOT, rel) || '')),
+        `ALLOW ${entry.pattern}: spans ${entry.spans} match nothing in the file (a dead entry)`,
+      );
     }
   });
 
@@ -398,6 +454,40 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
     test('8d: a regex naming the legacy directory is a finding', () => {
       const found = scanText(`const RE = /\\${LEGACY.planningDir}\\//;\n`, 'x.cjs');
       assert.equal(found.length, 1, JSON.stringify(found));
+    });
+  });
+
+  describe('9: span-scoped ALLOW (TRD 72-14)', () => {
+    const MARKET = '.claude-plugin/marketplace.json';
+    const sample = [
+      '{',
+      `  "name": "${LEGACY.slug}",`,
+      `  "description": "${LEGACY.product} is now ${NAMES.product}: install ${NAMES.plugin}.",`,
+      '  "version": "3.0.0",',
+      `  "source": "./plugins/${LEGACY.slug}",`,
+      `  "category": "uses ${LEGACY.cli}"`,
+      '}',
+    ].join('\n');
+
+    test('9a: the marketplace pointer entry is masked; another legacy word is still found', () => {
+      assert.ok(scanSet(REPO_ROOT).includes(MARKET), 'a span-scoped file stays in the scan set');
+      assert.deepEqual(
+        scanFile(sample, MARKET).map((f) => f.line),
+        [6],
+      );
+    });
+
+    test('9b: the same text under another path yields every finding', () => {
+      assert.deepEqual(
+        scanFile(sample, 'x.json').map((f) => f.line),
+        [2, 3, 5, 6],
+      );
+    });
+
+    test('9c: masking keeps the text length and its line breaks', () => {
+      const masked = maskAllowedSpans(sample, MARKET);
+      assert.equal(masked.length, sample.length);
+      assert.equal(masked.split('\n').length, sample.split('\n').length);
     });
   });
 });

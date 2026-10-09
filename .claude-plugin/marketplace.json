@@ -20,6 +20,17 @@
       "category": "development"
     },
     {
+      "name": "devflow",
+      "description": "DevFlow is now AOForge: install aoforge@aocyber. This final release forwards /devflow: commands and is removed in the next release.",
+      "version": "3.0.0",
+      "author": {
+        "name": "AO Cyber Systems",
+        "email": "dev@aocodex.ai"
+      },
+      "source": "./plugins/devflow",
+      "category": "development"
+    },
+    {
       "name": "social-media-generator",
       "description": "Generate social media images and videos using HTML/CSS templates with AI-generated imagery. Supports AOSentry Media, Replicate MCP, or CSS-only fallback.",
       "version": "1.3.0",
