@@ -10,6 +10,8 @@
 // 11c. PRESERVE tokens survive, in every case, beside a renamed name on the same line.
 // 11d. The planning directory is renamed only as a directory: `<legacy dir>/STATE.md` is, member access
 //      (`config<legacy dir>`) and a longer identifier (`<legacy dir>Dir`) are not.
+// 11d2. `{ planningDir: false }` leaves the planning directory alone and still maps every other name;
+//      hasLegacyNames honours the same option.
 // 11e. hasLegacyNames: true with a legacy name, false for AOForge-only text and for preserved tokens.
 // 11f. Idempotent: a rewritten text rewrites to itself; a text with no legacy name is returned as is.
 // 11g. unifiedDiff marks changed lines: `---`/`+++` headers, an `@@` hunk header, `-old` then `+new`,
@@ -75,6 +77,16 @@ test('11d: the planning directory is renamed only as a directory', () => {
   assert.equal(rewriteLegacyNames('config.planning = 1'), 'config.planning = 1');
   assert.equal(rewriteLegacyNames('opts.planningDir'), 'opts.planningDir');
   assert.equal(rewriteLegacyNames('the planning phase'), 'the planning phase');
+});
+
+test('11d2: { planningDir: false } keeps the planning directory and maps the rest', () => {
+  const src = 'DevFlow keeps `.planning/STATE.md`; run /devflow:quick.';
+  assert.equal(
+    rewriteLegacyNames(src, { planningDir: false }),
+    'AOForge keeps `.planning/STATE.md`; run /aoforge:quick.',
+  );
+  assert.equal(hasLegacyNames('`.planning/STATE.md`', { planningDir: false }), false);
+  assert.equal(hasLegacyNames('`.planning/STATE.md`'), true);
 });
 
 test('11e: hasLegacyNames', () => {

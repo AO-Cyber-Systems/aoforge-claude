@@ -11,6 +11,10 @@
 //      body is rewritten, the markers stay.
 //  9c. dryRun: apply reports ['CLAUDE.md'] and writes nothing; a second detect after a real apply does
 //      not apply (idempotent).
+//  9d. A project still on the legacy planning directory (0012 deferred the move): the markers, product,
+//      slash namespace and CLI are rewritten but the block keeps naming the directory the project really
+//      uses; detect then does not apply. Once the directory has moved, 0014 applies again and rewrites
+//      the planning-directory path too.
 // 10.  Not applicable: AOFORGE markers with no legacy name in the body (even with the legacy product in
 //      the intro); no CLAUDE.md; a CLAUDE.md with no block; two blocks (reason names "multiple").
 // 10b. Contract: id '0014', safety 'auto', since '3.0.0', and the registry loads it.
@@ -75,6 +79,24 @@ test('9c: dryRun writes nothing; after a real apply the migration no longer appl
   m0014.apply(ctx(root));
   const det = m0014.detect(ctx(root));
   assert.equal(det.applies, false, det.reason);
+});
+
+test('9d: while the project still uses the legacy planning directory, the block keeps naming it', (t) => {
+  const root = project(t, fx.projectClaudeMd());
+  fs.mkdirSync(path.join(root, '.planning'));
+
+  assert.equal(m0014.detect(ctx(root)).applies, true);
+  m0014.apply(ctx(root));
+  const partial = readClaude(root);
+  const expectedPartial = fx.projectClaudeMd({ legacyBlock: false }).replace('`.aoforge/STATE.md`', '`.planning/STATE.md`');
+  assert.equal(partial, expectedPartial);
+  const det = m0014.detect(ctx(root));
+  assert.equal(det.applies, false, det.reason);
+
+  fs.renameSync(path.join(root, '.planning'), path.join(root, '.aoforge'));
+  assert.equal(m0014.detect(ctx(root)).applies, true, 'the moved directory is not picked up');
+  m0014.apply(ctx(root));
+  assert.equal(readClaude(root), fx.projectClaudeMd({ legacyBlock: false }));
 });
 
 test('10: not applicable without legacy markers or names in the block, or without a usable block', (t) => {
