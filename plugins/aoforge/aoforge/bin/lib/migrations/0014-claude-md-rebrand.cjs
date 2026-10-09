@@ -12,6 +12,10 @@
 // Text outside the block is hand-written and is never touched, even where it names the old product.
 // A CLAUDE.md with no block, or with a malformed one (two blocks, a START with no END), is left alone.
 //
+// While the project still lives in the legacy planning directory (0012 deferred the move: a dirty tree,
+// a merge in progress), the block keeps naming that directory, so it never points at one that does not
+// exist; everything else is rewritten. Once the directory has moved, 0014 applies again for the path.
+//
 // Ordering: 0005 (Development Rules) and 0007 (stale command references) run first and may already
 // have restamped the markers or mapped the slash commands; 0014's rewrite is idempotent over what they
 // leave. This module spells no legacy name: every form comes from legacy-names.cjs.
@@ -21,6 +25,7 @@ const path = require('path');
 const managedBlock = require('../managed-block.cjs');
 const { rewriteLegacyNames, diffLines } = require('../legacy-rewrite.cjs');
 const { NAMES } = require('../legacy-names.cjs');
+const { isLegacyPlanning } = require('../compat.cjs');
 
 const CLAUDE_REL = 'CLAUDE.md';
 
@@ -46,10 +51,12 @@ function plan(projectRoot) {
   }
   if (!block) return { applies: false, reason: `no managed block in ${CLAUDE_REL} (0014 never adds one)` };
 
+  const legacyLayout = isLegacyPlanning(projectRoot);
   const region = text.slice(block.start, block.end);
-  const nextRegion = rewriteLegacyNames(region);
+  const nextRegion = rewriteLegacyNames(region, { planningDir: !legacyLayout });
   if (nextRegion === region) {
-    return { applies: false, reason: `${CLAUDE_REL} block already uses the ${NAMES.product} markers and names` };
+    const wait = legacyLayout ? ' (it keeps the legacy planning directory name until that directory moves)' : '';
+    return { applies: false, reason: `${CLAUDE_REL} block already uses the ${NAMES.product} markers and names${wait}` };
   }
 
   const next = text.slice(0, block.start) + nextRegion + text.slice(block.end);

@@ -83,21 +83,27 @@ const PRESERVE_RE = new RegExp(
 const PLACEHOLDER_RE = /\u0000P(\d+)\u0000/g;
 
 /**
- * rewriteLegacyNames(text) -> text with every legacy name mapped to its AOForge form. Bytes that hold no
- * legacy name (line endings, whitespace, PRESERVE tokens) are unchanged.
+ * rewriteLegacyNames(text, { planningDir = true }) -> text with every legacy name mapped to its AOForge
+ * form. Bytes that hold no legacy name (line endings, whitespace, PRESERVE tokens) are unchanged.
+ *
+ * `planningDir: false` leaves the planning directory name alone: for a project that still lives in the
+ * legacy directory (its move was deferred), so the text keeps naming the directory that exists.
  */
-function rewriteLegacyNames(text) {
+function rewriteLegacyNames(text, { planningDir = true } = {}) {
   if (typeof text !== 'string') throw new TypeError('rewriteLegacyNames: text must be a string');
   const saved = [];
   let out = text.replace(PRESERVE_RE, (m) => `\u0000P${saved.push(m) - 1}\u0000`);
   out = out.replace(ARTICLE_RE, (_, a) => `${a}n `);
-  for (const rule of RULES) out = out.replace(rule.re, rule.to);
+  for (const rule of RULES) {
+    if (!planningDir && rule.id === 'planningDir') continue;
+    out = out.replace(rule.re, rule.to);
+  }
   return out.replace(PLACEHOLDER_RE, (_, i) => saved[Number(i)]);
 }
 
-/** True when `text` holds a legacy name that rewriteLegacyNames would map. */
-function hasLegacyNames(text) {
-  return rewriteLegacyNames(text) !== text;
+/** True when `text` holds a legacy name that rewriteLegacyNames(text, opts) would map. */
+function hasLegacyNames(text, opts) {
+  return rewriteLegacyNames(text, opts) !== text;
 }
 
 // ─── diff ─────────────────────────────────────────────────────────────────────
