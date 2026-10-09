@@ -180,12 +180,17 @@ No temp-dir flake occurred. PW-9 skipped (no pwsh on either machine), and its al
 
 **E2E1 (`roadmap-reconcile.test.cjs:1029`, "reconcile dry-run against this repo ROADMAP shows zero drift"): the known baseline, and a push blocker.** The drift is one `trd_summary_exists` item. `.planning/ROADMAP.md` line 299 is `- [ ] 72-19-repo-rename-push-and-pr-TRD.md` while `72-19-SUMMARY.md` exists. It is not caused by either fix. The checkpoint SUMMARY was first committed in 72bb78be, and at the pushed head 02da6829 it did not exist; E2E1 passed in CI run 37922745685. So the next push would fail CI's `test` gate on E2E1. That is an undeclared failure, and adding it to `.github/known-test-failures.json` would be wrong. ROADMAP.md was deliberately left unticked: running `roadmap update-job-progress 72` would mark 72-19 done before its checks are green, and the TRD is not complete. The user decides how E2E1 goes green before the push. See the Task 3 next step.
 
+### External push during the gap fix (not made by this run)
+
+The origin tracking ref's reflog shows `update by push` of 72bb78be at 2026-10-09 07:42:30 -0400. That was from this clone, before this run's first commit (08:08:55). This run issued no `git push`: its containers mounted the repo read-only, and its only `gh` calls were reads. PR #128's head is therefore 72bb78be, not 02da6829. Its CI run 37925406363 (git 2.55, fixture not yet fixed) is a FAILURE with `failures: 2`: PW-9 (licensed) and E2E1, the only undeclared failure. That confirms the E2E1 blocker above. In that run hook-coexistence passed (0 ENOENT lines), which fits an intermittent race rather than a deterministic Linux failure. `CodeQL` is still FAILURE on that head; 72bb78be has no code change.
+
 ### Gap fix commits (local, not pushed)
 
 | Hash | Message |
 |---|---|
 | 9f149c8b | fix(72-19): turn off git auto-maintenance in hook test template repos |
 | 17d02395 | test(72-19): escape the milestone version with the shared escapeRegExp in entryLines |
-| (this commit) | docs(72-19): record the gap fix for the red PR #128 checks |
+| 027312be | docs(72-19): record the gap fix for the red PR #128 checks |
+| (this commit) | docs(72-19): record the external push and the E2E1 failure on PR #128 |
 
 Not run: `state add-blocker` (the installed 2.15.0 runtime cannot find the `## Blockers / Concerns` heading; see Issues Encountered). No state, roadmap or requirements updates, because the TRD is not complete. No `## Self-Check`: 72-19 completes only after an approved push and green checks on PR #128.
