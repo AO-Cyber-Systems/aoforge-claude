@@ -16,7 +16,8 @@ tech-stack:
   added: []
   patterns: []
 key-files:
-  created: []
+  created:
+    - .aoforge/todos/pending/2026-10-09-make-roadmap-reconcile-treat-a-checkpoint-summary-no-self-check-as-incomplete.md
   modified: []
 decisions: []
 requirements-completed: []
@@ -28,8 +29,8 @@ metrics:
 
 ## Progress
 - [x] Task 1: Approval gate: move the checkout to ~/dev/aoforge-claude and restart there — e2782c2a
-- [x] Task 2: Carry the path-keyed state over and check the new location — (this commit)
-- [ ] Task 3: Approval gates (push, then PR) — next step: Gate 1 is presented to the user; on `approved` run `git -C /Users/justin/dev/aoforge-claude push origin feat/stack-profile-loader`, confirm `git rev-parse origin/feat/stack-profile-loader` equals the local head, then draft the PR body in the scratchpad and present Gate 2
+- [x] Task 2: Carry the path-keyed state over and check the new location — abc18a9f
+- [ ] Task 3: Approval gates (push, then PR) — Gate 1 (push) approved and pushed (11e98cf4..abc18a9f); next step: Gate 2 is presented to the user; on `approved` run `gh pr create --repo AO-Cyber-Systems/aoforge-claude --base main --head feat/stack-profile-loader --title "Post-release: AOForge dogfood (.aoforge move, docs, rollout records)" --body-file /private/tmp/claude-501/-Users-justin-dev-aoforge-claude/7904456b-55e6-4fc5-858f-b59289af1567/scratchpad/72-26-pr-body.md`, then `gh pr checks <N> --repo AO-Cyber-Systems/aoforge-claude --watch` and `gh pr view <N> --repo AO-Cyber-Systems/aoforge-claude --json state,baseRefName,headRefOid`
 
 ## Task 1: move (already done)
 
@@ -121,8 +122,38 @@ Commits before this one (newest first): e2782c2a, 4b1bc2d3, fa1155fc, 278ff7a1, 
 19ffaaa1, cc0e27a1, 06494e55, e355e010, 2c92f943, 701742cc, 67993188, ce0b4385, 1fa7fa40, 21ce1b5c, 4f0ed6b8,
 de827412, 9dd54b5e, 8582fce9.
 
-Gate 1 (push) was presented to the user. Nothing has been pushed and no PR has been opened. Any objective-completion
-commits made after this TRD (VERIFICATION, final state) are not in this push and will ride the next PR.
+### Gate 1 (push): approved
+
+- Reply: `approved`, the user's literal reply as relayed by the orchestrator. The executor did not receive it from
+  the user directly.
+- Command: `git -C /Users/justin/dev/aoforge-claude push origin feat/stack-profile-loader`. No force and no tags.
+  Output: `11e98cf4..abc18a9f  feat/stack-profile-loader -> feat/stack-profile-loader`, a fast-forward of 33 commits.
+- Verified: `git rev-parse origin/feat/stack-profile-loader` and `git ls-remote origin refs/heads/feat/stack-profile-loader`
+  both give abc18a9fc7db208fbbf060f3b59d425005f18c5a, which equals the local head at push time.
+- Branch CI: no run. The Unit suite and the agent shell harness trigger on `pull_request`, and the docs and test
+  workflows on pushes to `main`. `gh run list --branch feat/stack-profile-loader` shows only the older PR #128 runs
+  (11e98cf4: Unit suite, Agent shell harness and Docs site all succeeded).
+- Local `npm test` on abc18a9f: 11,961 passed, 2 failed, 35 skipped, out of 11,998.
+  - `misc-commit-gate.test.cjs` 5b is a flake: the afterEach `rmSync` hit ENOTEMPTY on its temp dir under parallel
+    load. `node --test` on that file alone passes 28/28.
+  - `roadmap-reconcile.test.cjs` E2E1 (the repository self-test) fails every time on this head. Run alone it still
+    fails, reporting `trd_summary_exists` drift for 72-26 because the checkpoint SUMMARY exists while ROADMAP shows
+    `- [ ]`. `roadmap-reconcile.cjs` ticks any SUMMARY that is not FAILED (`_checkSummaryFailed` returns false when
+    there is no Self-Check). The executor contract instead treats a SUMMARY with no Self-Check as a checkpoint.
+    That is a code defect, so it was filed as todo
+    `2026-10-09-make-roadmap-reconcile-treat-a-checkpoint-summary-no-self-check-as-incomplete` and not fixed in this
+    TRD. Consequence: a PR opened on abc18a9f will show a red Unit suite on E2E1 until a later push carries the
+    completed 72-26 (its ROADMAP tick).
+
+### Gate 2 (PR): presented
+
+The PR body is drafted at
+`/private/tmp/claude-501/-Users-justin-dev-aoforge-claude/7904456b-55e6-4fc5-858f-b59289af1567/scratchpad/72-26-pr-body.md`.
+No PR has been opened.
+
+This SUMMARY commit and every later 72-26 record come after the approved push, so they are local only. The
+objective-completion commits made after this TRD (VERIFICATION, final state) are not in this PR either. Both go in
+the next PR.
 
 ## Task Evidence
 
@@ -130,4 +161,5 @@ commits made after this TRD (VERIFICATION, final state) are not in this push and
 |---|---|---|---|
 | 1: move gate | `pwd -P` -> /Users/justin/dev/aoforge-claude; `ls -d /Users/justin/dev/devflow-claude` | 0 / 1 (absent, correct) | PASS (already done) |
 | 2: keyed state | `aof-tools validate health --raw` (0 errors, 3 expected W006, no W066/W067) | 0 | PASS |
-| 3: push/PR gates | pre-checks run; Gate 1 pending the user's reply | - | PENDING |
+| 3a: Gate 1 push | `git rev-parse origin/feat/stack-profile-loader` == abc18a9f (local head at push) | 0 | PASS |
+| 3b: Gate 2 PR | waiting on the user's reply | - | PENDING |
