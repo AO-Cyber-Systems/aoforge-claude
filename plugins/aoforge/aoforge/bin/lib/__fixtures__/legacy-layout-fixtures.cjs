@@ -7,6 +7,9 @@
  *   p.run(['state', 'load', '--raw']);                  // spawn aof-tools --cwd <root>, hermetic env
  *   p.cleanup();
  *
+ *   const w = worktreePair({ layout: 'legacy', marker: 'main' });  // TRD 72-06: main checkout + worktree,
+ *   w.worktree; w.markerPath; w.cleanup();                         // live skill marker where asked
+ *
  * Layouts:
  *   aoforge   only `.aoforge/` (the new default)
  *   legacy    only `.planning/` (the one-release fallback)
@@ -286,9 +289,107 @@ function planningProject({ layout = 'aoforge', git: withGit = true, files = {} }
   };
 }
 
+// ─── worktreePair (TRD 72-06) ─────────────────────────────────────────────────
+
+const MARKER_PLACES = Object.freeze(['main', 'local', 'none']);
+const MARKER_FILE = '.skill-active';
+const MARKER_TTL_MS = 8 * 60 * 60 * 1000;
+
+/** The marker payload, in the shape `aof-tools skill-active --start` writes (skill-active.cjs startSkill). */
+function markerText(nowMs = Date.now()) {
+  const payload = {
+    skill: 'execute-objective',
+    started_at: new Date(nowMs).toISOString(),
+    pid: process.pid,
+    expires_at: new Date(nowMs + MARKER_TTL_MS).toISOString(),
+  };
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+/**
+ * The planning directory a tree resolves to, by name only (no compat import: the fixture spells the map
+ * itself, so a resolver bug cannot hide in the fixture): the new one when present, else the legacy one.
+ */
+function resolvedPlanningDir(root) {
+  for (const name of [NAMES.planningDir, LEGACY.planningDir]) {
+    const p = path.join(root, name);
+    if (fs.existsSync(p) && fs.statSync(p).isDirectory()) return p;
+  }
+  return null;
+}
+
+/**
+ * A main checkout in `layout` (a git planningProject) plus a linked worktree of it on a new branch, with a
+ * live skill marker in the main checkout's planning directory (`main`), the worktree's (`local`), or nowhere
+ * (`none`).
+ *
+ * The marker file is listed in the repository's `info/exclude` (shared by every worktree), the way the
+ * upgrade hook excludes its runtime notices file, so neither checkout reports it as untracked. A worktree
+ * checks out the tracked planning files only: the marker in the main checkout is invisible from the
+ * worktree's own planning directory, exactly as with the real gitignored marker.
+ *
+ * @param {object} [opts]
+ * @param {'aoforge'|'legacy'|'both'|'none'} [opts.layout='aoforge']
+ * @param {'main'|'local'|'none'} [opts.marker='main']
+ * @returns {{ main: string, worktree: string, home: string, env: object, layout: string, marker: string,
+ *             markerPath: string|null, mainDir: string|null, worktreeDir: string|null, cleanup: function(): void }}
+ */
+function worktreePair({ layout = 'aoforge', marker = 'main' } = {}) {
+  if (!MARKER_PLACES.includes(marker)) {
+    throw new Error(`worktreePair: unknown marker ${JSON.stringify(marker)} (expected one of ${MARKER_PLACES.join(', ')})`);
+  }
+  if (layout === 'none' && marker !== 'none') {
+    throw new Error('worktreePair: layout none has no planning directory to hold a marker');
+  }
+  const project = planningProject({ layout, git: true });
+  const base = path.dirname(project.root);
+  const main = project.root;
+  const worktree = path.join(base, 'wt');
+  try {
+    project.git(['worktree', 'add', '-q', '-b', 'wt-branch', worktree]);
+
+    const mainDir = resolvedPlanningDir(main);
+    const worktreeDir = resolvedPlanningDir(worktree);
+
+    let markerPath = null;
+    if (marker !== 'none') {
+      const dir = marker === 'main' ? mainDir : worktreeDir;
+      const excludeRel = project.git(['rev-parse', '--git-common-dir']).trim();
+      const exclude = path.resolve(main, excludeRel, 'info', 'exclude');
+      fs.mkdirSync(path.dirname(exclude), { recursive: true });
+      const line = `/${path.basename(dir)}/${MARKER_FILE}\n`;
+      const prior = fs.existsSync(exclude) ? fs.readFileSync(exclude, 'utf-8') : '';
+      fs.writeFileSync(exclude, prior + (prior && !prior.endsWith('\n') ? '\n' : '') + line);
+      markerPath = path.join(dir, MARKER_FILE);
+      fs.writeFileSync(markerPath, markerText());
+    }
+
+    return {
+      main,
+      worktree,
+      home: project.home,
+      tmp: project.tmp,
+      env: project.env,
+      layout,
+      marker,
+      markerPath,
+      mainDir,
+      worktreeDir,
+      git: (cwd, args) => git(cwd, project.env, args),
+      cleanup: project.cleanup,
+    };
+  } catch (e) {
+    project.cleanup();
+    throw e;
+  }
+}
+
 module.exports = {
   LAYOUTS,
+  MARKER_PLACES,
   CURRENT_STATUS,
   LEGACY_COPY_STATUS,
   planningProject,
+  worktreePair,
+  markerText,
 };
