@@ -11,6 +11,6 @@ requirements-completed: []
 **Checkpoint, not complete: the bash/zsh PTY wrapper is being moved to a private script file sourced with one input line.**
 
 ## Progress
-- [x] Task 1: RED, the gap 1 / gap 2 / Ctrl+C / comment regression tests against the current wrapper - (this commit)
-- [ ] Task 2: GREEN, ptyScript/sourceLine and the one-line script-file PTY dispatch - next step: add ptyScript/sourceLine and the history guard to plugins/aoforge/aoforge/bin/lib/wrappers/bash.cjs, then the script-file branch in ShellSession.dispatch
-- [ ] Task 3: the PTY daemon path end to end, and the full-suite gate
+- [x] Task 1: RED, the gap 1 / gap 2 / Ctrl+C / comment regression tests against the current wrapper - 96b5787a
+- [x] Task 2: GREEN, ptyScript/sourceLine and the one-line script-file PTY dispatch - (this commit)
+- [ ] Task 3: the PTY daemon path end to end, and the full-suite gate - next step: run node --test plugins/aoforge/aoforge/bin/handoff-e2e.test.cjs and record the MA-* outcomes, then npm test

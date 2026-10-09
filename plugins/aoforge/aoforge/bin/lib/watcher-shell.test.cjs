@@ -123,8 +123,9 @@ describe('watcher-shell — lifecycle', () => {
 //   PTY-1:  spawn() ready when node-pty available; throws clear error when not
 //   PTY-2:  dispatch('p-1', 'echo hello') -> { stdout: 'hello\n', exit_code: 0, status: 'done' }
 //   PTY-3:  dispatch('p-2', 'false')      -> { exit_code: 1, status: 'failed' }
-//   PTY-4:  dispatch('p-3', 'echo err 1>&2') -> { stdout: '', stderr: 'err\n' }
-//           (sentinel-protocol gives separate streams even though PTY merges them)
+//   PTY-4:  dispatch('p-3', 'echo err 1>&2') -> { stdout: 'err\n', stderr: '' }
+//           (objective 73: both fds are the terminal, so PTY mode no longer
+//           separates the streams; it did before, via temp-file redirection)
 //   PTY-5:  env preserved across two dispatches (export FOO=bar; echo $FOO -> 'bar\n')
 //   PTY-6:  multi-line stdout preserved (printf 'a\nb\nc\n' -> 'a\nb\nc\n')
 //   PTY-7:  dispatch sends command with carriage-return terminator
@@ -192,13 +193,17 @@ describe('watcher-shell — PTY mode (interactive:true)', () => {
       });
     });
 
-  test('PTY-4: dispatch("echo err 1>&2") captures stderr separately via sentinel protocol',
+  // Objective 73 changed this contract. Both fds are the terminal in PTY mode
+  // (gap 1: a command must see a tty on fd 1 AND fd 2), so stderr arrives with
+  // stdout and the parsed `stderr` is ''. Pipe mode still separates them
+  // ('echo to stderr is captured separately' above stays as it was).
+  test('PTY-4: dispatch("echo err 1>&2") in PTY mode: both fds are the terminal, stderr arrives with stdout',
     ptySkip,
     async () => {
       await withPTYSession({}, async (s) => {
         const r = await s.dispatch('p-3', 'echo err 1>&2');
-        assert.equal(r.stdout, '');
-        assert.equal(r.stderr, 'err\n');
+        assert.equal(r.stdout, 'err\n');
+        assert.equal(r.stderr, '');
         assert.equal(r.exit_code, 0);
       });
     });
@@ -232,11 +237,13 @@ describe('watcher-shell — PTY mode (interactive:true)', () => {
         const origWrite = session.proc.write.bind(session.proc);
         session.proc.write = (s) => { writeCalls.push(s); return origWrite(s); };
         await session.dispatch('p-6', 'echo hello');
-        // Find the dispatch write (contains '__DFW_BEGIN_p-6__').
-        const dispatchWrite = writeCalls.find((s) => s.includes('__DFW_BEGIN_p-6__'));
+        // Find the dispatch write. Since objective 73 the bash/zsh PTY dispatch
+        // sends one `. '<script file>'` line (the file is named after the id,
+        // so it holds 'p-6.sh'); the BEGIN sentinel lives inside the file now.
+        const dispatchWrite = writeCalls.find((s) => /^\. '.*p-6\.sh'/.test(s));
         assert.ok(dispatchWrite, 'dispatch write not found in captured writes');
-        // Lines must be separated by \r, NOT \n.
-        assert.ok(dispatchWrite.includes('\r'),
+        // The line must end in \r, NOT \n.
+        assert.ok(dispatchWrite.endsWith('\r'),
           'expected \\r line terminator in PTY-mode dispatch write');
         assert.ok(!dispatchWrite.includes('\n'),
           'expected NO \\n in PTY-mode dispatch write');

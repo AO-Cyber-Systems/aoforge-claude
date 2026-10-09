@@ -16,19 +16,50 @@
  *                        Used by unit tests and any caller that doesn't need
  *                        a real terminal.
  *
- * The sentinel-fenced output protocol is identical on both transports — the
- * dispatch wrapper writes a temp-file-redirected command and emits BEGIN /
- * DELIM / END markers around the captured stdout / stderr / exit-code:
+ * Both transports fence a command's output with BEGIN / DELIM / END sentinels
+ * (`sentinelMarkers(id)`); how the command is run differs.
  *
- *   __DFW_OUT=$(mktemp); __DFW_ERR=$(mktemp)
- *   { <cmd> ; } > $__DFW_OUT 2> $__DFW_ERR
- *   __DFW_RC=$?
- *   echo __DFW_BEGIN_<id>__
- *   cat $__DFW_OUT 2>/dev/null
- *   echo __DFW_DELIM_<id>__
- *   cat $__DFW_ERR 2>/dev/null
- *   echo __DFW_END_<id>__:$__DFW_RC
- *   rm -f $__DFW_OUT $__DFW_ERR
+ * 1. Replay protocol — pipe mode, and fish / powershell in either mode. The
+ *    dispatch wrapper writes a temp-file-redirected command and replays the
+ *    captured streams between the markers:
+ *
+ *      __DFW_OUT=$(mktemp); __DFW_ERR=$(mktemp)
+ *      { <cmd> ; } > $__DFW_OUT 2> $__DFW_ERR
+ *      __DFW_RC=$?
+ *      echo __DFW_BEGIN_<id>__
+ *      cat $__DFW_OUT 2>/dev/null
+ *      echo __DFW_DELIM_<id>__
+ *      cat $__DFW_ERR 2>/dev/null
+ *      echo __DFW_END_<id>__:$__DFW_RC
+ *      rm -f $__DFW_OUT $__DFW_ERR
+ *
+ *    Why temp files instead of `1>&2` mirroring of a stderr sentinel: when
+ *    bash's stderr is connected to a pipe (not a TTY), it block-buffers and the
+ *    END sentinel may never arrive in time, leaving captured stderr empty.
+ *    Routing through temp files + cat puts everything on the captured stream
+ *    where the sentinel parser is reliable. stdout and stderr stay separate.
+ *
+ * 2. In-band script protocol — bash / zsh in PTY mode (objective 73, TRD
+ *    73-01). On a PTY the replay protocol has three faults, all of which
+ *    objective 19 found live (19-05-mock-auth-e2e-SUMMARY.md, "Architectural
+ *    Findings"):
+ *
+ *      gap 1  the command's fds are regular files, so isatty() is false and a
+ *             TUI such as doctl's quits with "unknown terminal";
+ *      gap 2  every wrapper line is queued on the tty at once, so a command
+ *             that reads stdin consumes the next wrapper line as its answer
+ *             before the prompt detector can inject anything;
+ *      Ctrl+C the tty driver flushes the queued lines on SIGINT, END is never
+ *             printed and the dispatch runs to its 10-minute timeout.
+ *
+ *    So the wrapper (`ptyScript`) is written to a 0600 file in a 0700 directory
+ *    private to the session, and the shell is sent ONE line: `. '<file>'` + CR.
+ *    The script prints BEGIN, runs the command with stdout AND stderr still on
+ *    the terminal, then prints DELIM and END:<rc>. The output is read in band
+ *    between BEGIN and DELIM; the DELIM-END section is empty, so on this path
+ *    stderr arrives WITH stdout and the parsed `stderr` is ''. An INT trap held
+ *    for the whole script lets a Ctrl+C kill only the command. The file is
+ *    removed when the dispatch settles; kill() removes the directory.
  *
  * On PTY mode the line separator is `\r` (carriage return — PTY input
  * convention). On pipe mode it stays `\n`. `splitDispatchOutput` is
@@ -40,18 +71,13 @@
  * Once seen, we split the buffer by BEGIN/DELIM/END to recover stdout,
  * stderr, and exit code, then resolve.
  *
- * Why temp files instead of `1>&2` mirroring of a stderr sentinel: when
- * bash's stderr is connected to a pipe (not a TTY), it block-buffers and the
- * END sentinel may never arrive in time, leaving captured stderr empty.
- * Routing through temp files + cat puts everything on the captured stream
- * where the sentinel parser is reliable. (PTY mode merges stdout+stderr at
- * the OS layer anyway, so the temp-file separation is load-bearing on both
- * transports.)
- *
  * See 19-RESEARCH.md §2 "Sentinel protocol compatibility" for the full
  * design rationale.
  */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { spawn } = require('child_process');
 const { EventEmitter } = require('events');
 
@@ -76,6 +102,22 @@ function _loadPTY() {
 // about how long the shell takes to start — that guess is what this replaced.
 // It only bounds a shell that will never answer at all.
 const READY_TIMEOUT_MS = 10000;
+
+/**
+ * The three sentinel names that fence one dispatch's output. One function names
+ * them for dispatch(), for a wrapper's ptyScript and for anything that has to
+ * recognise them in the stream.
+ *
+ * @param {string} id — handoff id (/[A-Za-z0-9-]+/)
+ * @returns {{begin: string, delim: string, end: string}}
+ */
+function sentinelMarkers(id) {
+  return {
+    begin: `__DFW_BEGIN_${id}__`,
+    delim: `__DFW_DELIM_${id}__`,
+    end: `__DFW_END_${id}__`,
+  };
+}
 
 class ShellSessionClosed extends Error {
   constructor(msg) {
@@ -105,6 +147,10 @@ class ShellSession extends EventEmitter {
     this._stderrBuf = '';
     this._activeDispatch = null; // { id, beginRx, endRx, resolve, timeout }
     this._readyProbe = null;     // { token, resolve, abort, timer, settled } — PTY only
+    // TRD 73-01: private 0700 directory holding the per-dispatch script files of
+    // the in-band PTY protocol. Created on the first such dispatch, removed by
+    // kill() / on shell death. The path is kept after removal (it is only a name).
+    this._scriptDir = null;
     // TRD 19-02: external data listeners for token-passing prompt detection.
     // Daemon attaches a detector that scans the data stream for prompt
     // regexes and writes resolved secrets back to the shell. Both PTY mode
@@ -179,8 +225,9 @@ class ShellSession extends EventEmitter {
         throw new Error(`PTY spawn failed: ${e.message}`);
       }
       this._isPTY = true;
-      // PTYs merge stdout+stderr at the OS layer; the sentinel protocol's
-      // temp-file redirection inside the wrapped command separates them again.
+      // PTYs merge stdout+stderr at the OS layer. The replay protocol's temp-file
+      // redirection separated them again; the bash/zsh in-band script protocol
+      // (TRD 73-01) does not, and stderr then arrives with stdout.
       this.proc.onData((chunk) => {
         this._stdoutBuf += chunk;
         // TRD 19-02: feed external listeners (e.g. prompt detector) BEFORE
@@ -330,6 +377,7 @@ class ShellSession extends EventEmitter {
     if (this._activeDispatch && !this._activeDispatch.settled) {
       this._activeDispatch.settled = true;
       clearTimeout(this._activeDispatch.timer);
+      this._cleanupScript(this._activeDispatch);
       this._activeDispatch.resolve({
         stdout: '',
         stderr: '',
@@ -338,7 +386,37 @@ class ShellSession extends EventEmitter {
       });
       this._activeDispatch = null;
     }
+    // The session cannot dispatch again, so its private script directory has no
+    // further use whether or not anyone calls kill().
+    this._removeScriptDir();
     this.emit('closed');
+  }
+
+  /**
+   * Remove one dispatch's script file. Synchronous and never throws: it runs on
+   * every settle path (done, failed, timeout, shell_died, killed), several of
+   * them inside event callbacks.
+   */
+  _cleanupScript(d) {
+    if (!d || !d.scriptFile) return;
+    const file = d.scriptFile;
+    d.scriptFile = null;
+    try { fs.unlinkSync(file); } catch { /* already gone, or never written */ }
+  }
+
+  /** Remove the session's private script directory and anything left in it. Never throws. */
+  _removeScriptDir() {
+    if (!this._scriptDir) return;
+    try { fs.rmSync(this._scriptDir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+
+  /** Create (once) the private 0700 directory for per-dispatch script files. */
+  _ensureScriptDir() {
+    if (this._scriptDir && fs.existsSync(this._scriptDir)) return this._scriptDir;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aoforge-watch-'));
+    fs.chmodSync(dir, 0o700); // mkdtemp already creates 0700; be explicit, umask cannot widen it
+    this._scriptDir = dir;
+    return dir;
   }
 
   isAlive() {
@@ -369,6 +447,7 @@ class ShellSession extends EventEmitter {
     d.settled = true;
     clearTimeout(d.timer);
     this._activeDispatch = null;
+    this._cleanupScript(d);
     d.resolve({
       stdout,
       stderr,
@@ -392,12 +471,36 @@ class ShellSession extends EventEmitter {
       return Promise.reject(new Error('dispatch in progress'));
     }
     const timeoutMs = typeof opts.timeout_ms === 'number' ? opts.timeout_ms : 600000;
-    const begin = `__DFW_BEGIN_${id}__`;
-    const delim = `__DFW_DELIM_${id}__`;
-    const end = `__DFW_END_${id}__`;
+    const { begin, delim, end } = sentinelMarkers(id);
     const endRx = new RegExp(`${escapeRegExp(end)}:(-?\\d+)`);
 
     return new Promise((resolve) => {
+      // TRD 73-01: bash/zsh on a PTY run the command from a private script file
+      // (in-band protocol, see the header). Prepare it BEFORE arming the timer
+      // and registering the dispatch, so a failed write rejects this promise
+      // and leaves no half-registered dispatch behind.
+      const useScript = this._isPTY
+        && typeof this._wrapper.ptyScript === 'function'
+        && typeof this._wrapper.sourceLine === 'function';
+      let scriptFile = null;
+      if (useScript) {
+        const dir = this._ensureScriptDir();
+        // The id is documented as /[A-Za-z0-9-]+/; sanitize anyway so a stray
+        // separator can never walk the file out of the private directory.
+        scriptFile = path.join(dir, `${String(id).replace(/[^A-Za-z0-9._-]/g, '_')}.sh`);
+        try {
+          fs.writeFileSync(
+            scriptFile,
+            this._wrapper.ptyScript(cmd, { begin, delim, end }, { scriptPath: scriptFile }),
+            { mode: 0o600 },
+          );
+          fs.chmodSync(scriptFile, 0o600); // umask can only narrow the mode above; be explicit
+        } catch (e) {
+          try { fs.unlinkSync(scriptFile); } catch { /* nothing was written */ }
+          throw e; // rejects the dispatch promise
+        }
+      }
+
       const d = {
         id,
         begin,
@@ -407,6 +510,7 @@ class ShellSession extends EventEmitter {
         resolve,
         settled: false,
         timer: null,
+        scriptFile,
       };
       d.timer = setTimeout(() => {
         if (d.settled) return;
@@ -421,16 +525,26 @@ class ShellSession extends EventEmitter {
           try { this.proc.destroy(); } catch {}
         }
         this._closed = true;
+        // The shell is gone for good: drop this dispatch's script and the
+        // private directory with it.
+        this._cleanupScript(d);
+        this._removeScriptDir();
         resolve({ stdout: '', stderr: '', exit_code: -1, status: 'timeout' });
       }, timeoutMs);
       this._activeDispatch = d;
 
-      // TRD 20-05: per-shell wrapper generates wrappedLines (sentinel-fenced
-      // protocol; output shape is shell-agnostic). PTY input separator is
-      // always \r (PTY input convention); pipe mode uses wrapper.lineSep.
-      const wrappedLines = this._wrapper.wrapCommand(cmd, id);
-      const sep = this._isPTY ? '\r' : this._wrapper.lineSep;
-      this._writeRaw(wrappedLines.join(sep));
+      if (useScript) {
+        // ONE short line, so nothing the command reads from the tty can be a
+        // wrapper line (gap 2) and a Ctrl+C has no queued input to flush.
+        this._writeRaw(this._wrapper.sourceLine(scriptFile) + '\r');
+      } else {
+        // TRD 20-05: per-shell wrapper generates wrappedLines (sentinel-fenced
+        // replay protocol; output shape is shell-agnostic). PTY input separator
+        // is always \r (PTY input convention); pipe mode uses wrapper.lineSep.
+        const wrappedLines = this._wrapper.wrapCommand(cmd, id);
+        const sep = this._isPTY ? '\r' : this._wrapper.lineSep;
+        this._writeRaw(wrappedLines.join(sep));
+      }
       // In case markers already arrived (race-free).
       this._tryComplete();
     });
@@ -438,7 +552,12 @@ class ShellSession extends EventEmitter {
 
   async kill() {
     if (!this.proc) return;
-    if (this._closed) return;
+    if (this._closed) {
+      // Already closed (timeout, shell exit): the shell is gone but a script
+      // directory may still be on disk. kill() is idempotent, and so is this.
+      this._removeScriptDir();
+      return;
+    }
     this._closed = true;
     if (this._isPTY) {
       // node-pty: kill signal + destroy() which closes the read stream and
@@ -493,6 +612,7 @@ class ShellSession extends EventEmitter {
     if (this._activeDispatch && !this._activeDispatch.settled) {
       this._activeDispatch.settled = true;
       clearTimeout(this._activeDispatch.timer);
+      this._cleanupScript(this._activeDispatch);
       this._activeDispatch.resolve({
         stdout: '',
         stderr: '',
@@ -501,6 +621,7 @@ class ShellSession extends EventEmitter {
       });
       this._activeDispatch = null;
     }
+    this._removeScriptDir();
   }
 }
 
@@ -602,6 +723,7 @@ module.exports = {
   ShellSession,
   ShellSessionClosed,
   splitDispatchOutput,
+  sentinelMarkers,
   stripBracketedPaste,
   stripAnsi,
   UnsupportedShell,

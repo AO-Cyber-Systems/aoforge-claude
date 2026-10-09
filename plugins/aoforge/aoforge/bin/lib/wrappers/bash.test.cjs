@@ -189,6 +189,7 @@ describe('wrappers/bash.cjs — objective 73 PTY script', () => {
 describe('wrappers/bash.cjs — Group EX', () => {
   test('EX-2 module.exports keys are exactly the locked surface', () => {
     const keys = Object.keys(bash).sort();
-    assert.deepStrictEqual(keys, ['initLines', 'lineSep', 'shellArgs', 'shellName', 'wrapCommand']);
+    // ptyScript / sourceLine are the optional PTY-script pair (objective 73, TRD 73-01).
+    assert.deepStrictEqual(keys, ['initLines', 'lineSep', 'ptyScript', 'shellArgs', 'shellName', 'sourceLine', 'wrapCommand']);
   });
 });
