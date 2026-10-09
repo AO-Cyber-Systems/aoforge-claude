@@ -16,6 +16,9 @@
  * - Retry policy (47-07): `withRetryPolicy({maxRetries}, fn)` scopes the retry count for the duration of
  *   `fn`. A flush running inside a hook uses 0 so a secondary limit never sleeps for minutes. The policy
  *   is module state, never a key of `opts`: `opts` still goes to `spawnSync` untouched.
+ * - Limits (72-27): the output buffer (GH_MAX_BUFFER) and the timeouts (DEFAULT_TIMEOUT_MS, PAGINATE_TIMEOUT_MS)
+ *   are added at the spawn site only (`spawnOptions`), so a fake runner still sees the caller's `opts` untouched.
+ *   A call that overflows the buffer or outlives its timeout fails with a named ENOBUFS / ETIMEDOUT cause.
  *
  * Nothing in this module may spawn gh except through the runner below.
  */
@@ -36,26 +39,66 @@ const MAX_RETRY_MS = 900000;
 const WRITE_BUDGET_PER_RUN = 450;
 const MAX_PAGES = 100;
 const PER_PAGE = 100;
+// Every gh spawn's output buffer: `--paginate --slurp` returns every page in one spawn, and eden-biz's issue
+// list alone was over Node's 1 MiB default (72-25: `spawnSync gh ENOBUFS`).
+const GH_MAX_BUFFER = 256 * 1024 * 1024;
+// The timeout of a gh call that does not paginate: one request, one answer.
+const DEFAULT_TIMEOUT_MS = 30000;
+// The timeout of a `--paginate` call: it walks every page of a list in one spawn, which takes minutes on a large repository.
+const PAGINATE_TIMEOUT_MS = 300000;
+
+const MIB = 1024 * 1024;
 
 // ─── Runner seam ─────────────────────────────────────────────────────────────
 
+function isPaginated(args) {
+  return Array.isArray(args) && args.some((a) => String(a) === '--paginate');
+}
+
+/**
+ * The spawnSync options of one gh call: the buffer and the timeout for its kind, then the caller's `opts`,
+ * which win. The only place the limits are added, so every runner above this one sees `opts` as passed.
+ */
+function spawnOptions(args, opts = {}) {
+  return {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: isPaginated(args) ? PAGINATE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS,
+    maxBuffer: GH_MAX_BUFFER,
+    ...opts,
+  };
+}
+
+/** `256 MiB` for a whole number of MiB, else `<n> bytes`. */
+function describeBytes(n) {
+  return n >= MIB && n % MIB === 0 ? `${n / MIB} MiB` : `${n} bytes`;
+}
+
 /**
  * The default runner: the single spawn site. Never throws; a missing gh becomes
- * `{ok:false, status:null, stderr:'gh: command not found'}`.
+ * `{ok:false, status:null, stderr:'gh: command not found'}`. An overflowed buffer or a timeout returns a
+ * named cause and no stdout (what was read is a truncated answer).
  */
 function defaultRunGh(args, opts = {}) {
+  const o = spawnOptions(args, opts);
   let r;
   try {
-    r = spawnSync('gh', args, {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: 30000,
-      ...opts,
-    });
+    r = spawnSync('gh', args, o);
   } catch (err) {
     return { ok: false, status: null, stdout: '', stderr: String((err && err.message) || err) };
   }
   if (r.error) {
+    if (r.error.code === 'ENOBUFS') {
+      return {
+        ok: false,
+        status: null,
+        stdout: '',
+        stderr: `gh output exceeded the read buffer of ${describeBytes(o.maxBuffer)} (ENOBUFS)`,
+      };
+    }
+    if (r.error.code === 'ETIMEDOUT') {
+      return { ok: false, status: null, stdout: '', stderr: `gh timed out after ${o.timeout / 1000} s (ETIMEDOUT)` };
+    }
     const missing = r.error.code === 'ENOENT';
     return {
       ok: false,
@@ -451,8 +494,12 @@ module.exports = {
   MAX_RETRY_MS,
   WRITE_BUDGET_PER_RUN,
   MAX_PAGES,
+  GH_MAX_BUFFER,
+  DEFAULT_TIMEOUT_MS,
+  PAGINATE_TIMEOUT_MS,
   // seam (forwarding wrapper: later injections are visible to earlier importers)
   _runGh: (...a) => runGhImpl(...a),
+  _spawnOptions: spawnOptions,
   _setRunGh,
   _setSleep,
   _setNow,
