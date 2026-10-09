@@ -73,6 +73,7 @@ const trdBulk = require('./trd-bulk.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const client = require('./gh-client.cjs');
+const ghBody = require('./gh-body.cjs');
 const ghCache = require('./gh-cache.cjs');
 const ghComments = require('./gh-comments.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
@@ -632,8 +633,12 @@ const SUMMARY_FILE_RE = /^(\d+(?:\.\d+)?-\d+)(?:-.*)?-SUMMARY\.md$/;
 // VERIFICATION frontmatter `status:` -> the commit status state.
 const VERDICT_STATE = Object.freeze({ passed: 'success', gaps_found: 'failure', human_needed: 'pending' });
 
-/** The label `gh trd start` put on a TRD issue: `github.labels.in_progress`, else the default. */
-function inProgressLabel(main) {
+/**
+ * The labels `summary post` takes off a TRD issue: `github.labels.in_progress` when it is set, else the default and
+ * its legacy twin (TRD 72-11: a `trd start` run before the rebrand added the legacy form; the flusher removes only a
+ * label the issue carries, so asking for both costs nothing). `trd start` itself adds the AOForge form only.
+ */
+function inProgressLabels(main) {
   let configured = null;
   try {
     const gate = client.requireEnabled(main);
@@ -641,20 +646,21 @@ function inProgressLabel(main) {
   } catch {
     configured = null;
   }
-  return typeof configured === 'string' && configured.trim() !== '' ? configured.trim() : IN_PROGRESS_LABEL;
+  const label = typeof configured === 'string' && configured.trim() !== '' ? configured.trim() : IN_PROGRESS_LABEL;
+  return ghBody.labelForms(label, IN_PROGRESS_LABEL);
 }
 
 /**
- * A patch-issue taking `label` off the TRD issue, merged over a pending patch-issue on the same target (they
- * coalesce, latest payload wins). A pending `labels_add` of the same label is dropped: the flusher never removes a
+ * A patch-issue taking `labels` off the TRD issue, merged over a pending patch-issue on the same target (they
+ * coalesce, latest payload wins). A pending `labels_add` of one of them is dropped: the flusher never removes a
  * label the same op adds, so a `trd start` that was never flushed would otherwise win over the completion.
  */
-function removeLabelOp(main, id, label) {
+function removeLabelOp(main, id, labels) {
   const target = { id };
   const prior = pendingOp(main, 'patch-issue', target);
   const before = prior && prior.payload && typeof prior.payload === 'object' ? prior.payload : {};
-  const payload = { ...before, labels_remove: unique([...(before.labels_remove || []), label]) };
-  const added = (before.labels_add || []).filter((l) => l !== label);
+  const payload = { ...before, labels_remove: unique([...(before.labels_remove || []), ...labels]) };
+  const added = (before.labels_add || []).filter((l) => !labels.includes(l));
   if (added.length > 0) payload.labels_add = added;
   else delete payload.labels_add;
   return { kind: 'patch-issue', target, payload };
@@ -707,7 +713,7 @@ function summaryEnqueue(main, t, file, text, note) {
   }
   const ops = [
     { kind: 'upsert-comment', target: { id: t.id, kind: 'summary' }, payload: { mode: 'replace', text: payloadText } },
-    removeLabelOp(main, t.id, inProgressLabel(main)),
+    removeLabelOp(main, t.id, inProgressLabels(main)),
   ];
   const entry = prOnRecord(main, t.objective.id);
   if (entry && entry.merged_at) {

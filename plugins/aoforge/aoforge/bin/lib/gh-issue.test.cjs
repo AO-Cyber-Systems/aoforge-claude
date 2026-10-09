@@ -30,6 +30,7 @@ const {
   parseIssueUrl,
 } = issueLib;
 const { markerLine } = require('./gh-body.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -306,6 +307,10 @@ describe('ensureObjectiveMilestone', () => {
 const R2 = { id: '2', dir: '02-a', roadmapNumber: '2' };
 const R21 = { id: '2.1', dir: '02.1-b', roadmapNumber: '2.1' };
 const LABEL = 'aoforge:objective';
+// The default label's legacy twin, listed beside it by the scan for one release (TRD 72-11).
+const LEGACY_LABEL = `${LEGACY.markerNs}:objective`;
+// One scan = one `issue list` per label form.
+const SCAN_LISTS = 2;
 
 /** The body an AOForge-created issue carries: the marker line, then text. */
 const createBodyFor = (id) => `${markerLine(id)}\nManaged by AOForge.`;
@@ -368,8 +373,9 @@ describe('parseIssueUrl / verifyIssue / scanObjectiveIssues', () => {
     assert.deepEqual(scan.unmarked, [b]);
     assert.deepEqual(scan.titleById['3'], [b]);
     assert.strictEqual(scanObjectiveIssues(ctx), scan, 'the second call returns the cached scan');
-    assert.equal(listCalls().length, 1);
+    assert.equal(listCalls().length, SCAN_LISTS);
     assert.deepEqual(listCalls()[0], ['issue', 'list', '--repo', 'o/r', '--label', LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,title,body']);
+    assert.deepEqual(listCalls()[1], ['issue', 'list', '--repo', 'o/r', '--label', LEGACY_LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,title,body']);
   });
 
   it('scanObjectiveIssues reports a failed list instead of pretending nothing exists', () => {
@@ -461,7 +467,7 @@ describe('findOrCreateObjectiveIssue: the chain', () => {
     assert.equal(r2.needs_marker, false);
     assert.equal(r21.source, 'marker');
     assert.equal(r21.issue_number, b);
-    assert.equal(listCalls().length, 1, 'the scan runs once per run');
+    assert.equal(listCalls().length, SCAN_LISTS, 'the scan runs once per run');
   });
 
   it('12. an unmarked issue titled [Objective N] is found by title and flagged needs_marker', () => {
@@ -520,7 +526,7 @@ describe('findOrCreateObjectiveIssue: the chain', () => {
     assert.equal(r21.created, true);
     assert.equal(fake.issues[1].title, '[Objective 2.1] b');
     assert.equal(fake.issues[1].milestone, 'v1.3', 'no milestone: field, so the ROADMAP list answers');
-    assert.equal(listCalls().length, 1);
+    assert.equal(listCalls().length, SCAN_LISTS);
     assert.equal(callsMatching('label create').length, 1);
     assert.deepEqual(Object.keys(ctx.mapping.milestones).sort(), ['v1.3', 'v1.4']);
   });

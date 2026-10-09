@@ -30,6 +30,7 @@ const mappingLib = require('./gh-mapping.cjs');
 const comments = require('./gh-comments.cjs');
 const wikiLib = require('./gh-wiki.cjs');
 const bodyLib = require('./gh-body.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -41,6 +42,8 @@ const BRANCH = 'df/objective-07-store-demo';
 const TIP = `feed${'0'.repeat(36)}`;
 const PR_TITLE = '[Objective 7] Store demo';
 const IN_PROGRESS = 'aoforge:in-progress';
+// `summary post` removes the default label and its legacy twin (TRD 72-11); the flusher drops one the issue lacks.
+const IN_PROGRESS_FORMS = [IN_PROGRESS, `${LEGACY.markerNs}:in-progress`];
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
@@ -222,7 +225,7 @@ describe('49-11 summary post: label removal and PR refresh in one enqueue', () =
     const patch = opsOf('patch-issue', pending);
     assert.equal(patch.length, 1);
     assert.deepEqual(patch[0].target, { id: '7-01' });
-    assert.deepEqual(patch[0].payload, { labels_remove: [IN_PROGRESS] });
+    assert.deepEqual(patch[0].payload, { labels_remove: IN_PROGRESS_FORMS });
     const pr = opsOf('upsert-pr', pending);
     assert.equal(pr.length, 1);
     assert.deepEqual(pr[0].target, { id: '7' });
@@ -253,7 +256,7 @@ describe('49-11 summary post: label removal and PR refresh in one enqueue', () =
     assert.equal(r.ok, true, JSON.stringify(r));
     const patch = opsOf('patch-issue').filter((o) => o.target.id === '7-01');
     assert.equal(patch.length, 1, 'both land on one op (same kind and target)');
-    assert.deepEqual(patch[0].payload, { labels_remove: [IN_PROGRESS] });
+    assert.deepEqual(patch[0].payload, { labels_remove: IN_PROGRESS_FORMS });
     flushNow();
     assert.equal(trdIssue('7-01').labels.includes(IN_PROGRESS), false);
   });
@@ -300,7 +303,7 @@ describe('49-11 summary post: label removal and PR refresh in one enqueue', () =
     assert.equal(r.exit, 0, JSON.stringify(r));
     assert.equal(r.pr_refresh, undefined);
     assert.deepEqual(pendingOps().map((o) => o.kind).sort(), ['patch-issue', 'upsert-comment']);
-    assert.deepEqual(opsOf('patch-issue')[0].payload, { labels_remove: [IN_PROGRESS] });
+    assert.deepEqual(opsOf('patch-issue')[0].payload, { labels_remove: IN_PROGRESS_FORMS });
     flushNow();
     assert.deepEqual(trdIssue('7-01').labels, labels, 'a TRD that never had the label is left alone');
     assert.equal(S.fake.issues.some((i) => i.pr), false, 'no PR was created');

@@ -419,13 +419,19 @@ function ensureLabel(ctx, name) {
 
 const isEntityRole = (role) => typeof role === 'string' && Object.hasOwn(outbox.ENTITY_ROLES, role);
 
+/** The default label of a role: aoforge:trd, aoforge:decision, or ENTITY_ROLES[role].label. */
+function defaultLabelFor(role) {
+  if (isEntityRole(role)) return outbox.ENTITY_ROLES[role].label;
+  return role === 'decision' ? 'aoforge:decision' : 'aoforge:trd';
+}
+
 /** The scan label of a role: labels.<role> from config, else the default (aoforge:trd, ENTITY_ROLES[role].label). */
 function labelFor(ctx, role) {
   if (isEntityRole(role)) {
     const configured = ctx.labels[role];
-    return typeof configured === 'string' && configured !== '' ? configured : outbox.ENTITY_ROLES[role].label;
+    return typeof configured === 'string' && configured !== '' ? configured : defaultLabelFor(role);
   }
-  return role === 'decision' ? ctx.labels.decision || 'aoforge:decision' : ctx.labels.trd || 'aoforge:trd';
+  return (role === 'decision' ? ctx.labels.decision : ctx.labels.trd) || defaultLabelFor(role);
 }
 
 /** The issue type a role carries: Decision, TRD, Debug, Quick, or null for a todo (label only, never a type). */
@@ -452,17 +458,24 @@ function setMapped(ctx, id, role, patch) {
   else mappingLib.setTrd(ctx.mapping, id, { ...patch, role });
 }
 
-/** The issues carrying `label`, listed once per context and indexed by their `aoforge:id` marker. */
-function scanByLabel(ctx, label) {
+/**
+ * The issues carrying `label`, listed once per context and indexed by their `aoforge:id` marker. When `label` is the
+ * role's default, its legacy twin is listed too and merged by issue number (TRD 72-11), so an issue a repository not
+ * yet rebranded labelled the old way is found instead of created a second time. Cached under `label`.
+ */
+function scanByLabel(ctx, label, defaultLabel) {
   if (ctx.cache.scans.has(label)) return ctx.cache.scans.get(label);
-  const list = getList(`repos/${ctx.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
-  let scan;
-  if (!list.ok) {
-    scan = { ok: false, r: list.r };
-  } else {
-    const issues = list.items.filter((i) => i && !i.pull_request);
-    scan = { ok: true, ...bodyLib.indexByMarker(issues) };
+  const lists = [];
+  let scan = null;
+  for (const form of bodyLib.labelForms(label, defaultLabel)) {
+    const list = getList(`repos/${ctx.repo}/issues?labels=${encodeURIComponent(form)}&state=all`);
+    if (!list.ok) {
+      scan = { ok: false, r: list.r };
+      break;
+    }
+    lists.push(list.items.filter((i) => i && !i.pull_request));
   }
+  if (scan === null) scan = { ok: true, ...bodyLib.indexByMarker(bodyLib.unionByNumber(lists)) };
   ctx.cache.scans.set(label, scan);
   return scan;
 }
@@ -525,7 +538,7 @@ function handleUpsertIssue(ctx, op) {
   const entry = getMapped(ctx, id, role);
   let number = entry ? entry.issue_number : null;
   if (number === null) {
-    const scan = scanByLabel(ctx, labelFor(ctx, role));
+    const scan = scanByLabel(ctx, labelFor(ctx, role), defaultLabelFor(role));
     if (!scan.ok) return failFrom(scan.r, `scan ${labelFor(ctx, role)} issues`);
     if (Object.hasOwn(scan.duplicates, id)) {
       return failWith('error', `duplicate issues claim ${id}: ${scan.duplicates[id].map((n) => `#${n}`).join(', ')}; close all but one, then flush again`);

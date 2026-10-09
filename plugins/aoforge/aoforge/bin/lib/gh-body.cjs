@@ -10,7 +10,14 @@
  *
  * Pure module: no gh calls, no fs, no child_process, and no require of gh-mapping
  * (the id normaliser below is deliberately duplicated so this file has no
- * dependencies). Every function is deterministic.
+ * dependencies beyond the name map and the regex escape). Every function is deterministic.
+ *
+ * Namespaces (TRD 72-11, INST-03): every reader below also accepts the legacy marker namespace
+ * (LEGACY.markerNs in legacy-names.cjs), so a repository that has not been rebranded keeps syncing. Every
+ * writer emits the AOForge namespace only. A legacy begin/end pair is rewritten in the AOForge form when a
+ * merge writes that section and the body changes; a merge that changes nothing leaves it as it is, so no
+ * write ever happens only to rename a marker (that is `gh rebrand`, 72-16). The label helpers at the end give
+ * the legacy twin of a default label for the same release. All of it goes in SHIM_REMOVAL.
  *
  * Marker forms:
  *   issue body, line 1:   <!-- aoforge:id=46 -->
@@ -27,6 +34,15 @@
  *   ...AOForge-owned text...
  *   <!-- aoforge:end NAME -->
  */
+
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
+
+// The marker namespace as readers match it: the AOForge one or the legacy one (non-capturing, so no capture group
+// of any marker regex moves). Writers below spell the AOForge namespace only.
+const NS = `(?:${escapeRegExp(NAMES.markerNs)}|${escapeRegExp(LEGACY.markerNs)})`;
+// A first line written in the legacy namespace (withCommentMarker restamps it).
+const LEGACY_LINE_RE = new RegExp(`^\\s*<!--\\s*${escapeRegExp(LEGACY.markerNs)}:`);
 
 // Fixed order in which sections are emitted and appended.
 const SECTION_ORDER = ['summary', 'criteria', 'trds', 'footer'];
@@ -55,9 +71,9 @@ const ENTITY_ID_RE = new RegExp(`^${ENTITY_ID_SOURCE}$`);
 
 // Accepts `2.1`, `0`, `46`, the TRD form `46-02`, the Decision form `46-02-d1` and an entity id.
 const MARKER_SOURCE =
-  '<!--\\s*aoforge:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:-d[0-9]+)?)?|' + ENTITY_ID_SOURCE + ')(?:\\s+kind=([a-z-]+))?\\s*-->';
+  `<!--\\s*${NS}:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+(?:-d[0-9]+)?)?|` + ENTITY_ID_SOURCE + ')(?:\\s+kind=([a-z-]+))?\\s*-->';
 // The PR marker carries an OBJECTIVE id only (`49`, `2.1`): there is one PR per objective, never one per TRD.
-const PR_MARKER_SOURCE = '<!--\\s*aoforge:pr=([0-9]+(?:\\.[0-9]+)?)\\s*-->';
+const PR_MARKER_SOURCE = `<!--\\s*${NS}:pr=([0-9]+(?:\\.[0-9]+)?)\\s*-->`;
 const OBJECTIVE_ID_RE = /^\d+(?:\.\d+)?$/;
 const ID_RE = /^(\d+)((?:\.\d+)?)((?:-\d+(?:-d\d+)?)?)$/;
 const KIND_RE = /^[a-z-]+$/;
@@ -161,29 +177,37 @@ function findIssueMarker(text) {
   return scanMarkers(text).find((m) => m.kind === null) || null;
 }
 
-// The marker on the first line of `text` only (CRLF-safe), or null.
+// The marker on the first line of `text` only (CRLF-safe), or null. `legacy` is true for the legacy namespace.
 function firstLineMarker(text) {
   if (typeof text !== 'string') return null;
   const first = text.split('\n', 1)[0].replace(/\r$/, '');
   const m = new RegExp(`^\\s*${MARKER_SOURCE}\\s*$`).exec(first);
-  return m ? { id: canonicalId(m[1]), kind: m[2] || null } : null;
+  return m ? { id: canonicalId(m[1]), kind: m[2] || null, legacy: LEGACY_LINE_RE.test(first) } : null;
 }
 
 /**
  * withCommentMarker(id, kind, text) — prefix a comment body with its marker line.
  * A body that already opens with an aoforge marker for the same id is returned
- * unchanged (it is already stamped, whatever its kind).
+ * unchanged (it is already stamped, whatever its kind). One that opens with the
+ * legacy marker for the same id gets that line restamped in the AOForge form,
+ * keeping its kind, so a writer never sends the legacy namespace back.
  */
 function withCommentMarker(id, kind, text) {
   const marker = commentMarker(id, kind);
   const cid = canonicalId(id);
   const t = text === null || text === undefined ? '' : String(text);
   const existing = firstLineMarker(t);
-  if (existing && existing.id === cid) return t;
+  if (existing && existing.id === cid) {
+    if (!existing.legacy) return t;
+    const own = existing.kind === null ? markerLine(cid) : commentMarker(cid, existing.kind);
+    const nl = t.indexOf('\n');
+    if (nl === -1) return own;
+    return `${own}${t[nl - 1] === '\r' ? '\r' : ''}${t.slice(nl)}`;
+  }
   return t === '' ? marker : `${marker}\n${t}`;
 }
 
-const PART_LINE_RE = /^\s*<!--\s*aoforge:part=(\d+)\/(\d+)\s*-->\s*$/;
+const PART_LINE_RE = new RegExp(`^\\s*<!--\\s*${NS}:part=(\\d+)\\/(\\d+)\\s*-->\\s*$`);
 
 // `{ part, of }` from the line right after the marker line; 1 of 1 when it is absent or not a sane i/n.
 function readPart(body) {
@@ -376,31 +400,58 @@ const beginMarker = (name) => `<!-- aoforge:begin ${name} -->`;
 const endMarker = (name) => `<!-- aoforge:end ${name} -->`;
 const renderBlock = (name, content) => `${beginMarker(name)}\n${content}\n${endMarker(name)}`;
 
-// Matches any begin/end section marker, so section content cannot forge one.
-const SECTION_MARKER_RE = /<!--\s*aoforge:(?:begin|end)\b/;
+// The legacy pair as the pre-rename writer spelled it. Read only: found by findPair, rewritten by mergeManaged.
+const legacyBeginMarker = (name) => `<!-- ${LEGACY.markerNs}:begin ${name} -->`;
+const legacyEndMarker = (name) => `<!-- ${LEGACY.markerNs}:end ${name} -->`;
+const SECTION_FORMS = Object.freeze([
+  { begin: beginMarker, end: endMarker, legacy: false },
+  { begin: legacyBeginMarker, end: legacyEndMarker, legacy: true },
+]);
+
+// Matches any begin/end section marker in either namespace, so section content cannot forge one.
+const SECTION_MARKER_RE = new RegExp(`<!--\\s*${NS}:(?:begin|end)\\b`);
+
+// Any begin or end marker of `name` in either namespace (the malformed-section warning).
+const hasSectionMarker = (body, name) => SECTION_FORMS.some((f) => body.includes(f.begin(name)) || body.includes(f.end(name)));
 
 /**
- * findPair(body, name) — the first WELL-FORMED begin/end pair for `name`:
- * `{ innerStart, endIndex }`, or null when there is none.
+ * The first well-formed pair of one marker form: `{ start, innerStart, endIndex, stop }` (begin index, after
+ * begin, end index, after end), or null.
  *
  * indexOf-based on purpose. A begin is dangling when another begin of the same
  * name comes before the next end; such a begin is skipped, otherwise a stray
  * begin left by an earlier malformed merge would pair with the end of the fresh
  * section appended after it and a later merge would replace everything between.
  */
-function findPair(body, name) {
-  const begin = beginMarker(name);
-  const end = endMarker(name);
+function findPairOf(body, begin, end) {
   let b = body.indexOf(begin);
   while (b !== -1) {
     const innerStart = b + begin.length;
     const e = body.indexOf(end, innerStart);
     if (e === -1) return null; // nothing closes this begin, nor any later one
     const nextBegin = body.indexOf(begin, innerStart);
-    if (nextBegin === -1 || nextBegin > e) return { innerStart, endIndex: e };
+    if (nextBegin === -1 || nextBegin > e) return { start: b, innerStart, endIndex: e, stop: e + end.length };
     b = nextBegin; // dangling begin: another opens before this one closes
   }
   return null;
+}
+
+/**
+ * findPair(body, name) — the first WELL-FORMED begin/end pair for `name` in either namespace (a pair never mixes
+ * them): `{ start, innerStart, endIndex, stop, legacy }`, or null when there is none. The pair that opens first wins.
+ */
+function findPair(body, name) {
+  let best = null;
+  for (const form of SECTION_FORMS) {
+    const pair = findPairOf(body, form.begin(name), form.end(name));
+    if (pair && (best === null || pair.start < best.start)) best = { ...pair, legacy: form.legacy };
+  }
+  return best;
+}
+
+// `body` with the legacy pair `pair` of `name` re-spelled in the AOForge form; its inner text is kept byte for byte.
+function respellPair(body, name, pair) {
+  return `${body.slice(0, pair.start)}${beginMarker(name)}${body.slice(pair.innerStart, pair.endIndex)}${endMarker(name)}${body.slice(pair.stop)}`;
 }
 
 // Append a fresh block after `body`, separated by exactly one blank line. The
@@ -505,6 +556,7 @@ function mergeManaged(existingBody, sections, id, opts = {}) {
       };
     }
     merged = found ? norm : `${isPr ? prMarker(cid) : markerLine(cid)}\n${norm}`;
+    const keptLegacy = [];
     for (const name of provided) {
       let content = sections[name];
       const pair = findPair(merged, name);
@@ -512,12 +564,25 @@ function mergeManaged(existingBody, sections, id, opts = {}) {
         if (preserveTicks && name === 'criteria') {
           content = keepTicks(merged.slice(pair.innerStart, pair.endIndex), content);
         }
-        merged = `${merged.slice(0, pair.innerStart)}\n${content}\n${merged.slice(pair.endIndex)}`;
+        if (!pair.legacy) {
+          merged = `${merged.slice(0, pair.innerStart)}\n${content}\n${merged.slice(pair.endIndex)}`;
+        } else if (merged.slice(pair.innerStart, pair.endIndex) === `\n${content}\n`) {
+          keptLegacy.push(name); // same content: left alone unless something else changes the body
+        } else {
+          merged = `${merged.slice(0, pair.start)}${renderBlock(name, content)}${merged.slice(pair.stop)}`;
+        }
       } else {
-        if (merged.includes(beginMarker(name)) || merged.includes(endMarker(name))) {
+        if (hasSectionMarker(merged, name)) {
           warnings.push(`malformed section ${name}`);
         }
         merged = appendBlock(merged, name, content);
+      }
+    }
+    // The body is written anyway: a written section whose legacy pair was kept for its content is re-spelled too.
+    if (merged !== norm) {
+      for (const name of keptLegacy) {
+        const pair = findPair(merged, name);
+        if (pair && pair.legacy) merged = respellPair(merged, name, pair);
       }
     }
   }
@@ -584,7 +649,7 @@ function extractSection(body, name) {
 // starts alphanumeric, then [A-Za-z0-9._-], and no `..` anywhere.
 const SAFE_DIR_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const isSafeDir = (dir) => typeof dir === 'string' && SAFE_DIR_RE.test(dir) && !dir.includes('..');
-const DIR_MARKER_RE = /<!--\s*aoforge:dir=(\S+?)\s*-->/;
+const DIR_MARKER_RE = new RegExp(`<!--\\s*${NS}:dir=(\\S+?)\\s*-->`);
 const SAFE_PAGE_RE = /^[^\s[\]()<>`|]+$/;
 const SAFE_URL_RE = /^https?:\/\/[^\s()<>`]+$/;
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
@@ -726,7 +791,51 @@ function buildPrBody(args) {
   return r.body;
 }
 
+// ─── Label namespace (TRD 72-11) ─────────────────────────────────────────────
+//
+// A default label is `<markerNs>:<kind>` (`aoforge:objective`). Until a repository is rebranded its issues carry the
+// legacy twin, so a lookup by a DEFAULT label lists both and merges the results by issue number. A label set in
+// `github.labels.*` that is not the default is used as configured, alone. Writers keep adding the AOForge form.
+
+const LABEL_PREFIX = `${NAMES.markerNs}:`;
+const LEGACY_LABEL_PREFIX = `${LEGACY.markerNs}:`;
+
+/** legacyLabel(label) — the legacy twin of an AOForge-namespace label (`aoforge:trd` -> the legacy `:trd`), else null. */
+function legacyLabel(label) {
+  if (typeof label !== 'string' || !label.startsWith(LABEL_PREFIX) || label.length === LABEL_PREFIX.length) return null;
+  return LEGACY_LABEL_PREFIX + label.slice(LABEL_PREFIX.length);
+}
+
+/**
+ * labelForms(label, defaultLabel) — the labels a lookup lists: `[label, its legacy twin]` when `label` is the default
+ * for its role, else `[label]` (a configured label is used as configured).
+ */
+function labelForms(label, defaultLabel) {
+  const twin = label === defaultLabel ? legacyLabel(label) : null;
+  return twin === null ? [label] : [label, twin];
+}
+
+/** unionByNumber(lists) — the items of every list, each issue number once (the first occurrence wins), list order kept. */
+function unionByNumber(lists) {
+  const seen = new Set();
+  const out = [];
+  for (const list of Array.isArray(lists) ? lists : []) {
+    for (const item of Array.isArray(list) ? list : []) {
+      const n = item && typeof item === 'object' ? item.number : undefined;
+      if (Number.isInteger(n)) {
+        if (seen.has(n)) continue;
+        seen.add(n);
+      }
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 module.exports = {
+  legacyLabel,
+  labelForms,
+  unionByNumber,
   ENTITY_ID_SOURCE,
   SECTION_ORDER,
   OPTIONAL_SECTIONS,

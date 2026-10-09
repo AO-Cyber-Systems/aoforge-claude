@@ -359,6 +359,8 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     fs.copyFileSync(path.join(EVENTS, `${name}.json`), file);
     return file;
   };
+  // The AOForge statuses on `sha`. Each verdict is also posted under its legacy twin for one release (TRD 72-11).
+  const own = (sha) => (fake.statuses[sha] || []).filter((x) => x.context.startsWith('aoforge/'));
   const runnerEnv = (file) => ({
     GITHUB_EVENT_PATH: file,
     GITHUB_EVENT_NAME: 'pull_request',
@@ -371,7 +373,8 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     const r = checkCli.main({ argv: ['linked-issue'], env: runnerEnv(eventFile('pull_request-no-closes')) });
     assert.equal(r.code, 1);
     assert.equal(r.state, 'failure');
-    const posted = fake.statuses['2'.repeat(40)];
+    assert.equal(fake.statuses['2'.repeat(40)].length, 2, 'the AOForge context and its legacy twin');
+    const posted = own('2'.repeat(40));
     assert.equal(posted.length, 1);
     assert.equal(posted[0].state, 'failure');
     assert.equal(posted[0].context, 'aoforge/linked-issue');
@@ -384,7 +387,7 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     const r = checkCli.main({ argv: ['linked-issue'], env: runnerEnv(eventFile('pull_request-closes')) });
     assert.equal(r.code, 0, r.description);
     assert.equal(r.state, 'success');
-    const posted = fake.statuses['1'.repeat(40)];
+    const posted = own('1'.repeat(40));
     assert.equal(posted.length, 1);
     assert.equal(posted[0].state, 'success');
     assert.equal(posted[0].context, 'aoforge/linked-issue');
@@ -392,7 +395,7 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
 
   test('6c. run as the script Actions runs, the exit code is the verdict (gh answered by the PATH shim)', () => {
     const shim = installGhShim({ dir: path.join(dir, 'shim'), defaultCode: 1 });
-    // The reads and the one status POST a "no closing reference" PR makes; the shim does not read stdin.
+    // The reads and the status POSTs a "no closing reference" PR makes; the shim does not read stdin.
     shim.setTable({
       'api --paginate --slurp repos/o/r/pulls/124/commits': { code: 0, stdout: '[[]]' },
       'api --method POST repos/o/r/statuses/': { code: 0, stdout: '{}' },
@@ -403,8 +406,8 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     assert.match(r.stderr, /failure: /, 'a failure is reported on stderr');
 
     const posts = shim.readCalls().filter((c) => c.includes('POST'));
-    assert.equal(posts.length, 1, 'exactly one status was posted');
-    assert.equal(posts[0][posts[0].indexOf('POST') + 1], `repos/o/r/statuses/${'2'.repeat(40)}`);
+    assert.equal(posts.length, 2, 'one status per context namespace, AOForge then legacy (TRD 72-11)');
+    for (const post of posts) assert.equal(post[post.indexOf('POST') + 1], `repos/o/r/statuses/${'2'.repeat(40)}`);
   });
 });
 

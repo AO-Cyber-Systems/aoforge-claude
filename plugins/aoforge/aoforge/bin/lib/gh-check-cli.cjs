@@ -8,7 +8,9 @@
  *   node gh-check-cli.cjs reconcile              closes what a merged PR left open; posts no status
  *
  * It reads the event (`GITHUB_EVENT_PATH`), fetches what the pure checks in gh-check.cjs need through
- * gh-client, and posts the verdict as a COMMIT STATUS with the exact required context. This settles research
+ * gh-client, and posts the verdict as a COMMIT STATUS with the exact required context. For one release (TRD 72-11)
+ * every status is posted twice, under the AOForge context and then under its legacy twin, so a ruleset created before
+ * 3.0.0 keeps passing until `gh rebrand` switches it; two POSTs per check run are well inside the statuses budget. This settles research
  * Open Question 2 on the AOForge side: a ruleset's required-status rule matches a status context by name,
  * whatever the job or workflow is called, so nesting through `workflow_call` (`<caller job> / <called job>`)
  * cannot break the match the way it can for a check run named after a job. The job also exits non-zero on a
@@ -37,7 +39,8 @@
  *                         under it through gh-hierarchy.linkedNumbers (sub-issues, or the `trds` task list without that API).
  *   reconcile             only a MERGED pull_request into the default branch: reconcilePlan over the closing targets and the
  *                         linked TRDs; each still open gets `PATCH issues/{n} {state: closed, state_reason: completed}`, then
- *                         ONE comment on the PR (`<!-- aoforge:reconcile -->`, skipped when nothing was closed). A close that
+ *                         ONE comment on the PR (`<!-- aoforge:reconcile -->`, skipped when nothing was closed; one already
+ *                         there, in either marker namespace, is edited in place with the new lines appended). A close that
  *                         fails is listed and exits 1; a comment that fails is noted only. Project status is left to the
  *                         GitHub Projects "Item closed" workflow (GITHUB_TOKEN cannot reach Projects v2).
  *
@@ -57,6 +60,8 @@ const client = require('./gh-client.cjs');
 const check = require('./gh-check.cjs');
 const ghBody = require('./gh-body.cjs');
 const { PLANNING_DIR_NAMES } = require('./compat.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const { CONTEXTS } = check;
 
@@ -150,15 +155,28 @@ function targetUrl(repo, env) {
   return server && run && repo ? `${server}/${repo}/actions/runs/${run}` : null;
 }
 
-/** POST one commit status on `ctx.sha` under `ctx.context`. Thrown on failure. */
+// The context namespaces a status is posted under, in order. The legacy one is removed in the release after 3.0.0
+// (legacy-names.cjs SHIM_REMOVAL), once `gh rebrand` (72-16) has switched the rulesets that require it.
+const CONTEXT_NAMESPACES = Object.freeze([NAMES.checkContextNs, LEGACY.checkContextNs]);
+
+/** `aoforge/<check>` -> the same check under every namespace; any other context is posted as given, once. */
+function statusContexts(context) {
+  if (typeof context !== 'string' || !context.startsWith(NAMES.checkContextNs)) return [context];
+  const check = context.slice(NAMES.checkContextNs.length);
+  return CONTEXT_NAMESPACES.map((ns) => `${ns}${check}`);
+}
+
+/** POST one commit status on `ctx.sha` under each of `ctx.context`'s namespaces, AOForge first. Thrown on failure. */
 function postStatus(ctx, state, description) {
-  const body = { state, context: ctx.context, description: clip(description, DESCRIPTION_MAX) };
   const url = targetUrl(ctx.repo, ctx.env);
-  if (url) body.target_url = url;
-  const r = client.ghWrite(['api', '--method', 'POST', `repos/${ctx.repo}/statuses/${ctx.sha}`, '--input', '-'], {
-    input: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error(`could not post ${ctx.context} on ${String(ctx.sha).slice(0, 7)}: ${why(r)}`);
+  for (const context of statusContexts(ctx.context)) {
+    const body = { state, context, description: clip(description, DESCRIPTION_MAX) };
+    if (url) body.target_url = url;
+    const r = client.ghWrite(['api', '--method', 'POST', `repos/${ctx.repo}/statuses/${ctx.sha}`, '--input', '-'], {
+      input: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error(`could not post ${context} on ${String(ctx.sha).slice(0, 7)}: ${why(r)}`);
+  }
 }
 
 /** Post the verdict of a pure check and turn it into the runner's result. */
@@ -297,12 +315,17 @@ function findObjectiveIssue(repo, pr, issues, config) {
 
   const configured = config && config.github && config.github.labels && config.github.labels.objective;
   const label = typeof configured === 'string' && configured !== '' ? configured : DEFAULT_OBJECTIVE_LABEL;
-  const listed = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
-  if (!listed.ok) {
-    if (isNotFound(listed)) return null;
-    throw new Error(`could not list the ${label} issues of ${repo}: ${why(listed)}`);
+  // The default label, then its legacy twin (TRD 72-11): a repository not yet rebranded labels its objectives that way.
+  for (const form of ghBody.labelForms(label, DEFAULT_OBJECTIVE_LABEL)) {
+    const listed = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(form)}&state=all`);
+    if (!listed.ok) {
+      if (isNotFound(listed)) continue;
+      throw new Error(`could not list the ${form} issues of ${repo}: ${why(listed)}`);
+    }
+    const found = listed.items.find(isObjective);
+    if (found) return found;
   }
-  return listed.items.find(isObjective) || null;
+  return null;
 }
 
 /** The issue numbers linked under an objective issue: sub-issues, or its `trds` task list without the sub-issues API. */
@@ -334,6 +357,10 @@ function runPlanningConsistency(ctx) {
 // ─── Merge-time reconcile ────────────────────────────────────────────────────
 
 const RECONCILE_MARKER = '<!-- aoforge:reconcile -->';
+// The first line of a reconcile comment in either namespace (TRD 72-11): one comment per PR, whoever wrote it.
+const RECONCILE_LINE_RE = new RegExp(
+  `^\\s*<!--\\s*(?:${escapeRegExp(NAMES.markerNs)}|${escapeRegExp(LEGACY.markerNs)}):reconcile\\s*-->\\s*$`,
+);
 
 const list = (numbers) => numbers.map((n) => `#${n}`).join(', ');
 
@@ -351,6 +378,37 @@ function closeIssue(repo, n) {
 function commentOnPr(repo, prNumber, body) {
   try {
     const r = client.ghWrite(['api', '--method', 'POST', `repos/${repo}/issues/${prNumber}/comments`, '--input', '-'], {
+      input: JSON.stringify({ body }),
+    });
+    return r.ok ? null : why(r);
+  } catch (e) {
+    return (e && e.message) || String(e);
+  }
+}
+
+/** The reconcile comment already on the PR (either namespace), or null: none, or the comments could not be read. */
+function findReconcileComment(repo, prNumber) {
+  const r = client.ghPaginate(`repos/${repo}/issues/${prNumber}/comments`);
+  if (!r.ok) return null;
+  const first = (c) => c.body.replace(/\r\n/g, '\n').split('\n', 1)[0];
+  return r.items.find((c) => c && Number.isInteger(c.id) && typeof c.body === 'string' && RECONCILE_LINE_RE.test(first(c))) || null;
+}
+
+/**
+ * Record `lines` on the PR: in the reconcile comment already there (edited in place under the AOForge marker, its
+ * earlier text kept above the new lines), else in a new one. A re-run, or a run after the pre-rename runner, never
+ * leaves two. A comment list that cannot be read falls back to a new comment: a second record beats none.
+ * -> null, or what went wrong.
+ */
+function writeReconcileComment(repo, prNumber, lines) {
+  try {
+    const existing = findReconcileComment(repo, prNumber);
+    if (!existing) return commentOnPr(repo, prNumber, `${[RECONCILE_MARKER, ...lines].join('\n')}\n`);
+    const text = existing.body.replace(/\r\n/g, '\n');
+    const nl = text.indexOf('\n');
+    const earlier = (nl === -1 ? '' : text.slice(nl + 1)).replace(/\s+$/, '');
+    const body = `${[RECONCILE_MARKER, ...(earlier ? [earlier, ''] : []), ...lines].join('\n')}\n`;
+    const r = client.ghWrite(['api', '--method', 'PATCH', `repos/${repo}/issues/comments/${existing.id}`, '--input', '-'], {
       input: JSON.stringify({ body }),
     });
     return r.ok ? null : why(r);
@@ -400,9 +458,9 @@ function runReconcile(ctx) {
 
   const details = closed.map((n) => `closed #${n}`).concat(refused.map((f) => `could not close #${f.n}: ${f.problem}`));
   if (closed.length > 0) {
-    const lines = [RECONCILE_MARKER, 'Closed after the merge (they were still open):', '', ...closed.map((n) => `- #${n}`)];
+    const lines = ['Closed after the merge (they were still open):', '', ...closed.map((n) => `- #${n}`)];
     if (refused.length > 0) lines.push('', 'Could not close:', '', ...refused.map((f) => `- #${f.n}: ${f.problem}`));
-    const problem = commentOnPr(ctx.repo, pr.number, `${lines.join('\n')}\n`);
+    const problem = writeReconcileComment(ctx.repo, pr.number, lines);
     if (problem !== null) details.push(`could not comment on #${pr.number}: ${problem}`);
   }
 
