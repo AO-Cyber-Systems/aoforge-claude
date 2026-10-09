@@ -295,7 +295,7 @@ TRDs:
 - [x] 72-15-doctor-legacy-checks-TRD.md — (W8) doctor 15 (df-* reappearance), 16 (devflow leftovers), 27 (W066/W067); check 26 legacy callers
 - [x] 72-16-gh-rebrand-verb-TRD.md — (W8) `aof-tools gh rebrand`: dry-run preview, per-repo apply, idempotent, resumable
 - [x] 72-17-docs-identity-and-migration-guide-TRD.md — (W9) real gold AO emblem + AOForge wordmark on README and site; migration guide; USER-GUIDE/CLAUDE.md
-- [ ] 72-18-release-artifacts-3-0-0-TRD.md — (W10) 3.0.0 versions and CHANGELOG; validation; full upgrade rehearsal on a scratch clone (no live step)
+- [x] 72-18-release-artifacts-3-0-0-TRD.md — (W10) 3.0.0 versions and CHANGELOG; validation; full upgrade rehearsal on a scratch clone (no live step)
 - [ ] 72-19-repo-rename-push-and-pr-TRD.md — (W11) checkpoints: rename repo to aoforge-claude, push, open the 3.0.0 PR
 - [ ] 72-20-merge-tag-and-release-TRD.md — (W12) checkpoints: merge, tag v3.0.0; release and marketplace verified
 - [ ] 72-21-install-aoforge-and-dogfood-migration-TRD.md — (W13) checkpoint install + restart; verify state migration and this repo's `.aoforge/` move; disable devflow
@@ -356,7 +356,7 @@ TRDs:
 | 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
-| 72. Install and naming cleanup | v1.6 | 17/26 | In Progress | - |
+| 72. Install and naming cleanup | v1.6 | 18/26 | In Progress | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
