@@ -186,7 +186,9 @@ function ensureTemplate() {
  * the hook meets: behind (unstamped + a merge in progress, so upgrade-project
  * applies its migrations but never forks a commit child), skillActive,
  * editOverride, routeRecommendation, notices, legacyPlugin (TRD 72-10: the
- * pre-rename plugin installed and enabled in the fake home).
+ * pre-rename plugin installed and enabled in the fake home), handoffDone (TRD
+ * 73-06: one completed handoff, id `h-audit1`, addressed to this envelope's
+ * session in `<root>/.aoforge-handoff/done/`, which is outside `.aoforge/`).
  */
 function makeWorld(opts = {}) {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pw-audit-')));
@@ -239,6 +241,18 @@ function makeWorld(opts = {}) {
         message: 'seeded by the SC1 audit',
       });
     }
+  }
+  if (opts.handoffDone) {
+    const done = path.join(root, '.aoforge-handoff', 'done');
+    fs.mkdirSync(done, { recursive: true });
+    const at = new Date().toISOString();
+    fs.writeFileSync(
+      path.join(done, 'h-audit1.json'),
+      JSON.stringify({
+        id: 'h-audit1', cmd: 'npm login', cwd: root, status: 'done', exit_code: 0, stdout: 'audit ok\n', stderr: '',
+        session_id: 'audit-session', agent_id: null, created_at: at, completed_at: at, consumed: false,
+      }, null, 2)
+    );
   }
   return { base, root, home };
 }
@@ -513,6 +527,23 @@ const RUNS = {
         return stop({ transcript_path: file })(ctx);
       },
       expectStdout: /archived 1 todo\(s\)/,
+    },
+  ],
+  // inject-handoff-results.js (TRD 73-06): delivers a completed handoff by claiming `.aoforge-handoff/done/<id>.claim`
+  // and marking the record consumed. That directory sits beside `.aoforge/`, never inside it, and the hook keeps no
+  // other state, which is what this entry pins. `expect` / `expectStdout` prove it reached its delivery branch.
+  'inject-handoff-results.js': [
+    {
+      label: 'completed handoff, after the next tool call',
+      world: { handoffDone: true },
+      payload: postTool('Bash', { command: 'ls' }),
+      expectStdout: /h-audit1/,
+    },
+    {
+      label: 'completed handoff, at the end of the turn',
+      world: { handoffDone: true },
+      payload: stop(),
+      expect: 'block',
     },
   ],
   'statusline.js': [

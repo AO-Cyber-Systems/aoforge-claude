@@ -12,5 +12,5 @@ requires:
 
 ## Progress
 - [x] Task 1: RED, the PostToolUse model tests, the world option, the RUNS entries and the timeout pin — 19673462
-- [x] Task 2: GREEN, postToolUseProblems, the registrations and the CLAUDE.md move — (this commit)
-- [ ] Task 3: The full-suite gate and the runtime smoke — next step: pipe a hand-written PostToolUse and Stop payload into plugins/aoforge/hooks/inject-handoff-results.js in a temp project holding one done record, then run the full suite
+- [x] Task 2: GREEN, postToolUseProblems, the registrations and the CLAUDE.md move — 49716ea5
+- [x] Task 3: The full-suite gate and the runtime smoke (smoke clean; the suite found the planning-writes audit guard, fixed here) — (this commit)
