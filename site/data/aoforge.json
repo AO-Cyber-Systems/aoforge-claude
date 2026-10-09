@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-09T01:11:09.885Z",
+  "generatedAt": "2026-10-09T03:26:34.142Z",
   "version": "2.15.0",
   "packageVersion": "2.15.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
@@ -7,7 +7,7 @@
   "counts": {
     "skills": 34,
     "agents": 13,
-    "hooks": 22,
+    "hooks": 23,
     "workflows": 41,
     "references": 37,
     "templates": 31,
@@ -1296,6 +1296,18 @@
       "note": null
     },
     {
+      "file": "coexistence-guard.js",
+      "name": "coexistence-guard",
+      "group": "Session context",
+      "purpose": "When the pre-rename plugin is still installed and enabled beside AOForge, queues one notice per session naming its version and the exact `claude plugin disable` command, so the same gate never runs twice. A pointer release gets a softer notice, because it only forwards. Never edits settings, never blocks, fails open.",
+      "escape": "AOFORGE_SKIP_COEXISTENCE=1",
+      "events": [
+        "SessionStart"
+      ],
+      "registered": true,
+      "note": null
+    },
+    {
       "file": "gate-bash-writes.js",
       "name": "gate-bash-writes",
       "group": "Enforcement",
@@ -1371,9 +1383,9 @@
     {
       "file": "gh-flush.js",
       "name": "gh-flush",
-      "group": "Other",
-      "purpose": "",
-      "escape": null,
+      "group": "Observability",
+      "purpose": "Store mode only: flushes the GitHub outbox after an `aof-tools commit` and at Stop, and reports pending or halted writes; at Stop it also reports cache drift (W055). Never blocks, fails open.",
+      "escape": "AOFORGE_SKIP_GH_FLUSH_HOOK=1",
       "events": [
         "Stop",
         "PostToolUse (Bash)"
@@ -1657,7 +1669,8 @@
         "trd",
         "orphans",
         "pr",
-        "setup"
+        "setup",
+        "rebrand"
       ]
     },
     {
@@ -1849,7 +1862,8 @@
         "add-decision",
         "add-blocker",
         "resolve-blocker",
-        "record-session"
+        "record-session",
+        "rekey"
       ]
     },
     {

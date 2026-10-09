@@ -80,7 +80,7 @@ Or use the Claude Desktop UI to check for and apply updates.
 <details>
 <summary><strong>Migrating from a previous npm install</strong></summary>
 
-If you previously installed AOForge via `npx @ao-cyber-systems/aoforge-cc`, the legacy hook registrations and files in `~/.claude/hooks/` and `~/.claude/settings.json` will conflict with the plugin-managed installation. Clean up before installing the plugin:
+If you previously installed it with the old `npx` installer, from before it shipped as a plugin, the legacy hook registrations and files in `~/.claude/hooks/` and `~/.claude/settings.json` will conflict with the plugin-managed installation. Clean up before installing the plugin:
 
 ```bash
 # Remove legacy AOForge hook files

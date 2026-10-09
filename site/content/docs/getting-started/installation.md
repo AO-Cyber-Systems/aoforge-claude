@@ -119,8 +119,8 @@ and lets you add project-specific routing.
 
 ## Migrating from the old npm install
 
-If you previously installed AOForge with `npx @ao-cyber-systems/aoforge-cc`, the
-legacy hook files and `settings.json` registrations conflict with the
+If you previously installed it with the old `npx` installer, from before it shipped
+as a plugin, the legacy hook files and `settings.json` registrations conflict with the
 plugin-managed install. Clean them up first:
 
 ```bash
