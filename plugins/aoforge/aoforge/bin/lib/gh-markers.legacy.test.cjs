@@ -21,6 +21,8 @@
 // 7. Label union: the AOForge objective label lists #1 and #3, the legacy one #2 and #3 -> the lookup yields #1, #2
 //    and #3 once each (gh-issue scan, gh-cache remote model, the flusher's marker scan); a configured label
 //    (`github.labels.objective: 'custom'`) is the only one queried.
+//    7e. `gh orphans` (gh-hierarchy reportOrphans) lists a legacy-labelled, unlinked TRD issue. Written after the
+//        code with the rest of the GREEN pass; its RED was checked against the pre-change gh-hierarchy.cjs.
 // 8. In-progress label: `summary post` removes it in both forms; `trd start` adds the AOForge form only; a
 //    configured label is the only one removed.
 //
@@ -398,6 +400,21 @@ describe('7d. the flusher adopts a legacy-labelled TRD issue instead of creating
     assert.equal(res.ok, true, JSON.stringify(res));
     assert.equal(fake.issues.length, 1, 'no second issue');
     assert.equal(mappingLib.getTrd(mappingLib.readMappingV3(project.root), '7-01').issue_number, fake.issues[0].number);
+  });
+
+  test('7e. gh orphans lists a legacy-labelled TRD issue that is not linked under its objective', () => {
+    const objective = fake.seedIssue({ title: '[Objective 7] Store demo', body: `${ghBody.markerLine('7')}\n`, labels: ['aoforge:objective'] });
+    const m = mappingLib.readMappingV3(project.root);
+    mappingLib.setEntry(m, '7', { issue_id: objective });
+    assert.equal(mappingLib.writeMappingV3(project.root, m).ok, true);
+    const ghost = fake.seedIssue({
+      title: '[TRD 07-09] ghost',
+      body: F.legacyTrdBody({ id: '7-09', file: '07-09-ghost-TRD.md', text: '# ghost\n' }),
+      labels: [`${OLD}:trd`],
+    });
+    const r = require('./gh-hierarchy.cjs').reportOrphans(project.root, '7');
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.deepEqual(r.unlinked, [{ id: '7-09', number: ghost }]);
   });
 });
 

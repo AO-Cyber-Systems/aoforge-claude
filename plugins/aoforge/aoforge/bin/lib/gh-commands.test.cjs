@@ -126,7 +126,8 @@ describe('gh sync [--all|<objective>]', () => {
     assert.deepStrictEqual(res.results.map((x) => x.id), ['2', '2.1', '3']);
     assert.ok(res.results.every((x) => x.ok === true && Number.isInteger(x.issue_number)), JSON.stringify(res.results));
     assert.strictEqual(res.failed, 0);
-    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 1, 'one marker scan per run');
+    // One marker scan per run: one list per label form, the default label and its legacy twin (TRD 72-11).
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 2, 'one marker scan per run');
     assert.strictEqual(callsOf(fake, 'label', 'create').length, 1, 'one label bootstrap per run');
     const mapping = json(fs.readFileSync(MAPPING(root), 'utf-8'));
     assert.deepStrictEqual(Object.keys(mapping.objectives).sort(), ['2', '2.1', '3']);
@@ -138,7 +139,7 @@ describe('gh sync [--all|<objective>]', () => {
     assert.strictEqual(r.code, 0, r.stderr);
     const res = json(r.stdout);
     assert.deepStrictEqual(res.results.map((x) => x.id), ['2', '2.1', '3']);
-    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 1);
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 2, 'one scan: the default label and its legacy twin');
   });
 
   test('3: one failing objective does not stop the rest; the failure is listed and the exit is 1', () => {
@@ -165,7 +166,7 @@ describe('gh sync [--all|<objective>]', () => {
     assert.strictEqual(r.stderr.trim().split('\n').length, 1, 'exactly one deprecation line');
     const res = json(r.stdout);
     assert.deepStrictEqual(res.results.map((x) => x.id), ['2', '2.1', '3']);
-    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 1);
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 2, 'one scan: the default label and its legacy twin');
   });
 
   test('6: gh sync --help prints usage on stdout, exits 0 and makes no gh calls', () => {

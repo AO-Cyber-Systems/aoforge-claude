@@ -39,6 +39,7 @@ const ghProject = require('./gh-project.cjs');
 const outbox = require('./gh-outbox.cjs');
 // One definition of the workflow path, the managed header and AOForge's reusable workflow (TRD 61-01).
 const { WORKFLOW_PATH, MANAGED_HEADER, DEFAULT_CHECKS_WORKFLOW, parseWorkflowPins } = require('./checks-pin.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 
 // ─── The desired default-branch ruleset ───────────────────────────────────────
 
@@ -230,6 +231,9 @@ function unionRuleset(existing, desired) {
 const PR_TEMPLATE_PATH = '.github/pull_request_template.md';
 const PR_START = '<!-- aoforge:pr-template:start -->';
 const PR_END = '<!-- aoforge:pr-template:end -->';
+// The block as the pre-rename setup wrote it (TRD 72-11): found and replaced in place, never written.
+const LEGACY_PR_START = `<!-- ${LEGACY.markerNs}:pr-template:start -->`;
+const LEGACY_PR_END = `<!-- ${LEGACY.markerNs}:pr-template:end -->`;
 
 // Issue fields need this dated header on create (50-RESEARCH, State of the Art).
 const ISSUE_FIELDS_API_VERSION = '2026-03-10';
@@ -409,6 +413,13 @@ function planPrTemplate(state) {
     if (have.slice(start, end + PR_END.length) === block) return action('pr-template', PR_TEMPLATE_PATH, 'exists', 'the AOForge block of the pull request template is current');
     return action('pr-template', PR_TEMPLATE_PATH, 'update', 'refresh the AOForge block of the pull request template, leaving the rest of the file alone',
       write(`${have.slice(0, start)}${block}${have.slice(end + PR_END.length)}`));
+  }
+  // A repository set up before the rename carries the legacy block: replace it in place, never add a second block.
+  const oldStart = have.indexOf(LEGACY_PR_START);
+  const oldEnd = oldStart >= 0 ? have.indexOf(LEGACY_PR_END, oldStart) : -1;
+  if (oldStart >= 0 && oldEnd > oldStart) {
+    return action('pr-template', PR_TEMPLATE_PATH, 'update', 'replace the pre-rename block of the pull request template in place, leaving the rest of the file alone',
+      write(`${have.slice(0, oldStart)}${block}${have.slice(oldEnd + LEGACY_PR_END.length)}`));
   }
   const kept = have.replace(/\s+$/, '');
   return action('pr-template', PR_TEMPLATE_PATH, 'update', 'append the AOForge block to the existing pull request template',

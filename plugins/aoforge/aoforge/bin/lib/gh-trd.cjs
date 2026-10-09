@@ -16,7 +16,8 @@
 // VERIFICATION comments, and (48-02) the separate entity codec for todo, debug and
 // quick issues (`encodeEntityBody` / `decodeEntityBody`).
 //
-// Pure: no fs, no child_process, no gh calls — only `crypto`. It deliberately does
+// Pure: no fs, no child_process, no gh calls — only `crypto`, plus the name map and the
+// regex escape for the two-namespace readers (TRD 72-11). It deliberately does
 // NOT require gh-body or gh-mapping: the id canonicalisation below is duplicated on
 // purpose (as gh-body duplicates gh-mapping's) and a test pins the two to the same
 // output.
@@ -25,6 +26,13 @@
 // over-counts astral characters — conservative, never optimistic.
 
 const crypto = require('crypto');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
+
+// Readers accept the legacy marker namespace as well (TRD 72-11, INST-03: a repository not yet rebranded keeps
+// its TRD, entity, scope and part lines in it); every writer below spells the AOForge namespace only. Non-capturing,
+// so no capture group moves. Removed with the other one-release shims (legacy-names.cjs SHIM_REMOVAL).
+const NS = `(?:${escapeRegExp(NAMES.markerNs)}|${escapeRegExp(LEGACY.markerNs)})`;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -59,8 +67,8 @@ function contentHash(text) {
 // Accepts `2.1`, `0`, `46` and the TRD form `46-02` — the same shape gh-body's
 // MARKER_SOURCE accepts for its id group.
 const ID_RE = /^(\d+)((?:\.\d+)?)((?:-\d+)?)$/;
-const ID_LINE_RE = /^<!--\s*aoforge:id=([0-9]+(?:\.[0-9]+)?(?:-[0-9]+)?)\s*-->$/;
-const FILE_LINE_RE = /^<!--\s*aoforge:file=(\S+?)\s*-->$/;
+const ID_LINE_RE = new RegExp(`^<!--\\s*${NS}:id=([0-9]+(?:\\.[0-9]+)?(?:-[0-9]+)?)\\s*-->$`);
+const FILE_LINE_RE = new RegExp(`^<!--\\s*${NS}:file=(\\S+?)\\s*-->$`);
 // A file name is a single path segment: letters, digits, `.`, `_`, `-`; no
 // leading dot, no `..`, no separators. Keeps `aoforge:file=` from steering a
 // pull outside `.aoforge/objectives/<dir>/`.
@@ -117,7 +125,7 @@ function parseFileLine(line) {
 // verb layer builds them.
 const ENTITY_ID_SOURCE = '(?:(?:todo|debug)-[a-z0-9][a-z0-9._-]{0,99}|quick-\\d+)';
 const ENTITY_ID_RE = new RegExp('^' + ENTITY_ID_SOURCE + '$');
-const ENTITY_ID_LINE_RE = new RegExp('^<!--\\s*aoforge:id=(' + ENTITY_ID_SOURCE + ')\\s*-->$');
+const ENTITY_ID_LINE_RE = new RegExp(`^<!--\\s*${NS}:id=(` + ENTITY_ID_SOURCE + ')\\s*-->$');
 
 function requireEntityId(id) {
   if (typeof id !== 'string' || !ENTITY_ID_RE.test(id)) {
@@ -311,7 +319,7 @@ function checkObjectiveBudgets(trds) {
 // Scope comments open with `<!-- aoforge:scope n=K -->`. gh-body's MARKER_SOURCE
 // does NOT match this form, so it has its own scanner, applied to the FIRST line
 // of a comment only.
-const SCOPE_LINE_RE = /^\s*<!--\s*aoforge:scope\s+n=(\d+)\s*-->/;
+const SCOPE_LINE_RE = new RegExp(`^\\s*<!--\\s*${NS}:scope\\s+n=(\\d+)\\s*-->`);
 
 /** scopeMarker(n) — `<!-- aoforge:scope n=K -->`. `n` must be a positive integer. */
 function scopeMarker(n) {
@@ -513,7 +521,7 @@ function effectiveSpec(text, comments, { foldedThrough = 0, id, file, accept } =
 // Not detected here: someone other than a confirm's author editing that confirm
 // comment on GitHub. Its `user.login` is still the original author.
 
-const SCOPE_CONFIRM_LINE_RE = /^\s*<!--\s*aoforge:scope-confirm\s+n=(\d+)\s+hash=([^\s<>]+)\s*-->/;
+const SCOPE_CONFIRM_LINE_RE = new RegExp(`^\\s*<!--\\s*${NS}:scope-confirm\\s+n=(\\d+)\\s+hash=([^\\s<>]+)\\s*-->`);
 const SCOPE_ROW_EVENT_RE = /^scope\s+n=(\d+)\s+scope_hash=(\S+)\s*$/;
 const CONFIRM_HASH_RE = /^[^\s<>]+$/;
 const EVENT_HASH_RE = /^[^\s|]+$/;
@@ -898,7 +906,7 @@ function planFold(body, comments, specRevText, at) {
 // lossless: stripping the part line from every part and concatenating them in order
 // returns the original text exactly.
 
-const PART_LINE_RE = /^<!--\s*aoforge:part=(\d+)\/(\d+)\s*-->(?:\n|$)/;
+const PART_LINE_RE = new RegExp(`^<!--\\s*${NS}:part=(\\d+)\\/(\\d+)\\s*-->(?:\\n|$)`);
 
 /** partLine(i, n) — `<!-- aoforge:part=i/n -->` with 1 <= i <= n. */
 function partLine(i, n) {

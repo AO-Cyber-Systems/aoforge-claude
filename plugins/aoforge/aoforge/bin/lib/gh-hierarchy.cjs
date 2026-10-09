@@ -673,9 +673,14 @@ function reportOrphans(root, objectiveArg) {
   const entry = ghMapping.getEntry(ghMapping.readMappingV3(root), target.id);
   if (!entry) return { ok: false, error: `objective ${target.id} has no issue yet; run aof-tools gh sync ${target.id}` };
 
-  const label = configuredLabels(root).trd;
-  const listed = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
-  if (!listed.ok) return { ok: false, error: `could not list ${label} issues: ${listed.error || 'unknown error'}` };
+  // The default TRD label lists its legacy twin too (TRD 72-11), merged by issue number.
+  const lists = [];
+  for (const label of ghBody.labelForms(configuredLabels(root).trd, DEFAULT_LABELS.trd)) {
+    const page = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+    if (!page.ok) return { ok: false, error: `could not list ${label} issues: ${page.error || 'unknown error'}` };
+    lists.push(page.items);
+  }
+  const listed = { items: ghBody.unionByNumber(lists) };
   const linked = linkedNumbers(gate.repo, entry.issue_id);
   if (!linked.ok) return { ok: false, error: linked.error };
 

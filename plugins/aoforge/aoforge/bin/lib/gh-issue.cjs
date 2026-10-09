@@ -28,6 +28,8 @@ const { extractFrontmatter } = require('./frontmatter.cjs');
 const { planningRoot } = require('./compat.cjs');
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+// templates/config.json `github.labels.objective`. When it is the label in use, the scan lists its legacy twin too.
+const DEFAULT_OBJECTIVE_LABEL = 'aoforge:objective';
 const validNumber = (v) => Number.isInteger(v) && v > 0;
 
 // ─── Run context ─────────────────────────────────────────────────────────────
@@ -76,7 +78,7 @@ function createRunContext(cwd) {
   return {
     cwd,
     repo: gate.repo,
-    label: (gate.labels && gate.labels.objective) || 'aoforge:objective',
+    label: (gate.labels && gate.labels.objective) || DEFAULT_OBJECTIVE_LABEL,
     prefix: gate.milestone_prefix,
     mapping,
     conflicts: mapping.conflicts,
@@ -220,6 +222,22 @@ function verifyIssue(runCtx, number) {
   };
 }
 
+/** Every issue carrying `label` (open and closed): `{ ok:true, issues }` or `{ ok:false, error }`. */
+function listByLabel(runCtx, label) {
+  const r = client.ghRead([
+    'issue', 'list', '--repo', runCtx.repo, '--label', label,
+    '--state', 'all', '--limit', '1000', '--json', 'number,title,body',
+  ]);
+  if (!r.ok) return { ok: false, error: r.error || r.stderr || r.stdout || 'gh issue list failed' };
+  let issues = null;
+  try {
+    issues = JSON.parse(r.stdout);
+  } catch {
+    issues = null;
+  }
+  return Array.isArray(issues) ? { ok: true, issues } : { ok: false, error: 'unparseable gh issue list output' };
+}
+
 /**
  * The objective issues of the repo, listed ONCE per run (the result, including a failure, is cached on
  * the run context). List-and-scan on purpose: issue bodies are read locally, never queried through
@@ -230,24 +248,23 @@ function verifyIssue(runCtx, number) {
  */
 function scanObjectiveIssues(runCtx) {
   if (runCtx._scan) return runCtx._scan;
-  const r = client.ghRead([
-    'issue', 'list', '--repo', runCtx.repo, '--label', runCtx.label,
-    '--state', 'all', '--limit', '1000', '--json', 'number,title,body',
-  ]);
-  let scan;
-  let issues = null;
-  if (r.ok) {
-    try {
-      issues = JSON.parse(r.stdout);
-    } catch {
-      issues = null;
+  // The default label lists its legacy twin too (TRD 72-11): a repository not yet rebranded labels its objectives
+  // that way. Merged by issue number, so an issue carrying both labels is scanned once.
+  const lists = [];
+  let failed = null;
+  for (const label of bodyLib.labelForms(runCtx.label, DEFAULT_OBJECTIVE_LABEL)) {
+    const listed = listByLabel(runCtx, label);
+    if (!listed.ok) {
+      failed = listed;
+      break;
     }
+    lists.push(listed.issues);
   }
-  if (!r.ok) {
-    scan = { ok: false, error: r.error || r.stderr || r.stdout || 'gh issue list failed' };
-  } else if (!Array.isArray(issues)) {
-    scan = { ok: false, error: 'unparseable gh issue list output' };
+  let scan;
+  if (failed) {
+    scan = { ok: false, error: failed.error };
   } else {
+    const issues = bodyLib.unionByNumber(lists);
     const idx = bodyLib.indexByMarker(issues);
     const titleById = {};
     const byNumber = new Map(issues.map((i) => [i.number, i]));

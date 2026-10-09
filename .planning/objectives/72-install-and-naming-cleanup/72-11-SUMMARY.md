@@ -7,5 +7,5 @@ trd: "11"
 
 ## Progress
 - [x] Task 1: Fixture builder: legacy GitHub artefacts — 41c00fbb
-- [ ] Task 2: Body markers and label lookups read both namespaces — RED (this commit); next step: GREEN in gh-body.cjs (NS alternation in MARKER_SOURCE, PR_MARKER_SOURCE, PART_LINE_RE, SECTION_MARKER_RE, DIR_MARKER_RE; two-namespace findPair), then gh-trd.cjs header/part regexes, then the label unions
-- [ ] Task 3: Check contexts, PR marker and caller pin
+- [x] Task 2: Body markers and label lookups read both namespaces — 19880e6c (RED), (this commit) (GREEN)
+- [ ] Task 3: Check contexts, PR marker and caller pin — next step: write gh-checks.legacy.test.cjs tests 9-12 (postStatus posts aoforge/ then the legacy context; legacy PR marker in gh-check and the gh-check-cli label union; reconcile edits an existing legacy reconcile comment; checks-pin legacyCaller -> legacy: true), run red, commit RED
