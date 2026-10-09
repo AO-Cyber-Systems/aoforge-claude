@@ -340,9 +340,18 @@ const COMMANDS = {
     mutates: true,
   },
   'gh': {
-    usage: 'aof-tools gh <status|sync [<objective>|--all]|pull <objective> [--apply]|pull --all [--force]|resolve <objective>|comment <objective|#issue> <body|@file:path> [--kind k]|close-issue <objective|#issue> [comment]|sync-release <tag>|outbox <status|flush [--no-wait]|resolve <seq> --accept-remote|--overwrite>|trd <spec|freeze|fold [--force]|scope <body|@file:path> [--n K]|confirm-scope <n> [--force --reason <why>]|start> <trd>|orphans <objective>|pr <start|sync|status|merge|reconcile> <objective> [--name <branch>] [--no-flush]|setup [--apply] [--refresh] [--require-wiki]> [--raw]  (sync-objectives: deprecated alias of sync --all; setup is a dry-run unless --apply, needs github.enabled but not store mode, and exits 1 on a failed action, a conflicting local file or (with --require-wiki) an unready wiki; outbox flush exits 0 flushed, 1 error, 2 halted for a human, 3 pending; pr start and merge need a store-mode project and are online-required; pr merge exits 3 when the PR only joined a merge queue, pr reconcile exits 3 while the PR is open)',
+    usage: 'aof-tools gh <status|sync [<objective>|--all]|pull <objective> [--apply]|pull --all [--force]|resolve <objective>|comment <objective|#issue> <body|@file:path> [--kind k]|close-issue <objective|#issue> [comment]|sync-release <tag>|outbox <status|flush [--no-wait]|resolve <seq> --accept-remote|--overwrite>|trd <spec|freeze|fold [--force]|scope <body|@file:path> [--n K]|confirm-scope <n> [--force --reason <why>]|start> <trd>|orphans <objective>|pr <start|sync|status|merge|reconcile> <objective> [--name <branch>] [--no-flush]|setup [--apply] [--refresh] [--require-wiki]|rebrand [--repo <owner/name>] [--apply|--dry-run]> [--raw]  (sync-objectives: deprecated alias of sync --all; setup is a dry-run unless --apply, needs github.enabled but not store mode, and exits 1 on a failed action, a conflicting local file or (with --require-wiki) an unready wiki; outbox flush exits 0 flushed, 1 error, 2 halted for a human, 3 pending; pr start and merge need a store-mode project and are online-required; pr merge exits 3 when the PR only joined a merge queue, pr reconcile exits 3 while the PR is open)',
     summary: 'Sync AOForge planning state to and from GitHub.',
     mutates: true,
+    details: [
+      "rebrand: Preview, then rename one repository's pre-rename GitHub artefacts to AOForge; dry run by default.",
+      '  It covers labels in the legacy namespace (renamed, or merged into an existing AOForge label), the markers and wording of the',
+      '  issues, pull requests and comments AOForge manages, wiki pages, the required-check contexts of the rulesets, and in a',
+      '  checkout of the repository the managed caller workflow, the docs-backend directory, the PR template block and config.json',
+      '  labels. --apply runs them in that order, stops at the first failure with what is left (a re-run resumes), never commits',
+      '  or pushes local changes and prints the commit steps. --repo defaults to github.repo. Exit 0 for a dry run, a finished',
+      '  apply or nothing to do; 1 for a usage error, a failed read or a failed operation.',
+    ],
   },
   'stack': {
     usage: 'aof-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services]> [--raw]',

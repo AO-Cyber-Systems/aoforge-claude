@@ -1253,8 +1253,13 @@ async function main() {
         // Exit codes: 0 dry-run or applied, 1 an error, a failed action, a conflicting local file or an unready wiki.
         const { cmdGhSetup } = require('./lib/gh-setup-cli.cjs');
         cmdGhSetup(cwd, args.slice(2), raw);
+      } else if (subcommand === 'rebrand') {
+        // aof-tools gh rebrand [--repo <owner/name>] [--apply|--dry-run] [--raw]  (TRD 72-16)
+        // Dry-run unless --apply. Exit codes: 0 dry run, finished apply or nothing to do; 1 usage, a failed read or op.
+        const { cmdGhRebrand } = require('./lib/gh-rebrand.cjs');
+        cmdGhRebrand(cwd, args.slice(2), raw);
       } else {
-        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans, pr, setup (sync-objectives: deprecated alias)');
+        error('Unknown gh subcommand. Available: status, sync, pull, resolve, comment, close-issue, sync-release, outbox, trd, orphans, pr, setup, rebrand (sync-objectives: deprecated alias)');
       }
       break;
     }

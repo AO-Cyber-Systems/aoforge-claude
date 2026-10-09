@@ -314,6 +314,8 @@ const FLAG_SPEC = deepFreeze({
       orphans: {},
       pr: { values: ['--name'], bools: ['--no-flush', '--no-wait'] },
       setup: { bools: ['--apply', '--refresh', '--require-wiki'] },
+      // TRD 72-16: dry run unless --apply; --apply with --dry-run is refused by gh-rebrand.cjs parseArgs.
+      rebrand: { values: ['--repo'], bools: ['--apply', '--dry-run'] },
     },
   },
 
