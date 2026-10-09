@@ -21,7 +21,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { ShellSession, ShellSessionClosed, sentinelMarkers } = require('./watcher-shell.cjs');
+const { ShellSession, ShellSessionClosed, sentinelMarkers, makeLiveFilter } = require('./watcher-shell.cjs');
 
 // Unit tests use non-interactive bash for speed and CI reliability.
 // The interactive=true path (loading user rc files for mise/nvm/conda/aliases)
@@ -882,4 +882,193 @@ describe('watcher-shell — objective 73: PTY dispatch script', () => {
       }
     });
   }
+});
+
+// =============================================================================
+// TRD 73-03: live-only listeners (gap 3, "detector late match")
+// =============================================================================
+// A listener attached with { liveOnly: true } receives only the active
+// dispatch's LIVE window, never sentinel text, never replayed output, never
+// bytes from outside a dispatch:
+//   in-band protocol (bash/zsh PTY script)  bytes after the BEGIN line, up to DELIM
+//   replay protocol (pipe, fish, powershell) bytes from the start up to BEGIN
+//
+//   LV-1   pipe mode (replay): a liveOnly listener sees none of the replayed output
+//   LV-2   PTY bash (in-band): a liveOnly listener sees the output and no sentinel
+//   LV-3   PTY bash forced onto the replay protocol: the prompt is live, the replay is not
+//   LV-4   nothing outside a dispatch reaches a liveOnly listener
+//   LV-5   a plain listener still sees every chunk (DL-1..DL-8 are the other pin)
+//   MLF-1  in-band, markers split across chunks: the live text only
+//   MLF-2  replay: text up to BEGIN, nothing after
+//   MLF-3  a held-back suffix that turns out not to be a marker is emitted in full
+//   MLF-4  in-band: text before BEGIN and after DELIM is never emitted
+//   MLF-5  in-band: the live window starts after the newline that ends the BEGIN line
+//   MLF-6  once past the window the filter emits nothing, whatever arrives
+// =============================================================================
+
+/** Resolve once the accumulated stream contains `text`; reject (with what was seen) on timeout. */
+function waitForText(session, text, timeoutMs = 5000) {
+  return new Promise((resolve, reject) => {
+    let buf = '';
+    const fn = (chunk) => {
+      buf += chunk;
+      if (!buf.includes(text)) return;
+      clearTimeout(timer);
+      session.detachDataListener(fn);
+      resolve();
+    };
+    const timer = setTimeout(() => {
+      session.detachDataListener(fn);
+      reject(new Error(`timed out waiting for ${JSON.stringify(text)}; saw ${JSON.stringify(buf)}`));
+    }, timeoutMs);
+    session.attachDataListener(fn);
+  });
+}
+
+describe('watcher-shell — objective 73: live-only listeners', () => {
+  test('LV-1 pipe mode (replay protocol): a liveOnly listener sees none of the replayed output', async () => {
+    await withSession({}, async (s) => {
+      const live = [];
+      const plain = [];
+      s.attachDataListener((c) => live.push(c), { liveOnly: true });
+      s.attachDataListener((c) => plain.push(c));
+      // `(exit 3)`, not `exit 3`: the wrapper runs the command in the shell's own
+      // group, so a bare exit would end the shell and there would be no replay.
+      const r = await s.dispatch('lv-1', "echo 'Enter your access token:' 1>&2; echo out; (exit 3)");
+      assert.equal(r.exit_code, 3);
+      assert.match(r.stderr, /access token/, 'the dispatch itself captured the prompt text');
+      const liveText = live.join('');
+      assert.doesNotMatch(liveText, /access token/);
+      assert.doesNotMatch(liveText, /out/);
+      assert.doesNotMatch(liveText, /__DFW_/);
+      assert.match(plain.join(''), /out/, 'a plain listener still sees the replay');
+    });
+  });
+
+  for (const shell of ['bash']) {
+    const skip = skipFor73(shell);
+
+    test(`LV-2 [${shell}] PTY in-band: a liveOnly listener sees the command output and no sentinel`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        const live = [];
+        s.attachDataListener((c) => live.push(c), { liveOnly: true });
+        const r = await s.dispatch('lv-2', 'echo live-73', { timeout_ms: 8000 });
+        assert.equal(r.status, 'done');
+        const liveText = live.join('');
+        assert.match(liveText, /live-73/);
+        assert.doesNotMatch(liveText, /__DFW_/);
+      });
+    });
+
+    test(`LV-3 [${shell}] PTY forced onto the replay protocol: the live prompt is delivered, the replay is not`, skip, async () => {
+      await withPTYSession({ shell }, async (s) => {
+        // fish and powershell take this path in production; getWrapper supports no other
+        // shell to test it with, so switch the bash session off its in-band script.
+        s._wrapper = { ...s._wrapper, ptyScript: undefined, sourceLine: undefined };
+        const live = [];
+        s.attachDataListener((c) => live.push(c), { liveOnly: true });
+        const r = await s.dispatch('lv-3', "printf 'Prompt-73: ' > /dev/tty; echo replayed-73", { timeout_ms: 8000 });
+        assert.equal(r.status, 'done');
+        assert.match(r.stdout, /replayed-73/);
+        const liveText = live.join('');
+        assert.match(liveText, /Prompt-73:/);
+        assert.doesNotMatch(liveText, /replayed-73/);
+        assert.doesNotMatch(liveText, /__DFW_/);
+      });
+    });
+
+    test(`LV-4 [${shell}] nothing outside a dispatch reaches a liveOnly listener`, skip, async () => {
+      const session = new ShellSession({ shell, interactive: true });
+      const live = [];
+      // Attached BEFORE spawn(): the init lines and the readiness probe are not a dispatch.
+      session.attachDataListener((c) => live.push(c), { liveOnly: true });
+      await session.spawn();
+      try {
+        assert.deepStrictEqual(live, [], 'the shell prelude is not live output');
+        let seen = waitForText(session, 'between-73');
+        session.injectInput('echo between-73\r');
+        await seen;
+        assert.deepStrictEqual(live, [], 'output between dispatches is not live output');
+        const r = await session.dispatch('lv-4', 'echo in-73', { timeout_ms: 8000 });
+        assert.equal(r.status, 'done');
+        assert.equal(live.join('').replace(/\r\n/g, '\n'), 'in-73\n');
+        const before = live.length;
+        seen = waitForText(session, 'after-73');
+        session.injectInput('echo after-73\r');
+        await seen;
+        assert.equal(live.length, before, 'output after the dispatch settled is not live output');
+      } finally {
+        try { await session.kill(); } catch {}
+      }
+    });
+  }
+
+  test('LV-5 a listener attached without options still sees every chunk, sentinels included', async () => {
+    await withSession({}, async (s) => {
+      const plain = [];
+      s.attachDataListener((c) => plain.push(c));
+      await s.dispatch('lv-5', 'echo hello');
+      const text = plain.join('');
+      assert.match(text, /__DFW_BEGIN_lv-5__/);
+      assert.match(text, /hello/);
+      assert.match(text, /__DFW_END_lv-5__:0/);
+    });
+  });
+});
+
+describe('watcher-shell — objective 73: makeLiveFilter', () => {
+  const M = sentinelMarkers('x');
+  const feed = (filter, chunks) => chunks.map((c) => filter(c));
+
+  test('MLF-1 in-band: markers split across chunks yield only the live text', () => {
+    const f = makeLiveFilter({ ...M, protocol: 'inband' });
+    const emits = feed(f, ['__DFW_BEG', 'IN_x__\r\nab', 'c__DFW_DE', 'LIM_x__\r\n__DFW_END_x__:0\r\n']);
+    assert.equal(emits.join(''), 'abc');
+    for (const e of emits) assert.doesNotMatch(e, /__DFW_/);
+  });
+
+  test('MLF-2 replay: text up to BEGIN is emitted, nothing after it', () => {
+    const f = makeLiveFilter({ ...M, protocol: 'replay' });
+    const emits = feed(f, ['Prompt: ', 'more', '\r\n__DFW_BEGIN_x__\r\nreplayed']);
+    assert.equal(emits.join(''), 'Prompt: more\r\n');
+    assert.equal(emits[0], 'Prompt: ', 'a prompt is delivered as it arrives, not at the end');
+    assert.equal(f('__DFW_DELIM_x__\r\nstderr text\r\n__DFW_END_x__:3\r\n'), '');
+  });
+
+  for (const protocol of ['inband', 'replay']) {
+    test(`MLF-3 [${protocol}] a held-back suffix that turns out not to be a marker is emitted in full`, () => {
+      const f = makeLiveFilter({ ...M, protocol });
+      // In-band only counts text after the BEGIN line, so open the window first.
+      const open = protocol === 'inband' ? f('__DFW_BEGIN_x__\r\n') : '';
+      assert.equal(open, '');
+      const first = f('ab__DF');
+      const second = f('Zq');
+      assert.equal(first, 'ab', 'the possible start of a marker is held back');
+      assert.equal(second, '__DFZq', 'and released, whole, once it is clear it was not one');
+    });
+  }
+
+  test('MLF-4 in-band: text before BEGIN and after DELIM is never emitted', () => {
+    const f = makeLiveFilter({ ...M, protocol: 'inband' });
+    const emits = feed(f, ['noise before\r\n__DFW_BEGIN_x__\r\nlive\r\n__DFW_DELIM_x__\r\nafter\r\n']);
+    assert.equal(emits.join(''), 'live\r\n');
+  });
+
+  test('MLF-5 in-band: the window opens after the newline that ends the BEGIN line, however it is split', () => {
+    const f = makeLiveFilter({ ...M, protocol: 'inband' });
+    const emits = feed(f, ['__DFW_BEGIN_x__', '\r', '\nhi']);
+    assert.equal(emits.join(''), 'hi');
+  });
+
+  test('MLF-6 once past the window the filter emits nothing, whatever arrives', () => {
+    for (const [protocol, chunks] of [
+      ['inband', ['__DFW_BEGIN_x__\n', 'a', '__DFW_DELIM_x__\n']],
+      ['replay', ['a', '__DFW_BEGIN_x__\n']],
+    ]) {
+      const f = makeLiveFilter({ ...M, protocol });
+      feed(f, chunks);
+      assert.equal(f('more output'), '', `${protocol}: nothing after the window`);
+      assert.equal(f('__DFW_BEGIN_x__ again'), '', `${protocol}: not even a repeated marker`);
+    }
+  });
 });
