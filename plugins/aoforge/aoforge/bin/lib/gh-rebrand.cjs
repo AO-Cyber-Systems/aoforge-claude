@@ -57,7 +57,7 @@ const { branchCommitSteps, commitCommand } = require('./commit-steps.cjs');
 const { rewriteLegacyNames, unifiedDiff } = require('./legacy-rewrite.cjs');
 const { NAMES, LEGACY, PRESERVE } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
-const { planningRel, isLegacyPlanning } = require('./compat.cjs');
+const { planningRel, isLegacyPlanning, findProjectRoot } = require('./compat.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1 });
 const SECTIONS = Object.freeze(['labels', 'issues', 'comments', 'wiki', 'rulesets', 'local']);
@@ -745,6 +745,156 @@ function commitSteps(files, store) {
   });
 }
 
+function insideRoot(root, rel) {
+  const base = path.resolve(root);
+  const abs = path.resolve(base, rel);
+  if (abs !== base && !abs.startsWith(`${base}${path.sep}`)) throw new Error(`${rel} is outside the checkout`);
+  return abs;
+}
+
+function applyLocal(op, root, runGit) {
+  if (!root) return { ok: false, error: 'no checkout to change' };
+  try {
+    if (op.kind === 'move') {
+      fs.mkdirSync(path.dirname(insideRoot(root, op.to)), { recursive: true });
+      insideRoot(root, op.from);
+      const r = runGit(['mv', '--', op.from, op.to], { cwd: root });
+      return r.ok ? { ok: true } : { ok: false, error: `git mv ${op.from} ${op.to}: ${(r.stderr || r.stdout || '').trim()}` };
+    }
+    if (op.kind === 'remove') {
+      insideRoot(root, op.path);
+      const r = runGit(['rm', '-q', '--', op.path], { cwd: root });
+      return r.ok ? { ok: true } : { ok: false, error: `git rm ${op.path}: ${(r.stderr || r.stdout || '').trim()}` };
+    }
+    const abs = insideRoot(root, op.path);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, op.after);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+const MANAGED_ORDER = Object.freeze([...bodyLib.SECTION_ORDER, ...bodyLib.OPTIONAL_SECTIONS]);
+const stripMarkerLine = (body) => {
+  const at = body.indexOf('\n');
+  return at === -1 ? '' : body.slice(at + 1);
+};
+
+/**
+ * Refresh the outbox base of every issue and comment the rebrand rewrote (store mode, 72-11 hand-off): the flusher
+ * compares a body's hash with its recorded base, and a rewrite it did not make would read as a human edit and halt the
+ * next flush. Only bases that already exist are refreshed; their `frozen` flag is kept. Returns warnings.
+ */
+function baseRefresher(root, snapshot, env) {
+  const opts = { env };
+  const bases = outbox.readBase(root, opts);
+  if (Object.keys(bases).length === 0) return null;
+  const flushLib = require('./gh-outbox-flush.cjs');
+  const prs = new Set((snapshot ? snapshot.issues : []).filter((i) => i.pr).map((i) => i.number));
+  const comments = new Map();
+  for (const c of snapshot ? snapshot.comments : []) {
+    if (!comments.has(c.issue_number)) comments.set(c.issue_number, []);
+    comments.get(c.issue_number).push({ id: c.id, body: c.body, updated_at: c.updated_at });
+  }
+  const warnings = [];
+  const save = (key, entry) => {
+    const r = outbox.setBase(root, key, entry, opts);
+    if (!r.ok) warnings.push(`could not refresh the base for ${key}: ${r.error}`);
+  };
+
+  function afterIssue(op, data) {
+    const body = op.after.body;
+    for (const [key, entry] of Object.entries(bases)) {
+      if (key.includes('#') || entry.issue_number !== op.number) continue;
+      const next = { issue_number: entry.issue_number, issue_id: entry.issue_id, body_hash: trdLib.contentHash(body),
+        updated_at: (data && data.updated_at) || null };
+      if (entry.managed_hash !== undefined) {
+        next.managed_hash = flushLib.managedHash(body, key.startsWith('pr:') ? bodyLib.PR_SECTION_ORDER : MANAGED_ORDER);
+      }
+      if (entry.frozen === true) next.frozen = true;
+      save(key, next);
+      bases[key] = next;
+    }
+  }
+
+  function afterComment(op, data) {
+    const list = comments.get(op.number) || [];
+    const mine = list.find((c) => c.id === op.id);
+    if (mine) {
+      mine.body = op.after;
+      if (data && data.updated_at) mine.updated_at = data.updated_at;
+    }
+    const marker = bodyLib.extractMarker(op.after.split('\n', 1)[0]);
+    if (!marker || !marker.kind) return;
+    const key = prs.has(op.number) ? `${marker.id}#pr-${marker.kind}` : `${marker.id}#${marker.kind}`;
+    const entry = bases[key];
+    if (!entry || entry.issue_number !== op.number) return;
+    const found = bodyLib.findCommentsByMarker(list, marker.id, marker.kind);
+    if (found.length === 0) return;
+    const joined = trdLib.joinParts(found.map((f) => stripMarkerLine(f.comment.body)));
+    if (!joined.ok) {
+      warnings.push(`the ${marker.kind} comments on #${op.number} are incomplete (${joined.error}); their base was not refreshed`);
+      return;
+    }
+    const last = found[found.length - 1].comment;
+    const next = { issue_number: entry.issue_number, issue_id: entry.issue_id, body_hash: trdLib.contentHash(joined.text),
+      updated_at: last.updated_at || entry.updated_at || null };
+    save(key, next);
+    bases[key] = next;
+  }
+
+  return {
+    after(op, r) {
+      if (op.section === 'issues') afterIssue(op, r && r.data);
+      else if (op.section === 'comments') afterComment(op, r && r.data);
+    },
+    warnings,
+  };
+}
+
+/**
+ * Execute a plan in its order. Remote ops go to `client.write(op)`; local ops run in `root` (git through `runGit`, the
+ * gh-wiki seam by default). Wiki page ops are staged and count as done only once the push succeeds. The first failed op
+ * stops the run: `{ ok:false, done, left, failed, error, wait_ms? }` (left starts with the failed op, or with the staged
+ * wiki pages when the push failed). On success `{ ok:true, done, left:[], files, warnings }`. In store mode the outbox
+ * bases of rewritten issues and comments are refreshed (pass `snapshot` for the comment groups).
+ *
+ * @param {{ops:object[]}} plan
+ * @param {{client:object, root?:string|null, runGit?:Function, env?:object, snapshot?:object}} deps
+ */
+function applyRebrand(plan, { client: c, root = null, runGit = wikiLib.runGit, env = process.env, snapshot = null } = {}) {
+  if (!plan || !Array.isArray(plan.ops)) throw new TypeError('applyRebrand needs the plan from planRebrand');
+  if (!c || typeof c.write !== 'function') throw new TypeError('applyRebrand needs a rebrand client');
+  const bases = root && planningMode.isStoreMode(root) ? baseRefresher(root, snapshot, env) : null;
+  const done = [];
+  const staged = [];
+  for (let i = 0; i < plan.ops.length; i++) {
+    const op = plan.ops[i];
+    const r = op.section === 'local' ? applyLocal(op, root, runGit) : c.write(op);
+    if (!r || !r.ok) {
+      const out = {
+        ok: false,
+        done,
+        left: [...(op.section === 'wiki' ? staged : []), ...plan.ops.slice(i)],
+        failed: op,
+        error: `${op.section} ${op.kind} ${op.target}: ${errorOf(r)}`,
+        warnings: bases ? bases.warnings : [],
+      };
+      if (r && r.rate_limited) out.wait_ms = r.wait_ms || null;
+      return out;
+    }
+    if (op.section === 'wiki' && op.kind === 'page') {
+      staged.push(op);
+      continue;
+    }
+    if (op.section === 'wiki' && op.kind === 'push') done.push(...staged.splice(0));
+    done.push(op);
+    if (bases) bases.after(op, r);
+  }
+  return { ok: true, done, left: [], files: localFiles(done), warnings: bases ? bases.warnings : [] };
+}
+
 // ─── The real client (gh-client + gh-wiki) ───────────────────────────────────
 
 function failure(r) {
@@ -917,6 +1067,33 @@ function dryRun(plan) {
   return result(EXIT.OK, payload, lines.join('\n'));
 }
 
+function applied(plan, outcome) {
+  const payload = {
+    ok: outcome.ok, apply: true, repo: plan.repo, sections: plan.sections,
+    done: payloadOps(outcome.done), left: payloadOps(outcome.left), warnings: outcome.warnings || [],
+  };
+  if (plan.ops.length === 0) {
+    return result(EXIT.OK, payload, `Nothing to rebrand: ${plan.repo} has no pre-rename names left.`);
+  }
+  const lines = [`AOForge rebrand of ${plan.repo}: ${outcome.done.length} of ${plan.ops.length} operations done (${sectionCounts(outcome.done)}).`];
+  if (!outcome.ok) {
+    payload.error = outcome.error;
+    if (outcome.wait_ms) payload.wait_ms = outcome.wait_ms;
+    lines.push(`Stopped at: ${outcome.error}`);
+    if (outcome.wait_ms) lines.push(`GitHub's secondary rate limit: wait ${Math.ceil(outcome.wait_ms / 1000)} s before re-running.`);
+    lines.push(`Left (${outcome.left.length}): ${outcome.left.map((o) => `${o.section} ${o.kind} ${o.target}`).join('; ')}`,
+      'Re-run `aof-tools gh rebrand --apply`: it re-reads the repository and does only what is left.');
+  }
+  for (const w of outcome.warnings || []) lines.push(`warning: ${w}`);
+  const files = localFiles(outcome.done);
+  if (files.length > 0) {
+    payload.files = files;
+    payload.steps = commitSteps(files, plan.store);
+    lines.push('', `Changed in the working tree, not committed: ${files.join(', ')}.`, 'Commit them through a pull request:', payload.steps);
+  }
+  return result(outcome.ok ? EXIT.OK : EXIT.ERROR, payload, lines.join('\n'));
+}
+
 /**
  * `gh rebrand [--repo o/r] [--apply|--dry-run]` as `{ code, payload, prose }`. `deps` (tests): `client` (the rebrand
  * client; default ghRebrandClient), `version` (the caller pin), `runGit`, `env`.
@@ -926,15 +1103,17 @@ function runRebrand(cwd, args, deps = {}) {
   const parsed = parseArgs(args);
   if (parsed.error) return failed(`${parsed.error}\n${REBRAND_USAGE}`, { usage: true });
 
+  // The project root holding cwd (run from a subdirectory too); local paths in the plan are relative to it.
+  const root = findProjectRoot(cwd) || cwd;
   let repo = parsed.repo;
   if (!repo) {
-    const gate = ghClient.requireEnabled(cwd);
+    const gate = ghClient.requireEnabled(root);
     if (gate.skipped) return result(EXIT.OK, { ok: false, skipped: true, reason: gate.reason }, `${gate.reason} (or pass --repo owner/name)`);
     repo = gate.repo;
   }
-  const configured = ghClient.resolveRepo(cwd);
+  const configured = ghClient.resolveRepo(root);
   const isCheckout = typeof configured === 'string' && configured.toLowerCase() === repo.toLowerCase();
-  const c = deps.client || ghRebrandClient({ root: isCheckout ? cwd : null });
+  const c = deps.client || ghRebrandClient({ root: isCheckout ? root : null });
 
   return ghClient.withRetryPolicy({ maxRetries: 0 }, () => {
     const snap = snapshotRepo(c, repo);
@@ -942,10 +1121,13 @@ function runRebrand(cwd, args, deps = {}) {
       const wait = snap.wait_ms ? ` GitHub's secondary rate limit: wait ${Math.ceil(snap.wait_ms / 1000)} s and run it again.` : '';
       return failed(`${snap.error}${wait}`, snap.wait_ms ? { wait_ms: snap.wait_ms } : {});
     }
-    const local = isCheckout ? snapshotLocal(cwd, deps.version ? { version: deps.version } : undefined) : null;
+    const local = isCheckout ? snapshotLocal(root, deps.version ? { version: deps.version } : undefined) : null;
     const plan = planRebrand(snap, local);
     if (!parsed.apply) return dryRun(plan);
-    return failed('gh rebrand --apply is not wired yet (TRD 72-16 Task 3)');
+    const outcome = applyRebrand(plan, {
+      client: c, root: isCheckout ? root : null, runGit: deps.runGit || wikiLib.runGit, env: deps.env || process.env, snapshot: snap,
+    });
+    return applied(plan, outcome);
   });
 }
 
@@ -962,6 +1144,7 @@ module.exports = {
   snapshotLocal,
   planRebrand,
   renderPlan,
+  applyRebrand,
   ghRebrandClient,
   runRebrand,
   cmdGhRebrand,

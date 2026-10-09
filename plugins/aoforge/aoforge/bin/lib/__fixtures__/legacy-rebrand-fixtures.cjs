@@ -331,7 +331,7 @@ function stubClient(snapshot, { failAt = null, rulesetsStatus = null } = {}) {
   }
 
   function applyWiki(op) {
-    if (op.kind === 'wiki-push') {
+    if (op.kind === 'push') {
       const pages = new Map(state.wiki.pages.map((p) => [p.name, p.text]));
       for (const [name, text] of staged) {
         if (text === null) pages.delete(name);

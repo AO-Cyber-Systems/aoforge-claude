@@ -23,7 +23,20 @@
 //  7. Local: the legacy caller -> `git mv` to aoforge.yml, then the rendered caller (new slug, workflow file, input
 //     name, current pin); `docs/<legacy>/` -> moved to `docs/aoforge/` and its page rewritten; the PR template block
 //     re-marked; config.json's legacy-namespace labels rewritten (72-11 hand-off).
+//  8. `--apply`: the stub sees the ops in the fixed section order (a merge's add before its delete, one wiki push); the
+//     local files change in the working tree and nothing is committed; the printed steps are commit-steps' sequence for
+//     the mode (store and plain), and committing exactly the printed files leaves a clean tree.
+//  9. `--apply` twice: the second run has nothing to rebrand, sends no write and changes no file.
+// 10. A failed 3rd issue PATCH: the run stops (exit 1) with done/left, the failed op first in `left`; a re-run redoes
+//     no label and finishes the rest; a third run has nothing to do.
+// 10b. A secondary rate limit stops at once with the wait time (no retry loop).
+// 10c. A failed wiki push puts the staged pages back in `left`.
 // 11. `--bogus` exits 1 (flag-spec); `--apply` with `--dry-run` exits 1.
+// 12. Store mode: the outbox bases of rewritten issues and comment groups are refreshed (frozen kept, others untouched).
+// 13. The real client over the gh-client seam: the dry run sends no write, an uninitialised wiki is only probed, and
+//     the apply sends exactly the planned requests.
+// 14. The real client's wiki path against a local bare remote: pages rewritten and renamed in a scratch clone, one push,
+//     the store's own clone untouched.
 
 const { test, describe, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -348,7 +361,8 @@ describe('gh rebrand: apply, idempotence and resume (TRD 72-16)', () => {
       assert.equal(fs.readFileSync(path.join(repo.root, 'docs/aoforge/Project.md'), 'utf-8'), '# Project\n\nPlanned with AOForge. Pages live in docs/aoforge/.\n');
       assert.ok(!fs.existsSync(path.join(repo.root, 'docs/devflow')));
       assert.equal(JSON.parse(fs.readFileSync(path.join(repo.root, '.aoforge/config.json'), 'utf-8')).github.labels.trd, 'aoforge:trd');
-      assert.match(repo.git(['status', '--porcelain']), /^R {2}\.github\/workflows\/devflow\.yml -> \.github\/workflows\/aoforge\.yml$/m, 'the caller move is a staged rename');
+      // `RM`: the rename is staged (git mv, so history follows) and the rewrite after it is left unstaged.
+      assert.match(repo.git(['status', '--porcelain']), /^RM \.github\/workflows\/devflow\.yml -> \.github\/workflows\/aoforge\.yml$/m, 'the caller move is a staged rename');
 
       const files = res.payload.files;
       const want = branchCommitSteps({
@@ -518,6 +532,52 @@ describe('gh rebrand: apply, idempotence and resume (TRD 72-16)', () => {
       ghClient._resetClient();
       wikiLib._setRunGit(null);
       fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('14. the real client rewrites and renames wiki pages in a scratch clone and pushes once (local bare remote)', (t) => {
+    const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
+    if (!gitAvailable()) {
+      t.skip('git is not on PATH');
+      return;
+    }
+    const ghClient = require('./gh-client.cjs');
+    const remote = createWikiRemote({
+      seed: {
+        'Home.md': '# DevFlow planning\n',
+        'DevFlow-Guide.md': 'Run /devflow:plan-objective.\n',
+        'Objective-46-doctor.md': '# Objective 46\n',
+      },
+    });
+    const restore = applyGitTestEnv(remote.home);
+    const repo = checkout({ store: true });
+    const cfgPath = path.join(repo.root, '.aoforge/config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf-8'));
+    cfg.github.wiki = { remote: remote.remoteUrl };
+    fs.writeFileSync(cfgPath, `${JSON.stringify(cfg, null, 2)}\n`);
+    const empty = { ok: true, status: 0, stdout: '[[]]', stderr: '' };
+    ghClient._setSleep(() => {});
+    ghClient._setRunGh((args) => {
+      if (args[1] === '--paginate') return empty;
+      if (args.length === 2 && args[1] === 'repos/o/r') return { ok: true, status: 0, stdout: '{"has_wiki":true}', stderr: '' };
+      return { ok: false, status: 1, stdout: '', stderr: `unexpected gh ${args.join(' ')} (HTTP 404)` };
+    });
+    try {
+      const res = rebrand.runRebrand(repo.root, ['--repo', 'o/r', '--apply'], { version: VERSION, runGit: repo.runGit, env: outboxEnv() });
+      assert.equal(res.code, 0, res.prose);
+      assert.deepEqual(res.payload.done.filter((o) => o.section === 'wiki').map((o) => o.kind), ['page', 'page', 'push']);
+      assert.equal(remote.readRemotePage('Home'), '# AOForge planning\n');
+      assert.equal(remote.readRemotePage('AOForge-Guide'), 'Run /aoforge:plan-objective.\n');
+      assert.equal(remote.readRemotePage('DevFlow-Guide'), null, 'the old page name is gone');
+      assert.equal(remote.readRemotePage('Objective-46-doctor'), '# Objective 46\n');
+      assert.ok(!fs.existsSync(path.join(repo.root, '.aoforge/wiki')), 'the store\'s own clone is never touched');
+
+      const again = rebrand.runRebrand(repo.root, ['--repo', 'o/r'], { version: VERSION, runGit: repo.runGit });
+      assert.deepEqual(again.payload.ops.filter((o) => o.section === 'wiki'), [], 'a second plan finds the wiki done');
+    } finally {
+      ghClient._resetClient();
+      restore();
+      remote.cleanup();
     }
   });
 });
