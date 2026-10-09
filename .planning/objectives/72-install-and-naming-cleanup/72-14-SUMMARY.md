@@ -7,5 +7,5 @@ trd: "14"
 
 ## Progress
 - [x] Task 1: Fixture skills dirs for the generator — e166c226
-- [x] Task 2: The generator and the forwarding skills — RED 077d4402, GREEN (this commit)
-- [ ] Task 3: The notice hook, the manifests, the marketplace entry — next step: write plugins/devflow/hooks/pointer-notice.legacy.test.js (tests 5-9 plus the SessionStart schema cases) and the span-scoped ALLOW tests 9a-9c in rename-guard.repo.test.cjs, run both and see them fail, commit RED
+- [x] Task 2: The generator and the forwarding skills — RED 077d4402, GREEN 67576e98
+- [ ] Task 3: The notice hook, the manifests, the marketplace entry — next step: RED committed; add sessionStartProblems to plugins/aoforge/hooks/__fixtures__/hook-output-schema.js, write plugins/devflow/hooks/pointer-notice.js + hooks.json + .claude-plugin/plugin.json + README.md, the marketplace entry, the package.json glob, and maskAllowedSpans/scanFile + the two span-scoped ALLOW entries in rename-guard.repo.test.cjs; run both tests, both validations, the full suite; commit GREEN

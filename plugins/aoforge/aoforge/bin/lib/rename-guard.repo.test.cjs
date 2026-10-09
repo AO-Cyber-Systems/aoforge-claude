@@ -15,7 +15,8 @@
 // 3. Lines inside an ignore region (the rename-guard ignore-start ... ignore-end markers) are not
 //    scanned; only files in IGNORE_REGION_FILES may contain such a region, and every region in
 //    the repository is closed (an unclosed region throws).
-// 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path.
+// 4. Every ALLOW entry has a reason of >= 20 chars and matches >= 1 tracked path; an entry with
+//    `spans` (test 9) is a global RegExp that matches >= 1 span in a tracked file it names.
 // 5. Sensitivity: a sample text with one of each token yields three findings; the preserved
 //    product names (the ...ops product and the .cloud domain) yield none.
 // 5b. Planning-tree exemption: in a scratch git repo with tracked `<new planning dir>/x.md` and
@@ -28,6 +29,10 @@
 //    (`planningDir`, built from LEGACY.planningDir), counted only where the codemod would call it a
 //    directory (not member access such as a config key); a sample line naming the legacy STATE.md
 //    yields one finding; the tree passes with ALLOW entries for .gitignore and the monorepo doctor.
+// 9. Span-scoped ALLOW (TRD 72-14): an entry with `spans` keeps its file in the scan set and masks
+//    only those spans (a JSON file cannot hold an ignore region). In the marketplace, the pointer
+//    entry's lines are masked and another legacy word on another line is still found; the same
+//    text under another path yields every finding. Masking keeps line numbers.
 //
 // Runtime model: read-only against the repository (5b writes only to its own tmp dir). Repo
 // root is path.resolve(__dirname, '..', '..', '..', '..', '..'); a mirror install (no README.md
@@ -332,6 +337,13 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
         tracked.some((rel) => re.test(rel)),
         `ALLOW ${entry.pattern} matches no tracked path (a dead entry)`,
       );
+      if (entry.spans === undefined) continue;
+      assert.ok(entry.spans instanceof RegExp && entry.spans.global, `ALLOW ${entry.pattern}: spans must be a /g RegExp`);
+      const files = tracked.filter((rel) => re.test(rel));
+      assert.ok(
+        files.some((rel) => new RegExp(entry.spans.source, entry.spans.flags).test(readText(REPO_ROOT, rel) || '')),
+        `ALLOW ${entry.pattern}: spans ${entry.spans} match nothing in the file (a dead entry)`,
+      );
     }
   });
 
@@ -407,6 +419,40 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
     test('8d: a regex naming the legacy directory is a finding', () => {
       const found = scanText(`const RE = /\\${LEGACY.planningDir}\\//;\n`, 'x.cjs');
       assert.equal(found.length, 1, JSON.stringify(found));
+    });
+  });
+
+  describe('9: span-scoped ALLOW (TRD 72-14)', () => {
+    const MARKET = '.claude-plugin/marketplace.json';
+    const sample = [
+      '{',
+      `  "name": "${LEGACY.slug}",`,
+      `  "description": "${LEGACY.product} is now ${NAMES.product}: install ${NAMES.plugin}.",`,
+      '  "version": "3.0.0",',
+      `  "source": "./plugins/${LEGACY.slug}",`,
+      `  "category": "uses ${LEGACY.cli}"`,
+      '}',
+    ].join('\n');
+
+    test('9a: the marketplace pointer entry is masked; another legacy word is still found', () => {
+      assert.ok(scanSet(REPO_ROOT).includes(MARKET), 'a span-scoped file stays in the scan set');
+      assert.deepEqual(
+        scanFile(sample, MARKET).map((f) => f.line),
+        [6],
+      );
+    });
+
+    test('9b: the same text under another path yields every finding', () => {
+      assert.deepEqual(
+        scanFile(sample, 'x.json').map((f) => f.line),
+        [2, 3, 5, 6],
+      );
+    });
+
+    test('9c: masking keeps the text length and its line breaks', () => {
+      const masked = maskAllowedSpans(sample, MARKET);
+      assert.equal(masked.length, sample.length);
+      assert.equal(masked.split('\n').length, sample.split('\n').length);
     });
   });
 });
