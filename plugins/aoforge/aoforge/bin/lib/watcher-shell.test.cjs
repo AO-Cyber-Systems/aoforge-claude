@@ -834,5 +834,52 @@ describe('watcher-shell — objective 73: PTY dispatch script', () => {
         assert.equal(r.stdout, 'unset\n');
       });
     });
+
+    // The remaining settle paths. The script file holds the command text, so it
+    // must not outlive the dispatch on ANY of them (done is test 7).
+    test(`73-PTY-10 [${shell}] timeout: status timeout, script and directory removed, next dispatch is ShellSessionClosed`, skip, async () => {
+      const session = new ShellSession({ shell, interactive: true });
+      await session.spawn();
+      try {
+        const r = await session.dispatch('to-1', 'sleep 5', { timeout_ms: 300 });
+        assert.equal(r.status, 'timeout');
+        assert.equal(r.exit_code, -1);
+        assert.ok(session._scriptDir, 'expected a recorded script directory');
+        assert.equal(fs.existsSync(session._scriptDir), false, 'a timed-out dispatch must leave no script behind');
+        // 73-05's respawn relies on this exact rejection.
+        await assert.rejects(() => session.dispatch('to-2', 'echo hi'), ShellSessionClosed);
+      } finally {
+        try { await session.kill(); } catch {}
+      }
+    });
+
+    test(`73-PTY-11 [${shell}] kill() during a dispatch settles it as killed and removes the script directory`, skip, async () => {
+      const session = new ShellSession({ shell, interactive: true });
+      await session.spawn();
+      try {
+        const pending = session.dispatch('kd-1', 'sleep 5', { timeout_ms: 8000 });
+        // dispatch() prepares the script synchronously, before it returns.
+        const file = path.join(session._scriptDir, 'kd-1.sh');
+        assert.ok(fs.existsSync(file), 'the script file exists while the dispatch is in flight');
+        await session.kill();
+        const r = await pending;
+        assert.equal(r.status, 'killed');
+        assert.equal(fs.existsSync(session._scriptDir), false);
+      } finally {
+        try { await session.kill(); } catch {}
+      }
+    });
+
+    test(`73-PTY-12 [${shell}] the shell exiting mid-dispatch settles it as shell_died and removes the script directory`, skip, async () => {
+      const session = new ShellSession({ shell, interactive: true });
+      await session.spawn();
+      try {
+        const r = await session.dispatch('sd-1', 'exit 3', { timeout_ms: 8000 });
+        assert.equal(r.status, 'shell_died');
+        assert.equal(fs.existsSync(session._scriptDir), false);
+      } finally {
+        try { await session.kill(); } catch {}
+      }
+    });
   }
 });

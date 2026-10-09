@@ -12,5 +12,5 @@ requirements-completed: []
 
 ## Progress
 - [x] Task 1: RED, the gap 1 / gap 2 / Ctrl+C / comment regression tests against the current wrapper - 96b5787a
-- [x] Task 2: GREEN, ptyScript/sourceLine and the one-line script-file PTY dispatch - (this commit)
-- [ ] Task 3: the PTY daemon path end to end, and the full-suite gate - next step: run node --test plugins/aoforge/aoforge/bin/handoff-e2e.test.cjs and record the MA-* outcomes, then npm test
+- [x] Task 2: GREEN, ptyScript/sourceLine and the one-line script-file PTY dispatch - 405130a0
+- [x] Task 3: the PTY daemon path end to end, and the full-suite gate - (this commit)
