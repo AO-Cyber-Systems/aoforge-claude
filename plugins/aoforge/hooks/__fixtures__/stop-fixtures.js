@@ -3,9 +3,9 @@
  *
  * - stopPayload(overrides)            — the VERIFIED Stop payload field set
  *                                        (OBJECTIVE.md "Verified harness facts").
- * - writeSkillMarker(planningDir, o)  — writes `.planning/.skill-active`.
+ * - writeSkillMarker(planningDir, o)  — writes `.aoforge/.skill-active`.
  * - makeWorktreeWithMainMarker(tmp)   — main checkout with a live marker + a
- *                                        linked worktree whose own `.planning/`
+ *                                        linked worktree whose own `.aoforge/`
  *                                        has none (the TRD 27-01 shape).
  * - ANNOUNCE / NOT_ANNOUNCE           — HAND-WRITTEN message corpus, each entry
  *                                        labelled. Never generate these.
@@ -63,17 +63,17 @@ function writeSkillMarker(planningDir, { expiresAt } = {}) {
 
 /**
  * A main checkout (`<tmp>/main`, `.git` directory, live marker in
- * `.planning/`) and a linked worktree (`<tmp>/wt`, `.git` FILE pointing at
- * `<main>/.git/worktrees/wt`, its own `.planning/` with NO marker).
+ * `.aoforge/`) and a linked worktree (`<tmp>/wt`, `.git` FILE pointing at
+ * `<main>/.git/worktrees/wt`, its own `.aoforge/` with NO marker).
  */
 function makeWorktreeWithMainMarker(tmp) {
   const mainRoot = path.join(tmp, 'main');
   const wtRoot = path.join(tmp, 'wt');
 
   fs.mkdirSync(path.join(mainRoot, '.git', 'worktrees', 'wt'), { recursive: true });
-  writeSkillMarker(path.join(mainRoot, '.planning'));
+  writeSkillMarker(path.join(mainRoot, '.aoforge'));
 
-  fs.mkdirSync(path.join(wtRoot, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(wtRoot, '.aoforge'), { recursive: true });
   fs.writeFileSync(
     path.join(wtRoot, '.git'),
     `gitdir: ${path.join(mainRoot, '.git', 'worktrees', 'wt')}\n`
@@ -153,7 +153,7 @@ const NOT_ANNOUNCE = [
   { label: 'real-j: Next steps list for the user (no slash command)', text: 'Everything is committed on feat/stack-profile-loader.\n\nNext steps:\n- Tag v2.12.0\n- Push the branch' },
   {
     label: 'real-k: executor completion format',
-    text: '## TRD COMPLETE\n\n**TRD:** 44-05\n**Tasks:** 3/3\n**SUMMARY:** .planning/objectives/44-autonomy-hardening/44-05-SUMMARY.md',
+    text: '## TRD COMPLETE\n\n**TRD:** 44-05\n**Tasks:** 3/3\n**SUMMARY:** .aoforge/objectives/44-autonomy-hardening/44-05-SUMMARY.md',
   },
 
   // --- real phrasing: reports that merely START with an announce word ---

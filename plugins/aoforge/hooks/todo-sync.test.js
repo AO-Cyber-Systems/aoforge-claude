@@ -26,10 +26,6 @@ const LIB = path.join(PLUGIN_ROOT, 'aoforge', 'bin', 'lib');
 const T = require(path.join(LIB, '__fixtures__', 'todo-transcript-fixtures.cjs'));
 const A = require(path.join(LIB, '__fixtures__', 'todo-archive-fixtures.cjs'));
 const { makeStoreProject } = require(path.join(LIB, '__fixtures__', 'gh-store-fixtures.cjs'));
-// This hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
-for (const fx of ['todo-archive-fixtures.cjs', 'gh-store-fixtures.cjs']) {
-  require(path.join(LIB, '__fixtures__', fx)).setPlanningDir(require(path.join(LIB, 'legacy-names.cjs')).LEGACY.planningDir);
-}
 const { installGhShim } = require(path.join(LIB, '__fixtures__', 'gh-shim.cjs'));
 const outbox = require(path.join(LIB, 'gh-outbox.cjs'));
 
@@ -101,8 +97,8 @@ function writeTranscript(text, name = `${SESSION}.jsonl`) {
 }
 
 const porcelain = (root) => spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=all'], { encoding: 'utf8' }).stdout;
-const pendingFile = (proj, stem = STEM) => path.join(proj.root, '.planning', 'todos', 'pending', `${stem}.md`);
-const completedFile = (proj, stem = STEM) => path.join(proj.root, '.planning', 'todos', 'completed', `${stem}.md`);
+const pendingFile = (proj, stem = STEM) => path.join(proj.root, '.aoforge', 'todos', 'pending', `${stem}.md`);
+const completedFile = (proj, stem = STEM) => path.join(proj.root, '.aoforge', 'todos', 'completed', `${stem}.md`);
 
 /** The one JSON object on stdout, with the never-blocks contract asserted: only `systemMessage`, never a decision. */
 function messageOf(r) {
@@ -131,7 +127,7 @@ describe('63-03 todo-sync Stop hook', () => {
 
     assert.equal(
       messageOf(r),
-      [archived(1), notCommitted([`.planning/todos/pending/${STEM}.md`])].join('\n')
+      [archived(1), notCommitted([`.aoforge/todos/pending/${STEM}.md`])].join('\n')
     );
     assert.equal(
       fs.readFileSync(pendingFile(proj), 'utf8'),
@@ -167,7 +163,7 @@ describe('63-03 todo-sync Stop hook', () => {
 
     const lines = message.split('\n');
     assert.equal(lines[0], 'AOForge: todo sync: completed 1 todo(s)');
-    assert.match(lines[1], /^AOForge: todo sync: not committed yet: .*\.planning\/todos\/completed\/2026-10-06-add-auth-token-refresh\.md/);
+    assert.match(lines[1], /^AOForge: todo sync: not committed yet: .*\.aoforge\/todos\/completed\/2026-10-06-add-auth-token-refresh\.md/);
     assert.equal(lines.length, 2);
     assert.equal(fs.existsSync(completedFile(proj)), true);
     assert.equal(fs.existsSync(pendingFile(proj)), false);
@@ -197,7 +193,7 @@ describe('63-03 todo-sync Stop hook', () => {
 
     const r = runHook(stopPayload({ root: dir }, transcript), { cwd: dir });
 
-    assertSilent(r, 'no .planning/');
+    assertSilent(r, 'no .aoforge/');
     assert.deepEqual(fs.readdirSync(dir), []);
   });
 
@@ -287,7 +283,7 @@ describe('63-03 todo-sync Stop hook', () => {
   test('11: a failed write is one failure line, still exit 0 and no decision', { skip: typeof process.getuid === 'function' && process.getuid() === 0 }, () => {
     const proj = project({ git: true });
     const transcript = writeTranscript(createdTranscript());
-    const planning = path.join(proj.root, '.planning');
+    const planning = path.join(proj.root, '.aoforge');
     fs.chmodSync(planning, 0o555); // no `todos/` can be made, so the add fails
     cleanups.push(() => fs.chmodSync(planning, 0o755));
 

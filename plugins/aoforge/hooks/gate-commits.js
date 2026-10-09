@@ -56,6 +56,8 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 // Fail open: if the shared primitives cannot load, run() is a no-op. The plugin
 // always ships aoforge/ beside hooks/, so this only happens on a broken install.
@@ -68,12 +70,8 @@ function readStdin() {
 }
 
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) return path.join(dir, '.planning');
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 /**

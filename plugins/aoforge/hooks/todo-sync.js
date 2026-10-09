@@ -4,13 +4,13 @@
  *
  * A todo added or completed through the session task list (TaskCreate / TaskUpdate, or TodoWrite) lives only as long as
  * the session. This hook replays the session transcript at Stop and merges what it finds into the durable archive with
- * the library behind `aof-tools todo sync` (todo-sync.cjs, TRD 63-02): `.planning/todos/` in local mode, a queued
+ * the library behind `aof-tools todo sync` (todo-sync.cjs, TRD 63-02): `.aoforge/todos/` in local mode, a queued
  * `aoforge:todo` issue in store mode. The merge is monotonic and idempotent, so running it at every Stop, on
  * `stop_hook_active` too, over the same transcript, changes nothing the second time.
  *
  * Cheap exits first, with no library loaded until it is needed and no gh call anywhere:
  *   - AOFORGE_SKIP_TODO_SYNC=1, stdin that is not a plain object, an event other than Stop, no `transcript_path`
- *   - not an AOForge project (no `.planning/` at or above the cwd)
+ *   - not an AOForge project (no `.aoforge/` at or above the cwd)
  *   - an unreadable transcript, or one that never mentions a task call AND the todo markers (`Todo: `, `aoforge_todo`)
  * Only then is the sync library loaded and called in-process (not `aof-tools todo sync`: no second node start per Stop).
  *
@@ -21,7 +21,7 @@
  * NEVER BLOCKS. No `decision`, `continue` or `stopReason` key is ever emitted, so it cannot fight auto-continue.js's one
  * Stop block. Exit is 0 on every path; a missing bundled library or a thrown error is silence. In store mode the writes
  * are queued with `noFlush`: gh-flush.js sends them at this same Stop (in parallel) and after each `aof-tools commit`.
- * It keeps no state of its own, so the only thing written under `.planning/` is a todo file, through the todo verbs
+ * It keeps no state of its own, so the only thing written under `.aoforge/` is a todo file, through the todo verbs
  * (planning-writes.audit.test.js).
  *
  * Registered on Stop only. Not on SessionEnd: its hooks get 1.5 s by default, so a store-mode sync could be cut

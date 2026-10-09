@@ -3,7 +3,7 @@
 /**
  * AOForge Intent Routing Hook (UserPromptSubmit)
  *
- * When an AOForge-initialized project is detected (.planning/ exists) and the
+ * When an AOForge-initialized project is detected (.aoforge/ exists) and the
  * user prompt signals build/plan/verify/debug intent WITHOUT invoking a
  * /aoforge: skill, inject a box-drawn OBLIGATORY directive telling Claude to
  * route through the appropriate skill rather than editing code directly.
@@ -28,6 +28,9 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
+const { NAMES } = require('../aoforge/bin/lib/legacy-names.cjs');
 const { hasOverridePhrase, writeEditOverrideMarker } = require('./lib/edit-override.js');
 
 function readStdin() {
@@ -35,12 +38,8 @@ function readStdin() {
 }
 
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) return path.join(dir, '.planning');
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 // INTENT_MAP -- EXPORTED for unit tests.
@@ -323,7 +322,7 @@ function extractTriggerExcerpt(prompt) {
   return trimmed.slice(0, 42) + '...';
 }
 
-function renderSingleMatch(match, prompt) {
+function renderSingleMatch(match, prompt, planningDirName = NAMES.planningDir) {
   const skillList = match.skill;
   const excerpt = extractTriggerExcerpt(prompt);
   const BOX_TOP = '╔' + '═'.repeat(70) + '╗';
@@ -341,7 +340,7 @@ function renderSingleMatch(match, prompt) {
     lines.push(pad('', 68));
   }
   lines.push(
-    pad('This is an AOFORGE project (.planning/ exists).', 68),
+    pad('This is an AOFORGE project (' + planningDirName + '/ exists).', 68),
     pad('Intent matched: ' + skillList, 68),
     pad('', 68),
     pad('You MUST invoke ' + skillList, 68),
@@ -388,13 +387,15 @@ function renderMultiMatch(matches, prompt) {
   return lines.join('\n');
 }
 
-function renderDirective(matches, prompt = '') {
+// `planningDirName` (optional) is the project's planning directory name, `.aoforge` unless the project
+// still uses the legacy one (TRD 72-06); the single-match directive names it.
+function renderDirective(matches, prompt = '', planningDirName = NAMES.planningDir) {
   if (!matches || matches.length === 0) return '';
-  if (matches.length === 1) return renderSingleMatch(matches[0], prompt);
+  if (matches.length === 1) return renderSingleMatch(matches[0], prompt, planningDirName);
   return renderMultiMatch(matches, prompt);
 }
 
-// renderAdoptReminder -- short reminder emitted in NON-AOForge directories (no .planning/)
+// renderAdoptReminder -- short reminder emitted in NON-AOForge directories (no .aoforge/)
 // when the prompt matches ONLY the adopt intent. Deliberately not box-drawn (that treatment
 // is reserved for the "you MUST route" directive inside AOForge projects); this is a nudge
 // in a repo route-intent otherwise stays silent in.
@@ -414,7 +415,7 @@ function renderAdoptReminder() {
 //   2. Find planningDir; none → adopt-only reminder (TRD 37-10), else return
 //   3. If override phrase detected → writeEditOverrideMarker BEFORE matchIntent early-return
 //      (override prompts produce no directive but MUST arm gate bypass — decisions 1+4)
-//   4. Read skillActive from .planning/.skill-active presence (fs I/O here, not in matchIntent)
+//   4. Read skillActive from .aoforge/.skill-active presence (fs I/O here, not in matchIntent)
 //   5. Match intent with { skillActive }; empty → return
 //   6. Emit directive
 
@@ -457,7 +458,7 @@ function main() {
   const out = {
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
-      additionalContext: renderDirective(matches, prompt),
+      additionalContext: renderDirective(matches, prompt, path.basename(planningDir)),
     },
   };
   process.stdout.write(JSON.stringify(out));

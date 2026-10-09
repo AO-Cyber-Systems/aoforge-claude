@@ -9,7 +9,7 @@
  *
  * Skips entirely when:
  *   - AOFORGE_SKIP_CLASSIFY=1 env var is set
- *   - mode resolves to 'skip' (no .planning/, no git, or decline marker present)
+ *   - mode resolves to 'skip' (no .aoforge/, no git, or decline marker present)
  *
  * Output shape (when non-skip):
  *   {
@@ -31,6 +31,8 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 // PATH-LOCKED: relative path from plugins/aoforge/hooks/ → plugins/aoforge/aoforge/bin/lib/
 // All requires below use the same path-locked discipline — relative to plugin tree.
@@ -43,18 +45,14 @@ const { shouldAutoInit } = require('../aoforge/bin/lib/global-config.cjs');
 
 /**
  * Walk up the directory tree from start, returning the path of the first
- * ancestor directory containing a .planning/ subdirectory.
+ * ancestor directory containing a .aoforge/ subdirectory.
  *
  * @param {string} start - absolute path to begin walking from
- * @returns {string|null} path to .planning/ dir, or null if not found
+ * @returns {string|null} path to .aoforge/ dir, or null if not found
  */
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) return path.join(dir, '.planning');
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 /**
@@ -74,9 +72,9 @@ function findGitDir(start) {
 }
 
 /**
- * Check whether the decline marker file exists at .planning/.aoforge-init-declined.
+ * Check whether the decline marker file exists at .aoforge/.aoforge-init-declined.
  *
- * @param {string|null} planningDir - path to .planning/ dir, or null
+ * @param {string|null} planningDir - path to .aoforge/ dir, or null
  * @returns {boolean}
  */
 function hasDeclineMarker(planningDir) {

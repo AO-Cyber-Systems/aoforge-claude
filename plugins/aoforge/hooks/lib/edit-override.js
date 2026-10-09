@@ -55,7 +55,7 @@ function hasOverridePhrase(text) {
 /**
  * Returns the absolute path to the .edit-override marker file.
  *
- * @param {string} planningDir - Absolute path to the .planning directory
+ * @param {string} planningDir - Absolute path to the .aoforge directory
  * @returns {string}
  */
 function editOverrideMarkerPath(planningDir) {

@@ -25,7 +25,7 @@
  * NEVER BLOCKS. No `decision` key is ever emitted, so it cannot fight auto-continue.js's one Stop block. Exit is 0
  * on every path; offline, rate limited, a held lock, a timeout or a thrown error becomes a one-line notice or
  * nothing. The flush is never retried inside the hook. It writes nothing itself and keeps no state, so nothing
- * lands under `.planning/` (planning-writes.audit.test.js).
+ * lands under `.aoforge/` (planning-writes.audit.test.js).
  *
  * Escape hatch: AOFORGE_SKIP_GH_FLUSH_HOOK=1. Timeout override: AOFORGE_GH_FLUSH_TIMEOUT_MS (milliseconds).
  */

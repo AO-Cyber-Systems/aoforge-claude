@@ -205,7 +205,7 @@ describe('consumeEditOverrideMarker — missing marker', () => {
 
 describe('editOverrideMarkerPath', () => {
   test('returns path.join(planningDir, ".edit-override")', () => {
-    assert.equal(editOverrideMarkerPath('/proj/.planning'), '/proj/.planning/.edit-override');
+    assert.equal(editOverrideMarkerPath('/proj/.aoforge'), '/proj/.aoforge/.edit-override');
   });
 });
 

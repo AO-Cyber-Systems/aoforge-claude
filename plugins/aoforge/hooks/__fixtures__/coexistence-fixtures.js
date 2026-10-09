@@ -33,7 +33,7 @@ const PLUGIN_VERSION = JSON.parse(
 
 // ─── The world ───────────────────────────────────────────────────────────────
 
-const PLANNING_DIRS = ['.planning', path.join('flutter', '.planning')];
+const PLANNING_DIRS = ['.aoforge', path.join('flutter', '.aoforge')];
 
 function planningDirsOf(root) {
   return PLANNING_DIRS.map((rel) => path.join(root, rel));
@@ -60,7 +60,7 @@ let templateBase = null;
 /**
  * One git repo, built once and copied per run: an autonomous, mid-execution
  * project whose only commit is 20 minutes old (so verify-commits sees no recent
- * commits), with a nested flutter/.planning/ and a tracked src/x.js.
+ * commits), with a nested flutter/.aoforge/ and a tracked src/x.js.
  */
 function ensureTemplate() {
   if (templateBase) return templateBase;

@@ -19,9 +19,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
-// Every reader is compared on the legacy planning directory: gate-executor-stop (a hook) resolves only that name until
-// 72-06 moves it onto the resolver, and the library readers reach it through the fallback (TRD 72-05).
-const PLANNING = require('./legacy-names.cjs').LEGACY.planningDir;
+// Every reader, the gate-executor-stop hook included, resolves the planning directory through compat.cjs (TRD 72-06).
+const PLANNING = require('./legacy-names.cjs').NAMES.planningDir;
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');

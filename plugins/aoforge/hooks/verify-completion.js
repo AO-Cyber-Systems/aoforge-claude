@@ -14,7 +14,7 @@
  * In autonomous mode it also keeps a per-objective resume counter (block the Stop
  * up to 3 times while execution is mid-flight). The counter lives in the hook
  * marker store under ~/.claude/aoforge/state/hook-markers/<repo-key>/, never under
- * the project's .planning/ (objective 45, TRD 45-10, SC1).
+ * the project's .aoforge/ (objective 45, TRD 45-10, SC1).
  *
  * Hook type: Stop (fires when conversation ends or context resets)
  */
@@ -24,19 +24,15 @@ const path = require('path');
 const os = require('os');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 const store = require('../aoforge/bin/lib/hook-marker-store.cjs');
 
 // ─── AOForge project detection ────────────────────────────────────────────────
 
 function findPlanningDir() {
-  let dir = process.cwd();
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) {
-      return path.join(dir, '.planning');
-    }
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(process.cwd(), { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 // ─── Existing SUMMARY scan logic (preserved verbatim) ────────────────────────
@@ -138,7 +134,7 @@ function appendAuditLog(entry, logPath) {
 const MAX_RESUME_ATTEMPTS = 3;
 
 /**
- * Return true only when .planning/config.json has mode === "autonomous".
+ * Return true only when .aoforge/config.json has mode === "autonomous".
  * Hooks cannot require aof-tools, so we read config.json directly.
  * Any error (missing, malformed, non-object) → false (safe default).
  */
@@ -178,11 +174,11 @@ function parseObjectiveKey(planningDir) {
   }
 }
 
-// The per-objective resume counter lives in the hook marker store, NOT under .planning/
+// The per-objective resume counter lives in the hook marker store, NOT under .aoforge/
 // (objective 45, TRD 45-10, SC1): $AOFORGE_HOOK_MARKER_DIR, else
 // ~/.claude/aoforge/state/hook-markers/<repo-key>/autonomous-resume-<objective>.
 // The project root is the directory that contains `planningDir`. An in-tree
-// .planning/.autonomous-resume-* left by an older AOForge is neither read nor
+// .aoforge/.autonomous-resume-* left by an older AOForge is neither read nor
 // written here; the doctor cleans it. `key` comes from STATE.md, so the store
 // sanitizes it (no separator or dot-segment escapes the marker directory).
 function resumeCounterPath(planningDir, objectiveKey, env = process.env) {
@@ -212,7 +208,7 @@ function clearResumeCount(planningDir, key, env = process.env) {
 }
 
 /**
- * List basenames of files in .planning/decisions/pending/.
+ * List basenames of files in .aoforge/decisions/pending/.
  * Returns [] when the directory is absent or unreadable.
  */
 function listPendingDecisions(planningDir) {
@@ -236,7 +232,7 @@ function parsePayload() {
 
 // ─── Route-recommendation marker (written by route-intent.js) ────────────────
 // Phase A architecture: route-intent.js writes the recommended skill to
-// .planning/.route-recommendation during a UserPromptSubmit turn. Stop hook
+// .aoforge/.route-recommendation during a UserPromptSubmit turn. Stop hook
 // reads it for the audit log, then clears it.
 //
 // If the marker doesn't exist, route_recommended = 'none' (the turn was Q&A
@@ -327,7 +323,7 @@ function main() {
 
     const reason =
       `AOForge autonomous mode: mid-execution state detected — resuming (attempt ${count + 1}/${MAX_RESUME_ATTEMPTS}).` +
-      ` Read .planning/STATE.md for current position, then continue executing the in-flight objective via /aoforge:execute-objective.` +
+      ` Read ${path.basename(planningDir)}/STATE.md for current position, then continue executing the in-flight objective via /aoforge:execute-objective.` +
       `${pendingNote}` +
       ` Never use port 8080 for any verification server — use 8091.`;
 

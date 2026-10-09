@@ -480,7 +480,7 @@ const RUNS = {
   'todo-sync.js@Stop': {
     label: 'session todo archived, local mode',
     // Archives the todo and says so in one systemMessage. The message holds only paths relative to the project
-    // (`.planning/todos/pending/<stem>.md`), so it needs no `normalize`. It never blocks, so a user deny or block
+    // (`.aoforge/todos/pending/<stem>.md`), so it needs no `normalize`. It never blocks, so a user deny or block
     // beside it is the user's alone.
     expect: 'context',
     payload: (ctx) => fx.stop({ transcript_path: todoTranscript(ctx.world) })(ctx),
@@ -832,14 +832,14 @@ function walkFiles(dir) {
   });
 }
 
-/** Every JSON state file a hook may have written in a world: its HOME stores and its .planning dotfiles. */
+/** Every JSON state file a hook may have written in a world: its HOME stores and its .aoforge dotfiles. */
 function stateFilesOf(world) {
   const files = [];
   for (const { rel, all } of STATE_DIRS) {
     files.push(...walkFiles(path.join(world.home, rel)).filter((f) => all || f.endsWith('.json')));
   }
   for (const f of walkFiles(world.root)) {
-    if (f.includes(`${path.sep}.planning${path.sep}`) && PLANNING_STATE_FILES.includes(path.basename(f))) files.push(f);
+    if (f.includes(`${path.sep}.aoforge${path.sep}`) && PLANNING_STATE_FILES.includes(path.basename(f))) files.push(f);
   }
   return files;
 }

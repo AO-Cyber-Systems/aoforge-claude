@@ -7,8 +7,8 @@
  *
  * Decision order (first match wins):
  *   0. Store-mode cache deny (TRD 48-08, D-18) — ONLY when the MAIN checkout's
- *      `.planning/config.json` has `github.enabled: true` AND `github.store: true`.
- *      An edit of a `cache` or `generated` file under this project's `.planning/`
+ *      `.aoforge/config.json` has `github.enabled: true` AND `github.store: true`.
+ *      An edit of a `cache` or `generated` file under this project's `.aoforge/`
  *      (nearest or main checkout) is denied, and the reason names the aof-tools
  *      verb that changes it (`plan put-trd`, `summary post`, `doc put`,
  *      `gh pull --all`, ...). Neither a `.skill-active` marker nor an `aoforge:*`
@@ -17,19 +17,20 @@
  *      gates.editGate "off"; "warn" turns it into 'ask'. No other escape.
  *      Store off (the default), this rule never runs and the planning libs are
  *      not loaded. Fails open: any error loading or running them skips the rule.
- *   1. `.planning/**` allowed, then `*.md` allowed (see "Permits edits to").
+ *   1. `.aoforge/**` (or, for one release, the legacy planning directory's) allowed, then `*.md`
+ *      allowed (see "Permits edits to").
  *   2. Not an AOForge project → noop; target outside the project → allow.
  *   3. The escape hatches below, then DENY.
  *
  * Escape hatches:
- *   1. .planning/.skill-active marker file — written by `aof-tools skill-active --start`,
+ *   1. .aoforge/.skill-active marker file — written by `aof-tools skill-active --start`,
  *      removed by `--end`. Indicates an executor/skill is actively running.
  *   2. Override phrase in user prompt — detected by route-intent.js (UserPromptSubmit)
- *      which writes .planning/.edit-override; this hook consumes the marker
+ *      which writes .aoforge/.edit-override; this hook consumes the marker
  *      (single-turn, TTL-bounded). Phrases: "skip aoforge", "just edit",
  *      "bypass aoforge", "force edit".
  *   3. AOFORGE_SKIP_EDIT_GATE=1 env var — debugging / manual escape hatch.
- *   4. .planning/config.json → gates.editGate: "warn" | "strict" | "off"
+ *   4. .aoforge/config.json → gates.editGate: "warn" | "strict" | "off"
  *      (default "strict", unchanged from above). "warn" softens the deny into
  *      permissionDecision 'ask' (visible but non-blocking) — see Prior behavior
  *      note below. "off" disables the gate entirely for that project (hook
@@ -45,7 +46,7 @@
  *      (never 'ask').
  *
  * Permits edits to:
- *   - .planning/**        (planning artifacts are edited directly; in store mode
+ *   - .aoforge/**        (planning artifacts are edited directly; in store mode
  *                          only tracked config and runtime paths — rule 0)
  *   - *.md docs           (documentation always allowed)
  *
@@ -53,7 +54,7 @@
  * hooks.json matcher is `Edit|Write|MultiEdit`. Defensive guard inside handles
  * future matcher changes.
  *
- * Non-AOForge projects (no .planning/) — hook no-ops.
+ * Non-AOForge projects (no .aoforge/, and no legacy planning directory) — hook no-ops.
  *
  * Prior behavior: `permissionDecision: 'ask'` warn-only + `AOFORGE_STRICT_EDITS=1`
  * hard-deny. The new default IS strict deny. Migrate env var references:
@@ -67,6 +68,15 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
+const { NAMES, LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
+const { escapeRegExp } = require('../aoforge/bin/lib/text-escape.cjs');
+
+/** Both planning-directory names, the new one first. Built from names, never from the filesystem. */
+const PLANNING_DIR_NAMES = [NAMES.planningDir, LEGACY.planningDir];
+/** A path segment naming either planning directory: the planning-artifact test. */
+const PLANNING_SEGMENT_RE = new RegExp(`/(?:${escapeRegExp(NAMES.planningDir)}|${escapeRegExp(LEGACY.planningDir)})/`);
 
 // ---------------------------------------------------------------------------
 // Shared lib — single source of truth for phrases + marker lifecycle
@@ -83,16 +93,12 @@ const {
 // ---------------------------------------------------------------------------
 
 /**
- * Walk up from `start` to find the nearest `.planning` directory.
- * Returns the full path to `.planning` or null if not found.
+ * Walk up from `start` to the nearest project (compat.findProjectRoot) and return its planning
+ * directory: `.aoforge/`, else a legacy one. Null when no ancestor holds either.
  */
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) return path.join(dir, '.planning');
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 /**
@@ -109,11 +115,12 @@ function findRepoRoot(start) {
 }
 
 /**
- * The MAIN checkout's `.planning/`, resolved from anywhere inside a linked
- * worktree. Returns null when unresolvable or absent.
+ * The MAIN checkout's planning directory (`.aoforge/`, else a legacy one: compat
+ * planningRoot), resolved from anywhere inside a linked worktree. Returns null
+ * when unresolvable or absent.
  *
- * TRD 27-01 — `.planning/.skill-active` is gitignored (.gitignore:44), so a
- * worktree checks out all tracked `.planning` files but NEVER the marker.
+ * TRD 27-01 — `.aoforge/.skill-active` is gitignored (.gitignore:44), so a
+ * worktree checks out all tracked `.aoforge` files but NEVER the marker.
  * Resolving only from cwd therefore denied every worktree-isolated agent —
  * 77.2% of all edit-gate denials in the 2026-08-18 audit.
  *
@@ -138,13 +145,13 @@ function sharedPlanningDir(start) {
     // `.git` is a directory → already the main checkout
   }
 
-  const p = path.join(mainRoot, '.planning');
+  const p = planningRoot(mainRoot);
   return fs.existsSync(p) ? p : null;
 }
 
 /**
  * True if a live `.skill-active` marker exists in EITHER the caller's own
- * `.planning/` or the MAIN checkout's `.planning/`.
+ * `.aoforge/` or the MAIN checkout's `.aoforge/`.
  *
  * A marker carrying an `expires_at` in the past does not count — a crashed
  * skill must not hold the gate open forever. Markers written before TRD 27-01
@@ -186,7 +193,7 @@ function hasSkillActiveMarker(planningDir, sharedDir, nowMs) {
 const VALID_EDIT_GATE_MODES = new Set(['strict', 'warn', 'off']);
 
 /**
- * Reads `.planning/config.json` → `gates.editGate` ('warn'|'strict'|'off').
+ * Reads `.aoforge/config.json` → `gates.editGate` ('warn'|'strict'|'off').
  * Defaults to 'strict' on any missing/malformed/unrecognized input.
  *
  * @param {string|null} planningDir
@@ -310,7 +317,7 @@ function _setPlanningLibs(libs) {
 }
 
 /**
- * True only when the MAIN checkout's `.planning/config.json` has
+ * True only when the MAIN checkout's `.aoforge/config.json` has
  * `github.enabled: true` and `github.store: true` (48-01 `isStoreMode`, which
  * resolves a linked worktree to its main checkout without spawning git).
  * One JSON read; never throws — any failure reads as store off (fail open).
@@ -333,7 +340,7 @@ const CACHE_DENY_CLASSES = new Set(['cache', 'generated']);
 /**
  * The store-mode deny for `filePath`, or null to fall through to the rest of
  * the gate. `filePath` must sit under one of `planningDirs` (the nearest
- * `.planning/`, then the main checkout's); a `.planning/` of some other project
+ * `.aoforge/`, then the main checkout's); a `.aoforge/` of some other project
  * is not this project's cache. Never throws: any error → null (fail open).
  *
  * @param {string} filePath
@@ -371,12 +378,12 @@ function cacheDeny(filePath, planningDirs) {
  * @param {object} opts
  * @param {string} opts.tool         - Tool name (e.g. 'Edit', 'Write', 'Read')
  * @param {string} opts.filePath     - Target file path (tool_input.file_path)
- * @param {string|null} opts.planningDir  - Ancestor .planning dir or null
+ * @param {string|null} opts.planningDir  - Ancestor .aoforge dir or null
  * @param {boolean} opts.skillActive - True if .skill-active marker exists
  * @param {boolean} opts.overrideActive  - True if .edit-override marker was fresh (consumed)
  * @param {unknown} [opts.agentType] - PreToolUse payload `agent_type` (subagents only)
  * @param {boolean} [opts.storeMode] - TRD 48-08: github.store is on (default false → rule skipped)
- * @param {string|null} [opts.sharedDir] - TRD 48-08: the MAIN checkout's .planning (worktree callers)
+ * @param {string|null} [opts.sharedDir] - TRD 48-08: the MAIN checkout's .aoforge (worktree callers)
  * @returns {{ decision: 'deny'|'allow'|'noop', reason?: string }}
  *
  * Pure apart from the store-mode rule, which (only when `storeMode` is true)
@@ -397,7 +404,7 @@ function shouldGate({ tool, filePath, planningDir, skillActive, overrideActive, 
   }
 
   // Always allow planning artifacts (planning docs are edited directly)
-  if (/\/\.planning\//.test(filePath)) return { decision: 'allow', reason: 'planning artifact' };
+  if (PLANNING_SEGMENT_RE.test(filePath)) return { decision: 'allow', reason: 'planning artifact' };
 
   // Always allow markdown documentation
   if (/\.md$/i.test(filePath)) return { decision: 'allow', reason: 'markdown doc' };
@@ -472,9 +479,9 @@ function main() {
 
   const agentType = input.agent_type;
 
-  // TRD 48-08 — the store-mode rule only ever applies to a `.planning/` path,
+  // TRD 48-08 — the store-mode rule only ever applies to a `.aoforge/` path,
   // so every other edit skips loading the planning libs and reading the mode.
-  const storeMode = typeof filePath === 'string' && filePath.includes('.planning')
+  const storeMode = typeof filePath === 'string' && PLANNING_DIR_NAMES.some((name) => filePath.includes(name))
     ? readStoreMode(process.cwd())
     : false;
 

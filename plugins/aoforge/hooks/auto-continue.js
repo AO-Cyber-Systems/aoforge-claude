@@ -10,8 +10,8 @@
  *   the announced step back as the next instruction.
  *
  * BLOCKS (prints {"decision":"block","reason":...}) only when ALL hold:
- *   1. the cwd is inside an AOForge project (a `.planning/` directory);
- *   2. a `.skill-active` marker is live — local `.planning/` or the MAIN
+ *   1. the cwd is inside an AOForge project (a `.aoforge/` directory);
+ *   2. a `.skill-active` marker is live — local `.aoforge/` or the MAIN
  *      checkout's, not expired (gate-edits.js hasSkillActiveMarker);
  *   3. `stop_hook_active` is false;
  *   4. no `background_tasks` entry is still running — the model legitimately
@@ -23,7 +23,7 @@
  *   Verified harness fact (OBJECTIVE.md): a blocked Stop continues with
  *   `reason`, and the re-stop payload carries `stop_hook_active: true`. That
  *   bounds this hook to one auto-continue per stop chain. No counter file:
- *   one would dirty `.planning/`.
+ *   one would dirty `.aoforge/`.
  *
  * ESCAPE HATCH
  *   AOFORGE_SKIP_AUTOCONTINUE=1 disables the hook.

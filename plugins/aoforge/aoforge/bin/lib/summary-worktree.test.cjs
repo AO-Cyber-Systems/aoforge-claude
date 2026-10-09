@@ -32,7 +32,6 @@ const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 
 const fx = require('./__fixtures__/upgrade-fixtures.cjs');
-const { LEGACY } = require('./legacy-names.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 const HOOK_PATH = path.join(__dirname, '..', '..', '..', 'hooks', 'gate-executor-stop.js');
@@ -144,13 +143,12 @@ describe('summary verbs in a linked worktree, local mode (TRD 53-01)', { skip: !
   });
 
   test('2. gate-executor-stop finds a SUMMARY that exists only in the worktree', () => {
-    // The hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
-    const p = project({ planningDir: LEGACY.planningDir });
+    const p = project();
     const wt = addWorktree(p);
     const r = summaryVerb(p, wt, 'checkpoint', CHECKPOINT_TEXT);
     assert.equal(r.status, 0, r.err || r.out);
-    assert.ok(exists(wt, `${LEGACY.planningDir}/objectives/${OBJ_DIR}/07-01-SUMMARY.md`), 'the checkpoint landed in the worktree');
-    assert.equal(exists(p.main, `${LEGACY.planningDir}/objectives/${OBJ_DIR}/07-01-SUMMARY.md`), false);
+    assert.ok(exists(wt, SUMMARY_REL), 'the checkpoint landed in the worktree');
+    assert.equal(exists(p.main, SUMMARY_REL), false);
 
     const hook = require(HOOK_PATH);
     assert.equal(hook.summaryExists('07-01', [p.main]), false, 'main alone does not hold it');

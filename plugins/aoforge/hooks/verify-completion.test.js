@@ -153,7 +153,7 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-comp-e2e-'));
     const logPath = path.join(tmp, 'audit.log');
     try {
-      fs.mkdirSync(path.join(tmp, '.planning', 'objectives'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives'), { recursive: true });
       const payload = JSON.stringify({
         session_id: 'test-session-1',
         prompt: 'Build the dashboard feature',
@@ -176,7 +176,7 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
     }
   });
 
-  test('no-op when not an AOForge project (no .planning)', () => {
+  test('no-op when not an AOForge project (no .aoforge)', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-comp-non-df-'));
     const logPath = path.join(tmp, 'audit.log');
     try {
@@ -195,7 +195,7 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
 
   test('preserves existing SUMMARY scan warnings', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-comp-summary-'));
-    const objDir = path.join(tmp, '.planning', 'objectives', '99-test');
+    const objDir = path.join(tmp, '.aoforge', 'objectives', '99-test');
     try {
       fs.mkdirSync(objDir, { recursive: true });
       const summaryPath = path.join(objDir, '99-01-SUMMARY.md');
@@ -219,7 +219,7 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-comp-stdout-'));
     const logPath = path.join(tmp, 'audit.log');
     try {
-      fs.mkdirSync(path.join(tmp, '.planning', 'objectives'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives'), { recursive: true });
       const result = spawnSync(process.execPath, [HOOK_PATH], {
         cwd: tmp,
         input: '{}',
@@ -235,7 +235,7 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
   test('does not crash when AOFORGE_AUDIT_LOG_PATH is unwritable', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'verify-comp-nowrite-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning', 'objectives'), { recursive: true });
+      fs.mkdirSync(path.join(tmp, '.aoforge', 'objectives'), { recursive: true });
       const result = spawnSync(process.execPath, [HOOK_PATH], {
         cwd: tmp,
         input: '{}',
@@ -252,7 +252,7 @@ describe('subprocess integration — Stop hook in ambient mode', () => {
 // ─── Autonomous resume — subprocess integration ───────────────────────────────
 //
 // Objective 45, TRD 45-10 (SC1): the per-objective resume counter no longer lives
-// in <project>/.planning/.autonomous-resume-<objective>. It lives in the hook marker
+// in <project>/.aoforge/.autonomous-resume-<objective>. It lives in the hook marker
 // store (bin/lib/hook-marker-store.cjs): $AOFORGE_HOOK_MARKER_DIR, else
 // ~/.claude/aoforge/state/hook-markers/<repo-key>/autonomous-resume-<objective>.
 // Every spawned hook and every in-process helper call below gets
@@ -281,9 +281,9 @@ function seedResumeCount(tmp, key, count) {
   return file;
 }
 
-/** Dotfiles directly inside <tmp>/.planning (the SC1 concern). */
+/** Dotfiles directly inside <tmp>/.aoforge (the SC1 concern). */
 function planningDotfiles(tmp) {
-  return fs.readdirSync(path.join(tmp, '.planning')).filter((f) => f.startsWith('.')).sort();
+  return fs.readdirSync(path.join(tmp, '.aoforge')).filter((f) => f.startsWith('.')).sort();
 }
 
 function cleanupFixture(tmp) {
@@ -301,7 +301,7 @@ function cleanupFixture(tmp) {
  * @param {boolean} [opts.midExecution]   - whether STATE.md says "Executing" (default: true)
  * @param {string} [opts.objectiveLine]   - objective line content in STATE.md (default: 'Objective: 10')
  * @param {number} [opts.resumeCount]     - pre-existing counter value (default: 0, omit file if undefined)
- * @param {string[]} [opts.pendingIds]    - decision ids to write to .planning/decisions/pending/
+ * @param {string[]} [opts.pendingIds]    - decision ids to write to .aoforge/decisions/pending/
  * @returns {string} planningDir path
  */
 function buildAutonomousFixture(tmp, opts = {}) {
@@ -310,7 +310,7 @@ function buildAutonomousFixture(tmp, opts = {}) {
   const objectiveLine = opts.objectiveLine !== undefined ? opts.objectiveLine : 'Objective: 10';
   const pendingIds = opts.pendingIds || [];
 
-  const planningDir = path.join(tmp, '.planning');
+  const planningDir = path.join(tmp, '.aoforge');
   fs.mkdirSync(path.join(planningDir, 'objectives'), { recursive: true });
 
   // Write config.json
@@ -332,7 +332,7 @@ function buildAutonomousFixture(tmp, opts = {}) {
   const stateContent = `# AOForge State\n\n## Current Position\n\n${objectiveLine}\n${statusLine}\n`;
   fs.writeFileSync(path.join(planningDir, 'STATE.md'), stateContent);
 
-  // Write resume counter if specified — into the store, not under .planning/
+  // Write resume counter if specified — into the store, not under .aoforge/
   if (opts.resumeCount !== undefined) {
     const objKey = objectiveLine.match(/Objective:\s*(\w+)/) ? objectiveLine.match(/Objective:\s*(\w+)/)[1] : 'current';
     seedResumeCount(tmp, objKey, opts.resumeCount);
@@ -367,10 +367,10 @@ describe('autonomous resume — subprocess', () => {
       const parsed = JSON.parse(result.stdout);
       assert.equal(parsed.decision, 'block');
       assert.match(parsed.reason, /resuming \(attempt 1\/3\)/);
-      // Counter file should now be 1 — in the store, and .planning/ gains no file
+      // Counter file should now be 1 — in the store, and .aoforge/ gains no file
       const counterFile = resumeFileFor(tmp, '10');
       assert.equal(fs.readFileSync(counterFile, 'utf8').trim(), '1');
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
       assert.equal(fs.existsSync(path.join(planningDir, '.autonomous-resume-10')), false);
     } finally {
       cleanupFixture(tmp);
@@ -394,7 +394,7 @@ describe('autonomous resume — subprocess', () => {
       // Counter file should be deleted from the store
       const counterFile = resumeFileFor(tmp, '10');
       assert.equal(fs.existsSync(counterFile), false, 'counter file should be cleared at cap');
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
     } finally {
       cleanupFixture(tmp);
     }
@@ -436,7 +436,7 @@ describe('autonomous resume — subprocess', () => {
       // Counter file should be cleared from the store
       const counterFile = resumeFileFor(tmp, '10');
       assert.equal(fs.existsSync(counterFile), false, 'counter should be cleared when not mid-execution');
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
     } finally {
       cleanupFixture(tmp);
     }
@@ -466,12 +466,12 @@ describe('autonomous resume — subprocess', () => {
     }
   });
 
-  // Test 6: non-AOForge dir (no .planning) → no output, exit 0
+  // Test 6: non-AOForge dir (no .aoforge) → no output, exit 0
   test('non-AOForge dir → no output, exit 0', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-auto-6-'));
     const logPath = path.join(tmp, 'audit.log');
     try {
-      // No .planning dir created
+      // No .aoforge dir created
       const result = spawnSync(process.execPath, [HOOK_PATH], {
         cwd: tmp,
         input: '{}',
@@ -532,7 +532,7 @@ describe('autonomous resume — subprocess', () => {
 });
 
 describe('autonomous resume — counter lives in the store (TRD 45-10 #8)', () => {
-  test('the counter increments 1 → 2 across successive stops, and .planning/ gains no file', () => {
+  test('the counter increments 1 → 2 across successive stops, and .aoforge/ gains no file', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-auto-inc-'));
     const logPath = path.join(tmp, 'audit.log');
     try {
@@ -549,7 +549,7 @@ describe('autonomous resume — counter lives in the store (TRD 45-10 #8)', () =
       assert.equal(fs.readFileSync(counter, 'utf8').trim(), '1');
       assert.match(JSON.parse(run().stdout).reason, /attempt 2\/3/);
       assert.equal(fs.readFileSync(counter, 'utf8').trim(), '2');
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
     } finally {
       cleanupFixture(tmp);
     }
@@ -584,7 +584,7 @@ describe('autonomous resume — helpers', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-helpers-'));
-    planningDir = path.join(tmpDir, '.planning');
+    planningDir = path.join(tmpDir, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
   });
 
@@ -639,7 +639,7 @@ describe('autonomous resume — helpers', () => {
     writeResumeCount(planningDir, 'rt', 5, env);
     assert.equal(fs.existsSync(resumeFileFor(tmpDir, 'rt')), true, 'counter is written to the store');
     assert.equal(readResumeCount(planningDir, 'rt', env), 5);
-    assert.deepEqual(planningDotfiles(tmpDir), [], '.planning/ must gain no dotfile');
+    assert.deepEqual(planningDotfiles(tmpDir), [], '.aoforge/ must gain no dotfile');
     clearResumeCount(planningDir, 'rt', env);
     assert.equal(readResumeCount(planningDir, 'rt', env), 0);
     assert.equal(fs.existsSync(resumeFileFor(tmpDir, 'rt')), false, 'clearing removes the store file');

@@ -113,7 +113,7 @@ function executorPrompt({ planId, repoRoot = '/fixture/repo', base = 'abc1234', 
     '',
     '<plan_content>',
     'The full TRD content is embedded below because you may be running in an isolated',
-    'worktree where .planning/ files from the parent tree are not visible.',
+    'worktree where .aoforge/ files from the parent tree are not visible.',
     '--- BEGIN TRD ---',
     ...frontmatter,
     `# TRD ${title}: fixture plan`,
@@ -293,7 +293,7 @@ function summaryText(kind, id) {
 
 /**
  * Create an AOForge-shaped fixture project under `root`:
- * `.planning/objectives/<objectiveDir>/<id>-TRD.md` for each `trdIds` entry and
+ * `.aoforge/objectives/<objectiveDir>/<id>-TRD.md` for each `trdIds` entry and
  * `<id>-SUMMARY.md` for each `summaries` entry. By default a SUMMARY carries only
  * a `## Progress` checkpoint (no Self-Check) — the gate must treat that as present
  * and never as unstamped. `summaryKinds` (`{ '77-02': 'final_unstamped' }`) picks
@@ -309,7 +309,7 @@ function summaryText(kind, id) {
  * @returns {string} root
  */
 function makePlanningRepo(root, { objectiveDir = '77-x', trdIds = ['77-02'], summaries = [], summaryKinds = {} } = {}) {
-  const objDir = path.join(root, '.planning', 'objectives', objectiveDir);
+  const objDir = path.join(root, '.aoforge', 'objectives', objectiveDir);
   fs.mkdirSync(objDir, { recursive: true });
 
   for (const id of trdIds) {

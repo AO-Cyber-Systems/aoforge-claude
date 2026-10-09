@@ -29,7 +29,7 @@
  *      window catches up. No ~/.claude/projects → nothing spawned, nothing written. Own try/catch:
  *      any error writes one `[aoforge] transcript export skipped: <msg>` line to stderr and the
  *      hook continues; stdout stays empty; exit code stays 0.
- *   1. Fast path: `.planning/config.json` `aoforge.version` equals the bundled plugin version →
+ *   1. Fast path: `.aoforge/config.json` `aoforge.version` equals the bundled plugin version →
  *      exit. One small JSON read; nothing else is required or written.
  *   2. Apply: run the `auto` migrations synchronously via the BUNDLED upgrade.cjs (never the
  *      ~/.claude/aoforge mirror — sync-runtime runs in parallel and may be mid-swap).
@@ -38,7 +38,7 @@
  *      in progress, detached HEAD, a changed file had uncommitted edits before the hook ran, not a
  *      git repository). A failed commit (e.g. signing) is reported, never retried another way.
  *   4. Notices: results, pending `confirm` migrations and skip reasons go to
- *      `.planning/.aoforge-notices.json`; route-results.js emits them once on the next prompt.
+ *      `.aoforge/.aoforge-notices.json`; route-results.js emits them once on the next prompt.
  *
  * Modes:
  *   node upgrade-project.js                                   SessionStart hook
@@ -55,12 +55,18 @@ const os = require('os');
 const crypto = require('crypto');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const {
+  findProjectRoot: compatFindProjectRoot,
+  planningDirName,
+  planningRoot,
+} = require('../aoforge/bin/lib/compat.cjs');
 const { execFileSync, spawn, spawnSync } = require('child_process');
 
 const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || path.resolve(__dirname, '..');
 const LIB = path.join(pluginRoot, 'aoforge', 'bin', 'lib');
 const DF_TOOLS = path.join(pluginRoot, 'aoforge', 'bin', 'aof-tools.cjs');
-const NOTICES_REL = '.planning/.aoforge-notices.json';
+const { NAMES } = require('../aoforge/bin/lib/legacy-names.cjs');
 const LOCK_STALE_MS = 120 * 1000;
 const COMMIT_TIMEOUT_MS = 120 * 1000;
 const MIGRATE_CMD = '/aoforge:status check --migrate';
@@ -85,16 +91,15 @@ function readJson(file) {
   }
 }
 
-/** Nearest ancestor of `start` (inclusive) holding a `.planning/` DIRECTORY, else null. */
+/**
+ * Nearest ancestor of `start` (inclusive) holding a planning DIRECTORY (`.aoforge/`, or a legacy one:
+ * compat.findProjectRoot), else null.
+ */
 function findProjectRoot(start) {
-  let dir = path.resolve(start);
-  for (;;) {
-    try {
-      if (fs.statSync(path.join(dir, '.planning')).isDirectory()) return dir;
-    } catch { /* keep walking */ }
-    const parent = path.dirname(dir);
-    if (parent === dir) return null;
-    dir = parent;
+  try {
+    return compatFindProjectRoot(start, { maxUp: Infinity });
+  } catch {
+    return null;
   }
 }
 
@@ -212,15 +217,24 @@ function gitState(root) {
   return state;
 }
 
+/**
+ * The notices file relative to the project root, in the project's own planning directory (`.aoforge/`,
+ * or a legacy one): where notices.cjs projectNoticesPath writes it.
+ */
+function noticesRel(root) {
+  return `${planningDirName(root)}/${NAMES.notices}`;
+}
+
 /** Add the notices file to the repo's info/exclude unless git already ignores it. */
 function ensureExcluded(root) {
-  if (git(root, ['check-ignore', '-q', '--', NOTICES_REL]).ok) return;
+  const notices = noticesRel(root);
+  if (git(root, ['check-ignore', '-q', '--', notices]).ok) return;
   const rel = git(root, ['rev-parse', '--git-path', 'info/exclude']);
   if (!rel.ok) return;
   const excludePath = path.resolve(root, rel.out.trim());
   // info/exclude patterns are relative to the repo top; a pattern with an inner '/' is anchored.
   const prefix = git(root, ['rev-parse', '--show-prefix']).out.trim();
-  const entry = prefix ? `/${prefix}${NOTICES_REL}` : NOTICES_REL;
+  const entry = prefix ? `/${prefix}${notices}` : notices;
   try {
     const current = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, 'utf-8') : '';
     if (current.split('\n').includes(entry)) return;
@@ -234,7 +248,7 @@ function ensureExcluded(root) {
  * TRD 44-06: runtime-state paths untracked by migration 0008. Hooks rewrite them constantly, so
  * they are dirty in almost every session; the upgrade commits them as DELETIONS only (aof-tools
  * commit's staged-removal path), never as content, so a pre-upgrade edit cannot be swept in.
- * TRD 45-02: the same holds for a nested `.planning/` (aodex tracks `flutter/.planning/…`), so the
+ * TRD 45-02: the same holds for a nested `.aoforge/` (aodex tracks `flutter/.aoforge/…`), so the
  * exemption is a predicate — the migration's own `isRuntimeStatePath` — not a fixed list of root
  * paths. Loaded lazily from the bundled migration so the fast path requires nothing. An older
  * bundle without that export falls back to membership in RUNTIME_STATE_FILES (root paths only);
@@ -309,7 +323,7 @@ function main() {
   const manifest = readJson(path.join(pluginRoot, '.claude-plugin', 'plugin.json'));
   const to = manifest && typeof manifest.version === 'string' ? manifest.version : null;
   if (!to) return;
-  const config = readJson(path.join(root, '.planning', 'config.json'));
+  const config = readJson(path.join(planningRoot(root), 'config.json'));
   const stamp = config && config.aoforge && typeof config.aoforge === 'object' ? config.aoforge.version : undefined;
   if (stamp === to) return; // FAST PATH
 

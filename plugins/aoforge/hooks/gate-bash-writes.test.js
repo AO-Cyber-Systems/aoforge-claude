@@ -7,7 +7,7 @@
  *   1. GATE-01  every write form to a tracked source file is denied, and the reason names the file
  *   2. shipped default (no bashEditGate key) is whatever BASH_EDIT_GATE_DEFAULT maps to
  *   3. GATE-02  commands that only mention a write produce no output
- *   4. GATE-03  .planning/, *.md, untracked files, tmp and other repos produce no output
+ *   4. GATE-03  .aoforge/, *.md, untracked files, tmp and other repos produce no output
  *   5. GATE-04  every escape, with a control that proves the escape is what let the write through
  *   6. the .edit-override marker is consumed only by a write that would be gated
  *   7. no-ops: no project, not Bash, malformed stdin, empty command
@@ -49,7 +49,7 @@ const FILES = {
   'src/a.go': 'package a\n',
   'package.json': '{}\n',
   'README.md': '# readme\n',
-  '.planning/STATE.md': '# state\n',
+  '.aoforge/STATE.md': '# state\n',
 };
 
 const cleanups = [];
@@ -61,11 +61,11 @@ function scratch(prefix) {
 }
 
 function setGates(root, gates) {
-  fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(gates ? { gates } : {}));
+  fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify(gates ? { gates } : {}));
 }
 
 function planningOf(root) {
-  return path.join(root, '.planning');
+  return path.join(root, '.aoforge');
 }
 
 function skillMarker(root, expiresAtMs) {
@@ -189,7 +189,7 @@ describe('gate-bash-writes hook', { skip: !hasGit && 'git is not available' }, (
   });
 
   describe('4. GATE-03: paths the gate never covers', () => {
-    test('.planning/', () => assertAllowed(bash(repo, 'echo x >> .planning/STATE.md')));
+    test('.aoforge/', () => assertAllowed(bash(repo, 'echo x >> .aoforge/STATE.md')));
     test('markdown', () => assertAllowed(bash(repo, 'echo x >> README.md')));
     test('an untracked file', () => assertAllowed(bash(repo, 'echo x > src/new.js')));
 

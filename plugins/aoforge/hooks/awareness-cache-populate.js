@@ -7,8 +7,8 @@
  * Where the cache lives (TRD 45-01): OUT of the repo, in
  * $AOFORGE_AWARENESS_DIR, else ~/.claude/aoforge/state/awareness/<repo-key>.json
  * (see lib/awareness-store.cjs). Staleness is decided from that file. This hook never
- * creates or reads anything under <cwd>/.planning/ except to test that the directory
- * exists. A legacy in-tree .planning/.awareness-cache.json is dead state and ignored.
+ * creates or reads anything under <cwd>/.aoforge/ except to test that the directory
+ * exists. A legacy in-tree .aoforge/.awareness-cache.json is dead state and ignored.
  *
  * Fire-and-forget: spawns child process as detached + unref() so the parent
  * exits within milliseconds regardless of how long the scan takes (30s+).
@@ -28,7 +28,7 @@
  *
  * Escape hatches:
  * - AOFORGE_SKIP_AWARENESS_POPULATE=1  → bypass entirely
- * - .planning/ absent in cwd          → not an AOForge project, no-op
+ * - .aoforge/ absent in cwd          → not an AOForge project, no-op
  *
  * @module awareness-cache-populate
  */
@@ -38,6 +38,8 @@ const path = require('path');
 const os   = require('os');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 const { spawn } = require('child_process');
 const store = require('../aoforge/bin/lib/awareness-store.cjs');
 
@@ -118,8 +120,8 @@ function _main({ cwd = process.cwd(), env = process.env, _spawn = spawn } = {}) 
   // Escape hatch: allow bypassing entirely for CI or testing environments
   if (env.AOFORGE_SKIP_AWARENESS_POPULATE === '1') return;
 
-  // Not an AOForge project — no .planning/ directory
-  if (!fs.existsSync(path.join(cwd, '.planning'))) return;
+  // Not an AOForge project — no .aoforge/ directory
+  if (!fs.existsSync(planningRoot(cwd))) return;
 
   const cache  = _readCache(cwd, env) || {};
   const ttl    = DEFAULT_TTL_MINUTES;

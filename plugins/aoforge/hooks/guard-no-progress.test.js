@@ -6,7 +6,7 @@
  * Subprocess tests: the hook is only useful if it behaves correctly when the
  * harness runs it, so these drive the real binary with real payloads.
  *
- * State no longer lives in <project>/.planning/. It is one file per session under
+ * State no longer lives in <project>/.aoforge/. It is one file per session under
  * AOFORGE_PROGRESS_GUARD_DIR (default ~/.claude/aoforge/state/progress-guard/).
  * Every test points that override at a temp dir — run() refuses to spawn the hook
  * without it, so no test can ever write to the real ~/.claude.
@@ -25,14 +25,14 @@ const { IGNORED_TOOLS, SESSION_TTL_MS } = require('./guard-no-progress.js');
 const HOUR = 60 * 60 * 1000;
 
 /**
- * A scratch world: <root>/proj is an AOForge project (has .planning/), and
+ * A scratch world: <root>/proj is an AOForge project (has .aoforge/), and
  * <root>/state/pg is where the hook is told to keep its state.
  * `env` is what every run() must pass.
  */
 function mkWorld() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'npg-'));
   const project = path.join(root, 'proj');
-  fs.mkdirSync(path.join(project, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(project, '.aoforge'), { recursive: true });
   const stateDir = path.join(root, 'state', 'pg');
   return {
     root,
@@ -137,15 +137,15 @@ describe('guard-no-progress — escalation ladder', () => {
 });
 
 describe('guard-no-progress — state lives outside the repo', () => {
-  test('2. never writes .planning/.progress-guard.json; writes <stateDir>/s1.json', () => {
+  test('2. never writes .aoforge/.progress-guard.json; writes <stateDir>/s1.json', () => {
     const w = mkWorld();
     try {
       run(w.project, payload({ cwd: w.project }), w.env);
       assert.equal(
-        fs.existsSync(path.join(w.project, '.planning', '.progress-guard.json')), false,
+        fs.existsSync(path.join(w.project, '.aoforge', '.progress-guard.json')), false,
         'the legacy in-repo file must not be created'
       );
-      assert.deepEqual(listDir(path.join(w.project, '.planning')), [], '.planning/ must stay untouched');
+      assert.deepEqual(listDir(path.join(w.project, '.aoforge')), [], '.aoforge/ must stay untouched');
       const file = path.join(w.stateDir, 's1.json');
       assert.ok(fs.existsSync(file), 'state must land in the state dir');
       const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -156,10 +156,10 @@ describe('guard-no-progress — state lives outside the repo', () => {
     } finally { w.cleanup(); }
   });
 
-  test('never modifies a pre-existing legacy .planning/.progress-guard.json', () => {
+  test('never modifies a pre-existing legacy .aoforge/.progress-guard.json', () => {
     const w = mkWorld();
     try {
-      const legacy = path.join(w.project, '.planning', '.progress-guard.json');
+      const legacy = path.join(w.project, '.aoforge', '.progress-guard.json');
       fs.writeFileSync(legacy, '{"old":"data"}');
       const before = fs.statSync(legacy).mtimeMs;
       for (let i = 0; i < 3; i++) run(w.project, payload({ cwd: w.project }), w.env);
@@ -200,8 +200,8 @@ describe('guard-no-progress — state lives outside the repo', () => {
       // nothing escaped: the parents hold only what the fixture created
       assert.deepEqual(listDir(path.dirname(w.stateDir)), ['pg']);
       assert.deepEqual(listDir(w.root), ['proj', 'state']);
-      assert.deepEqual(listDir(w.project), ['.planning']);
-      assert.deepEqual(listDir(path.join(w.project, '.planning')), []);
+      assert.deepEqual(listDir(w.project), ['.aoforge']);
+      assert.deepEqual(listDir(path.join(w.project, '.aoforge')), []);
       assert.equal(fs.existsSync(path.join(w.root, 'evil')), false);
     } finally { w.cleanup(); }
   });
@@ -261,7 +261,7 @@ describe('guard-no-progress — stale sibling pruning', () => {
 });
 
 describe('guard-no-progress — fails open', () => {
-  test('no .planning/ anywhere -> silent no-op, nothing written', () => {
+  test('no .aoforge/ anywhere -> silent no-op, nothing written', () => {
     const w = mkWorld();
     const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'npg-noplan-'));
     try {

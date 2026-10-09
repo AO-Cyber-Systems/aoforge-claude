@@ -8,7 +8,7 @@
  * Unit (in-process):
  *   9.  identifyTrd — PLAN_ID / exec-context --id / -TRD.md path / frontmatter, ambiguity → null
  *   10. readFirstUserPrompt — string + array content, leading records skipped, bounded 1 MiB read
- *   11. summaryExists — over injected roots; roots without .planning/objectives skipped
+ *   11. summaryExists — over injected roots; roots without .aoforge/objectives skipped
  *   +   candidateRoots, isDeliberateStop
  */
 
@@ -53,7 +53,7 @@ describe('identifyTrd', () => {
   });
 
   test('-TRD.md path only → id', () => {
-    const text = 'Read @.planning/objectives/77-x/77-02-TRD.md and execute it.';
+    const text = 'Read @.aoforge/objectives/77-x/77-02-TRD.md and execute it.';
     assert.equal(identifyTrd(text).id, '77-02');
   });
 
@@ -75,12 +75,12 @@ describe('identifyTrd', () => {
   });
 
   test('two different -TRD.md paths (no explicit id) → ambiguous → null', () => {
-    const text = 'Compare .planning/objectives/77-x/77-01-TRD.md with .planning/objectives/77-x/77-02-TRD.md';
+    const text = 'Compare .aoforge/objectives/77-x/77-01-TRD.md with .aoforge/objectives/77-x/77-02-TRD.md';
     assert.equal(identifyTrd(text), null);
   });
 
   test('explicit PLAN_ID wins over a different -TRD.md path mentioned as context', () => {
-    const text = 'PLAN_ID: 77-02\nContext: @.planning/objectives/77-x/77-01-TRD.md';
+    const text = 'PLAN_ID: 77-02\nContext: @.aoforge/objectives/77-x/77-01-TRD.md';
     assert.equal(identifyTrd(text).id, '77-02');
   });
 
@@ -97,7 +97,7 @@ describe('identifyTrd', () => {
   });
 
   test('nothing identifiable → null', () => {
-    assert.equal(identifyTrd('Execute quick task 3.\nJob: @.planning/quick/3-fix/3-JOB.md'), null);
+    assert.equal(identifyTrd('Execute quick task 3.\nJob: @.aoforge/quick/3-fix/3-JOB.md'), null);
     assert.equal(identifyTrd(''), null);
     assert.equal(identifyTrd(null), null);
     assert.equal(identifyTrd(undefined), null);
@@ -228,7 +228,7 @@ describe('summaryExists', () => {
   before(() => { tmp = mkTmp('ges-summary-'); });
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
-  test('true when <root>/.planning/objectives/*/<id>-SUMMARY.md exists (Progress-only counts)', () => {
+  test('true when <root>/.aoforge/objectives/*/<id>-SUMMARY.md exists (Progress-only counts)', () => {
     const root = F.makePlanningRepo(path.join(tmp, 'with'), { summaries: ['77-02'] });
     assert.equal(summaryExists('77-02', [root]), true);
   });
@@ -243,7 +243,7 @@ describe('summaryExists', () => {
     assert.equal(summaryExists('77-02', [root]), false);
   });
 
-  test('a root without .planning/objectives is skipped', () => {
+  test('a root without .aoforge/objectives is skipped', () => {
     const bare = path.join(tmp, 'bare');
     fs.mkdirSync(bare, { recursive: true });
     const withSummary = F.makePlanningRepo(path.join(tmp, 'with2'), { objectiveDir: '77-y', summaries: ['77-02'] });
@@ -271,7 +271,7 @@ describe('summaryExists', () => {
   // `<id>-<slug>-SUMMARY.md` counts too. The id is a key, not a string prefix.
   function withObjectiveFiles(name, files) {
     const root = path.join(tmp, name);
-    const dir = path.join(root, '.planning', 'objectives', '07-demo');
+    const dir = path.join(root, '.aoforge', 'objectives', '07-demo');
     fs.mkdirSync(dir, { recursive: true });
     for (const f of files) fs.writeFileSync(path.join(dir, f), '# x\n');
     return root;
@@ -314,7 +314,7 @@ describe('summaryExists', () => {
 
   test('53-02: an fsImpl without readdirSync on objective dirs keeps the exact-name path', () => {
     const root = F.makePlanningRepo(path.join(tmp, 'mock-exact'), { summaries: ['77-02'] });
-    const objectivesDir = path.join(root, '.planning', 'objectives');
+    const objectivesDir = path.join(root, '.aoforge', 'objectives');
     const fsImpl = {
       ...fs,
       readdirSync: (p, ...rest) => {
@@ -462,7 +462,7 @@ describe('decide', () => {
     const p = { ...payload };
     delete p.cwd;
     assert.equal(decide(p, deps({ cwd: root })).block, true);
-    assert.equal(decide(p, deps({ cwd: path.join(tmp) })), null, 'no .planning up from tmp → null');
+    assert.equal(decide(p, deps({ cwd: path.join(tmp) })), null, 'no .aoforge up from tmp → null');
   });
 
   test('null / non-object payload → null', () => {
@@ -506,9 +506,9 @@ describe('trdDirFor (TRD 44-10)', () => {
   before(() => { tmp = mkTmp('ges-trddir-'); });
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
-  test('returns <root>/.planning/objectives/<dir> holding <id>-TRD.md', () => {
+  test('returns <root>/.aoforge/objectives/<dir> holding <id>-TRD.md', () => {
     const root = F.makePlanningRepo(path.join(tmp, 'found'), { objectiveDir: '99-demo', trdIds: ['99-01'] });
-    assert.equal(trdDirFor('99-01', [root]), path.join(root, '.planning', 'objectives', '99-demo'));
+    assert.equal(trdDirFor('99-01', [root]), path.join(root, '.aoforge', 'objectives', '99-demo'));
   });
 
   test('null when no root holds the TRD; roots without objectives are skipped', () => {
@@ -525,8 +525,8 @@ describe('trdDirFor (TRD 44-10)', () => {
     const empty = F.makePlanningRepo(path.join(tmp, 'empty'), { trdIds: [] });
     const a = F.makePlanningRepo(path.join(tmp, 'a'), { objectiveDir: '99-demo', trdIds: ['99-01'] });
     const b = F.makePlanningRepo(path.join(tmp, 'b'), { objectiveDir: '99-other', trdIds: ['99-01'] });
-    assert.equal(trdDirFor('99-01', [empty, a, b]), path.join(a, '.planning', 'objectives', '99-demo'));
-    assert.equal(trdDirFor('99-01', [empty, b, a]), path.join(b, '.planning', 'objectives', '99-other'));
+    assert.equal(trdDirFor('99-01', [empty, a, b]), path.join(a, '.aoforge', 'objectives', '99-demo'));
+    assert.equal(trdDirFor('99-01', [empty, b, a]), path.join(b, '.aoforge', 'objectives', '99-other'));
   });
 
   test('an unreadable objectives dir is skipped (fail-open)', () => {
@@ -539,7 +539,7 @@ describe('trdDirFor (TRD 44-10)', () => {
         return fs.readdirSync(p, ...rest);
       },
     };
-    assert.equal(trdDirFor('99-01', [a, b], fsImpl), path.join(b, '.planning', 'objectives', '99-demo'));
+    assert.equal(trdDirFor('99-01', [a, b], fsImpl), path.join(b, '.aoforge', 'objectives', '99-demo'));
     assert.equal(trdDirFor('99-01', [a], fsImpl), null);
   });
 });
@@ -550,7 +550,7 @@ describe('decide: block reason names the SUMMARY path (TRD 44-10)', () => {
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }); });
 
   const deps = (extra = {}) => ({ env: {}, gitWorktrees: () => [], ...extra });
-  const REL = '.planning/objectives/99-demo/99-01-SUMMARY.md';
+  const REL = '.aoforge/objectives/99-demo/99-01-SUMMARY.md';
 
   test('TRD file found under cwd → reason names the repo-relative SUMMARY path', () => {
     const { payload } = makeDemoScenario(path.join(tmp, 'found'));
@@ -710,10 +710,10 @@ describe('e2e: gate-executor-stop.js as a SubagentStop hook', () => {
     assert.equal(JSON.parse(runHook(ctl.payload, { cwd: ctl.root }).stdout).decision, 'block', 'control');
   });
 
-  test('6. no .planning up from cwd → no output; env escape hatch → no output', () => {
+  test('6. no .aoforge up from cwd → no output; env escape hatch → no output', () => {
     const bare = path.join(tmp, 't6-bare');
     const transcript = F.writeAgentTranscript(bare, F.executorPrompt({ planId: '77-02', repoRoot: bare }));
-    assertSilent(runHook(F.subagentStopPayload({ cwd: bare, agent_transcript_path: transcript }), { cwd: bare }), 'no .planning');
+    assertSilent(runHook(F.subagentStopPayload({ cwd: bare, agent_transcript_path: transcript }), { cwd: bare }), 'no .aoforge');
 
     const { root, payload } = makeExecutorScenario(path.join(tmp, 't6-env'));
     assertSilent(runHook(payload, { cwd: root, env: { AOFORGE_SKIP_EXECUTOR_STOP_GATE: '1' } }), 'escape hatch');
@@ -736,7 +736,7 @@ describe('e2e: gate-executor-stop.js as a SubagentStop hook', () => {
 
   test('unidentifiable or ambiguous TRD → no output', () => {
     const root = F.makePlanningRepo(path.join(tmp, 't-id'));
-    const quick = F.writeAgentTranscript(path.join(root, 'q'), 'Execute quick task 3.\nJob: @.planning/quick/3-fix/3-JOB.md');
+    const quick = F.writeAgentTranscript(path.join(root, 'q'), 'Execute quick task 3.\nJob: @.aoforge/quick/3-fix/3-JOB.md');
     assertSilent(runHook(F.subagentStopPayload({ cwd: root, agent_transcript_path: quick }), { cwd: root }), 'quick-style');
     const ambiguous = F.writeAgentTranscript(path.join(root, 'amb'), 'PLAN_ID: 77-02\n  node aof-tools.cjs exec-context check --repo /r --base b --id 77-03');
     assertSilent(runHook(F.subagentStopPayload({ cwd: root, agent_transcript_path: ambiguous }), { cwd: root }), 'ambiguous');
@@ -748,7 +748,7 @@ describe('e2e: gate-executor-stop.js as a SubagentStop hook', () => {
     assert.equal(r.status, 0, r.stderr);
     const out = JSON.parse(r.stdout);
     assert.equal(out.decision, 'block');
-    assert.ok(out.reason.includes('write the ## Progress checkpoint to .planning/objectives/99-demo/99-01-SUMMARY.md'), out.reason);
+    assert.ok(out.reason.includes('write the ## Progress checkpoint to .aoforge/objectives/99-demo/99-01-SUMMARY.md'), out.reason);
 
     const none = makeDemoScenario(path.join(tmp, 't-path-none'), { trdIn: null });
     const r2 = runHook(none.payload, { cwd: none.root });
@@ -784,7 +784,7 @@ function makeTokenScenario(root, { kind = 'final_unstamped', promptOpts = {}, tr
   const prompt = F.executorPrompt({ planId: '77-02', repoRoot: root, ...promptOpts });
   const transcript = F.writeAgentTranscript(path.join(root, 'transcripts'), prompt, transcriptOpts);
   const payload = F.subagentStopPayload({ cwd: root, agent_transcript_path: transcript });
-  return { root, payload, objectiveDir: path.join(root, '.planning', 'objectives', '77-x') };
+  return { root, payload, objectiveDir: path.join(root, '.aoforge', 'objectives', '77-x') };
 }
 
 describe('66-02 e2e: final SUMMARY without token fields', () => {
@@ -967,7 +967,7 @@ describe('66-02 helpers: hasTokenFields, isFinalSummary, summaryFiles', () => {
     const { summaryFiles } = require('./gate-executor-stop.js');
     const make = (name, files) => {
       const root = path.join(tmp, name);
-      const dir = path.join(root, '.planning', 'objectives', '77-x');
+      const dir = path.join(root, '.aoforge', 'objectives', '77-x');
       fs.mkdirSync(dir, { recursive: true });
       for (const f of files) fs.writeFileSync(path.join(dir, f), '# x\n');
       return { root, dir };
@@ -991,7 +991,7 @@ describe('66-02 helpers: hasTokenFields, isFinalSummary, summaryFiles', () => {
 
   test('14d. summaryFiles: a decimal id is matched literally', () => {
     const { summaryFiles } = require('./gate-executor-stop.js');
-    const dir = path.join(tmp, 'dec', '.planning', 'objectives', '12.1-x');
+    const dir = path.join(tmp, 'dec', '.aoforge', 'objectives', '12.1-x');
     fs.mkdirSync(dir, { recursive: true });
     for (const f of ['12.1-03-x-SUMMARY.md', '1201-03-SUMMARY.md', '12x1-03-SUMMARY.md']) fs.writeFileSync(path.join(dir, f), '# x\n');
     assert.deepEqual(summaryFiles('12.1-03', [path.join(tmp, 'dec')]), [path.join(dir, '12.1-03-x-SUMMARY.md')]);

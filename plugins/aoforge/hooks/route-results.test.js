@@ -289,7 +289,7 @@ describe('upgrade notices', () => {
   beforeEach(() => { tmp = mkTmp(); home = mkTmp(); });
   afterEach(() => { rmTmp(tmp); rmTmp(home); });
 
-  test('20: a global notice (no .planning in cwd) is emitted exactly once', () => {
+  test('20: a global notice (no .aoforge in cwd) is emitted exactly once', () => {
     const file = notices.globalNoticesPath(home);
     notices.appendNotice(file, { source: 'global-upgrade', level: 'info', message: 'global notice G1' });
     const r1 = runHook(tmp, { HOME: home });
@@ -303,7 +303,7 @@ describe('upgrade notices', () => {
   });
 
   test('21: handoff results and a project notice share ONE additionalContext', () => {
-    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
     notices.appendNotice(notices.projectNoticesPath(tmp),
       { source: 'upgrade-project', level: 'warn', message: 'project notice P1' });
     seedDoneRecord(tmp, 'h-21', { stdout: 'handoff output H1' });
@@ -318,7 +318,7 @@ describe('upgrade notices', () => {
   });
 
   test('21b: a project notice is found from a subdirectory of the project', () => {
-    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
     notices.appendNotice(notices.projectNoticesPath(tmp),
       { source: 'upgrade-project', level: 'info', message: 'project notice P2' });
     const child = path.join(tmp, 'src', 'deep');
@@ -328,7 +328,7 @@ describe('upgrade notices', () => {
   });
 
   test('22: AOFORGE_SKIP_NOTICES=1 suppresses (and keeps) notices; handoff results still emitted', () => {
-    fs.mkdirSync(path.join(tmp, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
     const file = notices.projectNoticesPath(tmp);
     notices.appendNotice(file, { source: 'upgrade-project', level: 'warn', message: 'project notice P3' });
     seedDoneRecord(tmp, 'h-22', { stdout: 'handoff output H3' });

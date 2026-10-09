@@ -66,14 +66,14 @@ function preToolUsePayload({ tool = 'Bash', filePath, command, agentType, agentI
 }
 
 /**
- * The initialized AOForge shape gate-commits requires: `.planning/ROADMAP.md`
- * plus `.planning/objectives/`.
+ * The initialized AOForge shape gate-commits requires: `.aoforge/ROADMAP.md`
+ * plus `.aoforge/objectives/`.
  *
  * @param {string} root
- * @returns {string} the `.planning` dir
+ * @returns {string} the `.aoforge` dir
  */
 function makeAoforgeProject(root) {
-  const planningDir = path.join(root, '.planning');
+  const planningDir = path.join(root, '.aoforge');
   fs.mkdirSync(path.join(planningDir, 'objectives'), { recursive: true });
   fs.writeFileSync(path.join(planningDir, 'ROADMAP.md'), '# Roadmap\n');
   return planningDir;

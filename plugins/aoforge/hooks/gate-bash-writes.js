@@ -13,7 +13,7 @@
  *    1. AOFORGE_SKIP_EDIT_GATE=1                           -> allow
  *    2. not a Bash call, or no command                     -> allow
  *    3. !mayWrite(cmd)  (no fs, no git)                    -> allow
- *    4. no .planning/ above the payload cwd                -> allow (not an AOForge project)
+ *    4. no .aoforge/ above the payload cwd                -> allow (not an AOForge project)
  *    5. mode = least of gates.editGate, gates.bashEditGate -> 'off' allows
  *    6. agent_type aoforge:*                               -> allow
  *    7. a live skill marker, local or main checkout        -> allow
@@ -35,7 +35,7 @@
  *
  * Escapes (all of them gate-edits' own helpers):
  *   - AOFORGE_SKIP_EDIT_GATE=1 in the hook environment
- *   - a live skill marker in this project's .planning/ or the MAIN checkout's, so worktree-isolated
+ *   - a live skill marker in this project's .aoforge/ or the MAIN checkout's, so worktree-isolated
  *     agents are not denied by a marker they cannot see (an expired marker does not count)
  *   - the payload's agent_type starting with `aoforge:` (allowed in warn mode too, never asked)
  *   - a fresh override marker, written by route-intent.js when the prompt says "skip aoforge" or
@@ -45,7 +45,7 @@
  *   - gates.editGate off, or gates.bashEditGate off
  *
  * Never gated (60-02 detector, 60-03 gate): a command that only MENTIONS a write (heredoc body,
- * quoted argument, comment), a write under .planning/, *.md, a file git does not track, a path
+ * quoted argument, comment), a write under .aoforge/, *.md, a file git does not track, a path
  * outside the project (tmp, scratchpad, another repo), and a target that cannot be resolved
  * statically ($VAR, backticks). The detector's known false negatives are listed in
  * bash-write-detect.cjs (for example a heredoc piped into an interpreter).

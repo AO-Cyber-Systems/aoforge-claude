@@ -19,8 +19,8 @@
  *      git operation with a git commit. It uses the hook's own chainsGitOpAndCommit,
  *      so the guard and the gate parse alike.
  *
- * TRD 59-06 extends the replay: a conflict on `.planning/state.json` or
- * `.planning/STATE_ARCHIVE.md` is resolved by `aof-tools merge-driver resolve <path>`
+ * TRD 59-06 extends the replay: a conflict on `.aoforge/state.json` or
+ * `.aoforge/STATE_ARCHIVE.md` is resolved by `aof-tools merge-driver resolve <path>`
  * (run for real, through THIS repository's aof-tools: the home mirror has no
  * `merge-driver` until release), and with the driver installed in the scratch
  * repository those two files never conflict at all.
@@ -50,8 +50,8 @@ const SKIP_GIT = HAVE_GIT ? false : 'git is not installed';
 
 // A conflicted planning path is either taken from the integration branch (regenerated afterwards) or
 // merged by `aof-tools merge-driver resolve`. Anything else in the conflict list aborts the merge.
-const TAKE_OURS = ['.planning/STATE.md', '.planning/ROADMAP.md', '.planning/REQUIREMENTS.md'];
-const RESOLVE = ['.planning/state.json', '.planning/STATE_ARCHIVE.md'];
+const TAKE_OURS = ['.aoforge/STATE.md', '.aoforge/ROADMAP.md', '.aoforge/REQUIREMENTS.md'];
+const RESOLVE = ['.aoforge/state.json', '.aoforge/STATE_ARCHIVE.md'];
 
 // ---------------------------------------------------------------------------
 // Process helpers
@@ -126,7 +126,7 @@ function writeFiles(root, files) {
 
 /**
  * `branch` and `main` are `{relPath: content}` maps applied on top of a common base
- * that has the AOForge markers (.planning/ROADMAP.md) plus STATE.md and src/a.js.
+ * that has the AOForge markers (.aoforge/ROADMAP.md) plus STATE.md and src/a.js.
  * `base` adds to (or overrides) that common base, so a file both sides later change
  * (state.json, STATE_ARCHIVE.md) exists in the base instead of being ADDED by both.
  * Ends checked out on main, clean.
@@ -138,9 +138,9 @@ function mkScratch({ base = {}, branch = {}, main = {} } = {}) {
   g(root, 'config', 'user.email', 'fixture@example.com');
   g(root, 'config', 'commit.gpgsign', 'false');
   writeFiles(root, {
-    '.planning/ROADMAP.md': '# Roadmap\nbase\n',
-    '.planning/STATE.md': 'state: base\n',
-    '.planning/REQUIREMENTS.md': '- [ ] R1\n',
+    '.aoforge/ROADMAP.md': '# Roadmap\nbase\n',
+    '.aoforge/STATE.md': 'state: base\n',
+    '.aoforge/REQUIREMENTS.md': '- [ ] R1\n',
     'src/a.js': 'module.exports = 1;\n',
     ...base,
   });
@@ -208,15 +208,15 @@ function archiveWith(rows = []) {
 /** The same two-sided append the parallel waves make: main and branch each record one decision and one row. */
 function bothSidesAppended() {
   return {
-    base: { '.planning/state.json': stateJsonWith([]), '.planning/STATE_ARCHIVE.md': archiveWith([]) },
+    base: { '.aoforge/state.json': stateJsonWith([]), '.aoforge/STATE_ARCHIVE.md': archiveWith([]) },
     main: {
-      '.planning/state.json': stateJsonWith([decisionOf('decision from main')]),
-      '.planning/STATE_ARCHIVE.md': archiveWith(['| Objective 7 P1 | 5min | 2 tasks | 3 files |']),
+      '.aoforge/state.json': stateJsonWith([decisionOf('decision from main')]),
+      '.aoforge/STATE_ARCHIVE.md': archiveWith(['| Objective 7 P1 | 5min | 2 tasks | 3 files |']),
     },
     branch: {
       'src/a.js': 'module.exports = 2;\n',
-      '.planning/state.json': stateJsonWith([decisionOf('decision from branch')]),
-      '.planning/STATE_ARCHIVE.md': archiveWith(['| Objective 7 P2 | 7min | 3 tasks | 4 files |']),
+      '.aoforge/state.json': stateJsonWith([decisionOf('decision from branch')]),
+      '.aoforge/STATE_ARCHIVE.md': archiveWith(['| Objective 7 P2 | 7min | 3 tasks | 4 files |']),
     },
   };
 }
@@ -391,7 +391,7 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
   test('clean merge: no conflict, one merge commit with two parents', () => {
     const { root, cleanup } = mkScratch({
       branch: { 'src/a.js': 'module.exports = 2;\n' },
-      main: { '.planning/STATE.md': 'state: main\n' },
+      main: { '.aoforge/STATE.md': 'state: main\n' },
     });
     try {
       assert.equal(replay(root, documentedSequence()), 'clean');
@@ -405,15 +405,15 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
 
   test('planning-file conflict (STATE.md): take ours, add, `git commit --no-edit` as its own call; the merge completes', () => {
     const { root, cleanup } = mkScratch({
-      branch: { 'src/a.js': 'module.exports = 2;\n', '.planning/STATE.md': 'state: branch\n' },
-      main: { '.planning/STATE.md': 'state: main\n' },
+      branch: { 'src/a.js': 'module.exports = 2;\n', '.aoforge/STATE.md': 'state: branch\n' },
+      main: { '.aoforge/STATE.md': 'state: main\n' },
     });
     try {
       assert.equal(replay(root, documentedSequence()), 'planning-conflict');
       assert.equal(parentsOfHead(root), 2, 'HEAD is a merge commit');
       assert.equal(g(root, 'status', '--porcelain'), '');
       assert.equal(fs.existsSync(path.join(root, '.git', 'MERGE_HEAD')), false);
-      assert.equal(fs.readFileSync(path.join(root, '.planning/STATE.md'), 'utf8'), 'state: main\n', 'ours kept');
+      assert.equal(fs.readFileSync(path.join(root, '.aoforge/STATE.md'), 'utf8'), 'state: main\n', 'ours kept');
       assert.equal(fs.readFileSync(path.join(root, 'src/a.js'), 'utf8'), 'module.exports = 2;\n', 'the plan\'s code arrived');
     } finally {
       cleanup();
@@ -424,22 +424,22 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
     const { root, cleanup } = mkScratch({
       branch: {
         'src/a.js': 'module.exports = 2;\n',
-        '.planning/STATE.md': 'state: branch\n',
-        '.planning/ROADMAP.md': '# Roadmap\nbranch\n',
-        '.planning/REQUIREMENTS.md': '- [x] R1\n',
+        '.aoforge/STATE.md': 'state: branch\n',
+        '.aoforge/ROADMAP.md': '# Roadmap\nbranch\n',
+        '.aoforge/REQUIREMENTS.md': '- [x] R1\n',
       },
       main: {
-        '.planning/STATE.md': 'state: main\n',
-        '.planning/ROADMAP.md': '# Roadmap\nmain\n',
-        '.planning/REQUIREMENTS.md': '- [ ] R1\n- [ ] R2\n',
+        '.aoforge/STATE.md': 'state: main\n',
+        '.aoforge/ROADMAP.md': '# Roadmap\nmain\n',
+        '.aoforge/REQUIREMENTS.md': '- [ ] R1\n- [ ] R2\n',
       },
     });
     try {
       assert.equal(replay(root, documentedSequence()), 'planning-conflict');
       assert.equal(parentsOfHead(root), 2);
       assert.equal(g(root, 'status', '--porcelain'), '');
-      assert.equal(fs.readFileSync(path.join(root, '.planning/ROADMAP.md'), 'utf8'), '# Roadmap\nmain\n');
-      assert.equal(fs.readFileSync(path.join(root, '.planning/REQUIREMENTS.md'), 'utf8'), '- [ ] R1\n- [ ] R2\n');
+      assert.equal(fs.readFileSync(path.join(root, '.aoforge/ROADMAP.md'), 'utf8'), '# Roadmap\nmain\n');
+      assert.equal(fs.readFileSync(path.join(root, '.aoforge/REQUIREMENTS.md'), 'utf8'), '- [ ] R1\n- [ ] R2\n');
     } finally {
       cleanup();
     }
@@ -463,8 +463,8 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
 
   test('abort path: a planning file AND a code file in conflict is still a planning error, nothing is resolved', () => {
     const { root, cleanup } = mkScratch({
-      branch: { 'src/a.js': 'module.exports = "branch";\n', '.planning/STATE.md': 'state: branch\n' },
-      main: { 'src/a.js': 'module.exports = "main";\n', '.planning/STATE.md': 'state: main\n' },
+      branch: { 'src/a.js': 'module.exports = "branch";\n', '.aoforge/STATE.md': 'state: branch\n' },
+      main: { 'src/a.js': 'module.exports = "main";\n', '.aoforge/STATE.md': 'state: main\n' },
     });
     try {
       const before = g(root, 'rev-parse', 'HEAD');
@@ -479,16 +479,16 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
   test('state.json conflict (driver not installed): `merge-driver resolve` merges it, `git commit --no-edit` completes, both decisions survive', () => {
     const { base, main, branch } = bothSidesAppended();
     const { root, cleanup } = mkScratch({
-      base: { '.planning/state.json': base['.planning/state.json'] },
-      main: { '.planning/state.json': main['.planning/state.json'] },
-      branch: { 'src/a.js': branch['src/a.js'], '.planning/state.json': branch['.planning/state.json'] },
+      base: { '.aoforge/state.json': base['.aoforge/state.json'] },
+      main: { '.aoforge/state.json': main['.aoforge/state.json'] },
+      branch: { 'src/a.js': branch['src/a.js'], '.aoforge/state.json': branch['.aoforge/state.json'] },
     });
     try {
       assert.equal(replay(root, documentedSequence()), 'planning-conflict');
       assert.equal(parentsOfHead(root), 2, 'HEAD is a merge commit');
       assert.equal(g(root, 'status', '--porcelain'), '');
       assert.equal(fs.existsSync(path.join(root, '.git', 'MERGE_HEAD')), false);
-      const summaries = readJson(root, '.planning/state.json').decisions.map((d) => d.summary).sort();
+      const summaries = readJson(root, '.aoforge/state.json').decisions.map((d) => d.summary).sort();
       assert.deepEqual(summaries, ['decision from branch', 'decision from main']);
       assert.equal(fs.readFileSync(path.join(root, 'src/a.js'), 'utf8'), 'module.exports = 2;\n', 'the plan\'s code arrived');
     } finally {
@@ -499,15 +499,15 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
   test('STATE_ARCHIVE.md conflict (driver not installed): resolved by the union strategy, both appended rows present', () => {
     const { base, main, branch } = bothSidesAppended();
     const { root, cleanup } = mkScratch({
-      base: { '.planning/STATE_ARCHIVE.md': base['.planning/STATE_ARCHIVE.md'] },
-      main: { '.planning/STATE_ARCHIVE.md': main['.planning/STATE_ARCHIVE.md'] },
-      branch: { 'src/a.js': branch['src/a.js'], '.planning/STATE_ARCHIVE.md': branch['.planning/STATE_ARCHIVE.md'] },
+      base: { '.aoforge/STATE_ARCHIVE.md': base['.aoforge/STATE_ARCHIVE.md'] },
+      main: { '.aoforge/STATE_ARCHIVE.md': main['.aoforge/STATE_ARCHIVE.md'] },
+      branch: { 'src/a.js': branch['src/a.js'], '.aoforge/STATE_ARCHIVE.md': branch['.aoforge/STATE_ARCHIVE.md'] },
     });
     try {
       assert.equal(replay(root, documentedSequence()), 'planning-conflict');
       assert.equal(parentsOfHead(root), 2);
       assert.equal(g(root, 'status', '--porcelain'), '');
-      const archive = fs.readFileSync(path.join(root, '.planning/STATE_ARCHIVE.md'), 'utf8');
+      const archive = fs.readFileSync(path.join(root, '.aoforge/STATE_ARCHIVE.md'), 'utf8');
       assert.match(archive, /\| Objective 7 P1 \| 5min \|/);
       assert.match(archive, /\| Objective 7 P2 \| 7min \|/);
       assert.doesNotMatch(archive, /^(<{7}|={7}|>{7})/m, 'no conflict markers left behind');
@@ -520,16 +520,16 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
     const { base, main, branch } = bothSidesAppended();
     const { root, cleanup } = mkScratch({
       base,
-      main: { ...main, '.planning/STATE.md': 'state: main\n' },
-      branch: { ...branch, '.planning/STATE.md': 'state: branch\n' },
+      main: { ...main, '.aoforge/STATE.md': 'state: main\n' },
+      branch: { ...branch, '.aoforge/STATE.md': 'state: branch\n' },
     });
     try {
       assert.equal(replay(root, documentedSequence()), 'planning-conflict');
       assert.equal(parentsOfHead(root), 2);
       assert.equal(g(root, 'status', '--porcelain'), '');
-      assert.equal(fs.readFileSync(path.join(root, '.planning/STATE.md'), 'utf8'), 'state: main\n', 'ours kept');
-      assert.equal(readJson(root, '.planning/state.json').decisions.length, 2);
-      assert.match(fs.readFileSync(path.join(root, '.planning/STATE_ARCHIVE.md'), 'utf8'), /Objective 7 P2/);
+      assert.equal(fs.readFileSync(path.join(root, '.aoforge/STATE.md'), 'utf8'), 'state: main\n', 'ours kept');
+      assert.equal(readJson(root, '.aoforge/state.json').decisions.length, 2);
+      assert.match(fs.readFileSync(path.join(root, '.aoforge/STATE_ARCHIVE.md'), 'utf8'), /Objective 7 P2/);
     } finally {
       cleanup();
     }
@@ -537,9 +537,9 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
 
   test('abort path: state.json AND src/a.js in conflict resolves nothing and leaves HEAD unchanged', () => {
     const { root, cleanup } = mkScratch({
-      base: { '.planning/state.json': stateJsonWith([]) },
-      main: { '.planning/state.json': stateJsonWith([decisionOf('decision from main')]), 'src/a.js': 'module.exports = "main";\n' },
-      branch: { '.planning/state.json': stateJsonWith([decisionOf('decision from branch')]), 'src/a.js': 'module.exports = "branch";\n' },
+      base: { '.aoforge/state.json': stateJsonWith([]) },
+      main: { '.aoforge/state.json': stateJsonWith([decisionOf('decision from main')]), 'src/a.js': 'module.exports = "main";\n' },
+      branch: { '.aoforge/state.json': stateJsonWith([decisionOf('decision from branch')]), 'src/a.js': 'module.exports = "branch";\n' },
     });
     try {
       const before = g(root, 'rev-parse', 'HEAD');
@@ -547,7 +547,7 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
       assert.equal(g(root, 'rev-parse', 'HEAD'), before);
       assert.equal(g(root, 'status', '--porcelain'), '');
       assert.equal(fs.existsSync(path.join(root, '.git', 'MERGE_HEAD')), false);
-      assert.deepEqual(readJson(root, '.planning/state.json').decisions.map((d) => d.summary), ['decision from main']);
+      assert.deepEqual(readJson(root, '.aoforge/state.json').decisions.map((d) => d.summary), ['decision from main']);
     } finally {
       cleanup();
     }
@@ -565,16 +565,16 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
         encoding: 'utf8',
       });
       assert.equal(installed.status, 0, `merge-driver install failed: ${installed.stderr}${installed.stdout}`);
-      assert.match(g(root, 'check-attr', 'merge', '--', '.planning/state.json'), /aoforge-state-json/);
-      assert.match(g(root, 'check-attr', 'merge', '--', '.planning/STATE_ARCHIVE.md'), /union/);
+      assert.match(g(root, 'check-attr', 'merge', '--', '.aoforge/state.json'), /aoforge-state-json/);
+      assert.match(g(root, 'check-attr', 'merge', '--', '.aoforge/STATE_ARCHIVE.md'), /union/);
 
       // The install happened after the commits, so the merge below is the first one that can use the driver.
       assert.equal(replay(root, documentedSequence()), 'clean');
       assert.equal(parentsOfHead(root), 2);
       assert.equal(g(root, 'status', '--porcelain'), '');
-      const summaries = readJson(root, '.planning/state.json').decisions.map((d) => d.summary).sort();
+      const summaries = readJson(root, '.aoforge/state.json').decisions.map((d) => d.summary).sort();
       assert.deepEqual(summaries, ['decision from branch', 'decision from main']);
-      const archive = fs.readFileSync(path.join(root, '.planning/STATE_ARCHIVE.md'), 'utf8');
+      const archive = fs.readFileSync(path.join(root, '.aoforge/STATE_ARCHIVE.md'), 'utf8');
       assert.match(archive, /Objective 7 P1/);
       assert.match(archive, /Objective 7 P2/);
     } finally {
@@ -599,7 +599,7 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
   });
 
   test('control: the improvised chained forms stay denied, and the reason names the separate-call form', () => {
-    const { root, cleanup } = mkScratch({ main: { '.planning/STATE.md': 'state: main\n' } });
+    const { root, cleanup } = mkScratch({ main: { '.aoforge/STATE.md': 'state: main\n' } });
     try {
       const chained = runHook('git merge --no-ff df/exec-07-01 && git commit --no-edit', root);
       assert.equal(chained.denied, true);
@@ -607,7 +607,7 @@ describe('TRD 53-04 — execute-objective merge sequence replayed through gate-c
       assert.match(chained.reason, /separate/i);
 
       const oneCall = runHook(
-        'git merge df/exec-07-01; git checkout --theirs .planning/STATE.md && git add .planning/STATE.md && git commit --no-edit',
+        'git merge df/exec-07-01; git checkout --theirs .aoforge/STATE.md && git add .aoforge/STATE.md && git commit --no-edit',
         root
       );
       assert.equal(oneCall.denied, true);

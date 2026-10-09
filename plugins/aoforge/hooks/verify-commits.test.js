@@ -18,12 +18,12 @@
  *     Test 12: isAutonomousMode / isMidExecution behave correctly
  *
  * Objective 45, TRD 45-10 (SC1): the per-agent retry marker no longer lives under
- * <project>/.planning/. It lives in the hook-marker store
+ * <project>/.aoforge/. It lives in the hook-marker store
  * (bin/lib/hook-marker-store.cjs): $AOFORGE_HOOK_MARKER_DIR, else
  * ~/.claude/aoforge/state/hook-markers/<repo-key>/. Every spawned hook here gets
  * AOFORGE_HOOK_MARKER_DIR pointing at a temp dir, so nothing touches ~/.claude.
  *   Test 1 / 2 / 3 / 8 seed and assert the marker through the store.
- *   Test 5: the first stop blocks, creates the store marker, and .planning/ gains no file
+ *   Test 5: the first stop blocks, creates the store marker, and .aoforge/ gains no file
  *   Test 6: the second stop for the same agent is allowed
  *   Test 7: a stale store marker is swept; an in-tree leftover is never consulted
  *
@@ -75,7 +75,7 @@ const {
  */
 function makeFixture(opts = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-test-'));
-  const planningDir = path.join(tmp, '.planning');
+  const planningDir = path.join(tmp, '.aoforge');
   fs.mkdirSync(planningDir, { recursive: true });
 
   // Write config.json
@@ -147,9 +147,9 @@ function seedMarker(tmp, name, ageMs = 0) {
   return file;
 }
 
-/** Dotfiles directly inside <tmp>/.planning (the SC1 concern). */
+/** Dotfiles directly inside <tmp>/.aoforge (the SC1 concern). */
 function planningDotfiles(tmp) {
-  return fs.readdirSync(path.join(tmp, '.planning')).filter((f) => f.startsWith('.')).sort();
+  return fs.readdirSync(path.join(tmp, '.aoforge')).filter((f) => f.startsWith('.')).sort();
 }
 
 /**
@@ -188,10 +188,10 @@ describe('verify-commits subprocess — SubagentStop retry-once', () => {
       assert.equal(parsed.decision, 'block');
       assert.match(parsed.reason, /no commits/i);
 
-      // Marker file must be created — in the store, not under .planning/
+      // Marker file must be created — in the store, not under .aoforge/
       const marker = markerFileFor(tmp, 'autonomous-retry-agent-abc-1');
       assert.ok(fs.existsSync(marker), 'retry marker file must be created in the store');
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
     } finally {
       cleanup(tmp);
     }
@@ -231,7 +231,7 @@ describe('verify-commits subprocess — SubagentStop retry-once', () => {
 
       // Marker for agent-Y should now exist
       assert.ok(fs.existsSync(markerFileFor(tmp, 'autonomous-retry-agent-Y')));
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
     } finally {
       cleanup(tmp);
     }
@@ -309,7 +309,7 @@ describe('verify-commits subprocess — SubagentStop retry-once', () => {
   });
 
   test('Test 9: git unavailable / not a repo in fixture → silent no-op', () => {
-    // Create a fixture with .planning but NO git repo
+    // Create a fixture with .aoforge but NO git repo
     const tmp = makeFixture({ mode: 'autonomous', midExecution: true, initGit: false });
     try {
       const result = runHook(tmp, { agent_id: 'agent-nogit', agent_type: 'aoforge:executor' });
@@ -331,7 +331,7 @@ describe('verify-commits subprocess — SubagentStop retry-once', () => {
       const second = runHook(tmp, { agent_id: 'agent-twice', agent_type: 'aoforge:executor' });
       assert.equal(second.status, 0, second.stderr);
       assert.equal(second.stdout.trim(), '', 'second stop for the same agent must be allowed');
-      assert.deepEqual(planningDotfiles(tmp), [], '.planning/ must gain no dotfile');
+      assert.deepEqual(planningDotfiles(tmp), [], '.aoforge/ must gain no dotfile');
     } finally {
       cleanup(tmp);
     }
@@ -340,7 +340,7 @@ describe('verify-commits subprocess — SubagentStop retry-once', () => {
   test('Test 7 (TRD 45-10 #7): a stale store marker is swept; an in-tree leftover is never consulted', () => {
     const tmp = makeFixture({ mode: 'autonomous', midExecution: true, initGit: true });
     try {
-      const planningDir = path.join(tmp, '.planning');
+      const planningDir = path.join(tmp, '.aoforge');
 
       // A stale marker (2h old) for another agent, in the store: the hook sweeps it.
       const stale = seedMarker(tmp, 'autonomous-retry-agent-old', 2 * 60 * 60 * 1000);
@@ -365,7 +365,7 @@ describe('verify-commits subprocess — SubagentStop retry-once', () => {
       assert.ok(fs.existsSync(markerFileFor(tmp, 'autonomous-retry-agent-left')), 'a store marker is written');
       assert.equal(fs.readFileSync(leftover, 'utf8'), 'legacy', 'in-tree leftover is not rewritten');
       assert.equal(fs.statSync(leftover).mtimeMs, leftoverMtime, 'in-tree leftover is not touched');
-      assert.deepEqual(planningDotfiles(tmp), ['.autonomous-retry-agent-left'], 'nothing else appears in .planning/');
+      assert.deepEqual(planningDotfiles(tmp), ['.autonomous-retry-agent-left'], 'nothing else appears in .aoforge/');
     } finally {
       cleanup(tmp);
     }
@@ -505,7 +505,7 @@ describe('verify-commits helpers — in-process', () => {
   test('Test 10: retryMarkerPath sanitizes agentId (path traversal chars stripped)', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-san-'));
     try {
-      const planningDir = path.join(tmp, '.planning');
+      const planningDir = path.join(tmp, '.aoforge');
       // Path traversal attempt
       const p = retryMarkerPath(planningDir, '../../../etc/passwd', markerEnv(tmp));
       const base = path.basename(p);
@@ -523,7 +523,7 @@ describe('verify-commits helpers — in-process', () => {
   test('Test 11: cleanStaleMarkers removes markers older than 1 hour, keeps fresh ones', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vc-stale-'));
     try {
-      const planningDir = path.join(tmp, '.planning');
+      const planningDir = path.join(tmp, '.aoforge');
       fs.mkdirSync(planningDir, { recursive: true });
 
       // Stale marker (just over 1 hour old) and fresh marker (5 minutes old), in the store

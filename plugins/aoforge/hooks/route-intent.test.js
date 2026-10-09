@@ -107,7 +107,7 @@ describe('INTENT_MAP — exported shape', () => {
 
 // ---------------------------------------------------------------------------
 // TRD 37-10: ADOPT intent — routes "adopt this repo" etc. to /aoforge:adopt,
-// including in directories that are not yet AOForge projects (no .planning/).
+// including in directories that are not yet AOForge projects (no .aoforge/).
 // ---------------------------------------------------------------------------
 
 describe('matchIntent — ADOPT intent (TRD 37-10)', () => {
@@ -140,12 +140,12 @@ describe('matchIntent — ADOPT intent (TRD 37-10)', () => {
     assert.ok(!matches.some(m => m.skill === '/aoforge:adopt'), 'adopt must not also match');
   });
 
-  test('test 4: no .planning/ + adopt-only prompt → reminder naming /aoforge:adopt; other prompts stay silent', () => {
+  test('test 4: no .aoforge/ + adopt-only prompt → reminder naming /aoforge:adopt; other prompts stay silent', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-no-planning-adopt-'));
     try {
       const adoptResult = runHook({ prompt: 'adopt this repo' }, root);
       assert.equal(adoptResult.status, 0, `hook exited non-zero: ${adoptResult.stderr}`);
-      assert.ok(adoptResult.stdout.length > 0, 'expected non-empty stdout for adopt-only prompt with no .planning/');
+      assert.ok(adoptResult.stdout.length > 0, 'expected non-empty stdout for adopt-only prompt with no .aoforge/');
       const out = JSON.parse(adoptResult.stdout);
       assert.ok(
         out.hookSpecificOutput.additionalContext.includes('/aoforge:adopt'),
@@ -154,7 +154,7 @@ describe('matchIntent — ADOPT intent (TRD 37-10)', () => {
 
       const otherResult = runHook({ prompt: 'fix the login bug' }, root);
       assert.equal(otherResult.status, 0, `hook exited non-zero: ${otherResult.stderr}`);
-      assert.equal(otherResult.stdout, '', 'expected empty stdout for a non-adopt prompt with no .planning/');
+      assert.equal(otherResult.stdout, '', 'expected empty stdout for a non-adopt prompt with no .aoforge/');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -438,7 +438,7 @@ const GATE_EDITS_PATH = path.join(__dirname, 'gate-edits.js');
 
 function mkAmbientTmpProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-intent-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
@@ -481,13 +481,13 @@ describe('hook subprocess — e2e', () => {
     }
   });
 
-  test('non-aoforge project (no .planning/): same prompt → empty stdout', () => {
+  test('non-aoforge project (no .aoforge/): same prompt → empty stdout', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-no-planning-'));
     try {
       const result = runHook({ prompt: 'Fix the login bug' }, root);
       assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
       assert.equal(result.stdout, '',
-        'expected empty stdout when no .planning/ directory exists');
+        'expected empty stdout when no .aoforge/ directory exists');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -519,12 +519,12 @@ describe('route-intent main() — realistic UserPromptSubmit e2e', () => {
     }
   });
 
-  // Case 3: .planning/.skill-active present → empty stdout (no directive)
-  test('.planning/.skill-active present → empty stdout (no directive injected mid-skill)', () => {
+  // Case 3: .aoforge/.skill-active present → empty stdout (no directive)
+  test('.aoforge/.skill-active present → empty stdout (no directive injected mid-skill)', () => {
     const { root, cleanup } = mkAmbientTmpProject();
     try {
       fs.writeFileSync(
-        path.join(root, '.planning', '.skill-active'),
+        path.join(root, '.aoforge', '.skill-active'),
         JSON.stringify({ skill: 'executor', started_at: new Date().toISOString() })
       );
       const payload = realUserPromptSubmitPayload('Fix the login bug', root);
@@ -547,8 +547,8 @@ describe('route-intent main() — realistic UserPromptSubmit e2e', () => {
       assert.equal(result.stdout, '',
         'expected empty stdout for override phrase (no directive)');
       assert.ok(
-        fs.existsSync(path.join(root, '.planning', '.edit-override')),
-        '.planning/.edit-override marker must exist after override phrase'
+        fs.existsSync(path.join(root, '.aoforge', '.edit-override')),
+        '.aoforge/.edit-override marker must exist after override phrase'
       );
     } finally {
       cleanup();
@@ -574,7 +574,7 @@ describe('cross-hook e2e — route-intent marker consumed by gate-edits', () => 
       });
       assert.equal(routeResult.status, 0, `route-intent exited non-zero: ${routeResult.stderr}`);
       assert.equal(routeResult.stdout, '', 'route-intent must produce empty stdout for override phrase');
-      const markerPath = path.join(root, '.planning', '.edit-override');
+      const markerPath = path.join(root, '.aoforge', '.edit-override');
       assert.ok(fs.existsSync(markerPath), '.edit-override marker must be written by route-intent');
 
       // Step 2: run gate-edits with realistic PreToolUse Edit payload in the same project

@@ -212,7 +212,7 @@ function tmpRoot() {
 /** An AOForge project root; marker: 'live' | 'expired' | 'none'. */
 function makeProject({ marker = 'live' } = {}) {
   const root = tmpRoot();
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
   if (marker === 'live') writeSkillMarker(planning);
   if (marker === 'expired') {
@@ -410,7 +410,7 @@ describe('auto-continue hook (subprocess e2e)', () => {
     assertSilent(r);
   });
 
-  test('5b: no .planning/ → no output', () => {
+  test('5b: no .aoforge/ → no output', () => {
     const root = tmpRoot();
     const r = runHook(stopPayload({ cwd: root, last_assistant_message: ANNOUNCED }), { cwd: root });
     assertSilent(r);

@@ -2,7 +2,7 @@
  * SC1 audit — objective 45, TRD 45-10.
  *
  * Success criterion 1 of the aoforge-doctor objective: no AOForge hook writes a
- * file under a project's `.planning/` per call or per session, except planning
+ * file under a project's `.aoforge/` per call or per session, except planning
  * artifacts. Claude Code's file watcher attaches every changed in-tree file to
  * the next tool result, and a runtime dotfile that changes per call is pure
  * context cost plus a dirty working tree (quick-25 moved .progress-guard.json,
@@ -13,9 +13,9 @@
  *   BEHAVIORAL (test 10)
  *     Runs every hook registered in hooks/hooks.json, plus plugin.json's
  *     statusLine, against a hand-built autonomous, mid-execution fixture project
- *     (a git repo with no recent commits, a nested flutter/.planning/, a fake HOME
+ *     (a git repo with no recent commits, a nested flutter/.aoforge/, a fake HOME
  *     and every store env override). Snapshots every dotfile under every
- *     `.planning/` before and after each run and asserts that new or changed
+ *     `.aoforge/` before and after each run and asserts that new or changed
  *     dotfiles are a subset of ALLOWED_WRITES. Each hook runs its real path: no
  *     AOFORGE_SKIP_* escape hatch is set. The one hook that is not spawned is
  *     awareness-cache-populate, whose real path forks a detached aof-tools scan that
@@ -53,7 +53,7 @@ const PLUGIN_VERSION = JSON.parse(
 
 /**
  * Dotfiles a hook (or a skill flow a hook takes part in) MAY create or modify
- * inside a `.planning/`. Exactly three, and test 12 pins the set.
+ * inside a `.aoforge/`. Exactly three, and test 12 pins the set.
  */
 const ALLOWED_WRITES = {
   '.skill-active':
@@ -64,7 +64,7 @@ const ALLOWED_WRITES = {
     'upgrade notice hand-off: upgrade-project writes it only when an upgrade produces a notice, route-results marks it consumed on emission; event-driven, not per-call or per-session churn (documented exception)',
 };
 
-/** `.planning`-relative dotfiles a hook only READS (or reads and removes). */
+/** `.aoforge`-relative dotfiles a hook only READS (or reads and removes). */
 const READ_ONLY = {
   '.route-recommendation':
     'verify-completion reads and unlinks it; no hook writes it any more',
@@ -74,14 +74,14 @@ const READ_ONLY = {
     'awareness-cache-populate only READS it; the detached aof-tools scan child writes it (lib/awareness.cjs), and TRD 45-01 moves that write, and this literal, out of the repo',
 };
 
-/** Dotfile-shaped literals that are not under `.planning/` at all. */
+/** Dotfile-shaped literals that are not under `.aoforge/` at all. */
 const NOT_UNDER_PLANNING = {
-  '.planning': 'the directory itself: the marker every hook walks up looking for',
+  '.aoforge': 'the directory itself: the marker every hook walks up looking for',
   '.git': 'repository metadata, read to find the repo or worktree root',
   '.claude': "the user's ~/.claude config dir",
   '.claude-plugin': 'the plugin manifest directory',
   '.aoforge': "the watcher's ~/.aoforge pid directory",
-  '.aoforge-handoff': 'the handoff queue at the PROJECT ROOT, not inside .planning/',
+  '.aoforge-handoff': 'the handoff queue at the PROJECT ROOT, not inside .aoforge/',
   '.plugin-version': 'runtime-mirror marker under ~/.claude/aoforge',
   '.plugin-digest': 'runtime-mirror content digest marker under ~/.claude/aoforge (45-03)',
 };
@@ -121,7 +121,7 @@ function registeredHooks() {
 // ─── Fixture world ───────────────────────────────────────────────────────────
 
 const OLD_COMMIT_DATE = () => new Date(Date.now() - 20 * 60 * 1000).toISOString();
-const PLANNING_DIRS = ['.planning', path.join('flutter', '.planning')];
+const PLANNING_DIRS = ['.aoforge', path.join('flutter', '.aoforge')];
 
 function planningDirsOf(root) {
   return PLANNING_DIRS.map((rel) => path.join(root, rel));
@@ -147,7 +147,7 @@ let templateBase = null;
 /**
  * One git repo, built once and copied per run: an autonomous, mid-execution
  * project whose only commit is 20 minutes old (so verify-commits sees no recent
- * commits), with a nested flutter/.planning/.
+ * commits), with a nested flutter/.aoforge/.
  */
 function ensureTemplate() {
   if (templateBase) return templateBase;
@@ -256,7 +256,7 @@ function hookEnv(world) {
 
 /**
  * path (relative to root) -> {size, mtimeMs, sha1} for every dotfile that sits
- * anywhere under a `.planning/` directory in the fixture.
+ * anywhere under a `.aoforge/` directory in the fixture.
  */
 function snapshotPlanningDotfiles(root) {
   const snap = new Map();
@@ -267,7 +267,7 @@ function snapshotPlanningDotfiles(root) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
         if (e.name === '.git' || e.name === 'node_modules') continue;
-        walk(full, insidePlanning || e.name === '.planning');
+        walk(full, insidePlanning || e.name === '.aoforge');
       } else if (insidePlanning && e.name.startsWith('.')) {
         const st = fs.lstatSync(full);
         const sha1 = crypto.createHash('sha1').update(fs.readFileSync(full)).digest('hex');
@@ -476,8 +476,8 @@ const RUNS = {
     },
     { label: 'session stop', payload: stop() },
   ],
-  // todo-sync.js (TRD 63-03): at Stop it merges the session's todos into `.planning/todos/` through the todo verbs, so
-  // this run DOES write files under `.planning/`: todo files (`pending/<stem>.md`, then `completed/<stem>.md`), never a
+  // todo-sync.js (TRD 63-03): at Stop it merges the session's todos into `.aoforge/todos/` through the todo verbs, so
+  // this run DOES write files under `.aoforge/`: todo files (`pending/<stem>.md`, then `completed/<stem>.md`), never a
   // dotfile. It keeps no state of its own, which is what this entry pins; there is deliberately no `expectChanged`.
   // `expectStdout` proves the hook reached its merge, so the audit cannot pass on a transcript it never read.
   'todo-sync.js': [
@@ -574,7 +574,7 @@ function runHookOnce(script, run, cwdRel) {
 
 // ─── Test 10: behavioral audit ───────────────────────────────────────────────
 
-describe('SC1 behavioral audit: no hook writes a runtime dotfile into .planning/', () => {
+describe('SC1 behavioral audit: no hook writes a runtime dotfile into .aoforge/', () => {
   const hooks = registeredHooks();
 
   test('10a. every registered hook and the statusLine has an audit entry, and none is stale', () => {
@@ -633,7 +633,7 @@ describe('SC1 behavioral audit: no hook writes a runtime dotfile into .planning/
           assert.deepEqual(
             offenders,
             [],
-            `hook ${script} [${run.label}, cwd ${cwdRel}] wrote ${offenders.join(', ')} under .planning/. ` +
+            `hook ${script} [${run.label}, cwd ${cwdRel}] wrote ${offenders.join(', ')} under .aoforge/. ` +
               `Runtime state belongs in ~/.claude/aoforge/state/, not the repo. ` +
               `Allowed dotfiles: ${[...ALLOWLIST].join(', ')}.`
           );
@@ -799,25 +799,25 @@ function classify(token) {
 describe('SC1 static audit: every dotfile literal in the hooks is classified', () => {
   test('scanner self-check: comments are ignored, strings, templates and joins are seen', () => {
     const src = [
-      "// a comment naming '.ignored-in-comment' and .planning/.also-ignored",
+      "// a comment naming '.ignored-in-comment' and .aoforge/.also-ignored",
       '/* block',
       "   '.ignored-in-block' */",
       "const a = path.join(dir, '.skill-active');",
       'const b = `.autonomous-resume-${key}`;',
-      "const c = path.join('.planning', '.awareness-cache.json');",
-      "const d = '.planning/.aoforge-notices.json';",
+      "const c = path.join('.aoforge', '.awareness-cache.json');",
+      "const d = '.aoforge/.aoforge-notices.json';",
       "const r = /['\"`]/; const e = '.after-regex';",
       'const f = `${path.join(x, \'.nested-in-template\')}`;',
     ].join('\n');
     const tokens = scanLiterals(src).flatMap((l) => dotfileTokens(l.text));
     assert.deepEqual(tokens.sort(), [
       '.after-regex',
+      '.aoforge',
+      '.aoforge',
       '.aoforge-notices.json',
       '.autonomous-resume-',
       '.awareness-cache.json',
       '.nested-in-template',
-      '.planning',
-      '.planning',
       '.skill-active',
     ]);
   });
@@ -826,7 +826,8 @@ describe('SC1 static audit: every dotfile literal in the hooks is classified', (
     const gate = fs.readFileSync(path.join(HOOKS_DIR, 'gate-edits.js'), 'utf8');
     const tokens = scanLiterals(gate).flatMap((l) => dotfileTokens(l.text));
     assert.ok(tokens.includes('.skill-active'), 'gate-edits.js reads .skill-active');
-    assert.ok(tokens.includes('.planning'));
+    // The planning directory is no longer a literal there (TRD 72-06: built from legacy-names.cjs); `.git` still is.
+    assert.ok(tokens.includes('.git'), 'gate-edits.js looks for .git');
   });
 
   test('11. an unclassified dotfile literal fails, naming file and line', () => {
@@ -843,9 +844,9 @@ describe('SC1 static audit: every dotfile literal in the hooks is classified', (
     assert.deepEqual(
       unknown,
       [],
-      'these dotfile literals are not classified. A file the hook WRITES under .planning/ must not be added ' +
+      'these dotfile literals are not classified. A file the hook WRITES under .aoforge/ must not be added ' +
         'to ALLOWED_WRITES without review; put runtime state under ~/.claude/aoforge/state/ instead. ' +
-        'Classify a read-only or non-.planning literal in READ_ONLY / NOT_UNDER_PLANNING with a reason:\n' +
+        'Classify a read-only or non-.aoforge literal in READ_ONLY / NOT_UNDER_PLANNING with a reason:\n' +
         unknown.join('\n')
     );
   });

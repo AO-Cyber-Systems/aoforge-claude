@@ -4,14 +4,14 @@
  * Tests for gate-commits.js PreToolUse hook
  *
  * TDD suite for TRD 23-02 (gate-commits initialization fix):
- * - Bare .planning/ (no ROADMAP.md, no objectives/, no STATE.md) → pass through
- * - .planning/ROADMAP.md present, STATE.md absent → DENY (bypass fix)
- * - .planning/objectives/ dir present, no ROADMAP.md, no STATE.md → DENY
+ * - Bare .aoforge/ (no ROADMAP.md, no objectives/, no STATE.md) → pass through
+ * - .aoforge/ROADMAP.md present, STATE.md absent → DENY (bypass fix)
+ * - .aoforge/objectives/ dir present, no ROADMAP.md, no STATE.md → DENY
  * - AOForge-initialized project + AOFORGE_ALLOW_RAW_COMMIT=1 → pass through
  * - AOForge-initialized project + aof-tools wrapper command → pass through
  * - AOForge-initialized project + non-commit command → pass through
  * - tool_name !== "Bash" → pass through
- * - No .planning/ anywhere up the tree → pass through
+ * - No .aoforge/ anywhere up the tree → pass through
  *
  * Harness: subprocess spawn with JSON piped to stdin, tmp project dirs hand-built.
  */
@@ -79,10 +79,10 @@ function isPassThrough(stdout) {
 
 describe('gate-commits — initialization gating', () => {
 
-  // Case 1: Bare .planning/ — no ROADMAP.md, no objectives/, no STATE.md → pass through
-  test('case 1: bare .planning/ (no ROADMAP.md, no objectives/, no STATE.md) → pass through', () => {
+  // Case 1: Bare .aoforge/ — no ROADMAP.md, no objectives/, no STATE.md → pass through
+  test('case 1: bare .aoforge/ (no ROADMAP.md, no objectives/, no STATE.md) → pass through', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+      fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
     });
     try {
       const result = runHook(GIT_COMMIT_PAYLOAD, root);
@@ -94,11 +94,11 @@ describe('gate-commits — initialization gating', () => {
     }
   });
 
-  // Case 2: .planning/ROADMAP.md present, STATE.md absent → DENY (this was the bypass bug)
-  test('case 2: .planning/ROADMAP.md present, no STATE.md → deny (bypass fix)', () => {
+  // Case 2: .aoforge/ROADMAP.md present, STATE.md absent → DENY (this was the bypass bug)
+  test('case 2: .aoforge/ROADMAP.md present, no STATE.md → deny (bypass fix)', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n');
+      fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
     });
     try {
       const result = runHook(GIT_COMMIT_PAYLOAD, root);
@@ -110,10 +110,10 @@ describe('gate-commits — initialization gating', () => {
     }
   });
 
-  // Case 3: .planning/objectives/ dir present, no ROADMAP.md, no STATE.md → DENY
-  test('case 3: .planning/objectives/ dir present, no ROADMAP.md, no STATE.md → deny', () => {
+  // Case 3: .aoforge/objectives/ dir present, no ROADMAP.md, no STATE.md → DENY
+  test('case 3: .aoforge/objectives/ dir present, no ROADMAP.md, no STATE.md → deny', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning', 'objectives'), { recursive: true });
+      fs.mkdirSync(path.join(root, '.aoforge', 'objectives'), { recursive: true });
     });
     try {
       const result = runHook(GIT_COMMIT_PAYLOAD, root);
@@ -128,9 +128,9 @@ describe('gate-commits — initialization gating', () => {
   // Case 4: AOForge-initialized project + AOFORGE_ALLOW_RAW_COMMIT=1 → pass through
   test('case 4: AOForge-initialized project + AOFORGE_ALLOW_RAW_COMMIT=1 → pass through', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n');
-      fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), '# State\n');
+      fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
+      fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), '# State\n');
     });
     try {
       const result = runHook(GIT_COMMIT_PAYLOAD, root, { AOFORGE_ALLOW_RAW_COMMIT: '1' });
@@ -145,9 +145,9 @@ describe('gate-commits — initialization gating', () => {
   // Case 5: AOForge-initialized project + aof-tools wrapper command → pass through
   test('case 5: AOForge-initialized project + aof-tools.cjs commit command → pass through', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n');
-      fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), '# State\n');
+      fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
+      fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), '# State\n');
     });
     try {
       const payload = {
@@ -166,9 +166,9 @@ describe('gate-commits — initialization gating', () => {
   // Case 6: AOForge-initialized project + non-commit command → pass through
   test('case 6: AOForge-initialized project + git status → pass through', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n');
-      fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), '# State\n');
+      fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
+      fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), '# State\n');
     });
     try {
       const payload = {
@@ -187,9 +187,9 @@ describe('gate-commits — initialization gating', () => {
   // Case 7: tool_name !== "Bash" → pass through
   test('case 7: tool_name !== "Bash" → pass through', () => {
     const { root, cleanup } = mkTmpProject(root => {
-      fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-      fs.writeFileSync(path.join(root, '.planning', 'ROADMAP.md'), '# Roadmap\n');
-      fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), '# State\n');
+      fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n');
+      fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), '# State\n');
     });
     try {
       const payload = {
@@ -205,14 +205,14 @@ describe('gate-commits — initialization gating', () => {
     }
   });
 
-  // Case 8: No .planning/ anywhere up the tree → pass through
-  test('case 8: no .planning/ anywhere up the tree → pass through', () => {
+  // Case 8: No .aoforge/ anywhere up the tree → pass through
+  test('case 8: no .aoforge/ anywhere up the tree → pass through', () => {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-commits-noplan-')));
     try {
       const result = runHook(GIT_COMMIT_PAYLOAD, root);
       assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
       assert.ok(isPassThrough(result.stdout),
-        `expected pass-through when no .planning/ exists, got: ${result.stdout}`);
+        `expected pass-through when no .aoforge/ exists, got: ${result.stdout}`);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -756,7 +756,7 @@ describe('TRD 53-04 — chainsGitOpAndCommit (unit)', () => {
     'git merge --no-ff --no-commit X && git commit --no-edit',
     'git merge X\ngit commit --no-edit',
     'git merge X || git commit -m y',
-    'git merge X; git checkout --theirs .planning/STATE.md && git add .planning/STATE.md && git commit --no-edit',
+    'git merge X; git checkout --theirs .aoforge/STATE.md && git add .aoforge/STATE.md && git commit --no-edit',
   ];
   for (const cmd of TRUE_CASES) {
     test(`true: ${JSON.stringify(cmd)}`, () => {
@@ -812,7 +812,7 @@ describe('TRD 53-04 — the denial for a chained merge+commit names the separate
     try {
       for (const cmd of [
         'git cherry-pick Y && git commit',
-        'git merge X; git checkout --theirs .planning/STATE.md && git add .planning/STATE.md && git commit --no-edit',
+        'git merge X; git checkout --theirs .aoforge/STATE.md && git add .aoforge/STATE.md && git commit --no-edit',
       ]) {
         const result = runHook(bash(cmd, root), root);
         assertDeny(result, cmd);

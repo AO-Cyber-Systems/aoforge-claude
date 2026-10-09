@@ -7,5 +7,5 @@ trd: "06"
 
 ## Progress
 - [x] Task 1: Fixture builder: main checkout plus worktree in each layout — 6afc9662
-- [ ] Task 2: Hooks resolve both layouts — RED (this commit); next step: run `node scripts/aoforge-rename.cjs --rules planning --only plugins/aoforge/hooks --write`, then fix the 8 residuals (gate-edits regex + storeMode precheck, gate-executor-stop findUp/summaryRelPath/summaryLocation, route-intent message, upgrade-project NOTICES_REL, verify-completion message) and remove the 72-05 legacy pins
-- [ ] Task 3: Prose pass and the guard's planning token
+- [x] Task 2: Hooks resolve both layouts — e8ab54ec (RED), (this commit) (GREEN)
+- [ ] Task 3: Prose pass and the guard's planning token — next step: add ignore-region support to scripts/aoforge-rename.cjs processFile with a test in scripts/aoforge-rename.legacy.test.cjs, then add the planningDir token + ALLOW entries to rename-guard.repo.test.cjs and run it (RED)

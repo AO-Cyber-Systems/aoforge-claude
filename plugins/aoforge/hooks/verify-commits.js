@@ -26,7 +26,7 @@
  * The marker lives OUTSIDE the repo (objective 45, TRD 45-10, SC1): in the hook
  * marker store, $AOFORGE_HOOK_MARKER_DIR else
  * ~/.claude/aoforge/state/hook-markers/<repo-key>/autonomous-retry-<agent>.
- * It used to be <project>/.planning/.autonomous-retry-<agent>, which the file
+ * It used to be <project>/.aoforge/.autonomous-retry-<agent>, which the file
  * watcher attached to every later tool result and left the repo dirty. Stale
  * (>1h) markers are swept from the store directory; leftover in-tree markers from
  * older versions are neither read nor written (the doctor cleans them).
@@ -44,6 +44,8 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 const store = require('../aoforge/bin/lib/hook-marker-store.cjs');
 
 const RETRY_PREFIX = 'autonomous-retry-';
@@ -56,14 +58,8 @@ const BLOCK_REASON = 'AOForge autonomous mode: executor produced no commits in t
 // ─── AOForge project detection ────────────────────────────────────────────────
 
 function findPlanningDir() {
-  let dir = process.cwd();
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) {
-      return path.join(dir, '.planning');
-    }
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(process.cwd(), { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 // ─── Git commit check ─────────────────────────────────────────────────────────
@@ -133,7 +129,7 @@ function parsePayload() {
 
 /**
  * Return the path for the per-agent retry marker file, in the hook marker store
- * (never under .planning/). The project root is the directory that contains
+ * (never under .aoforge/). The project root is the directory that contains
  * `planningDir`.
  * agentId is sanitized: only alphanumeric, underscore, hyphen kept.
  * This prevents path traversal attacks since agent_id is external input.

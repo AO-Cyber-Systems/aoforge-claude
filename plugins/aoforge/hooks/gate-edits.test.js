@@ -65,7 +65,7 @@ describe('shouldGate decision matrix', () => {
   const base = {
     tool: 'Edit',
     filePath: '/proj/src/foo.ts',
-    planningDir: '/proj/.planning',
+    planningDir: '/proj/.aoforge',
     skillActive: false,
     overrideActive: false,
   };
@@ -92,8 +92,8 @@ describe('shouldGate decision matrix', () => {
   });
 
   // Test 4
-  test('ALLOW: any path matching /.planning/ (planning artifact override)', () => {
-    const result = shouldGate({ ...base, filePath: '/proj/.planning/STATE.md' });
+  test('ALLOW: any path matching /.aoforge/ (planning artifact override)', () => {
+    const result = shouldGate({ ...base, filePath: '/proj/.aoforge/STATE.md' });
     assert.equal(result.decision, 'allow');
     assert.match(result.reason, /planning artifact/i);
   });
@@ -216,13 +216,13 @@ describe('hasSkillActiveMarker — fs interaction', () => {
   test('returns true when .skill-active file exists', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-marker-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
-      fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
+      fs.writeFileSync(path.join(tmp, '.aoforge', '.skill-active'), JSON.stringify({
         skill: 'build',
         started_at: new Date().toISOString(),
         pid: process.pid,
       }));
-      assert.equal(hasSkillActiveMarker(path.join(tmp, '.planning')), true);
+      assert.equal(hasSkillActiveMarker(path.join(tmp, '.aoforge')), true);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -231,8 +231,8 @@ describe('hasSkillActiveMarker — fs interaction', () => {
   test('returns false when marker file absent', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-no-marker-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
-      assert.equal(hasSkillActiveMarker(path.join(tmp, '.planning')), false);
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
+      assert.equal(hasSkillActiveMarker(path.join(tmp, '.aoforge')), false);
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -263,12 +263,12 @@ function runHook(payload, { cwd, extraEnv = {} } = {}) {
   return { tmp, result };
 }
 
-// Create tmp dir with .planning/ (ambient AOForge project)
+// Create tmp dir with .aoforge/ (ambient AOForge project)
 function makeTmp(withSkillMarker = false) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-'));
-  fs.mkdirSync(path.join(tmp, '.planning'));
+  fs.mkdirSync(path.join(tmp, '.aoforge'));
   if (withSkillMarker) {
-    fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+    fs.writeFileSync(path.join(tmp, '.aoforge', '.skill-active'), JSON.stringify({
       skill: 'build', started_at: new Date().toISOString(), pid: process.pid,
     }));
   }
@@ -307,7 +307,7 @@ describe('subprocess e2e — ALLOW with fresh .edit-override marker', () => {
   test('empty stdout AND marker file no longer exists after run', () => {
     const tmp = makeTmp(false);
     try {
-      const markerPath = path.join(tmp, '.planning', '.edit-override');
+      const markerPath = path.join(tmp, '.aoforge', '.edit-override');
       fs.writeFileSync(markerPath, JSON.stringify({ created_at: new Date().toISOString() }));
       const payload = realPreToolUsePayload({
         tool_name: 'Edit',
@@ -331,7 +331,7 @@ describe('subprocess e2e — DENY with stale .edit-override marker', () => {
   test('deny output AND marker file deleted after run', () => {
     const tmp = makeTmp(false);
     try {
-      const markerPath = path.join(tmp, '.planning', '.edit-override');
+      const markerPath = path.join(tmp, '.aoforge', '.edit-override');
       fs.writeFileSync(markerPath, JSON.stringify({ created_at: new Date().toISOString() }));
       // Backdate mtime to 10 minutes ago (past 5-min TTL)
       const tenMinAgo = (Date.now() - 10 * 60 * 1000) / 1000;
@@ -373,8 +373,8 @@ describe('subprocess e2e — ALLOW with skill-active marker (realistic payload)'
   });
 });
 
-describe('subprocess e2e — non-ambient (no .planning) NOOP (realistic payload)', () => {
-  test('empty stdout when no .planning dir (non-AOForge project)', () => {
+describe('subprocess e2e — non-ambient (no .aoforge) NOOP (realistic payload)', () => {
+  test('empty stdout when no .aoforge dir (non-AOForge project)', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-noplan-'));
     try {
       const payload = realPreToolUsePayload({
@@ -383,7 +383,7 @@ describe('subprocess e2e — non-ambient (no .planning) NOOP (realistic payload)
         cwd: tmp,
       });
       const { result } = runHook(payload, { cwd: tmp });
-      assert.equal(result.stdout, '', 'Expected empty stdout (no .planning = no-op)');
+      assert.equal(result.stdout, '', 'Expected empty stdout (no .aoforge = no-op)');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -424,17 +424,17 @@ describe('subprocess e2e — .md path allowed (realistic payload)', () => {
   });
 });
 
-describe('subprocess e2e — .planning path allowed (realistic payload)', () => {
-  test('empty stdout when editing a .planning/** path', () => {
+describe('subprocess e2e — .aoforge path allowed (realistic payload)', () => {
+  test('empty stdout when editing a .aoforge/** path', () => {
     const tmp = makeTmp(false);
     try {
       const payload = realPreToolUsePayload({
         tool_name: 'Edit',
-        file_path: path.join(tmp, '.planning', 'STATE.md'),
+        file_path: path.join(tmp, '.aoforge', 'STATE.md'),
         cwd: tmp,
       });
       const { result } = runHook(payload, { cwd: tmp });
-      assert.equal(result.stdout, '', 'Expected empty stdout for .planning/ path');
+      assert.equal(result.stdout, '', 'Expected empty stdout for .aoforge/ path');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -462,7 +462,7 @@ describe('env var escape hatch', () => {
 });
 
 // ---------------------------------------------------------------------------
-// gates.editGate config knob (TRD 25-02) — .planning/config.json → warn|strict|off
+// gates.editGate config knob (TRD 25-02) — .aoforge/config.json → warn|strict|off
 // ---------------------------------------------------------------------------
 
 describe('gates.editGate config — warn/strict/off', () => {
@@ -477,8 +477,8 @@ describe('gates.editGate config — warn/strict/off', () => {
   test('planningDir with no config.json → strict', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
-      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
+      assert.equal(readEditGateMode(path.join(tmp, '.aoforge')), 'strict');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -487,9 +487,9 @@ describe('gates.editGate config — warn/strict/off', () => {
   test('config.json with malformed JSON → strict', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
-      fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), '{ not valid json');
-      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
+      fs.writeFileSync(path.join(tmp, '.aoforge', 'config.json'), '{ not valid json');
+      assert.equal(readEditGateMode(path.join(tmp, '.aoforge')), 'strict');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -498,9 +498,9 @@ describe('gates.editGate config — warn/strict/off', () => {
   test('config.json without gates key → strict', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
-      fs.writeFileSync(path.join(tmp, '.planning', 'config.json'), JSON.stringify({ mode: 'yolo' }));
-      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
+      fs.writeFileSync(path.join(tmp, '.aoforge', 'config.json'), JSON.stringify({ mode: 'yolo' }));
+      assert.equal(readEditGateMode(path.join(tmp, '.aoforge')), 'strict');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -509,12 +509,12 @@ describe('gates.editGate config — warn/strict/off', () => {
   test('gates.editGate: "banana" (unknown enum) → strict', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
       fs.writeFileSync(
-        path.join(tmp, '.planning', 'config.json'),
+        path.join(tmp, '.aoforge', 'config.json'),
         JSON.stringify({ gates: { editGate: 'banana' } })
       );
-      assert.equal(readEditGateMode(path.join(tmp, '.planning')), 'strict');
+      assert.equal(readEditGateMode(path.join(tmp, '.aoforge')), 'strict');
     } finally {
       fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -524,12 +524,12 @@ describe('gates.editGate config — warn/strict/off', () => {
     for (const mode of ['warn', 'off', 'strict']) {
       const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-mode-'));
       try {
-        fs.mkdirSync(path.join(tmp, '.planning'));
+        fs.mkdirSync(path.join(tmp, '.aoforge'));
         fs.writeFileSync(
-          path.join(tmp, '.planning', 'config.json'),
+          path.join(tmp, '.aoforge', 'config.json'),
           JSON.stringify({ gates: { editGate: mode } })
         );
-        assert.equal(readEditGateMode(path.join(tmp, '.planning')), mode, `Expected ${mode} to round-trip`);
+        assert.equal(readEditGateMode(path.join(tmp, '.aoforge')), mode, `Expected ${mode} to round-trip`);
       } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
       }
@@ -545,15 +545,15 @@ describe('gates.editGate config — warn/strict/off', () => {
 
   function makeTmpWithGateConfig(mode, { skillActive = false } = {}) {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-cfg-'));
-    fs.mkdirSync(path.join(tmp, '.planning'));
+    fs.mkdirSync(path.join(tmp, '.aoforge'));
     if (mode !== undefined) {
       fs.writeFileSync(
-        path.join(tmp, '.planning', 'config.json'),
+        path.join(tmp, '.aoforge', 'config.json'),
         JSON.stringify({ gates: { editGate: mode } })
       );
     }
     if (skillActive) {
-      fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+      fs.writeFileSync(path.join(tmp, '.aoforge', '.skill-active'), JSON.stringify({
         skill: 'build', started_at: new Date().toISOString(), pid: process.pid,
       }));
     }
@@ -647,8 +647,8 @@ describe('gates.editGate config — warn/strict/off', () => {
 // TRD 27-01 / 27-02 — worktree marker visibility + outside-project exemption
 //
 // Regression guard for the Autonomy Blocker Audit (2026-08-18):
-//   F-02 — `.planning/.skill-active` is gitignored, so a linked worktree checks
-//          out every tracked `.planning` file but NEVER the marker. Resolving
+//   F-02 — `.aoforge/.skill-active` is gitignored, so a linked worktree checks
+//          out every tracked `.aoforge` file but NEVER the marker. Resolving
 //          only from cwd denied every worktree-isolated agent (77.2% of all
 //          edit-gate denials).
 //   F-03 — 20.6% of denials targeted the session scratchpad / /private/tmp,
@@ -672,9 +672,9 @@ function makeRepoWithWorktree({ markerInMain }) {
     git(['init', '-q', '-b', 'main'], main);
     git(['config', 'user.email', 't@t.test'], main);
     git(['config', 'user.name', 'T'], main);
-    fs.mkdirSync(path.join(main, '.planning'));
-    fs.writeFileSync(path.join(main, '.planning', 'ROADMAP.md'), '# roadmap\n');
-    fs.writeFileSync(path.join(main, '.gitignore'), '.planning/.skill-active\n');
+    fs.mkdirSync(path.join(main, '.aoforge'));
+    fs.writeFileSync(path.join(main, '.aoforge', 'ROADMAP.md'), '# roadmap\n');
+    fs.writeFileSync(path.join(main, '.gitignore'), '.aoforge/.skill-active\n');
     fs.mkdirSync(path.join(main, 'src'));
     fs.writeFileSync(path.join(main, 'src', 'x.cjs'), '// x\n');
     git(['add', '-A'], main);
@@ -685,7 +685,7 @@ function makeRepoWithWorktree({ markerInMain }) {
 
     if (markerInMain) {
       fs.writeFileSync(
-        path.join(main, '.planning', '.skill-active'),
+        path.join(main, '.aoforge', '.skill-active'),
         JSON.stringify({ skill: 'build', started_at: new Date().toISOString(), pid: 1 })
       );
     }
@@ -697,26 +697,26 @@ function makeRepoWithWorktree({ markerInMain }) {
 }
 
 describe('TRD 27-01 — worktree-isolated agents see the main checkout marker', () => {
-  test('worktree checks out .planning/ but NOT the gitignored marker (the bug)', () => {
+  test('worktree checks out .aoforge/ but NOT the gitignored marker (the bug)', () => {
     const env = makeRepoWithWorktree({ markerInMain: true });
     if (!env) return; // git unavailable
     try {
-      assert.ok(fs.existsSync(path.join(env.wt, '.planning', 'ROADMAP.md')),
-        'worktree should have tracked .planning files');
-      assert.equal(fs.existsSync(path.join(env.wt, '.planning', '.skill-active')), false,
+      assert.ok(fs.existsSync(path.join(env.wt, '.aoforge', 'ROADMAP.md')),
+        'worktree should have tracked .aoforge files');
+      assert.equal(fs.existsSync(path.join(env.wt, '.aoforge', '.skill-active')), false,
         'worktree must NOT have the gitignored marker — this is the root cause');
     } finally {
       fs.rmSync(env.root, { recursive: true, force: true });
     }
   });
 
-  test('sharedPlanningDir() resolves a worktree back to the MAIN checkout .planning', () => {
+  test('sharedPlanningDir() resolves a worktree back to the MAIN checkout .aoforge', () => {
     const env = makeRepoWithWorktree({ markerInMain: true });
     if (!env) return;
     try {
       const resolved = sharedPlanningDir(env.wt);
       assert.ok(resolved, 'expected a resolved shared planning dir');
-      assert.equal(fs.realpathSync(resolved), fs.realpathSync(path.join(env.main, '.planning')));
+      assert.equal(fs.realpathSync(resolved), fs.realpathSync(path.join(env.main, '.aoforge')));
     } finally {
       fs.rmSync(env.root, { recursive: true, force: true });
     }
@@ -759,17 +759,17 @@ describe('TRD 27-01 — worktree-isolated agents see the main checkout marker', 
   test('an expired marker does not hold the gate open', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-ttl-'));
     try {
-      fs.mkdirSync(path.join(tmp, '.planning'));
-      fs.writeFileSync(path.join(tmp, '.planning', '.skill-active'), JSON.stringify({
+      fs.mkdirSync(path.join(tmp, '.aoforge'));
+      fs.writeFileSync(path.join(tmp, '.aoforge', '.skill-active'), JSON.stringify({
         skill: 'build',
         started_at: '2026-01-01T00:00:00Z',
         pid: 1,
         expires_at: '2026-01-01T00:01:00Z',
       }));
-      assert.equal(hasSkillActiveMarker(path.join(tmp, '.planning'), null, Date.now()), false);
+      assert.equal(hasSkillActiveMarker(path.join(tmp, '.aoforge'), null, Date.now()), false);
       // ...but is honoured while still inside its window
       assert.equal(
-        hasSkillActiveMarker(path.join(tmp, '.planning'), null, Date.parse('2026-01-01T00:00:30Z')),
+        hasSkillActiveMarker(path.join(tmp, '.aoforge'), null, Date.parse('2026-01-01T00:00:30Z')),
         true
       );
     } finally {
@@ -840,7 +840,7 @@ function makeAgentTmp(mode) {
   makeAoforgeProject(root);
   if (mode !== undefined) {
     fs.writeFileSync(
-      path.join(root, '.planning', 'config.json'),
+      path.join(root, '.aoforge', 'config.json'),
       JSON.stringify({ gates: { editGate: mode } })
     );
   }
@@ -975,7 +975,7 @@ describe('TRD 44-03 — shouldGate agentType + isAoforgeAgent (unit)', () => {
   const base = {
     tool: 'Edit',
     filePath: '/proj/src/foo.ts',
-    planningDir: '/proj/.planning',
+    planningDir: '/proj/.aoforge',
     skillActive: false,
     overrideActive: false,
   };
@@ -1015,7 +1015,7 @@ describe('TRD 44-03 — shouldGate agentType + isAoforgeAgent (unit)', () => {
 
   test('placement: planning / markdown / noop / outside-project results are unchanged for an aoforge agent', () => {
     const a = { agentType: 'aoforge:executor' };
-    assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/.planning/x.cjs' }).reason, 'planning artifact');
+    assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/.aoforge/x.cjs' }).reason, 'planning artifact');
     assert.equal(gateEdits.shouldGate({ ...base, ...a, filePath: '/proj/README.md' }).reason, 'markdown doc');
     assert.equal(gateEdits.shouldGate({ ...base, ...a, planningDir: null }).decision, 'noop');
     assert.equal(gateEdits.shouldGate({ ...base, ...a, tool: 'Read' }).decision, 'noop');
@@ -1049,7 +1049,7 @@ describe('TRD 44-03 — shouldGate agentType + isAoforgeAgent (unit)', () => {
 
 describe('48-08 store-mode cache deny', () => {
   const gateEdits = require('./gate-edits.js');
-  const P = '/p/.planning';
+  const P = '/p/.aoforge';
   const TRD = `${P}/objectives/07-x/07-01-a-TRD.md`;
   const store = {
     tool: 'Write',
@@ -1172,12 +1172,12 @@ describe('48-08 store-mode cache deny', () => {
     assert.deepEqual(gateEdits.shouldGate({ ...store, tool: 'Read' }), { decision: 'noop' });
   });
 
-  test('test 8: a worktree path classifies against the nearest .planning', () => {
+  test('test 8: a worktree path classifies against the nearest .aoforge', () => {
     const r = gateEdits.shouldGate({
       ...store,
-      filePath: '/wt/.planning/objectives/07-x/07-01-a-TRD.md',
-      planningDir: '/wt/.planning',
-      sharedDir: '/main/.planning',
+      filePath: '/wt/.aoforge/objectives/07-x/07-01-a-TRD.md',
+      planningDir: '/wt/.aoforge',
+      sharedDir: '/main/.aoforge',
     });
     assert.equal(r.decision, 'deny');
     assert.match(r.reason, /^objectives\/07-x\/07-01-a-TRD\.md is a read-only cache/);
@@ -1187,18 +1187,18 @@ describe('48-08 store-mode cache deny', () => {
   test('test 8b: from a worktree, an edit of the MAIN checkout\'s cache file is denied too (sharedDir)', () => {
     const r = gateEdits.shouldGate({
       ...store,
-      filePath: '/main/.planning/STATE.md',
-      planningDir: '/wt/.planning',
-      sharedDir: '/main/.planning',
+      filePath: '/main/.aoforge/STATE.md',
+      planningDir: '/wt/.aoforge',
+      sharedDir: '/main/.aoforge',
     });
     assert.equal(r.decision, 'deny');
     assert.match(r.reason, /^STATE\.md is/);
     assert.match(r.reason, /gh pull --all/);
   });
 
-  test('test 8c: a .planning/ path of some other project falls through to today\'s allow', () => {
+  test('test 8c: a .aoforge/ path of some other project falls through to today\'s allow', () => {
     assert.deepEqual(
-      gateEdits.shouldGate({ ...store, filePath: '/other/.planning/objectives/07-x/07-01-a-TRD.md' }),
+      gateEdits.shouldGate({ ...store, filePath: '/other/.aoforge/objectives/07-x/07-01-a-TRD.md' }),
       { decision: 'allow', reason: 'planning artifact' }
     );
   });
@@ -1332,12 +1332,12 @@ describe('48-08 store-mode cache deny', () => {
 
 const STORE_ON = { github: { enabled: true, store: true, repo: 'o/r' } };
 
-/** A temp AOForge project whose `.planning/config.json` is `config` (omitted when undefined). */
+/** A temp AOForge project whose `.aoforge/config.json` is `config` (omitted when undefined). */
 function makeStoreProject(config) {
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-store-')));
-  fs.mkdirSync(path.join(root, '.planning', 'objectives', '07-x'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge', 'objectives', '07-x'), { recursive: true });
   if (config !== undefined) {
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify(config));
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), JSON.stringify(config));
   }
   return root;
 }
@@ -1349,7 +1349,7 @@ function runStoreHook(root, { tool = 'Write', filePath, agentType, extraEnv = {}
   return runHook(payload, { cwd: root, extraEnv: { HOME: root, ...extraEnv } }).result;
 }
 
-const trdOf = (root) => path.join(root, '.planning', 'objectives', '07-x', '07-01-a-TRD.md');
+const trdOf = (root) => path.join(root, '.aoforge', 'objectives', '07-x', '07-01-a-TRD.md');
 
 describe('48-08 gate main() in store mode (subprocess)', () => {
   test('test 11 (SC2): store on → Write of a TRD emits deny naming `plan put-trd`', () => {
@@ -1369,7 +1369,7 @@ describe('48-08 gate main() in store mode (subprocess)', () => {
     const root = makeStoreProject(STORE_ON);
     try {
       fs.writeFileSync(
-        path.join(root, '.planning', '.skill-active'),
+        path.join(root, '.aoforge', '.skill-active'),
         JSON.stringify({ skill: 'build', started_at: new Date().toISOString(), pid: process.pid })
       );
       for (const tool of ['Write', 'Edit', 'MultiEdit']) {
@@ -1386,7 +1386,7 @@ describe('48-08 gate main() in store mode (subprocess)', () => {
     const root = makeStoreProject(STORE_ON);
     try {
       for (const rel of ['config.json', 'STACK.md', 'state.json', '.trd-progress/07-01.md']) {
-        const result = runStoreHook(root, { filePath: path.join(root, '.planning', rel) });
+        const result = runStoreHook(root, { filePath: path.join(root, '.aoforge', rel) });
         assert.equal(hookDecision(result), 'none', `${rel}: ${result.stdout}`);
       }
       const code = runStoreHook(root, { filePath: path.join(root, 'src', 'a.cjs'), agentType: 'aoforge:executor' });
@@ -1427,7 +1427,7 @@ describe('48-08 gate main() in store mode (subprocess)', () => {
   test('test 12c: a fresh .edit-override marker allows one cache edit', () => {
     const root = makeStoreProject(STORE_ON);
     try {
-      const marker = path.join(root, '.planning', '.edit-override');
+      const marker = path.join(root, '.aoforge', '.edit-override');
       fs.writeFileSync(marker, JSON.stringify({ created_at: new Date().toISOString() }));
       const first = runStoreHook(root, { filePath: trdOf(root) });
       assert.equal(hookDecision(first), 'none', first.stdout);
@@ -1453,7 +1453,7 @@ describe('48-08 gate main() in store mode (subprocess)', () => {
       const root = makeStoreProject(config);
       try {
         for (const rel of rels) {
-          const result = runStoreHook(root, { filePath: path.join(root, '.planning', rel) });
+          const result = runStoreHook(root, { filePath: path.join(root, '.aoforge', rel) });
           assert.equal(hookDecision(result), 'none', `${JSON.stringify(config)} ${rel}: ${result.stdout}`);
         }
         // Code files keep today's ambient deny with store off.
@@ -1474,21 +1474,21 @@ describe('48-08 gate main() in store mode (subprocess)', () => {
     }
     try {
       // Main on, worktree's own config off → the worktree's TRD edit is denied.
-      fs.writeFileSync(path.join(fx.main, '.planning', 'config.json'), JSON.stringify(STORE_ON));
-      fs.writeFileSync(path.join(fx.wt, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
-      const wtTrd = path.join(fx.wt, '.planning', 'objectives', '07-x', '07-01-a-TRD.md');
+      fs.writeFileSync(path.join(fx.main, '.aoforge', 'config.json'), JSON.stringify(STORE_ON));
+      fs.writeFileSync(path.join(fx.wt, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+      const wtTrd = path.join(fx.wt, '.aoforge', 'objectives', '07-x', '07-01-a-TRD.md');
       const denied = runStoreHook(fx.wt, { filePath: wtTrd, agentType: 'aoforge:executor' });
       assert.equal(hookDecision(denied), 'deny', denied.stdout);
       assert.match(JSON.parse(denied.stdout).hookSpecificOutput.permissionDecisionReason, /plan put-trd 07 07-01-a-TRD\.md/);
 
       // The main checkout's generated file, edited from the worktree, is denied too.
-      const mainState = runStoreHook(fx.wt, { filePath: path.join(fx.main, '.planning', 'STATE.md') });
+      const mainState = runStoreHook(fx.wt, { filePath: path.join(fx.main, '.aoforge', 'STATE.md') });
       assert.equal(hookDecision(mainState), 'deny', mainState.stdout);
       assert.match(JSON.parse(mainState.stdout).hookSpecificOutput.permissionDecisionReason, /gh pull --all/);
 
       // Main off, worktree's own config on → store off: allowed as today.
-      fs.writeFileSync(path.join(fx.main, '.planning', 'config.json'), JSON.stringify({ github: { enabled: false } }));
-      fs.writeFileSync(path.join(fx.wt, '.planning', 'config.json'), JSON.stringify(STORE_ON));
+      fs.writeFileSync(path.join(fx.main, '.aoforge', 'config.json'), JSON.stringify({ github: { enabled: false } }));
+      fs.writeFileSync(path.join(fx.wt, '.aoforge', 'config.json'), JSON.stringify(STORE_ON));
       const allowed = runStoreHook(fx.wt, { filePath: wtTrd });
       assert.equal(hookDecision(allowed), 'none', allowed.stdout);
     } finally {

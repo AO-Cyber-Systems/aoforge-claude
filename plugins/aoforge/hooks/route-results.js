@@ -26,7 +26,7 @@
  * to bound additionalContext size.
  *
  * Upgrade notices (TRD 36-05): unconsumed notices from the project's
- * .planning/.aoforge-notices.json and ~/.claude/aoforge/.aoforge-notices.json
+ * .aoforge/.aoforge-notices.json and ~/.claude/aoforge/.aoforge-notices.json
  * are appended to the SAME additionalContext and marked consumed, so each is
  * emitted once. AOFORGE_SKIP_NOTICES=1 suppresses only the notices (they stay
  * unconsumed); AOFORGE_SKIP_HANDOFF_RESULTS=1 suppresses only handoff results.
@@ -46,6 +46,8 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 const HANDOFF_DIR = '.aoforge-handoff';
 const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -212,19 +214,12 @@ function emit(additionalContext) {
   process.stdout.write(JSON.stringify(output));
 }
 
-// Nearest ancestor (inclusive) holding a `.planning/` directory → that project root, else null.
+// Nearest ancestor (inclusive) holding a `.aoforge/` directory → that project root, else null.
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    try {
-      if (fs.statSync(path.join(dir, '.planning')).isDirectory()) return dir;
-    } catch { /* keep walking */ }
-    dir = path.dirname(dir);
-  }
-  return null;
+  return findProjectRoot(start, { maxUp: Infinity });
 }
 
-// Unconsumed upgrade notices (TRD 36-05): project `.planning/.aoforge-notices.json` plus the
+// Unconsumed upgrade notices (TRD 36-05): project `.aoforge/.aoforge-notices.json` plus the
 // global `~/.claude/aoforge/.aoforge-notices.json`, each taken (marked consumed) exactly once.
 // notices.cjs is resolved from the BUNDLED plugin; when it is absent there are no notices.
 function collectNotices() {

@@ -25,8 +25,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const fixtures = require('../aoforge/bin/lib/__fixtures__/daemon-polish-fixtures.cjs');
-// This hook reads only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
-fixtures.setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
 
 const LIB_DIR = path.join(__dirname, '..', 'aoforge', 'bin', 'lib');
 const store = require(path.join(LIB_DIR, 'estimate-run-store.cjs'));
@@ -42,7 +40,7 @@ function world(t, { installLib = true } = {}) {
   const home = path.join(tmp, 'home');
   const project = path.join(tmp, 'proj');
   const stateDir = path.join(home, 'est');
-  fs.mkdirSync(path.join(project, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(project, '.aoforge'), { recursive: true });
   const libDir = path.join(home, '.claude', 'aoforge', 'bin', 'lib');
   fs.mkdirSync(libDir, { recursive: true });
   if (installLib) {
@@ -197,7 +195,7 @@ test('11. the status line only reads: the state file and the project are left un
   assert.equal(fs.readFileSync(file, 'utf8'), before);
   assert.deepEqual(fs.readdirSync(w.stateDir).sort(), stateBefore);
   assert.deepEqual(fs.readdirSync(w.project).sort(), projectBefore);
-  assert.deepEqual(fs.readdirSync(path.join(w.project, '.planning')), []);
+  assert.deepEqual(fs.readdirSync(path.join(w.project, '.aoforge')), []);
 });
 
 test('12. the hook source reads no transcript or project history', () => {

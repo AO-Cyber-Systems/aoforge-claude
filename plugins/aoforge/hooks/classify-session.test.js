@@ -34,10 +34,6 @@ const {
   mkBrownfieldSubstantive,
   mkAmbientProject,
 } = require('../aoforge/bin/lib/__fixtures__/project-state-fixtures.cjs');
-// This hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
-for (const fx of ['classifier-fixtures.cjs', 'project-state-fixtures.cjs']) {
-  require(`../aoforge/bin/lib/__fixtures__/${fx}`).setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
-}
 
 // ─── Helper: run hook as subprocess ──────────────────────────────────────────
 
@@ -128,7 +124,7 @@ describe('classify-session subprocess — 5 acceptance scenarios (#26)', () => {
   });
 
   test('scenario 9: no-git dir (bare tmpdir without git or planning) → empty stdout (skip mode, exit 0)', () => {
-    // mkScratchDir creates a dir without .git or .planning — same as no-git dir
+    // mkScratchDir creates a dir without .git or .aoforge — same as no-git dir
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'classify-nogit-'));
     try {
       const result = runHook(root);
@@ -192,19 +188,19 @@ describe('findPlanningDir', () => {
   // Require after hook exists (GREEN phase — will fail in RED if hook doesn't exist)
   const hook = require('./classify-session.js');
 
-  test('case 1: walks up from start dir and returns first ancestor containing .planning/', () => {
+  test('case 1: walks up from start dir and returns first ancestor containing .aoforge/', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'find-plan-'));
-    fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
     const child = path.join(root, 'src', 'deep', 'dir');
     fs.mkdirSync(child, { recursive: true });
     try {
-      assert.equal(hook.findPlanningDir(child), path.join(root, '.planning'));
+      assert.equal(hook.findPlanningDir(child), path.join(root, '.aoforge'));
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('case 2: returns null when no .planning/ found walking up to filesystem root', () => {
+  test('case 2: returns null when no .aoforge/ found walking up to filesystem root', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'no-plan-'));
     try {
       assert.equal(hook.findPlanningDir(root), null);
@@ -233,9 +229,9 @@ describe('findGitDir', () => {
 describe('hasDeclineMarker', () => {
   const hook = require('./classify-session.js');
 
-  test('case 4: returns true when .planning/.aoforge-init-declined exists', () => {
+  test('case 4: returns true when .aoforge/.aoforge-init-declined exists', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'decline-'));
-    const planningDir = path.join(root, '.planning');
+    const planningDir = path.join(root, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
     fs.writeFileSync(path.join(planningDir, '.aoforge-init-declined'), '');
     try {
@@ -251,7 +247,7 @@ describe('hasDeclineMarker', () => {
 
   test('case 5b: returns false when .aoforge-init-declined marker is absent', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'no-decline-'));
-    const planningDir = path.join(root, '.planning');
+    const planningDir = path.join(root, '.aoforge');
     fs.mkdirSync(planningDir, { recursive: true });
     try {
       assert.equal(hook.hasDeclineMarker(planningDir), false);

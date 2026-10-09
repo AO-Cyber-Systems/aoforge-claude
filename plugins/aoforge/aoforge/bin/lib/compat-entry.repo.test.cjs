@@ -113,8 +113,7 @@ describe('compat-entry.repo.test.cjs', { skip: IS_PLUGIN_CHECKOUT ? false : 'not
           assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
         };
         git('init', '-q');
-        // the legacy planning directory: the hooks resolve it today and, after 72-06, as the fallback
-        fs.mkdirSync(path.join(root, LEGACY.planningDir));
+        fs.mkdirSync(path.join(root, NAMES.planningDir));
         fs.mkdirSync(path.join(root, 'src'));
         fs.writeFileSync(path.join(root, 'src', 'app.js'), 'module.exports = 1;\n');
         git('add', '--', 'src/app.js');

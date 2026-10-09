@@ -5,7 +5,7 @@
  *
  * **DRAFT — landing as part of v1.1 "AOForge Coordination Layer" milestone.**
  * Not registered in hooks.json yet; activated when the org-context resolver
- * service ships (see .planning/research/org-context-resolver.md).
+ * service ships (see .aoforge/research/org-context-resolver.md).
  *
  * When a Claude Code session starts in an AOForge project worktree with an
  * active objective, inject a short preamble describing the objective's full
@@ -16,7 +16,7 @@
  * parse JSON, render as markdown additionalContext.
  *
  * Skipped when:
- *   - No .planning/ directory (not an AOForge project)
+ *   - No .aoforge/ directory (not an AOForge project)
  *   - No STATE.md or no current objective in STATE.md
  *   - Resolver fails or times out (>2s) — fail-open, no preamble
  *   - AOFORGE_SKIP_ORG_CONTEXT=1 (escape hatch)
@@ -40,16 +40,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 const RESOLVER_TIMEOUT_MS = 2000;
 
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) return path.join(dir, '.planning');
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 function readCurrentObjective(planningDir) {

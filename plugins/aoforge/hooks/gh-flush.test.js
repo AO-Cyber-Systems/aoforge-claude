@@ -53,7 +53,7 @@ after(() => {
 function makeScenario({ store = true } = {}) {
   const base = mkTmp('gh-flush-hook-');
   const root = path.join(base, 'project');
-  const planning = path.join(root, '.planning');
+  const planning = path.join(root, '.aoforge');
   fs.mkdirSync(planning, { recursive: true });
 
   const github = { enabled: true, repo: REPO };
@@ -142,7 +142,7 @@ function parseOut(r, label) {
   return JSON.parse(r.stdout);
 }
 
-/** `{rel: text}` of every file under the project's `.planning/`, for "the hook wrote nothing there" checks. */
+/** `{rel: text}` of every file under the project's `.aoforge/`, for "the hook wrote nothing there" checks. */
 function snapshotPlanning(s) {
   const out = {};
   const walk = (dir, rel) => {
@@ -258,7 +258,7 @@ describe('silent paths: zero gh calls, no child process', () => {
     assertSilent(runHook(stopEvent(s), s, { env: { CLAUDE_PLUGIN_ROOT: fake.dir } }), 'Stop');
     assert.deepEqual(s.shim.readCalls(), []);
     assert.deepEqual(fake.calls(), [], 'nothing queued: no flush child');
-    assert.deepEqual(snapshotPlanning(s), before, 'the hook writes nothing under .planning/');
+    assert.deepEqual(snapshotPlanning(s), before, 'the hook writes nothing under .aoforge/');
   });
 
   test('3. store mode, pending ops, but the Bash command is not aof-tools commit', () => {
@@ -324,7 +324,7 @@ describe('flush through the real aof-tools and the gh shim', () => {
     assert.match(out.hookSpecificOutput.additionalContext, /1 GitHub write queued \(offline\); they will retry/);
     assert.equal(out.hookSpecificOutput.additionalContext.trim().split('\n').length, 1, 'one line');
     assert.equal(pending(s), 1, 'still pending');
-    assert.deepEqual(snapshotPlanning(s), before, 'the hook writes nothing under .planning/');
+    assert.deepEqual(snapshotPlanning(s), before, 'the hook writes nothing under .aoforge/');
   });
 
   test('6. Stop with pending ops: systemMessage, never a decision', () => {
@@ -371,7 +371,7 @@ describe('cache drift (W055)', () => {
     assert.match(out.systemMessage, /aof-tools validate health/);
     assert.equal(Object.hasOwn(out, 'decision'), false);
     assert.deepEqual(fake.calls(), [], 'drift alone never spawns a flush');
-    assert.deepEqual(snapshotPlanning(s), before, 'the hook does not repair the drift or write .planning/');
+    assert.deepEqual(snapshotPlanning(s), before, 'the hook does not repair the drift or write .aoforge/');
 
     assertSilent(runHook(postCommit(s), s, { env }), 'PostToolUse does not report drift');
   });

@@ -30,7 +30,7 @@
  * `/aoforge:<name>` in `prompt` or `aoforge:<name>` in `command_name`, so the filtering happens in code. The
  * cost is one short node process per slash command.
  *
- * Not project-scoped. A missing `gh` breaks /aoforge:gh-sync in any directory, so there is no .planning/
+ * Not project-scoped. A missing `gh` breaks /aoforge:gh-sync in any directory, so there is no .aoforge/
  * lookup here. The hook is read-only: it writes no file and spawns nothing (the PATH lookup is stat-only).
  *
  * Fail open. This hook exits 0 on every path and writes nothing to stderr. Malformed or empty input, a

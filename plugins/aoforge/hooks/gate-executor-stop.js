@@ -35,7 +35,7 @@
  *
  * Fail-open contract: every path that is not a confident "this executor's TRD
  * has no SUMMARY anywhere" or "its final SUMMARY has no token fields" exits 0
- * with NO output. That includes any error, a non-executor agent, no `.planning/`,
+ * with NO output. That includes any error, a non-executor agent, no `.aoforge/`,
  * an unidentifiable or ambiguous TRD, an unreadable transcript, a deliberate
  * structured stop, an unreadable SUMMARY, a checkpoint-only SUMMARY (no
  * `## Self-Check`) and any final SUMMARY that carries both token fields.
@@ -52,6 +52,8 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const compat = require('../aoforge/bin/lib/compat.cjs');
 const { spawnSync } = require('child_process');
 const { escapeRegExp } = require('../aoforge/bin/lib/text-escape.cjs');
 
@@ -76,9 +78,29 @@ function findUp(start, name, fsImpl = fs) {
   }
 }
 
-/** Project root: the nearest ancestor (or self) holding `.planning/`. */
+/**
+ * Project root: the nearest ancestor (or self) holding a planning directory (`.aoforge/`, or a legacy
+ * one: compat.findProjectRoot). Any filesystem error reads as "no project" (the hook fails open).
+ */
 function findProjectRoot(start, fsImpl = fs) {
-  return findUp(start, '.planning', fsImpl);
+  try {
+    return compat.findProjectRoot(start, { fsImpl, maxUp: Infinity });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * `<root>/<planning dir>/objectives` for a candidate root (the directory compat.planningRoot resolves).
+ * Throws on a filesystem error, like the readdir that follows it; callers skip the root.
+ */
+function objectivesDirOf(root, fsImpl = fs) {
+  return path.resolve(compat.planningRoot(root, fsImpl), 'objectives');
+}
+
+/** The planning directory's name in `<root>/<planning dir>/objectives/<dir>`. */
+function planningDirNameOf(objectiveDir) {
+  return path.basename(path.dirname(path.dirname(objectiveDir)));
 }
 
 /**
@@ -109,7 +131,7 @@ function gitRoots(start, fsImpl = fs) {
 }
 
 /**
- * Every root whose `.planning/objectives/` may hold the SUMMARY:
+ * Every root whose `.aoforge/objectives/` may hold the SUMMARY:
  * the project roots of `cwd` and `repoRoot`, their git checkouts and main
  * checkouts, `repoRoot` itself, and each entry of ONE `gitWorktrees` call
  * (for `repoRoot`, else for cwd's checkout). De-duplicated by real path.
@@ -152,18 +174,18 @@ function candidateRoots({ cwd, repoRoot = null, gitWorktrees = () => [], fsImpl 
 }
 
 /**
- * Every `<root>/.planning/objectives/<dir>/<id>-SUMMARY.md` or
+ * Every `<root>/.aoforge/objectives/<dir>/<id>-SUMMARY.md` or
  * `<id>-<slug>-SUMMARY.md` that exists, as absolute paths in `roots` order
  * (TRD 66-02; TRD 53-02 set the pairing rule: the same as roadmap-reconcile and
  * the aof-tools readers; `<id>-SUMMARY.md` stays the name the executor is told to
  * write). The id is matched whole: `07-010-SUMMARY.md` and `07-01x-SUMMARY.md`
  * do not count for `07-01`. A file reached through two roots is listed once.
- * A root without (or with an unreadable) `.planning/objectives` is skipped.
+ * A root without (or with an unreadable) `.aoforge/objectives` is skipped.
  * Content is NOT inspected here.
  *
- * Kept light on purpose (fast hook): the only aof-tools lib it requires is the
- * dependency-free text-escape.cjs, and the pairing regex is inlined rather than
- * shared with `helpers.trdKey`.
+ * Kept light on purpose (fast hook): the only aof-tools libs it requires are the
+ * dependency-free text-escape.cjs and compat.cjs (the planning directory of each
+ * root), and the pairing regex is inlined rather than shared with `helpers.trdKey`.
  *
  * @param {string} id
  * @param {string[]} roots
@@ -184,9 +206,12 @@ function summaryFiles(id, roots, fsImpl = fs) {
   const paired = new RegExp(`^${escapeRegExp(id)}(?:-.+)?-SUMMARY\\.md$`);
   for (const root of roots) {
     if (typeof root !== 'string' || !root) continue;
-    const objectivesDir = path.resolve(root, '.planning', 'objectives');
+    let objectivesDir;
     let entries;
-    try { entries = fsImpl.readdirSync(objectivesDir); } catch { continue; }
+    try {
+      objectivesDir = objectivesDirOf(root, fsImpl);
+      entries = fsImpl.readdirSync(objectivesDir);
+    } catch { continue; }
     for (const entry of entries) {
       const dir = path.join(objectivesDir, String(entry));
       // Exact-name fast path first: it needs no directory listing, so a fsImpl
@@ -250,9 +275,9 @@ function isFinalSummary(text) {
 }
 
 /**
- * The objective dir holding this TRD: the first `<root>/.planning/objectives/<dir>`
+ * The objective dir holding this TRD: the first `<root>/.aoforge/objectives/<dir>`
  * that contains `<id>-TRD.md`, searched in `roots` order. Mirrors
- * `summaryExists`: a root without (or with an unreadable) `.planning/objectives`
+ * `summaryExists`: a root without (or with an unreadable) `.aoforge/objectives`
  * is skipped, and any failure yields null (TRD 44-10).
  *
  * @param {string} id
@@ -265,9 +290,12 @@ function trdDirFor(id, roots, fsImpl = fs) {
   const file = `${id}-TRD.md`;
   for (const root of roots) {
     if (typeof root !== 'string' || !root) continue;
-    const objectivesDir = path.join(root, '.planning', 'objectives');
+    let objectivesDir;
     let entries;
-    try { entries = fsImpl.readdirSync(objectivesDir); } catch { continue; }
+    try {
+      objectivesDir = objectivesDirOf(root, fsImpl);
+      entries = fsImpl.readdirSync(objectivesDir);
+    } catch { continue; }
     for (const entry of entries) {
       const dir = path.join(objectivesDir, String(entry));
       try {
@@ -279,7 +307,7 @@ function trdDirFor(id, roots, fsImpl = fs) {
 }
 
 /**
- * The repo-relative SUMMARY path for this TRD (`.planning/objectives/<dir>/<id>-SUMMARY.md`,
+ * The repo-relative SUMMARY path for this TRD (`.aoforge/objectives/<dir>/<id>-SUMMARY.md`,
  * forward slashes), or null when the TRD file can't be located.
  *
  * @param {string} id
@@ -290,7 +318,7 @@ function trdDirFor(id, roots, fsImpl = fs) {
 function summaryRelPath(id, roots, fsImpl = fs) {
   const dir = trdDirFor(id, roots, fsImpl);
   if (!dir) return null;
-  return ['.planning', 'objectives', path.basename(dir), `${id}-SUMMARY.md`].join('/');
+  return [planningDirNameOf(dir), 'objectives', path.basename(dir), `${id}-SUMMARY.md`].join('/');
 }
 
 // ─── Deliberate stops ─────────────────────────────────────────────────────────
@@ -390,7 +418,7 @@ function summaryLocation(file) {
   const base = path.basename(file);
   const dir = path.basename(path.dirname(file));
   return {
-    summaryRel: ['.planning', 'objectives', dir, base].join('/'),
+    summaryRel: [planningDirNameOf(path.dirname(file)), 'objectives', dir, base].join('/'),
     draftRel: ['objectives', dir, base].join('/'),
   };
 }
@@ -402,7 +430,7 @@ function summaryLocation(file) {
  * (no transcript, `stamped: false`) is told to stop rather than loop.
  *
  * @param {string} id
- * @param {string} summaryRel  `.planning/objectives/<dir>/<file>`
+ * @param {string} summaryRel  `.aoforge/objectives/<dir>/<file>`
  * @param {string} draftRel    `objectives/<dir>/<file>`, the argument of `planning draft`
  * @returns {string}
  */
@@ -424,7 +452,7 @@ function tokenBlockReason(id, summaryRel, draftRel) {
 /**
  * Decide whether to block this SubagentStop. Returns `{block: true, reason}`
  * or null. Checks run cheapest-first, and every one of them fails OPEN:
- *   env skip → agent_type → stop_hook_active → no .planning → deliberate stop
+ *   env skip → agent_type → stop_hook_active → no .aoforge → deliberate stop
  *   → unreadable transcript → unidentifiable TRD → SUMMARY missing → block (44-04)
  *   → unreadable SUMMARY → null → no final SUMMARY (checkpoints only) → null
  *   → any stamped final → null → block (66-02).

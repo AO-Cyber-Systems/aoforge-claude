@@ -20,8 +20,6 @@ const crypto = require('crypto');
 const { spawnSync, execFileSync } = require('child_process');
 
 const F = require('../aoforge/bin/lib/__fixtures__/upgrade-fixtures.cjs');
-// This hook resolves only the legacy planning directory until 72-06 moves it onto the resolver (TRD 72-05).
-F.setPlanningDir(require('../aoforge/bin/lib/legacy-names.cjs').LEGACY.planningDir);
 
 const HOOK = path.join(__dirname, 'upgrade-project.js');
 const ROUTE = path.join(__dirname, 'route-results.js');
@@ -29,7 +27,7 @@ const PLUGIN_ROOT = path.resolve(__dirname, '..');
 const BUNDLED = JSON.parse(
   fs.readFileSync(path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json'), 'utf-8'),
 ).version;
-const NOTICES_REL = '.planning/.aoforge-notices.json';
+const NOTICES_REL = '.aoforge/.aoforge-notices.json';
 const SUBJECT = `chore(aoforge): upgrade project to v${BUNDLED}`;
 const ESCAPES = ['AOFORGE_SKIP_UPGRADE', 'AOFORGE_SKIP_NOTICES', 'AOFORGE_SKIP_HANDOFF_RESULTS', 'AOFORGE_SKIP_TRANSCRIPT_EXPORT'];
 
@@ -120,17 +118,17 @@ function setup({ gitRepo = true, v1 = {} } = {}) {
 }
 
 function readConfig(root) {
-  return JSON.parse(fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf-8'));
+  return JSON.parse(fs.readFileSync(path.join(root, '.aoforge', 'config.json'), 'utf-8'));
 }
 
 function assertMigrated(root) {
   const cfg = readConfig(root);
   assert.equal(cfg.aoforge && cfg.aoforge.version, BUNDLED, 'config.json stamped with the bundled version');
   assert.equal(typeof cfg.planning, 'object', 'config.json nested');
-  const obj = path.join(root, '.planning', 'objectives');
+  const obj = path.join(root, '.aoforge', 'objectives');
   assert.ok(fs.existsSync(path.join(obj, '01-alpha', '01-01-TRD.md')), 'JOB renamed to TRD');
   assert.ok(!fs.existsSync(path.join(obj, '01-alpha', '01-01-JOB.md')), 'old JOB path gone');
-  assert.ok(fs.existsSync(path.join(root, '.planning', 'state.json')), 'state.json seeded');
+  assert.ok(fs.existsSync(path.join(root, '.aoforge', 'state.json')), 'state.json seeded');
   assert.ok(fs.existsSync(path.join(obj, '02-beta', 'OBJECTIVE.md')), '02-beta OBJECTIVE.md backfilled');
   assert.match(fs.readFileSync(path.join(root, 'CLAUDE.md'), 'utf-8'), /<!-- AOFORGE:START v=2 /);
 }
@@ -310,13 +308,13 @@ describe('upgrade-project: skip rules (no commit, changes left applied)', () => 
 
   test('13: dirty-before — a changed file had uncommitted edits → applied, no commit, file named', () => {
     const { home, root } = setup();
-    const cfgPath = path.join(root, '.planning', 'config.json');
+    const cfgPath = path.join(root, '.aoforge', 'config.json');
     const cfg = readConfig(root);
     fs.writeFileSync(cfgPath, JSON.stringify({ ...cfg, research: true }, null, 2) + '\n');
     const before = commitCount(root, home);
     runHook(root, home);
     assertSkipped(root, home, before, /uncommitted edits/);
-    assert.match(skipNotice(root).message, /\.planning\/config\.json/);
+    assert.match(skipNotice(root).message, /\.aoforge\/config\.json/);
   });
 
   test('14: signing failure → no commit, warn notice from upgrade-commit, signing never disabled', () => {
@@ -391,7 +389,7 @@ describe('upgrade-project: notices, lock, exclude', () => {
 
   test('failed migration → warn notice (malformed config.json halts the run)', () => {
     const { home, root } = setup({ gitRepo: false });
-    fs.writeFileSync(path.join(root, '.planning', 'config.json'), '{ not json');
+    fs.writeFileSync(path.join(root, '.aoforge', 'config.json'), '{ not json');
     runHook(root, home);
     const warns = readNotices(root).filter((n) => n.level === 'warn' && /fail/i.test(n.message));
     assert.equal(warns.length, 1, JSON.stringify(readNotices(root)));
@@ -406,8 +404,8 @@ describe('upgrade-project: notices, lock, exclude', () => {
 // committed as deletions only (aof-tools commit's staged-removal path), never as content.
 
 describe('upgrade-project: runtime-state untracking (TRD 44-06)', () => {
-  const GUARD = '.planning/.progress-guard.json';
-  const CACHE = '.planning/.awareness-cache.json';
+  const GUARD = '.aoforge/.progress-guard.json';
+  const CACHE = '.aoforge/.awareness-cache.json';
 
   test('44-06 test 1: a tracked guard file modified before the hook → 0008 applied, the detached commit lands', () => {
     const home = F.makeFakeHome();
@@ -436,18 +434,18 @@ describe('upgrade-project: runtime-state untracking (TRD 44-06)', () => {
   test('44-06: skipReason exempts dirty runtime-state paths, but not a dirty .gitignore', () => {
     const { skipReason } = require(HOOK);
     const state = (dirty, prefix = '') => ({ isRepo: true, busy: null, detached: false, prefix, dirty: new Set(dirty) });
-    const changed = ['.gitignore', CACHE, GUARD, '.planning/config.json'];
+    const changed = ['.gitignore', CACHE, GUARD, '.aoforge/config.json'];
 
     assert.equal(skipReason(state([GUARD, CACHE]), changed), null, 'runtime-state paths never block the commit');
     assert.equal(skipReason(state(['sub/' + GUARD], 'sub/'), changed), null, 'exempt under a repo prefix too');
 
     const r = skipReason(state(['.gitignore', GUARD]), changed);
     assert.match(String(r), /uncommitted edits existed before the upgrade in \.gitignore$/);
-    assert.match(String(skipReason(state(['.planning/config.json']), changed)), /\.planning\/config\.json/);
+    assert.match(String(skipReason(state(['.aoforge/config.json']), changed)), /\.aoforge\/config\.json/);
   });
 
-  // ─── TRD 45-02 (DOC-02) — nested `.planning/` runtime state ────────────────────
-  const NESTED_GUARD = 'flutter/.planning/.progress-guard.json';
+  // ─── TRD 45-02 (DOC-02) — nested `.aoforge/` runtime state ────────────────────
+  const NESTED_GUARD = 'flutter/.aoforge/.progress-guard.json';
 
   test('45-02 test 10: a tracked NESTED guard file modified before the hook → 0008 applied, the detached commit lands', () => {
     const home = F.makeFakeHome();
@@ -476,14 +474,14 @@ describe('upgrade-project: runtime-state untracking (TRD 44-06)', () => {
   test('45-02: skipReason exempts dirty runtime-state paths at any depth, but nothing that only looks similar', () => {
     const { skipReason } = require(HOOK);
     const state = (dirty, prefix = '') => ({ isRepo: true, busy: null, detached: false, prefix, dirty: new Set(dirty) });
-    const deep = 'packages/app/.planning/.awareness-cache.json';
+    const deep = 'packages/app/.aoforge/.awareness-cache.json';
     const changed = ['.gitignore', GUARD, NESTED_GUARD, deep];
 
     assert.equal(skipReason(state([NESTED_GUARD, deep]), changed), null, 'nested runtime-state paths never block the commit');
     assert.equal(skipReason(state(['sub/' + NESTED_GUARD], 'sub/'), changed), null, 'exempt under a repo prefix too');
 
-    const lookalike = 'flutter/.planning/config.json';
-    assert.match(String(skipReason(state([lookalike]), [...changed, lookalike])), /flutter\/\.planning\/config\.json$/);
+    const lookalike = 'flutter/.aoforge/config.json';
+    assert.match(String(skipReason(state([lookalike]), [...changed, lookalike])), /flutter\/\.aoforge\/config\.json$/);
     assert.match(String(skipReason(state(['.gitignore', NESTED_GUARD]), changed)), /in \.gitignore$/);
   });
 });
@@ -491,7 +489,7 @@ describe('upgrade-project: runtime-state untracking (TRD 44-06)', () => {
 // ─── objective 37 (ADP-05) — SessionStart backup prune ─────────────────────────
 //
 // Local helper: seedBackups(home, repoDir, ages) creates
-//   <home>/.claude/aoforge/backups/<repoDir>/<ts>/.planning/config.json for each age in days,
+//   <home>/.claude/aoforge/backups/<repoDir>/<ts>/.aoforge/config.json for each age in days,
 //   relative to the REAL Date.now() (the hook calls `new Date()` itself, not an injected fixed
 //   time). A name collision (two ages that round to the same ts) gets '-1', '-2', ... appended,
 //   exactly like upgrade.cjs backupDirFor.
@@ -525,8 +523,8 @@ function seedPruneBackups(home, repoDir, ages) {
     const ts = t.toISOString().replace(/[:.]/g, '-');
     let name = ts;
     for (let n = 1; fs.existsSync(path.join(backupsRootFor(home), repoDir, name)); n++) name = `${ts}-${n}`;
-    fs.mkdirSync(path.join(backupsRootFor(home), repoDir, name, '.planning'), { recursive: true });
-    fs.writeFileSync(path.join(backupsRootFor(home), repoDir, name, '.planning', 'config.json'), '{}\n');
+    fs.mkdirSync(path.join(backupsRootFor(home), repoDir, name, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(backupsRootFor(home), repoDir, name, '.aoforge', 'config.json'), '{}\n');
     names.push(name);
   }
   return names;

@@ -27,9 +27,9 @@ const { findPlanningDir, readCurrentObjective, renderPreamble } = require('./inj
 
 function mkProject({ stateContent } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'inject-ctx-'));
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
   if (stateContent !== undefined) {
-    fs.writeFileSync(path.join(root, '.planning', 'STATE.md'), stateContent, 'utf-8');
+    fs.writeFileSync(path.join(root, '.aoforge', 'STATE.md'), stateContent, 'utf-8');
   }
   return root;
 }
@@ -39,7 +39,7 @@ function mkProject({ stateContent } = {}) {
 // ---------------------------------------------------------------------------
 
 describe('findPlanningDir', () => {
-  test('returns null when no .planning/ found walking up', () => {
+  test('returns null when no .aoforge/ found walking up', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'no-plan-'));
     try {
       assert.equal(findPlanningDir(tmp), null);
@@ -48,21 +48,21 @@ describe('findPlanningDir', () => {
     }
   });
 
-  test('finds .planning/ at start dir', () => {
+  test('finds .aoforge/ at start dir', () => {
     const root = mkProject();
     try {
-      assert.equal(findPlanningDir(root), path.join(root, '.planning'));
+      assert.equal(findPlanningDir(root), path.join(root, '.aoforge'));
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('finds .planning/ in ancestor', () => {
+  test('finds .aoforge/ in ancestor', () => {
     const root = mkProject();
     const child = path.join(root, 'src', 'sub', 'deep');
     fs.mkdirSync(child, { recursive: true });
     try {
-      assert.equal(findPlanningDir(child), path.join(root, '.planning'));
+      assert.equal(findPlanningDir(child), path.join(root, '.aoforge'));
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -73,7 +73,7 @@ describe('readCurrentObjective', () => {
   test('returns null when no STATE.md', () => {
     const root = mkProject();
     try {
-      assert.equal(readCurrentObjective(path.join(root, '.planning')), null);
+      assert.equal(readCurrentObjective(path.join(root, '.aoforge')), null);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -84,7 +84,7 @@ describe('readCurrentObjective', () => {
       stateContent: '# State\n\n**Objective:** 04 — REST API Core\n',
     });
     try {
-      assert.equal(readCurrentObjective(path.join(root, '.planning')), '04');
+      assert.equal(readCurrentObjective(path.join(root, '.aoforge')), '04');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -95,7 +95,7 @@ describe('readCurrentObjective', () => {
       stateContent: '**Objective:** 06-flutter-macos-app of 6 — IN PROGRESS\n',
     });
     try {
-      assert.equal(readCurrentObjective(path.join(root, '.planning')), '06-flutter-macos-app');
+      assert.equal(readCurrentObjective(path.join(root, '.aoforge')), '06-flutter-macos-app');
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
@@ -104,7 +104,7 @@ describe('readCurrentObjective', () => {
   test('returns null when STATE.md has no objective line', () => {
     const root = mkProject({ stateContent: '# Empty state\n' });
     try {
-      assert.equal(readCurrentObjective(path.join(root, '.planning')), null);
+      assert.equal(readCurrentObjective(path.join(root, '.aoforge')), null);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

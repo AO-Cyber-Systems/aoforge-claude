@@ -47,7 +47,7 @@ const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixture
 const { makeE2eRepo, OBJECTIVE_DIR, REPO, TODO_STEM, ROADMAP_MD, STATE_MD } = require('./__fixtures__/planning-e2e-fixtures.cjs');
 
 const cli = require('./planning-verbs-cli.cjs');
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 
 const T0 = Date.UTC(2026, 9, 1, 12, 0, 0);
 const D = `objectives/${OBJECTIVE_DIR}`;
@@ -216,32 +216,17 @@ const GATE_HOOK = path.join(__dirname, '..', '..', '..', 'hooks', 'gate-edits.js
  * The edit gate's answer to an aoforge executor's Edit of `.aoforge/<rel>` (the real hook, spawned in the repo):
  * `{denied, out}`. An aoforge agent passes the ambient gate, so only the store-mode cache deny can refuse it.
  */
-/**
- * The hooks resolve only the legacy planning directory until 72-06 moves them onto the resolver (TRD 72-05), so the
- * gate runs on a copy of this repository's planning tree under the legacy name, in its own git repository. 72-06 points
- * it back at R.root.
- */
-function legacyLayoutCopy(R) {
-  const root = fs.realpathSync(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'e2e-legacy-layout-')));
-  fs.cpSync(path.join(R.root, NAMES.planningDir), path.join(root, LEGACY.planningDir), { recursive: true });
-  const g = spawnSync('git', ['init', '-q'], { cwd: root, env: R.childEnv(), encoding: 'utf8' });
-  assert.equal(g.status, 0, g.stderr);
-  return root;
-}
-
 function gateEdit(R, rel) {
   const env = R.childEnv();
   delete env.AOFORGE_SKIP_EDIT_GATE;
-  const root = legacyLayoutCopy(R);
   const payload = {
     hook_event_name: 'PreToolUse',
     tool_name: 'Edit',
-    tool_input: { file_path: path.join(root, LEGACY.planningDir, ...rel.split('/')), old_string: 'Alpha', new_string: 'Alpha!' },
-    cwd: root,
+    tool_input: { file_path: path.join(R.root, NAMES.planningDir, ...rel.split('/')), old_string: 'Alpha', new_string: 'Alpha!' },
+    cwd: R.root,
     agent_type: 'aoforge:executor',
   };
-  const r = spawnSync(process.execPath, [GATE_HOOK], { cwd: root, input: JSON.stringify(payload), encoding: 'utf8', env });
-  fs.rmSync(root, { recursive: true, force: true });
+  const r = spawnSync(process.execPath, [GATE_HOOK], { cwd: R.root, input: JSON.stringify(payload), encoding: 'utf8', env });
   const out = `${r.stdout}\n${r.stderr}`;
   return { denied: /"permissionDecision"\s*:\s*"deny"/.test(r.stdout) || r.status === 2, out, status: r.status };
 }

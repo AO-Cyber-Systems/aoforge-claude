@@ -7,6 +7,8 @@ const path = require('path');
 const os = require('os');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 // 23-02: cache resolved watcher-state lib across renders within this process
 let _stateLibPath = null;
@@ -73,7 +75,7 @@ process.stdin.on('end', () => {
     }
 
     // 20-04: Watcher status segment (opt-in via daemon.status_line config flag).
-    // Reads project-local .planning/config.json, queries the daemon's PID file
+    // Reads project-local .aoforge/config.json, queries the daemon's PID file
     // through the synced watcher-state lib, sums per-project pending counts.
     // Renders ▶ watcher (green idle) or ⏸ N pending (yellow active) or hides
     // entirely. Wrapped in try/catch — statusline must NEVER crash on watcher
@@ -82,7 +84,7 @@ process.stdin.on('end', () => {
     let watcherStatus = '';
     try {
       const cwdLocal = data.workspace?.current_dir || process.cwd();
-      const cwdConfig = path.join(cwdLocal, '.planning', 'config.json');
+      const cwdConfig = path.join(planningRoot(cwdLocal), 'config.json');
       if (fs.existsSync(cwdConfig)) {
         const cfg = JSON.parse(fs.readFileSync(cwdConfig, 'utf8'));
         if (cfg.daemon && cfg.daemon.status_line === true) {

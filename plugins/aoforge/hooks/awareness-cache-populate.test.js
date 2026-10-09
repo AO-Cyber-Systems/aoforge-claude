@@ -4,10 +4,10 @@
  * Group R: hooks.json registration tests
  * TRD 45-01 — the hook decides staleness from the OUT-OF-TREE awareness store
  * ($AOFORGE_AWARENESS_DIR else ~/.claude/aoforge/state/awareness/<repo-key>.json),
- * seeded here through the store; a legacy in-tree .planning/.awareness-cache.json is ignored.
+ * seeded here through the store; a legacy in-tree .aoforge/.awareness-cache.json is ignored.
  *
  * Test list (TDD Playbook habit 2 — documented before test code written):
- * H1: no-op when no .planning/ in cwd
+ * H1: no-op when no .aoforge/ in cwd
  * H2: no-op when AOFORGE_SKIP_AWARENESS_POPULATE=1
  * H3: spawns with detached:true, stdio:'ignore', calls child.unref()
  * H4: hook returns within 100ms (fire-and-forget contract)
@@ -17,7 +17,7 @@
  * H8: missing CLAUDE_PLUGIN_ROOT falls back to ~/.claude path
  * H9 (45-01 #14): a missing store entry spawns 'show --refresh --raw'
  * H10 (45-01 #14): a fresh legacy in-tree file with no store entry still spawns (legacy ignored)
- * H11 (45-01 #15): after _main runs, .planning/ contains no new file
+ * H11 (45-01 #15): after _main runs, .aoforge/ contains no new file
  * H12 (45-01): the spawn env is passed through unchanged, so AOFORGE_AWARENESS_DIR reaches the scan
  * H13 (45-01): _readCache strips store bookkeeping and returns {peer, org} only
  * R1: hooks.json registers awareness-cache-populate as SessionStart hook
@@ -62,7 +62,7 @@ function tempCwd() {
 
 // ─── Group H: hook behavior ───────────────────────────────────────────────────
 
-test('H1: no-op when no .planning/ in cwd', () => {
+test('H1: no-op when no .aoforge/ in cwd', () => {
   const t = tempCwd();
   try {
     let spawnCalled = false;
@@ -77,7 +77,7 @@ test('H1: no-op when no .planning/ in cwd', () => {
 
 test('H2: no-op when AOFORGE_SKIP_AWARENESS_POPULATE=1', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     let spawnCalled = false;
     hookModule._main({
@@ -91,7 +91,7 @@ test('H2: no-op when AOFORGE_SKIP_AWARENESS_POPULATE=1', () => {
 
 test('H3: spawns with detached:true + stdio:"ignore" + calls unref()', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     const calls = [];
     let unrefCalled = false;
@@ -112,7 +112,7 @@ test('H3: spawns with detached:true + stdio:"ignore" + calls unref()', () => {
 
 test('H4: hook returns within 100ms wall-time (fire-and-forget contract)', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     const start = Date.now();
     hookModule._main({
@@ -127,7 +127,7 @@ test('H4: hook returns within 100ms wall-time (fire-and-forget contract)', () =>
 
 test('H5: no spawn when both sections fresh (within TTL)', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   // Seed a fresh entry in the out-of-tree store — both sections fetched just now
   t.seed({
     peer: { fetched_at: new Date().toISOString(), branches: [] },
@@ -149,7 +149,7 @@ test('H6: peer stale + org fresh → spawns scan-peer --no-fetch only', () => {
   // Re-using local refs is still useful (finds pushed branches without blocking
   // session start on a potentially slow remote fetch). Locked per verifier briefing.
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   const oldTs = new Date(Date.now() - 60 * 60_000).toISOString(); // 60 min ago — stale
   t.seed({
     peer: { fetched_at: oldTs, branches: [] },
@@ -173,7 +173,7 @@ test('H6: peer stale + org fresh → spawns scan-peer --no-fetch only', () => {
 
 test('H7: both stale → spawns awareness show --refresh --raw', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   const oldTs = new Date(Date.now() - 60 * 60_000).toISOString();
   t.seed({
     peer: { fetched_at: oldTs, branches: [] },
@@ -195,7 +195,7 @@ test('H7: both stale → spawns awareness show --refresh --raw', () => {
 
 test('H8: missing CLAUDE_PLUGIN_ROOT falls back to ~/.claude/aoforge/bin path', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     const calls = [];
     hookModule._main({
@@ -213,7 +213,7 @@ test('H8: missing CLAUDE_PLUGIN_ROOT falls back to ~/.claude/aoforge/bin path', 
 
 test('H9: a missing store entry spawns awareness show --refresh --raw (same args as before)', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     assert.ok(!fs.existsSync(store.cacheFile(t.cwd, { env: t.env() })), 'precondition: no store entry');
     const calls = [];
@@ -232,8 +232,8 @@ test('H9: a missing store entry spawns awareness show --refresh --raw (same args
 
 test('H10: a fresh legacy in-tree file with no store entry still spawns (the legacy file is ignored)', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
-  const legacy = path.join(t.cwd, '.planning', '.awareness-cache.json');
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
+  const legacy = path.join(t.cwd, '.aoforge', '.awareness-cache.json');
   fs.writeFileSync(legacy, JSON.stringify({
     peer: { fetched_at: new Date().toISOString(), branches: [] },
     org:  { fetched_at: new Date().toISOString(), items: [] },
@@ -250,17 +250,17 @@ test('H10: a fresh legacy in-tree file with no store entry still spawns (the leg
   } finally { t.cleanup(); }
 });
 
-test('H11: after _main runs, .planning/ contains no new file', () => {
+test('H11: after _main runs, .aoforge/ contains no new file', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     hookModule._main({
       cwd: t.cwd,
       env: t.env({ CLAUDE_PLUGIN_ROOT: '/fake' }),
       _spawn: () => ({ unref: () => {} }),
     });
-    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.planning')), []);
-    // Fresh-store path (no spawn) must not write under .planning/ either.
+    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.aoforge')), []);
+    // Fresh-store path (no spawn) must not write under .aoforge/ either.
     t.seed({
       peer: { fetched_at: new Date().toISOString(), branches: [] },
       org:  { fetched_at: new Date().toISOString(), items: [] },
@@ -270,13 +270,13 @@ test('H11: after _main runs, .planning/ contains no new file', () => {
       env: t.env({ CLAUDE_PLUGIN_ROOT: '/fake' }),
       _spawn: () => { throw new Error('must not spawn'); },
     });
-    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.planning')), []);
+    assert.deepStrictEqual(fs.readdirSync(path.join(t.cwd, '.aoforge')), []);
   } finally { t.cleanup(); }
 });
 
 test('H12: the env is passed to the child spawn unchanged (the override reaches the scan)', () => {
   const t = tempCwd();
-  fs.mkdirSync(path.join(t.cwd, '.planning'), { recursive: true });
+  fs.mkdirSync(path.join(t.cwd, '.aoforge'), { recursive: true });
   try {
     const env = t.env({ CLAUDE_PLUGIN_ROOT: '/fake' });
     let seen;

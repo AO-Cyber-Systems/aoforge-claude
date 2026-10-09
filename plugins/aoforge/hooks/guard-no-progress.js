@@ -25,9 +25,9 @@
  * State (quick task 25): one file per session, {guard, updated, project}, under
  * ~/.claude/aoforge/state/progress-guard/<session>.json (override the directory
  * with AOFORGE_PROGRESS_GUARD_DIR). It used to be a single shared
- * <project>/.planning/.progress-guard.json, rewritten on every tool call — Claude
+ * <project>/.aoforge/.progress-guard.json, rewritten on every tool call — Claude
  * Code's file watcher attached that whole file (~800 tokens) to every tool result,
- * and concurrent sessions raced on it. The hook still needs a `.planning/` above
+ * and concurrent sessions raced on it. The hook still needs a `.aoforge/` above
  * cwd (the guard is AOForge-scoped, and it is how `project` is derived) but never
  * writes there. Files older than SESSION_TTL_MS are pruned on a session's first
  * write only, so the sweep costs one readdir per session, not per call.
@@ -41,6 +41,8 @@ const fs = require('fs');
 const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 // Single source of truth. progress-guard.cjs depends only on node:crypto, so it
 // is safe to load from a hook — unlike most of bin/lib, which pulls in
@@ -59,12 +61,8 @@ function readStdin() {
 }
 
 function findPlanningDir(start) {
-  let dir = start;
-  while (dir !== path.dirname(dir)) {
-    if (fs.existsSync(path.join(dir, '.planning'))) return path.join(dir, '.planning');
-    dir = path.dirname(dir);
-  }
-  return null;
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
 }
 
 function projectOf(planningDir) {
