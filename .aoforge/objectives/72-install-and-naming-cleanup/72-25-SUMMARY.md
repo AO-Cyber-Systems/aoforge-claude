@@ -90,6 +90,7 @@ Every row: re-checked against the preview first (same branch, same tracked dirt,
 | 1 | dfip | ok (main, 78c10ff) | 0012 (0006 held) | 12bf091 | 27 R100 + config.json R087 (stamp) + .gitignore (+`.aoforge/.skill-active`) | yes / yes | none (W001, W040, W065) | upgraded |
 | 2 | quanta-local | ok (main, 3b9e5d3) | 0001, 0012 | dd98daa | 182 R + config.json D/A (0001 reshape + stamp) + .gitignore (+`.aoforge/.dup-detect-log.jsonl`, `.aoforge/.stack.lock/`) | yes / yes | none (W065) | upgraded |
 | 3 | torrentConsole | ok (main, 3aca26f) | 0001, 0003, 0012 | da3236b | 28 R + state.json A (0003 seed) + config.json D/A (0001 + stamp) + .gitignore (3 `.aoforge/` twins) | yes / yes | none (W006: ROADMAP objectives without a directory) | upgraded |
+| 4 | aocyber-deploy | ok (main, 787937f) | 0001, 0012 | 69e31b3 | 26 R + config.json A (0001 created it + stamp) + .gitignore (+`.aoforge/.skill-active`) | yes / yes | none. Health `broken` E002/E003/E004 predates the upgrade: the legacy directory held only `todos/` (HEAD~1) | upgraded |
 
 ## Ambiguous (listed for the user, not swept)
 
