@@ -15,7 +15,7 @@ metrics:
 ## Progress
 - [x] Task 1: Prepare the vanity-mapping change in a scratch clone (scratch commit 980c7c0, outside this repo) — cc0e27a1
 - [ ] Task 2: Approval gate A: push the branch and open a DRAFT PR in AOCyberAI-Ops/vanity — next step: the reply is "approved with seed update (Recommended)", but gh is not logged in to aocyber.ghe.com, so nothing ran. Once `gh auth status --hostname aocyber.ghe.com` exits 0, run Gate A steps 1-6 below once each (the seed option)
-- [ ] Task 3: Approval gate B: the aoforge-docs Pages project and one docs deploy. The reply is "done (dashboard)"; authoritative DNS does not show `aoforge-docs.pages.dev` yet (see Approvals). Wait for the Gate B2 reply before `gh workflow run docs.yml`
+- [x] Task 3: Approval gate B: the aoforge-docs Pages project and one docs deploy. **DEFERRED by the user to objective 74 (OPS-03)**: reply "Lets put off the docs runs". Nothing was run for Gate B or Gate B2. Todo `2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main` filed — (this commit)
 
 ## Task 1: the vanity-mapping change (2026-10-09T14:06-14:10Z)
 
@@ -95,8 +95,23 @@ PR bodies (end with the attribution line): `<scratch>/vanity-pr-body-seed.md` (w
 | `gh secret list --org AO-Cyber-Systems` (names only) | `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, both set 2026-04-16, visibility ALL |
 | Latest main docs run 37937471480 (2026-10-09T13:31Z, after the 3.0.0 merge) | failure at "Deploy to Cloudflare Pages": `/accounts/***/pages/projects/aoforge-docs` `Project not found ... [code: 8000007]`. The token authenticates; only the project is missing |
 | Main docs runs since 2026-09-27 (10 listed) | all failure. 37797973574 (10-08) and 36286213239 (09-27): the same 8000007 for **devflow-docs** |
-| `curl https://devflow-docs.pages.dev/` and `https://devflow.cloud/` | both 200, `<title>DevFlow</title>`. The old project exists and serves the domain, but **not in the account the CI secret names** (CI has seen 8000007 for it since 09-27) |
+| `curl https://devflow-docs.pages.dev/` and `https://devflow.cloud/` | both 200, `<title>DevFlow</title>`. The old project exists and serves the domain. My first reading, "not in the account the CI secret names", was an inference from the 8000007 runs. The account facts below locate the project, but which account the secret names is still unconfirmed |
 | `curl https://aoforge-docs.pages.dev/` | does not resolve: no such project anywhere |
+
+### Cloudflare account facts (gathered read-only by the orchestrator, 2026-10-09)
+
+The orchestrator read these from the Cloudflare API using the user's AOCyber global key. The executor made no Cloudflare API call.
+
+| Fact | Value |
+|---|---|
+| Account | "AOCyber Systems", id starting `b2de90d0` (the full id is in the orchestrator's relay; it is truncated here because this repository is public) |
+| Pages projects in that account | aocyber-website, politihub-web, politihub-navigators-web, aodex-website, devflow-docs |
+| devflow-docs custom domains | devflow.cloud, www.devflow.cloud |
+| aoforge-docs | **does not exist** |
+
+So **devflow-docs is in the AOCyber Systems account**, yet CI's deploy got `Project not found [8000007]` for devflow-docs from 2026-09-27 to 2026-10-08.
+
+**Unconfirmed lead for OPS-03:** the org-level secret `CLOUDFLARE_ACCOUNT_ID` (AO-Cyber-Systems, visibility ALL, set 2026-04-16) names a different account, or the org `CLOUDFLARE_API_TOKEN` lacks access to this account's Pages projects. This is not verified: the secret values were not read.
 
 ## Approvals (literal replies)
 
@@ -104,7 +119,8 @@ PR bodies (end with the attribution line): `<scratch>/vanity-pr-body-seed.md` (w
 |---|---|---|
 | A. Task 2, push and draft PR | "approved with seed update (Recommended)" (user's AskUserQuestion reply, relayed by the orchestrator) | nothing yet. `gh auth status --hostname aocyber.ghe.com` at 2026-10-09T14:1xZ: exit 1, `You are not logged into any accounts on aocyber.ghe.com`. The orchestrator's instruction was to stop if the user is not logged in, so no fetch, apply, push or PR was run |
 | B. Task 3, Pages project | "done (dashboard)" (relayed) | verify only, read-only: `curl -sS -I https://aoforge-docs.pages.dev/` gives `Could not resolve host`. `dig +short aoforge-docs.pages.dev @1.1.1.1` is empty. The authoritative server `dig aoforge-docs.pages.dev @adi.ns.cloudflare.com` returns only the `pages.dev` SOA (NXDOMAIN, negative TTL 60s), while `devflow-docs.pages.dev` is delegated (NS gerardo/veda). **Not confirmed**: either the project is not created yet, or it exists without a first deployment or under a suffixed subdomain. wrangler is logged out and the CI token is a secret, so the Cloudflare API was not queried |
-| B2. One docs deploy | pending | not run |
+| B, superseded | "Lets put off the docs runs" (user's reply, relayed by the orchestrator) | **Gate B DEFERRED to objective 74 (OPS-03).** The earlier "done (dashboard)" is withdrawn; no project was created. Nothing was run |
+| B2. One docs deploy | "Lets put off the docs runs" | **DEFERRED to objective 74 (OPS-03).** `gh workflow run docs.yml` was not run |
 
 ## Pending gates (exact commands presented, nothing run)
 
@@ -116,4 +132,4 @@ PR bodies (end with the attribution line): `<scratch>/vanity-pr-body-seed.md` (w
 5. `gh pr create --repo aocyber.ghe.com/AOCyberAI-Ops/vanity --draft --base main --head add-aoforge-claude --title "Add aoforge-claude to the vanity mapping" --body-file <scratch>/vanity-pr-body-seed.md` (or `vanity-pr-body-mapping-only.md` for `approved`)
 6. Verify: `gh pr view add-aoforge-claude --repo aocyber.ghe.com/AOCyberAI-Ops/vanity --json isDraft,state,url`
 
-**Gate B (Task 3).** wrangler is not logged in, so the default path is the user's dashboard. Replies: `done` (the user created aoforge-docs in the account CI's `CLOUDFLARE_ACCOUNT_ID` names; I verify with `curl https://aoforge-docs.pages.dev/` and ask Gate B2 for the deploy), `approved` (only after the user runs `npx wrangler login` themselves: I run `npx --yes wrangler@4 whoami`, then `npx --yes wrangler@4 pages project create aoforge-docs --production-branch main` once, then ask Gate B2), anything else holds. Gate B2 (its own reply): `gh workflow run docs.yml --repo AO-Cyber-Systems/aoforge-claude --ref main`, then `gh run list --repo AO-Cyber-Systems/aoforge-claude --workflow docs.yml --limit 1 --json conclusion,status,url`.
+**Gate B (Task 3): DEFERRED to objective 74 (OPS-03); kept here only as the record of what was offered.** wrangler is not logged in, so the default path is the user's dashboard. Replies: `done` (the user created aoforge-docs in the account CI's `CLOUDFLARE_ACCOUNT_ID` names; I verify with `curl https://aoforge-docs.pages.dev/` and ask Gate B2 for the deploy), `approved` (only after the user runs `npx wrangler login` themselves: I run `npx --yes wrangler@4 whoami`, then `npx --yes wrangler@4 pages project create aoforge-docs --production-branch main` once, then ask Gate B2), anything else holds. Gate B2 (its own reply): `gh workflow run docs.yml --repo AO-Cyber-Systems/aoforge-claude --ref main`, then `gh run list --repo AO-Cyber-Systems/aoforge-claude --workflow docs.yml --limit 1 --json conclusion,status,url`.
