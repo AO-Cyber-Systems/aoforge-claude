@@ -63,8 +63,8 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
 **Objective complete:** 72 — Rename to AOForge and naming cleanup (completed 2026-10-09, 27/27 TRDs)
-**Status:** Executing objective 73 — 5/8 TRDs complete
-**Progress:** [██████████] 99%
+**Status:** Executing objective 73 — 6/8 TRDs complete
+**Progress:** [██████████] 100%
 
 ## Branch State (post-merge)
 
