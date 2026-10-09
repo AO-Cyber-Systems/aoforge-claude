@@ -267,11 +267,11 @@ describe('hooks.json registration', () => {
     assert.doesNotThrow(() => { hookData = JSON.parse(raw); }, 'hooks.json must be valid JSON');
   });
 
-  test('case 14: SessionStart array has 4 entries (classify-session, then upgrade-project in 36-05)', () => {
+  test('case 14: SessionStart array has 5 entries (classify-session, upgrade-project in 36-05, coexistence-guard in 72-10)', () => {
     const raw = fs.readFileSync(HOOKS_JSON_PATH, 'utf-8');
     hookData = JSON.parse(raw);
     const ss = hookData.hooks.SessionStart;
-    assert.equal(ss.length, 4, `SessionStart should have 4 entries, got ${ss.length}`);
+    assert.equal(ss.length, 5, `SessionStart should have 5 entries, got ${ss.length}`);
   });
 
   test('case 14b: upgrade-project.js is registered right after sync-runtime', () => {
@@ -285,14 +285,19 @@ describe('hooks.json registration', () => {
     assert.equal(ss[upgradeIdx].hooks[0].command, 'node ${CLAUDE_PLUGIN_ROOT}/hooks/upgrade-project.js');
   });
 
-  test('case 15: last SessionStart entry command contains classify-session.js', () => {
+  test('case 15: classify-session.js is the last routing entry; only coexistence-guard.js (72-10) follows it', () => {
     const raw = fs.readFileSync(HOOKS_JSON_PATH, 'utf-8');
     hookData = JSON.parse(raw);
     const ss = hookData.hooks.SessionStart;
     const lastCmd = ss[ss.length - 1].hooks[0].command;
+    const beforeLastCmd = ss[ss.length - 2].hooks[0].command;
     assert.ok(
-      lastCmd.includes('classify-session.js'),
-      `Last SessionStart command must include classify-session.js, got: ${lastCmd}`
+      lastCmd.includes('coexistence-guard.js'),
+      `Last SessionStart command must include coexistence-guard.js, got: ${lastCmd}`
+    );
+    assert.ok(
+      beforeLastCmd.includes('classify-session.js'),
+      `The SessionStart command before it must include classify-session.js, got: ${beforeLastCmd}`
     );
   });
 

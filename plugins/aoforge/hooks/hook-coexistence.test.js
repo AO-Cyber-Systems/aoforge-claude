@@ -460,6 +460,13 @@ const RUNS = {
     payload: fx.sessionStart,
     readsStdin: false,
   },
+  'coexistence-guard.js@SessionStart': {
+    // TRD 72-10: the old plugin is enabled in the fake home, so the real path queues a global notice (no stdout).
+    label: 'pre-rename plugin enabled beside AOForge',
+    expect: 'silent',
+    world: { legacyPlugin: true },
+    payload: fx.sessionStart,
+  },
   'verify-completion.js@Stop': {
     label: 'autonomous, mid-execution',
     expect: 'block',

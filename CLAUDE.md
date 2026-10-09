@@ -117,6 +117,7 @@ Node.js hooks declared in `plugins/aoforge/hooks/hooks.json` and auto-registered
 - `classify-session.js` — SessionStart; classifies the session for routing/telemetry
 - `route-results.js` — UserPromptSubmit; emits queued handoff command results
 - `upgrade-project.js` — SessionStart; upgrades a behind project in place (bundled aof-tools; applies auto migrations, background-commits only the changed files; skip rules, though runtime-state paths (migration 0008) are exempt from the dirty-before skip; notices via route-results). Also runs the throttled backup prune (once per 24h, AOForge project or not) as the first step of `main()`, then starts a detached background `aof-tools transcript-export` at most once per 24h (step 0b, `lib/transcript-export-schedule.cjs`, stamp under `~/.claude/aoforge/state/transcript-export/`). Escapes: `AOFORGE_SKIP_UPGRADE=1` (upgrade only), `AOFORGE_SKIP_PRUNE=1` (prune only), `AOFORGE_SKIP_TRANSCRIPT_EXPORT=1` (export only)
+- `coexistence-guard.js` — SessionStart; when the pre-rename plugin (`LEGACY.plugin` in `lib/legacy-names.cjs`) is still installed and enabled beside AOForge, queues one global notice per session naming its version and the exact `claude plugin disable` command (`lib/coexistence.cjs`, objective 72). Never edits settings. Escape: `AOFORGE_SKIP_COEXISTENCE=1`
 
 **Observability (warn-only):**
 - `statusline.js` — StatusLine (declared in plugin.json `statusLine`); renders model, task, context usage and, while an objective builds, estimated time remaining from the estimate run state

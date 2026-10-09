@@ -92,6 +92,7 @@ function ensureTemplate() {
  *
  * opts: skillActive (a live .skill-active marker), routeRecommendation,
  * notices (a pending upgrade notice), editOverride (an armed .edit-override),
+ * legacyPlugin (the pre-rename plugin installed and enabled in the fake home),
  * sharedHomeFrom (another world: reuse its HOME, so a warmed runtime mirror is
  * hit on the fast path; that world's dispose then also owns the home).
  *
@@ -148,6 +149,11 @@ function makeWorld(opts = {}) {
       updated: Date.now(),
       project: fs.realpathSync(root),
     });
+  }
+  if (opts.legacyPlugin) {
+    // TRD 72-10: the pre-rename plugin installed and enabled beside AOForge, so coexistence-guard queues its notice.
+    const legacyPlugins = require(path.join(PLUGIN_ROOT, 'aoforge', 'bin', 'lib', '__fixtures__', 'legacy-plugin-fixtures.cjs'));
+    legacyPlugins.seedEnabledLegacyPlugin(home);
   }
   if (opts.notices) {
     const notices = require(path.join(PLUGIN_ROOT, 'aoforge', 'bin', 'lib', 'notices.cjs'));

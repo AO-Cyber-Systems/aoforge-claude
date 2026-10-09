@@ -180,7 +180,8 @@ function ensureTemplate() {
  * A fresh copy of the template plus its own fake home. `opts` shapes the state
  * the hook meets: behind (unstamped + a merge in progress, so upgrade-project
  * applies its migrations but never forks a commit child), skillActive,
- * editOverride, routeRecommendation, notices.
+ * editOverride, routeRecommendation, notices, legacyPlugin (TRD 72-10: the
+ * pre-rename plugin installed and enabled in the fake home).
  */
 function makeWorld(opts = {}) {
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'pw-audit-')));
@@ -218,6 +219,10 @@ function makeWorld(opts = {}) {
       );
     }
     if (opts.routeRecommendation) fs.writeFileSync(path.join(dir, '.route-recommendation'), '/aoforge:build');
+  }
+  if (opts.legacyPlugin) {
+    const legacyPlugins = require(path.join(PLUGIN_ROOT, 'aoforge', 'bin', 'lib', '__fixtures__', 'legacy-plugin-fixtures.cjs'));
+    legacyPlugins.seedEnabledLegacyPlugin(home);
   }
   if (opts.notices) {
     const notices = require(path.join(PLUGIN_ROOT, 'aoforge', 'bin', 'lib', 'notices.cjs'));
@@ -371,6 +376,8 @@ const RUNS = {
     { label: 'no cache, spawn stubbed', inProcess: 'awareness-populate', payload: sessionStart },
   ],
   'classify-session.js': [{ label: 'session start', payload: sessionStart }],
+  // TRD 72-10: its only write is the global notice under the fake HOME, never a project planning directory.
+  'coexistence-guard.js': [{ label: 'pre-rename plugin enabled (queues a global notice)', world: { legacyPlugin: true }, payload: sessionStart }],
   'verify-completion.js': [
     { label: 'autonomous, mid-execution', payload: stop(), expect: 'block' },
     {
