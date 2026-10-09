@@ -10,6 +10,7 @@ requires:
 provides:
   - "aoforge@aocyber 3.0.0 installed (user scope, enabled) beside devflow@aocyber 2.15.0 (still enabled)"
   - "This repository's planning tree is .aoforge/ (4f0ed6b8, 1406 renames, stamp aoforge.version 3.0.0); runtime mirror 3.0.0 and runtime-state migration done; merge driver re-installed for .aoforge/"
+  - "devflow@aocyber 2.15.0 disabled (still installed) after the user's literal \"approved\"; only AOForge's hooks run from the next session"
 affects: [72-22, 72-23, 72-25, 72-26]
 tech-stack:
   added: []
@@ -19,18 +20,31 @@ key-files:
   modified: []
 decisions:
   - "The 9 untracked empty .planning/objectives/*/.gitkeep files were removed (user's choice, \"Remove them (Recommended)\") so the upgrade hook can commit the .planning/ -> .aoforge/ move"
+  - "devflow@aocyber was disabled, not uninstalled; its old runtime home ~/.claude/devflow/ is left for the user's own `doctor --global --fix`"
+  - "Only INST-01 is marked complete here (72-21 is its last TRD); INST-04 stays Pending for 72-25 and INST-06 for 72-22..72-26; INST-03 was already Complete"
+requirements-completed: [INST-01]
 metrics:
   started: 2026-10-09T13:38:21Z
+  completed: 2026-10-09T13:48:19Z
+  duration: "about 10 min of executor time across two sessions (13:38-13:42Z install plus restart, 13:43-13:48Z verify and disable)"
+  tasks: 3
+  files: 1
+tokens_input: 7445254
+tokens_output: 45877
+tokens_cache_read: 7254765
+tokens_cache_write: 190327
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 72 TRD 21: Install AOForge 3.0.0, restart on it, and let it migrate this repository Summary
 
-CHECKPOINT (Tasks 1-2 of 3 done, disable approval pending): the restarted AOForge 3.0.0 session migrated this repository to `.aoforge/` in one rename commit (4f0ed6b8), carried the runtime state over, and showed the coexistence notice. devflow@aocyber 2.15.0 is still enabled, waiting for Task 3's approval.
+**This machine now runs AOForge 3.0.0. On first start it moved this repository's `.planning/` to a tracked `.aoforge/` in one rename-only commit (4f0ed6b8) and carried the runtime state, including the objective 72 run state, into `~/.claude/aoforge/`. It also showed the coexistence notice. The old devflow@aocyber 2.15.0 plugin was then disabled, after explicit approval.**
 
 ## Progress
 - [x] Task 1: Approval gate: install aoforge@aocyber, then restart Claude Code on it. Install done, user restarted on AOForge. Checkpoint commit: de827412
-- [x] Task 2: Verify the AOForge session: runtime, state, this repository, health. Done (this commit). Every truth except the disable holds; the stale merge driver was re-installed per error_recovery
-- [ ] Task 3: Approval gate: disable devflow@aocyber. Next step: pre-check done (`claude plugin list` at about 2026-10-09T13:44Z: devflow@aocyber 2.15.0 ✔ enabled, aoforge@aocyber 3.0.0 ✔ enabled, so not `already done`). On the user's literal `approved`, run `claude plugin disable devflow@aocyber` once, then `claude plugin list` and confirm devflow@aocyber shows disabled and aoforge@aocyber enabled
+- [x] Task 2: Verify the AOForge session: runtime, state, this repository, health. Done, checkpoint commit 21ce1b5c. Every truth except the disable holds; the stale merge driver was re-installed per error_recovery
+- [x] Task 3: Approval gate: disable devflow@aocyber. Reply "approved"; `claude plugin disable devflow@aocyber` run once; `claude plugin list` shows devflow@aocyber ✘ disabled, aoforge@aocyber ✔ enabled (no code commit; recorded in the final docs commit)
 
 ## Approvals (literal replies)
 
@@ -38,6 +52,8 @@ CHECKPOINT (Tasks 1-2 of 3 done, disable approval pending): the restarted AOForg
 |---|---|---|
 | 1a. untracked .gitkeeps | "Remove them (Recommended)" (user's AskUserQuestion reply, relayed by the orchestrator) | `rm` of exactly the 9 paths below (one command, exit 0); `git status --porcelain` then empty |
 | 1b. install | "approved" (user's AskUserQuestion reply, relayed by the orchestrator) | `claude plugin marketplace update aocyber` (run once): `Cloning repository (timeout: 120s): git@github.com:AO-Cyber-Systems/devflow-claude.git` ... `✔ Successfully updated marketplace: aocyber`; `claude plugin install aoforge@aocyber` (run once): `✔ Successfully installed plugin: aoforge@aocyber (scope: user)` |
+| 1c. restart | user restarted Claude Code in /Users/justin/dev/devflow-claude and ran `/aoforge:execute-objective 72` (relayed by the orchestrator) | none by the executor |
+| 3. disable | "approved" (user's literal reply, relayed by the orchestrator) | `claude plugin disable devflow@aocyber` (run once): `✔ Successfully disabled plugin: devflow (scope: user)`. Not run: uninstall, `doctor --fix`, any push, any edit of ~/.claude/settings.json |
 
 ## Task 1 pre-check facts (2026-10-09T13:38Z, DevFlow 2.15.0 session)
 
@@ -99,3 +115,75 @@ Preflight: `exec-context check --repo /Users/justin/dev/devflow-claude --base 4f
 - `.git/info/attributes` keeps the old `# >>> devflow merge drivers` block above the new `aoforge` block, and `git config merge.devflow-state-json.*` is still set. Harmless: the AOForge block comes later, so for `**/.planning/state.json` it wins (`merge=aoforge-state-json`). Per-clone, untracked; left in place.
 - Check 16's combined `fix_command` repeats the disable command: `claude plugin disable devflow@aocyber; claude plugin disable devflow@aocyber, then node ~/.claude/aoforge/bin/aof-tools.cjs doctor --global --fix`. Cosmetic (the per-finding `fix_command`s are correct); candidate for a gap/quick fix.
 - 4f0ed6b8 was committed by the upgrade hook, not through an executor. Before this checkpoint the branch was 0 behind, 4 ahead of origin/feat/stack-profile-loader (8582fce9, 9dd54b5e, de827412, 4f0ed6b8); this checkpoint makes 5. Nothing was pushed.
+
+## Task 3: Disable devflow@aocyber (2026-10-09T13:46-13:48Z)
+
+| Step | Command | Result |
+|---|---|---|
+| Pre-check | `claude plugin list` | devflow@aocyber 2.15.0 ✔ enabled; aoforge@aocyber 3.0.0 ✔ enabled. Not `already done` |
+| Gate | (orchestrator relay) | the user's literal reply: "approved" |
+| Run (once) | `claude plugin disable devflow@aocyber` | exit 0: `✔ Successfully disabled plugin: devflow (scope: user)` |
+| Verify | `claude plugin list` | `devflow@aocyber` Version 2.15.0, Scope user, **✘ disabled**; `aoforge@aocyber` Version 3.0.0, Scope user, **✔ enabled** |
+| Cross-check (read-only) | `aof-tools doctor --global` | check 16 `legacy-plugin-runtime` no longer reports `plugin-enabled`. Only `runtime-leftover` remains, now `fixable`: "the DevFlow runtime home /Users/justin/.claude/devflow is left over after the migration; the fix moves it whole into /Users/justin/.claude/aoforge/backups/legacy-devflow-runtime-<timestamp>/". Not fixed here, by instruction |
+
+## Must-haves
+
+| # | Truth | Evidence | Status |
+|---|---|---|---|
+| 1 | aoforge@aocyber 3.0.0 installed only after explicit approval; session restarted on it; `.plugin-version` 3.0.0 | Approvals 1b and 1c; Task 2 row 1a | PASS |
+| 2 | Runtime state migrated; unscored path records no run state expected | Task 2 rows 1b, 2 (and 2i: the file reached the new home anyway with the same `started_at`) | PASS |
+| 3 | Manual resume found `.aoforge/objectives/72-install-and-naming-cleanup/` and resumed at this TRD | Task 2 row 0 | PASS |
+| 4 | `.aoforge/` tracked, moved with git mv in one commit, name-status renames (+ ignore changes), stamp `aoforge.version` 3.0.0, no legacy key | Task 2 rows 3a-3g: 1406/1406 entries are renames; no ignore change was needed | PASS |
+| 5 | No W066/W067; merge driver current; no `df-*` under ~/.claude/skills or agents | Task 2 rows 4a, 4b (after recovery), 4c | PASS |
+| 6 | Coexistence notice appeared while devflow was enabled; devflow then disabled only after explicit approval | Task 2 rows 5a/5b; Task 3 table | PASS |
+
+## Task Evidence
+
+| Task | Verify Command | Exit Code | Status |
+|---|---|---|---|
+| 1: Install aoforge@aocyber, restart | `claude plugin list` (aoforge@aocyber 3.0.0 enabled) | 0 | PASS |
+| 2: Verify the AOForge session | `node ~/.claude/aoforge/bin/aof-tools.cjs validate health --raw` (no W066/W067, errors []) | 0 | PASS |
+| 3: Disable devflow@aocyber | `claude plugin list` (devflow@aocyber disabled, aoforge@aocyber enabled) | 0 | PASS |
+
+## Validation Gate Results
+
+| Gate | Command | Exit Code | Status |
+|---|---|---|---|
+| TRD verify (Task 2) | `aof-tools validate health --raw` | 0 | PASS (W006 x3 for planned objectives 73-75 only) |
+| TRD verification | `test -d .aoforge` and `git ls-files .aoforge` (first entry `.aoforge/.gh-mapping.json`) | 0 | PASS |
+| stack task gates (test/lint/build) | not run | n/a | not_available: this TRD changed no source file. Its only commits are SUMMARY checkpoints, and the move commit was made by the upgrade hook |
+
+## Deviations from Plan
+
+### Auto-fixed Issues
+
+**1. [Rule 3 - Blocking, TRD error_recovery] Stale merge driver re-installed**
+- **Found during:** Task 2 step 4
+- **Issue:** `merge-driver install --check` reported `installed:false`. `.git/info/attributes` only had the DevFlow block for `**/.planning/*`, which pointed at `~/.claude/devflow/bin/df-tools.cjs`.
+- **Fix:** `aof-tools merge-driver install`, as the TRD's error_recovery lists. The re-check is `installed:true, attributes_ok:true, driver_ok:true`.
+- **Files modified:** `.git/info/attributes` and `.git/config`. Both are per-clone and untracked, so nothing was committed.
+- **Commit:** none (untracked)
+
+Otherwise the TRD ran as written. The upgrade hook did the move by itself, so the deferred-move recovery was not needed.
+
+## Post-TRD Verification
+
+- Auto-fix cycles used: 1 (merge-driver re-install)
+- Must-haves verified: 6/6
+- Gate failures: none. The merge-driver check was stale on the first run and current after recovery.
+
+## Hand-offs
+
+- **72-22:** `.aoforge/STATE.md` still reads `# DevFlow State` and `See: .planning/PROJECT.md`. Active-docs wording is in scope there.
+- **72-23:** the two hand-written `~/.claude/CLAUDE.md` lines outside the v4 block wait for `aof-tools upgrade --global --confirm`. The diff is in the consumed global notice.
+- **User's call:** `aof-tools doctor --global --fix` moves `~/.claude/devflow/` into `~/.claude/aoforge/backups/legacy-devflow-runtime-<ts>/`. Its fix is allowed now that the plugin is disabled. Not run.
+- **Candidate quick fix:** check 16's combined `fix_command` repeats `claude plugin disable devflow@aocyber`.
+- Nothing was pushed. The branch was 0 behind and 5 ahead of origin before the final docs commit.
+
+## Self-Check: PASSED
+
+- FOUND: `.aoforge/config.json` (tracked, `aoforge.version` 3.0.0, no `devflow` key)
+- FOUND: `~/.claude/aoforge/.plugin-version` (3.0.0), `~/.claude/aoforge/.legacy-state-migrated.json`, `~/.claude/aoforge/state/estimates/devflow-claude-d3dccfe9.json`
+- FOUND: commits de827412 (Task 1 checkpoint), 4f0ed6b8 (move), 21ce1b5c (Task 2 checkpoint)
+- FOUND: `claude plugin list` shows devflow@aocyber disabled and aoforge@aocyber enabled
+- MISSING: none

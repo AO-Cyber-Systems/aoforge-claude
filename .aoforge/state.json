@@ -1,6 +1,6 @@
 {
   "current_objective": "72",
-  "current_job": 20,
+  "current_job": 21,
   "total_jobs": 26,
   "progress_pct": 99,
   "status": "executing",
@@ -1419,6 +1419,16 @@
     {
       "objective": "72",
       "summary": "72-20: PR #128 merged with --match-head-commit 11e98cf4 (merge commit b4a9d870); v3.0.0 annotated tag and release published; 8582fce9 left out of the merge, reaches main via a later approved push and PR",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-21: devflow@aocyber disabled (not uninstalled) after the user's approval; ~/.claude/devflow/ left for the user's own doctor --global --fix",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-21: only INST-01 marked complete (last TRD for it); INST-04 stays Pending for 72-25 and INST-06 for 72-22..72-26",
       "rationale": null
     }
   ],

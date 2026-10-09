@@ -62,7 +62,8 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 **Objective complete:** 69 — Drafts, health and doctor (completed 2026-10-08, 6/6 TRDs)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
-**Status:** Executing objective 72 — 20/26 TRDs complete
+**Status:** Executing objective 72 — 21/26 TRDs complete
+**Progress:** [██████████] 99%
 
 ## Branch State (post-merge)
 
@@ -282,6 +283,6 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 
 ## Session Continuity
 
-Last session: 2026-10-09T13:37:39.601Z
+Last session: 2026-10-09T13:49:19.092Z
 Resume file: `None`
-Stopped at: Completed 72-20-merge-tag-and-release-TRD.md
+Stopped at: Completed 72-21-install-aoforge-and-dogfood-migration-TRD.md

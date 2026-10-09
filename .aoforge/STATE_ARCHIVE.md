@@ -271,6 +271,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 72]: 72-19: CodeQL #161/#162, path-change re-flags of #95/#146 dismissed on main, dismissed with the same reasons (user: Dismiss both)
 - [Objective 72]: 72-19: validation of record for 3.0.0 is the green PR #128 CI at 11e98cf4, superseding 72-18's 02da6829 (gap-fix test commits only in between)
 - [Objective 72]: 72-20: PR #128 merged with --match-head-commit 11e98cf4 (merge commit b4a9d870); v3.0.0 annotated tag and release published; 8582fce9 left out of the merge, reaches main via a later approved push and PR
+- [Objective 72]: 72-21: devflow@aocyber disabled (not uninstalled) after the user's approval; ~/.claude/devflow/ left for the user's own doctor --global --fix
+- [Objective 72]: 72-21: only INST-01 marked complete (last TRD for it); INST-04 stays Pending for 72-25 and INST-06 for 72-22..72-26
 
 ## Performance Metrics
 
@@ -451,4 +453,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 72 P18 | 9min | 3 tasks | 11 files |
 | Objective 72 P19 | 9h43m | 3 tasks | 5 files |
 | Objective 72 P20 | 7m | 3 tasks | 0 files |
+| Objective 72 P21 | 10 min | 3 tasks | 1 files |
 

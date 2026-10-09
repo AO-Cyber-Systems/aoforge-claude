@@ -44,7 +44,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Install, naming and the AOForge rename (INST)
 
-- [ ] **INST-01**: No legacy `df-*` skills or agents remain under `~/.claude` (they are moved to a backup, never deleted), and `doctor` flags any that reappear. Every user-facing reference uses the `/aoforge:<name>` form; a repo test fails on the `/df-`, `/df:` and `/devflow:` command forms in user-facing files, with changelogs and archives exempt.
+- [x] **INST-01**: No legacy `df-*` skills or agents remain under `~/.claude` (they are moved to a backup, never deleted), and `doctor` flags any that reappear. Every user-facing reference uses the `/aoforge:<name>` form; a repo test fails on the `/df-`, `/df:` and `/devflow:` command forms in user-facing files, with changelogs and archives exempt.
 - [x] **INST-02**: DevFlow is renamed AOForge everywhere it is a name: the plugin `aoforge@aocyber`, the `/aoforge:` slash namespace, `aoforge:<agent>` agent types, the `aof-tools` CLI, the `~/.claude/aoforge/` runtime, `AOFORGE_*` environment variables, the `.aoforge/` project directory, the `aoforge{}` config stamp, the `AOF ►` banner and the external names (`aoforge-claude`, `aoforge-docs`, `aoforge-checks.yml`, `aoforge-watch`, `aoforge/adopt`). A repo test fails on a legacy name outside the compatibility module, the history allowlist and the pointer plugin.
 - [x] **INST-03**: Old names keep working for exactly one release: `DEVFLOW_*` variables are honoured (`AOFORGE_*` wins), `~/.claude/devflow/` state migrates to `~/.claude/aoforge/` with a backup first, gates accept `devflow:` agent types, every tool resolves `.aoforge/` first and falls back to `.planning/` with a W-code advisory naming the migration, old CLAUDE.md block markers and GitHub markers and labels are recognised so nothing is duplicated, and readers accept the `devflow{}` config key.
 - [ ] **INST-04**: Projects move forward in place: an auto migration moves `.planning/` to `.aoforge/` with `git mv` from the SessionStart upgrade hook (skipped on a dirty tree or mid-merge/rebase, backup first, store-mode cache handled), config `devflow{}` becomes `aoforge{}`, CLAUDE.md managed blocks and routing text are rewritten to AOForge, and store-mode GitHub artefacts (labels, hidden markers, wiki pages, wording, check contexts) are renamed by a verb that previews with a dry run and applies one repository at a time after approval.
@@ -93,7 +93,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | TOOL-08 | Objective 70 | Complete |
 | SDR-09 | Objective 71 | Complete |
 | SDR-10 | Objective 71 | Complete |
-| INST-01 | Objective 72 | Pending |
+| INST-01 | Objective 72 | Complete |
 | INST-02 | Objective 72 | Complete |
 | INST-03 | Objective 72 | Complete |
 | INST-04 | Objective 72 | Pending |
