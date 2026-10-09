@@ -18,6 +18,7 @@ const os = require('os');
 const path = require('path');
 
 const doctor = require('./doctor.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 const {
   makeDoctorHome, makeChecksDir, writeStubCheck,
 } = require('./__fixtures__/doctor-fixtures.cjs');
@@ -416,6 +417,8 @@ describe('buildContext', () => {
     assert.deepStrictEqual(ctx.paths, {
       claudeDir: claude,
       mirrorDir: mirror,
+      // the pre-rename runtime home (TRD 72-15): the legacy runtime check looks there
+      legacyMirrorDir: path.join(claude, LEGACY.runtimeDir),
       installedPluginsJson: path.join(claude, 'plugins', 'installed_plugins.json'),
       pluginCacheRoot: path.join(claude, 'plugins', 'cache', 'aocyber', 'aoforge'),
       progressGuardDir: path.join(mirror, 'state', 'progress-guard'),

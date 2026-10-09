@@ -28,6 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const helpers = require('./helpers.cjs');
+const { legacyRuntimeHome } = require('./compat.cjs');
 
 const DEFAULT_CHECKS_DIR = path.join(__dirname, 'doctor-checks');
 const DEFAULT_DF_TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
@@ -43,6 +44,7 @@ const SCHEMA_VERSION = 1;
  * @typedef {Object} DoctorPaths
  * @property {string} claudeDir            <home>/.claude
  * @property {string} mirrorDir            <home>/.claude/aoforge
+ * @property {string} legacyMirrorDir      the pre-rename runtime home under <home>/.claude (compat.legacyRuntimeHome)
  * @property {string} installedPluginsJson <home>/.claude/plugins/installed_plugins.json
  * @property {string} pluginCacheRoot      <home>/.claude/plugins/cache/aocyber/aoforge
  * @property {string} progressGuardDir     env.AOFORGE_PROGRESS_GUARD_DIR || <mirrorDir>/state/progress-guard
@@ -218,6 +220,7 @@ function buildContext({ projectRoot = null, userHome, env = process.env, now, pl
   const paths = {
     claudeDir,
     mirrorDir,
+    legacyMirrorDir: legacyRuntimeHome(userHome),
     installedPluginsJson: path.join(claudeDir, 'plugins', 'installed_plugins.json'),
     pluginCacheRoot: path.join(claudeDir, 'plugins', 'cache', 'aocyber', 'aoforge'),
     progressGuardDir: theEnv.AOFORGE_PROGRESS_GUARD_DIR || path.join(mirrorDir, 'state', 'progress-guard'),
