@@ -3,16 +3,28 @@
 // doc-refs.cjs — the single resolver for stale command references (objective 38, TRD 38-01).
 //
 // Command-rename knowledge lives in exactly one place: skill-route.cjs's DEPRECATION_MAP
-// (renamed commands) and REMOVED_COMMANDS (commands dropped with no replacement). This module
-// imports both and declares no mapping of its own — every later TRD in objective 38 (38-07 doc
-// staleness gate, 38-08 migration, 38-09 CI test) calls resolveToken/scanText/rewriteText here
-// rather than re-declaring rename logic.
+// (renamed commands), REMOVED_COMMANDS (commands dropped with no replacement) and
+// NAMESPACE_RENAMES (the legacy slash namespaces, objective 72). This module imports all three
+// and declares no mapping of its own — every later TRD in objective 38 (38-07 doc staleness
+// gate, 38-08 migration, 38-09 CI test) and objective 72 (72-13, the legacy command forms) calls
+// resolveToken/scanText/rewriteText here rather than re-declaring rename logic.
+//
+// Command forms read here (TRD 72-13):
+//   /<current>:<name>   the current namespace (NAMES.slug)
+//   /<legacy>:<name>    every NAMESPACE_RENAMES key: the legacy plugin namespace and the short one
+//   /<short>-<name>     the dash form of the pre-plugin install (LEGACY.commandDash). A dash token is
+//                       read only when <name> is a known command (a live skill, a DEPRECATION_MAP key
+//                       or a removed command) and the slash does not follow an identifier character,
+//                       `.`, `/` or `~` — so file names and paths that merely start the same way are
+//                       never findings.
 //
 // CommonJS, synchronous fs, no new npm dependencies (runtime model, TRD 38-01).
 
 const fs = require('fs');
 const path = require('path');
-const { DEPRECATION_MAP, REMOVED_COMMANDS } = require('./skill-route.cjs');
+const { DEPRECATION_MAP, REMOVED_COMMANDS, NAMESPACE_RENAMES } = require('./skill-route.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 class DocRefsError extends Error {
   constructor(message) {
@@ -21,11 +33,24 @@ class DocRefsError extends Error {
   }
 }
 
-// Slash-anchored: matches "/aoforge:name" or "/df:name" only when the leading "/" is not
-// itself preceded by an identifier character, so a token can never be torn out of a larger
-// word. Capture group 2 is "the token" everywhere in this module — the bare command name,
-// greedy over [a-z0-9-]+, so "/aoforge:progress-bar" captures "progress-bar", never "progress".
-const TOKEN_RE = /(?<![A-Za-z0-9_])\/(aoforge|df):([a-z][a-z0-9-]*)/g;
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+// Every namespace a command reference can be typed under: the current one, then each legacy one.
+const NAMESPACES = Object.freeze([NAMES.slug, ...Object.keys(NAMESPACE_RENAMES)]);
+
+// Slash-anchored: matches "/<namespace>:name" only when the leading "/" is not itself preceded
+// by an identifier character, so a token can never be torn out of a larger word. Capture group 2
+// is "the token" everywhere in this module — the bare command name, greedy over [a-z0-9-]+, so
+// "/aoforge:progress-bar" captures "progress-bar", never "progress".
+const TOKEN_RE = new RegExp(
+  `(?<![A-Za-z0-9_])\\/(${NAMESPACES.map(escapeRegExp).join('|')}):([a-z][a-z0-9-]*)`,
+  'g',
+);
+
+// The dash form (legacy short namespace only). Capture group 1 is the bare name. The lookbehind
+// is wider than TOKEN_RE's: after `.`, `/` or `~` the slash is part of a path.
+const DASH_NS = LEGACY.commandDash.slice(1, -1);
+const DASH_RE = new RegExp(`(?<![A-Za-z0-9_./~])${escapeRegExp(LEGACY.commandDash)}([a-z][a-z0-9-]*)`, 'g');
 
 const IGNORE_START = 'doc-refs:ignore-start';
 const IGNORE_END = 'doc-refs:ignore-end';
@@ -34,23 +59,77 @@ const IGNORE_END = 'doc-refs:ignore-end';
 
 /**
  * Classify one (prefix, name) pair. Precedence (must_haves truth 2):
- *   removed -> renamed (either prefix) -> prefix (/df: of a non-mapped name) -> unknown
- *   (only when liveSkills is given and lacks the name) -> ok.
+ *   removed -> renamed (any namespace) -> prefix (a legacy namespace of a non-mapped name) ->
+ *   unknown (only when liveSkills is given and lacks the name) -> ok.
  */
 function resolveToken(prefix, name, { liveSkills } = {}) {
   if (REMOVED_COMMANDS.includes(name)) {
     return { kind: 'removed', replacement: null };
   }
-  if (Object.prototype.hasOwnProperty.call(DEPRECATION_MAP, name)) {
-    return { kind: 'renamed', replacement: '/aoforge:' + DEPRECATION_MAP[name] };
+  if (hasOwn(DEPRECATION_MAP, name)) {
+    return { kind: 'renamed', replacement: NAMES.commandNs + DEPRECATION_MAP[name] };
   }
-  if (prefix === 'df') {
-    return { kind: 'prefix', replacement: '/aoforge:' + name };
+  if (hasOwn(NAMESPACE_RENAMES, prefix)) {
+    return { kind: 'prefix', replacement: NAMES.commandNs + name };
   }
   if (liveSkills && !liveSkills.has(name)) {
     return { kind: 'unknown', replacement: null };
   }
   return { kind: 'ok', replacement: null };
+}
+
+// ─── known commands (the dash form's filter) ────────────────────────────────────
+
+// The plugin root when this module runs from a plugin tree — the source checkout or the plugin
+// cache: lib -> bin -> runtime dir -> plugin root, recognised by its manifest. The home mirror has
+// no manifest above it, so there the dash form knows only the renamed and removed commands.
+function _bundledSkillsDir() {
+  const root = path.resolve(__dirname, '..', '..', '..');
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf-8'));
+    if (manifest && manifest.name === NAMES.slug) return path.join(root, 'skills');
+  } catch {
+    // no manifest: not a plugin tree
+  }
+  return null;
+}
+
+let _defaultLiveSkills = null;
+
+/** The bundled plugin's live skill names (cached), or an empty set outside a plugin tree. */
+function defaultLiveSkills() {
+  if (_defaultLiveSkills === null) {
+    const dir = _bundledSkillsDir();
+    _defaultLiveSkills = dir ? liveSkillNames(dir) : new Set();
+  }
+  return new Set(_defaultLiveSkills);
+}
+
+/** True when `name` is a command the dash form may refer to. */
+function _isKnownCommand(name, liveSkills) {
+  return REMOVED_COMMANDS.includes(name) || hasOwn(DEPRECATION_MAP, name) || liveSkills.has(name);
+}
+
+/**
+ * Every command token in `text`, in text order: [{index, full, prefix, name}]. Colon tokens of
+ * every namespace, plus dash tokens whose name is a known command (`known`, a Set of live skill
+ * names; the bundled plugin's when omitted).
+ */
+function _tokens(text, known) {
+  const tokens = [];
+  const colon = new RegExp(TOKEN_RE.source, 'g');
+  let m;
+  while ((m = colon.exec(text)) !== null) {
+    tokens.push({ index: m.index, full: m[0], prefix: m[1], name: m[2] });
+  }
+  const live = known || defaultLiveSkills();
+  const dash = new RegExp(DASH_RE.source, 'g');
+  while ((m = dash.exec(text)) !== null) {
+    if (!_isKnownCommand(m[1], live)) continue;
+    tokens.push({ index: m.index, full: m[0], prefix: DASH_NS, name: m[1] });
+  }
+  tokens.sort((a, b) => a.index - b.index);
+  return tokens;
 }
 
 // ─── shared scan plumbing (scanText + rewriteText walk the same token stream) ────
@@ -114,24 +193,24 @@ function _ignoredLines(rawLines) {
 /**
  * Every non-ok token in `text`, with 1-based line/col. Lines inside an ignore region are
  * skipped entirely (an unclosed ignore-start throws DocRefsError before anything is returned).
+ * `liveSkills` classifies a current-namespace token as unknown and is the dash form's set of
+ * known commands; without it, unknown is never reported and the dash form uses the bundled
+ * plugin's skills.
  */
 function scanText(text, { liveSkills } = {}) {
   const rawLines = text.split('\n');
   const ignored = _ignoredLines(rawLines);
   const lineStarts = _lineStarts(text);
-  const re = new RegExp(TOKEN_RE.source, 'g');
   const results = [];
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const [, prefix, name] = m;
-    const lineIdx = _lineIndexForOffset(lineStarts, m.index);
+  for (const t of _tokens(text, liveSkills)) {
+    const lineIdx = _lineIndexForOffset(lineStarts, t.index);
     if (ignored.has(lineIdx)) continue;
-    const { kind, replacement } = resolveToken(prefix, name, { liveSkills });
+    const { kind, replacement } = resolveToken(t.prefix, t.name, { liveSkills });
     if (kind === 'ok') continue;
     results.push({
       line: lineIdx + 1,
-      col: m.index - lineStarts[lineIdx] + 1,
-      token: name,
+      col: t.index - lineStarts[lineIdx] + 1,
+      token: t.name,
       kind,
       replacement,
     });
@@ -145,32 +224,31 @@ function scanText(text, { liveSkills } = {}) {
  * Rewrites `prefix` and `renamed` tokens in place; leaves `removed` tokens and ignore
  * regions byte-identical, and preserves every other byte (line endings included) by only
  * ever slicing the original string around matched spans. Idempotent: a second pass over
- * the output has zero changes.
+ * the output has zero changes. `liveSkills` is only the dash form's set of known commands
+ * (default: the bundled plugin's skills); it never makes a token unknown here.
  */
-function rewriteText(text) {
+function rewriteText(text, { liveSkills } = {}) {
   const rawLines = text.split('\n');
   const ignored = _ignoredLines(rawLines);
   const lineStarts = _lineStarts(text);
-  const re = new RegExp(TOKEN_RE.source, 'g');
   const changes = [];
   const removed = [];
   let result = '';
   let cursor = 0;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const [full, prefix, name] = m;
-    const lineIdx = _lineIndexForOffset(lineStarts, m.index);
+  for (const t of _tokens(text, liveSkills)) {
+    if (t.index < cursor) continue;
+    const lineIdx = _lineIndexForOffset(lineStarts, t.index);
     if (ignored.has(lineIdx)) continue;
-    const { kind, replacement } = resolveToken(prefix, name);
+    const { kind, replacement } = resolveToken(t.prefix, t.name);
     if (kind === 'removed') {
-      removed.push({ token: name, line: lineIdx + 1 });
+      removed.push({ token: t.name, line: lineIdx + 1 });
       continue;
     }
     if (kind === 'renamed' || kind === 'prefix') {
-      result += text.slice(cursor, m.index);
+      result += text.slice(cursor, t.index);
       result += replacement;
-      cursor = m.index + full.length;
-      changes.push({ from: full, to: replacement, line: lineIdx + 1 });
+      cursor = t.index + t.full.length;
+      changes.push({ from: t.full, to: replacement, line: lineIdx + 1 });
     }
     // ok/unknown (unknown cannot occur here — no liveSkills is passed): leave untouched.
   }
@@ -299,6 +377,8 @@ module.exports = {
   walkFiles,
   globToRegExp: _globToRegExp,
   TOKEN_RE,
+  DASH_RE,
+  NAMESPACES,
   DocRefsError,
   scanLegacyAgentPaths,
   LEGACY_AGENT_PATH_RE,
