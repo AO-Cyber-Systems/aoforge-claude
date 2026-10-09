@@ -16,12 +16,12 @@ annoying to undo:
 
 | Command | Why it's user-only |
 |---|---|
-| `/devflow:objective` | `remove` cascade-renumbers every objective above it |
-| `/devflow:milestone` | archives and transitions milestone state |
-| `/devflow:workstreams` | creates and merges git worktrees |
-| `/devflow:cleanup` | moves objective directories out of the working tree |
-| `/devflow:settings` | rewrites `config.json` |
-| `/devflow:set-profile` | changes the model tier for every agent |
+| `/aoforge:objective` | `remove` cascade-renumbers every objective above it |
+| `/aoforge:milestone` | archives and transitions milestone state |
+| `/aoforge:workstreams` | creates and merges git worktrees |
+| `/aoforge:cleanup` | moves objective directories out of the working tree |
+| `/aoforge:settings` | rewrites `config.json` |
+| `/aoforge:set-profile` | changes the model tier for every agent |
 
-If Claude needs the equivalent operation it uses `df-tools` directly, or asks you
+If Claude needs the equivalent operation it uses `aof-tools` directly, or asks you
 to type the command.

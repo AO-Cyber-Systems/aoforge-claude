@@ -33,7 +33,7 @@ key-decisions:
   - "build step 8 re-runs `estimate finish` after execute-objective's aggregate_results already did: finish is idempotent (a closed run reprints its original line), so the two lines agree"
   - "Test 5 also requires each of the four files to carry at least one estimate call, so it is RED on the unedited files rather than vacuously green"
 
-requirements-completed: []
+requirements-completed: [EST-04, EST-05]
 
 verification:
   gates_defined: 2

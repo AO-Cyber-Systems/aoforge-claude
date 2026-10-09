@@ -1,8 +1,8 @@
 {
-  "current_objective": "67",
-  "current_job": 6,
-  "total_jobs": 9,
-  "progress_pct": 99,
+  "current_objective": "72",
+  "current_job": 18,
+  "total_jobs": 26,
+  "progress_pct": 98,
   "status": "executing",
   "last_activity": "2026-10-08",
   "metrics": {
@@ -1145,8 +1145,260 @@
       "objective": "67",
       "summary": "Release 2.15.0 lead paragraph restates the CHANGELOG's own wording (pre-registered rule, installed plugin at 2.15.0) instead of inventing a /plugin update instruction; release commit carries exactly five files, SUMMARY goes in the docs commit",
       "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "67-08: Docs site deploy failure on MERGE_SHA (Cloudflare Pages project devflow-docs not found, code 8000007) recorded as an objective 74 OPS-03 follow-up, not rolled back",
+      "rationale": null
+    },
+    {
+      "objective": "67",
+      "summary": "EST-11 calibration frozen by the installed 2.15.0 runtime (trd_level, window 10, through 66, sha256 f4d1ffa9); state add-blocker/resolve-blocker now accept a spaced '## Blockers / Concerns' heading via a shared BLOCKERS_SECTION_RE instead of hand-editing STATE.md",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "milestone complete is a read-only plan plus an executor of that plan; an existing archive file or MILESTONES.md heading is kept on a re-run, never refreshed",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "milestone-scope counts a directory as objective N only when objectiveDirMatches(name, normalizeObjectiveName(N)) holds, so unpadded 4-d and hyphen-less 04x are not objectives (find-objective parity, TOOL-05)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case",
+      "rationale": "Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer"
+    },
+    {
+      "objective": "68",
+      "summary": "objective remove TRD-reference rule is bounded ((?<![\\w.-])NN-(\\d{2})(?!\\d|-\\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "decision-queue gets explicit per-subcommand FLAG_SPEC rules, not ownParser: its parser accepts any unknown --x as a boolean (decision-queue list --zz-unknown exits 0)",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "68-06: a store dry run's headline is suppressed when the result has dry_run and prose, so stdout opens with the DRY RUN banner",
+      "rationale": null
+    },
+    {
+      "objective": "68",
+      "summary": "Dogfood ran only on scratch copies of .planning/ with the repository runtime; each defect SC was also run against the installed pre-68 runtime as a control, so the PASS rows are shown to fail without the fix",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Draft staleness is decided by a per-draft sha256 base record (<draft>.base.json), with mtime only as the fallback for drafts that have no base; planning draft reseeds a stale draft and keeps the old one at <draft>.stale, doc put refuses it",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "69-02: a tracked live marker the repository does not ignore is not repairable (untracking would leave it one git add -A from re-tracking, and the repair never edits .gitignore); a tracked stale marker is one E006 carrying the stale reason, never also W064",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Requirements agreement check is scoped to IDs a REQUIREMENTS document defines; other satisfied IDs are reported as skipped, never as findings",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Check 22 recounts repairable over non-deferred issues (validate's repairable_count includes deferred E006/W064, which made a stale marker alone trigger check 22's --repair ahead of check 23)",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Doctor check 23 keeps no .skill-active classification; every action on it goes through skill-marker-health (untrack before unlink, DOC-06 guard, ctx.changedThisRun as exclude)",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health",
+      "rationale": null
+    },
+    {
+      "objective": "69",
+      "summary": "Health-check docs for E006/W064 and W065 live in one USER-GUIDE section after Upgrading a Project in Place; the guide has no validate row, so validate requirements is on the /devflow:status check row",
+      "rationale": null
+    },
+    {
+      "objective": "70",
+      "summary": "setProgressLine is a pure helper: bold (file-wide), then plain inside ## Current Position, then insertion; null means exit 1 before any write",
+      "rationale": "update-progress must never exit 0 without changing the figure; a Progress line in another section is never rewritten"
+    },
+    {
+      "objective": "70",
+      "summary": "verify trd-pre walks up with the exported findProjectRoot inside its own resolveTarget; findObjectiveInternal and normalizeObjectiveName stay cwd-based",
+      "rationale": "those two have about 20 other callers; project_root is added to the not-found result only so the 48-03 success JSON is unchanged"
+    },
+    {
+      "objective": "70",
+      "summary": "70-02: verify-commits.js blocks with a top-level {decision, reason} scoped to agent_type devflow:executor; hooks/__fixtures__/hook-output-schema.js models the Stop/SubagentStop schema and the coexistence contract runs it over every Stop-family hook",
+      "rationale": null
+    },
+    {
+      "objective": "70",
+      "summary": "70-03: SC-4 before column taken from the installed 2.15.0 hook output; the live SubagentStop is a post-release check tracked as a todo, not a pass",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "buf lint is recognised by stack-classify linterToolOf via AUX_LINTERS only, never in CLASSIFY_TABLE, so stack-evidence unitKeys and the mixed-aggregate codegen pick are unchanged",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "A self-test step is filtered only when a sibling runs the same named entry point at the same cwd without the argument; a lone self-test and a declared row still fill their key",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "A lint target adding linters is the entry point only when every extra line is an unconditional (no ||) linter of a tool other than the default's; optional linters keep lint inherited",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "stack verify --run skips a gate with a static service signal (own text, CI job running the same command, test env file for test/e2e) as env_required; --allow-services (with --run only) opts in and the result is marked services=allowed. Detection never probes a port.",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "71-02: selfTestDrafts does not import stack-draft.cjs; its marker test is its own so a broken drafter predicate cannot hide its own regression",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "71-02: an OPEN pending:'refresh' row (justinforme and smartWellness lint) is a follow-up, not a drafter gap; it is tolerated only while it drifts and the remove-it ratchet is unchanged",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "71-02: ACCEPTED did not grow; aodex.audit was removed because the 71-01 self-test rule now drafts the govulncheck gate",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "A build gate's new untracked unignored files under bin/ build/ dist/ out/ target/ (relative to its cwd) are removed, listed in run.build_outputs and do not halt the root; any other change, non-build key or failed restore still halts",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "CLAUDE.md names lint targets and build gates in plain text, not backticks: dispatch-completeness reads the first word of every backtick span in a Core Tool bullet as a df-tools command",
+      "rationale": null
+    },
+    {
+      "objective": "71",
+      "summary": "justinforme and smartWellness committed STACK.md lint refresh is a recorded todo, not an edit: it is a commit in each fleet repo and needs the user",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "compat.cjs destructures the planning-directory key so the literal source guard holds; findProjectRoot treats ENOTDIR as absence",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-04: hooks alias the legacy env prefix inside a try that tolerates only MODULE_NOT_FOUND (stub plugin trees fail open); aof-tools and aoforge-watch use a plain require",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-04: docs/built-in-sweep.md and docs/built-in-integration-status.md are live docs (codemod LIVE_DOCS); changelog-on-tag falls back to the legacy plugin manifest path on pre-rename commits",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-05: copies keep the source's planning-directory name (backup, workstreams provision, archive), so a legacy project never grows a second directory",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-05: hooks resolve only the legacy planning directory until 72-06, so tests that exercise a hook pin the legacy layout (fixture setPlanningDir, legacy copies); 72-06 removes the pins",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-05: W066 legacy-planning-dir (lib/planning-layout.cjs) is reported by validate health Check 21 and both init advisories; migration 0010's store block follows the project's directory, its printed commit steps stay 72-08's",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-06: hooks require compat.cjs directly (after the alias line) and print the RESOLVED planning directory in messages and relative paths; the rename guard counts the legacy directory only where the codemod's occurrenceKind says path or regex; the codemod keeps rename-guard ignore regions in both passes",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-10: coexistence-guard queues one global notice per session (key coexistence:<session_id>) when the pre-rename plugin is installed and not explicitly disabled; the pointer release (major >= 3) gets an info notice without the double-gate warning",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-10: compat.isOwnAgentType requires a non-empty agent name; isOwnExecutor is an exact match for the executor in either namespace; gate-edits, verify-commits and gate-executor-stop use them",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-10: session-audit maps the old gate texts, skill/command namespace and override phrases to the unchanged category ids; agent-overhead normalizes aoforge:, the legacy namespace and the df- install prefix",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-17: docs/MIGRATING-TO-AOFORGE.md is live documentation: in the codemod LIVE_DOCS and doc-refs SCAN_INCLUDE, listed in the rename guard IGNORE_REGION_FILES with a temp-copy sensitivity test; the site page is the same body with Hugo front matter",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-17: the real AO emblem (aocyber.ai ao-icon.svg, sha256 12f6c83e...5965) is cached at assets/ao-icon.svg with assets/SOURCES.md; README and site header size it by height only; the old CLI reference URL redirects 301 via site/static/_redirects inside a rename-guard region",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-18: CHANGELOG 3.0.0 is inserted under a kept, empty [Unreleased] heading (2.14.0/2.15.0 practice), so the diff is additions only",
+      "rationale": null
+    },
+    {
+      "objective": "72",
+      "summary": "72-18: every sibling plugin changed in objective 72 takes a patch bump, social-media-generator included (1.3.1; aosentry-mcp, eden-ui-flutter, eden-ui-web 1.0.1; monorepo-standards 0.1.1)",
+      "rationale": null
     }
   ],
-  "blockers": [],
+  "blockers": [
+    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72"
+  ],
   "session_log": []
 }

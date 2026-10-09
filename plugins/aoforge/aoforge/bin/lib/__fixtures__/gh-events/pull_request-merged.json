@@ -1,0 +1,14 @@
+{
+  "action": "closed",
+  "pull_request": {
+    "number": 130,
+    "body": "<!-- aoforge:pr=50 -->\n<!-- aoforge:begin closes -->\nCloses #100\nCloses #101\nCloses #102\n<!-- aoforge:end closes -->\n\n<!-- aoforge:begin summary -->\nAdds the required checks.\n<!-- aoforge:end summary -->\n",
+    "base": { "ref": "main" },
+    "head": { "sha": "4444444444444444444444444444444444444444" },
+    "merged": true
+  },
+  "repository": {
+    "full_name": "acme/widgets",
+    "default_branch": "main"
+  }
+}

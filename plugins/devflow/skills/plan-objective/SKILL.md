@@ -5,56 +5,11 @@ description: |
   Use when the user wants to plan an objective, create execution plans, or prepare for building.
   Triggers on: "plan objective", "create plans", "plan the next objective", "let's plan", "prepare objective", "make plans for"
 argument-hint: "[objective] [--auto] [--research] [--skip-research] [--gaps] [--skip-verify] [--work TYPE] [--tdd POSTURE] [--depth LEVEL] [--model PROFILE]"
-agent: planner
 allowed-tools:
-  - Read
-  - Write
-  - Bash
-  - Glob
-  - Grep
-  - Task
-  - TaskCreate
-  - TaskUpdate
-  - WebFetch
-  - EnterPlanMode
-  - AskUserQuestion
-  - mcp__context7__*
+  - Skill
 ---
-<objective>
-Create executable objective prompts (JOB.md files) for a roadmap objective with integrated research and verification.
+DevFlow is now AOForge. This command moved to `/aoforge:plan-objective`.
 
-**Default flow:** Research (if needed) → Plan → Verify → Review the TRD drafts in plan mode → Done
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:plan-objective` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-**Orchestrator role:** Parse arguments, validate objective, research domain (unless skipped), spawn planner, verify with job-checker, iterate until pass or max iterations, present results.
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/plan-objective.md
-@~/.claude/devflow/references/ui-brand.md
-@~/.claude/devflow/references/built-ins.md
-</execution_context>
-
-<context>
-Objective number: $ARGUMENTS (optional — auto-detects next unplanned objective if omitted)
-
-**Flags:**
-- `--research` — Force re-research even if RESEARCH.md exists
-- `--skip-research` — Skip research, go straight to planning
-- `--gaps` — Gap closure mode (reads VERIFICATION.md, skips research)
-- `--skip-verify` — Skip verification loop
-
-**Intent override flags** (one-shot overrides for the resolved (kind, work) configuration):
-- `--work TYPE` — Override `work` for this objective. Valid: `feature | port | refactor | foundation | bugfix | prototype | spike`
-- `--tdd POSTURE` — Override TDD posture: `strict | per-feature | skip`
-- `--depth LEVEL` — Override planning depth: `quick | standard | comprehensive`
-- `--model PROFILE` — Override model profile: `quality | balanced | budget`
-
-When any intent override flag is set, the planner persists the override to `.planning/objectives/<id>/OBJECTIVE.md` so future executor runs honor it.
-
-Normalize objective input in step 2 before any directory lookups.
-</context>
-
-<process>
-Execute the job-objective workflow from @~/.claude/devflow/workflows/plan-objective.md end-to-end.
-Preserve all workflow gates (validation, research, planning, verification loop, routing).
-</process>
+If it is not installed (`aoforge:plan-objective` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

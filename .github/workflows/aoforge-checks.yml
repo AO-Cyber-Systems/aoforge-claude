@@ -1,0 +1,249 @@
+# AOForge required checks and merge-time reconcile - reusable workflow (objective 50, GEN-05).
+#
+# Called from the small managed workflow `aof-tools gh setup` writes into every repository
+# (plugins/aoforge/aoforge/templates/github/aoforge.yml). It runs three jobs against the
+# AOForge check runner, `plugins/aoforge/aoforge/bin/lib/gh-check-cli.cjs`:
+#
+#   linked-issue          the PR (or the merge-queue entry) must carry a closing reference
+#   planning-consistency  in store mode, the PR must close the objective issue and its TRDs
+#   reconcile             on a MERGED pull request, close every closing target the merge left open
+#
+# STATUS CONTEXTS ARE POSTED BY THE SCRIPT, NOT INFERRED FROM JOB NAMES. The runner posts the
+# commit statuses `aoforge/linked-issue` and `aoforge/planning-consistency` itself. A required
+# status rule matches a context by name whatever workflow or job produced it, so nesting this
+# workflow through `workflow_call` (where a job is reported as `<caller job> / <called job>`)
+# cannot break the match, and renaming a job here cannot silently unprotect a branch. The jobs
+# also exit non-zero on a failing check, for visibility in the Actions UI.
+#
+# TOKENS.
+#   * No App configured (`app-client-id` empty): GITHUB_TOKEN. The caller grants it
+#     `contents: read, pull-requests: read, issues: write, statuses: write`, which is enough to
+#     read the PR, post statuses and close issues. This is the smaller blast radius; the checks
+#     themselves never REQUIRE an App.
+#   * App configured: `actions/create-github-app-token@v3`, authenticating with `client-id`
+#     (the `app-id` input is deprecated and is deliberately not used). Every App step is
+#     conditional on the input, and lists explicit `permission-*` inputs so the token is never
+#     the App's full grant. Two tokens are minted per job: `app` for the caller repository (used
+#     for status posting and reconcile), and `app-src` for the AOForge repository (used only to
+#     check out the runner script, so a private AOForge repo works).
+#   * Posting uses `steps.app.outputs.token || github.token`.
+#
+# NO `paths`, `paths-ignore` OR `branches` FILTERS, here or in the caller. A required check that
+# a filter prevents from running never reports, and the merge hangs on "expected".
+#
+# `pull_request_target` is not used: the checks only read PR metadata and never execute PR code.
+#
+# THE SPARSE CHECKOUT LISTS `bin` AND `references`. helpers.cjs reads `references/model-profiles.json`
+# when it loads (gh-check-cli -> gh-client -> helpers), so a runner checked out without `references/`
+# dies with ENOENT before it posts anything. aoforge-workflows.repo.test.cjs rebuilds this list and
+# runs the runner from it; keep the three jobs' lists identical.
+name: AOForge checks
+
+on:
+  workflow_call:
+    inputs:
+      aoforge-ref:
+        description: Ref of the AOForge repository that supplies the check runner script.
+        type: string
+        required: true
+      aoforge-repo:
+        description: The AOForge repository (owner/name) the runner script is checked out from.
+        type: string
+        required: false
+        default: AO-Cyber-Systems/aoforge-claude
+      app-client-id:
+        description: Client ID of the AOForge GitHub App. Empty means use GITHUB_TOKEN.
+        type: string
+        required: false
+        default: ''
+    secrets:
+      app-private-key:
+        description: Private key of the AOForge GitHub App. Only read when app-client-id is set.
+        required: false
+
+jobs:
+  linked-issue:
+    if: github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      statuses: write
+    steps:
+      - name: Mint the AOForge App token for this repository
+        id: app
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
+          permission-issues: write
+          permission-pull-requests: read
+          permission-contents: read
+
+      - name: Resolve the AOForge repository owner and name
+        id: src
+        if: inputs.app-client-id != ''
+        env:
+          AOFORGE_REPO: ${{ inputs.aoforge-repo }}
+        run: |
+          echo "owner=${AOFORGE_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${AOFORGE_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint a read-only App token for the AOForge repository
+        id: app-src
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.name }}
+          permission-contents: read
+
+      - name: Check out the AOForge check runner
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.aoforge-repo }}
+          ref: ${{ inputs.aoforge-ref }}
+          path: .aoforge
+          sparse-checkout: |
+            plugins/aoforge/aoforge/bin
+            plugins/aoforge/aoforge/references
+          token: ${{ steps.app-src.outputs.token || github.token }}
+          persist-credentials: false
+
+      - name: Check that the pull request closes an issue
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          AOFORGE_GH_CACHE_DIR: ${{ runner.temp }}/aoforge
+        run: node .aoforge/plugins/aoforge/aoforge/bin/lib/gh-check-cli.cjs linked-issue
+
+  planning-consistency:
+    if: github.event_name == 'merge_group' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      statuses: write
+    steps:
+      - name: Mint the AOForge App token for this repository
+        id: app
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
+          permission-issues: write
+          permission-pull-requests: read
+          permission-contents: read
+
+      - name: Resolve the AOForge repository owner and name
+        id: src
+        if: inputs.app-client-id != ''
+        env:
+          AOFORGE_REPO: ${{ inputs.aoforge-repo }}
+        run: |
+          echo "owner=${AOFORGE_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${AOFORGE_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint a read-only App token for the AOForge repository
+        id: app-src
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.name }}
+          permission-contents: read
+
+      - name: Check out the AOForge check runner
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.aoforge-repo }}
+          ref: ${{ inputs.aoforge-ref }}
+          path: .aoforge
+          sparse-checkout: |
+            plugins/aoforge/aoforge/bin
+            plugins/aoforge/aoforge/references
+          token: ${{ steps.app-src.outputs.token || github.token }}
+          persist-credentials: false
+
+      - name: Check that the pull request matches the objective's planning
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          AOFORGE_GH_CACHE_DIR: ${{ runner.temp }}/aoforge
+        run: node .aoforge/plugins/aoforge/aoforge/bin/lib/gh-check-cli.cjs planning-consistency
+
+  reconcile:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: write
+      statuses: write
+    steps:
+      - name: Mint the AOForge App token for this repository
+        id: app
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-statuses: write
+          permission-issues: write
+          permission-pull-requests: read
+          permission-contents: read
+
+      - name: Resolve the AOForge repository owner and name
+        id: src
+        if: inputs.app-client-id != ''
+        env:
+          AOFORGE_REPO: ${{ inputs.aoforge-repo }}
+        run: |
+          echo "owner=${AOFORGE_REPO%%/*}" >> "$GITHUB_OUTPUT"
+          echo "name=${AOFORGE_REPO#*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Mint a read-only App token for the AOForge repository
+        id: app-src
+        if: inputs.app-client-id != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ inputs.app-client-id }}
+          private-key: ${{ secrets.app-private-key }}
+          owner: ${{ steps.src.outputs.owner }}
+          repositories: ${{ steps.src.outputs.name }}
+          permission-contents: read
+
+      - name: Check out the AOForge check runner
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.aoforge-repo }}
+          ref: ${{ inputs.aoforge-ref }}
+          path: .aoforge
+          sparse-checkout: |
+            plugins/aoforge/aoforge/bin
+            plugins/aoforge/aoforge/references
+          token: ${{ steps.app-src.outputs.token || github.token }}
+          persist-credentials: false
+
+      - name: Close the issues the merge left open
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || github.token }}
+          AOFORGE_GH_CACHE_DIR: ${{ runner.temp }}/aoforge
+        run: node .aoforge/plugins/aoforge/aoforge/bin/lib/gh-check-cli.cjs reconcile

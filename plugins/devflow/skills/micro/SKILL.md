@@ -1,41 +1,14 @@
 ---
 name: micro
 description: |
-  Sub-30-LOC, single-file changes. The cheapest DevFlow path (~2k tokens). Use for typo fixes, single-line bug fixes, prop renames, dependency bumps, missing semicolons.
+  Sub-30-LOC, single-file changes. The cheapest AOForge path (~2k tokens). Use for typo fixes, single-line bug fixes, prop renames, dependency bumps, missing semicolons.
   Triggers on: "fix typo", "rename X to Y", "1-line fix", "single-file change", "tiny", "trivial"
 argument-hint: "<description>"
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - AskUserQuestion
-  - TaskCreate
-  - TaskUpdate
+  - Skill
 ---
-<objective>
-Execute sub-30-LOC, single-file changes with atomic-commit guarantees and STATE.md tracking (local mode), in a single context window.
+DevFlow is now AOForge. This command moved to `/aoforge:micro`.
 
-Micro is the FLOOR of the DevFlow ladder:
-- No planner, no executor, no verifier — Claude makes the edit inline
-- No JOB.md, no TRD.md, no SUMMARY.md
-- No CLAUDE.md / playbook absorption (mirrors /devflow:quick's no-ceremony posture)
-- Commit format: `chore(micro): {description}`
-- STATE.md "Quick Tasks Completed" table receives an entry on commit (local mode only), recorded by `df-tools micro commit` (never a hand edit). With `github.store` on, STATE.md is a generated view and micro leaves it unchanged
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:micro` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-Cost target: ~2k tokens (skill body + df-tools output). For changes that exceed sub-30-LOC or touch multiple files, prefer /devflow:quick (<5 files, <200 LOC) or /devflow:build (multi-file features).
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/micro.md
-</execution_context>
-
-<context>
-@.planning/STATE.md
-$ARGUMENTS
-</context>
-
-<process>
-Execute the micro workflow from @~/.claude/devflow/workflows/micro.md end-to-end.
-Honour the no-ceremony promise: no agent spawns, no SUMMARY.md, no planning artefacts.
-</process>
+If it is not installed (`aoforge:micro` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

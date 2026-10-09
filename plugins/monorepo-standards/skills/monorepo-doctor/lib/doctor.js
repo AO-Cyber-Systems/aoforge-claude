@@ -38,7 +38,7 @@ const DEFAULT_ALLOWED_EXTENSIONS = new Set([
 // Top-level directories that are always considered legitimate even when
 // not in the Layout table.
 const ALWAYS_IGNORE_TOPLEVEL = new Set([
-  '.git', '.github', '.devflow', '.planning', '.claude', '.claude-plugin',
+  '.git', '.github', '.devflow', '.aoforge', '.planning', '.claude', '.claude-plugin',
   '.worktrees', '.vscode', '.idea', 'node_modules', 'vendor', 'docs', 'scripts'
 ]);
 
@@ -159,7 +159,7 @@ function looksExecutable(buf) {
 
 function* walk(root, opts) {
   const skipDirs = new Set([
-    '.git', 'node_modules', '.devflow', '.planning', '.worktrees',
+    '.git', 'node_modules', '.devflow', '.aoforge', '.planning', '.worktrees',
     '.vscode', '.idea', '.next', 'dist', 'build', 'out', 'target',
     '.dart_tool', '.gradle', '.flutter-plugins-dependencies'
   ]);
@@ -171,7 +171,7 @@ function* walk(root, opts) {
     catch { return; }
     for (const ent of entries) {
       if (ent.name.startsWith('.')) {
-        // allow .github/.devflow but skip the heavy ones
+        // allow .github/.aoforge but skip the heavy ones
         if (skipDirs.has(ent.name)) continue;
       }
       const full = path.join(dir, ent.name);
@@ -325,7 +325,7 @@ function renderReport(report, opts = {}) {
   lines.push('');
   if (!report.hasClaudeMd) {
     lines.push(`${indent}**FAIL** — root CLAUDE.md is missing.`);
-    lines.push(`${indent}Run \`/devflow:new-monorepo\` (or copy from monorepo-scaffold template) to generate one.`);
+    lines.push(`${indent}Run \`/aoforge:new-monorepo\` (or copy from monorepo-scaffold template) to generate one.`);
     return lines.join('\n');
   }
   if (report.layoutDeclared.length === 0) {

@@ -36,7 +36,7 @@ Per-area Makefiles / package scripts. See each area's `CLAUDE.md` for the canoni
 
 ## Standards
 
-- **No binaries in git.** Enforced by the [`monorepo-standards`](https://github.com/AO-Cyber-Systems/devflow-claude) plugin.
+- **No binaries in git.** Enforced by the [`monorepo-standards`](https://github.com/AO-Cyber-Systems/aoforge-claude) plugin.
 - **Path-filtered CI.** Each area has its own workflow under `.github/workflows/`.
 - **Conventional commits, scoped by area** — `feat(go): ...`, `fix(flutter): ...`.
 
@@ -45,7 +45,7 @@ Per-area Makefiles / package scripts. See each area's `CLAUDE.md` for the canoni
 1. Branch: `feat/<area>/<slug>` or `fix/<area>/<slug>`.
 2. Run the area's tests locally.
 3. Open a PR. Area-scoped CI will run.
-4. `/devflow:monorepo-doctor` must pass before merge.
+4. `/aoforge:monorepo-doctor` must pass before merge.
 
 ## License
 

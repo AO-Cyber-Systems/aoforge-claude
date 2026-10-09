@@ -1,22 +1,26 @@
 <div align="center">
 
-# DEVFLOW
+<img src="assets/ao-icon.svg" alt="AO Cyber Systems" height="72">
+
+<h1>AOForge</h1>
 
 **A meta-prompting, context engineering and spec-driven development system for Claude Code.**
 
 **Solves context rot — the quality degradation that happens as Claude fills its context window.**
 
-[![GitHub Package](https://img.shields.io/github/v/release/AO-Cyber-Systems/devflow-claude?style=for-the-badge&logo=github&logoColor=white&color=24292e)](https://github.com/AO-Cyber-Systems/devflow-claude/packages)
+[![GitHub Package](https://img.shields.io/github/v/release/AO-Cyber-Systems/aoforge-claude?style=for-the-badge&logo=github&logoColor=white&color=24292e)](https://github.com/AO-Cyber-Systems/aoforge-claude/packages)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
 
 <br>
 
 ```
-/plugin marketplace add AO-Cyber-Systems/devflow-claude
-/plugin install devflow@aocyber
+/plugin marketplace add AO-Cyber-Systems/aoforge-claude
+/plugin install aoforge@aocyber
 ```
 
 **Works on Mac, Windows, and Linux. Installs via Claude Code's `/plugin` command or the Claude Desktop plugin UI.**
+
+**Upgrading from 2.x?** The plugin was renamed in 3.0.0. Read [Migrating to AOForge](docs/MIGRATING-TO-AOFORGE.md).
 
 <br>
 
@@ -30,17 +34,17 @@
 
 ## About
 
-DevFlow is built and maintained by **AO Cyber Systems**.
+AOForge is built and maintained by **AO Cyber Systems**.
 
 The complexity is in the system, not in your workflow. Behind the scenes: context engineering, XML prompt formatting, subagent orchestration, state management. What you see: a few commands that just work.
 
 ### What's new in 1.28 / 1.29
 
-- **Skill enforcement hooks** — `route-intent` injects skill suggestions on every prompt; `gate-commits` blocks raw `git commit` and forces atomic per-task commits via `df-tools`; `gate-edits` **strict DENY by default** in ambient mode — allows edits only when a skill is active (`.planning/.skill-active` marker), user includes an override phrase, or `DEVFLOW_SKIP_EDIT_GATE=1` env var is set. Hard gates with documented escape hatches (`DEVFLOW_ALLOW_RAW_COMMIT=1`, `DEVFLOW_SKIP_EDIT_GATE=1`).
-- **Backend-aware functional verification** — verifier Step 8 now selects between Playwright MCP (web) and Maestro MCP (Flutter) based on stack. Web path adds three reliability fixes (curl readiness probe, `browser_wait_for` landmark, seeded `storageState`). Flutter flows live as YAML at `.planning/objectives/<obj>/verification/`.
+- **Skill enforcement hooks** — `route-intent` injects skill suggestions on every prompt; `gate-commits` blocks raw `git commit` and forces atomic per-task commits via `aof-tools`; `gate-edits` **strict DENY by default** in ambient mode — allows edits only when a skill is active (`.aoforge/.skill-active` marker), user includes an override phrase, or `AOFORGE_SKIP_EDIT_GATE=1` env var is set. Hard gates with documented escape hatches (`AOFORGE_ALLOW_RAW_COMMIT=1`, `AOFORGE_SKIP_EDIT_GATE=1`).
+- **Backend-aware functional verification** — verifier Step 8 now selects between Playwright MCP (web) and Maestro MCP (Flutter) based on stack. Web path adds three reliability fixes (curl readiness probe, `browser_wait_for` landmark, seeded `storageState`). Flutter flows live as YAML at `.aoforge/objectives/<obj>/verification/`.
 - **Confidence-tagged findings** — `codebase-mapper` and `security-auditor` now require `Confidence: VERIFIED | SUSPECTED` on every concern; downstream planners only act on VERIFIED.
-- **GitHub integration** (opt-in) — with the opt-in GitHub store (`github.store: true`) GitHub is the system of record and `.planning/` is a cache rebuilt from it; store-off projects keep the one-way `df-tools gh sync --all` mirror of the roadmap to issues + a milestone. Migrate an existing project with `/devflow:gh-sync migrate` (dry run first). `gh comment` posts verification gaps and `gh sync-release` generates release notes from SUMMARY files.
-- **CHANGELOG enforcement** — `df-tools changelog update --version vX.Y.Z` auto-generates Keep-a-Changelog entries from git log, grouped by conventional-commit type. The `changelog-on-tag` hook blocks `git tag -a vX.Y.Z` until CHANGELOG has an entry for that version.
+- **GitHub integration** (opt-in) — with the opt-in GitHub store (`github.store: true`) GitHub is the system of record and `.aoforge/` is a cache rebuilt from it; store-off projects keep the one-way `aof-tools gh sync --all` mirror of the roadmap to issues + a milestone. Migrate an existing project with `/aoforge:gh-sync migrate` (dry run first). `gh comment` posts verification gaps and `gh sync-release` generates release notes from SUMMARY files.
+- **CHANGELOG enforcement** — `aof-tools changelog update --version vX.Y.Z` auto-generates Keep-a-Changelog entries from git log, grouped by conventional-commit type. The `changelog-on-tag` hook blocks `git tag -a vX.Y.Z` until CHANGELOG has an entry for that version.
 
 See [CHANGELOG.md](./CHANGELOG.md) for full history.
 
@@ -57,18 +61,18 @@ People who want to describe what they want and have it built correctly — witho
 In Claude Code:
 
 ```
-/plugin marketplace add AO-Cyber-Systems/devflow-claude
-/plugin install devflow@aocyber
+/plugin marketplace add AO-Cyber-Systems/aoforge-claude
+/plugin install aoforge@aocyber
 ```
 
-Or install via the Claude Desktop plugin UI: open the plugins panel, add the `AO-Cyber-Systems/devflow-claude` marketplace, then install the `devflow` plugin.
+Or install via the Claude Desktop plugin UI: open the plugins panel, add the `AO-Cyber-Systems/aoforge-claude` marketplace, then install the `aoforge` plugin.
 
-The plugin auto-registers its skills, agents, hooks, and statusline. Verify with `/devflow:help` in Claude Code.
+The plugin auto-registers its skills, agents, hooks, and statusline. Verify with `/aoforge:help` in Claude Code.
 
 ### Staying Updated
 
 ```
-/plugin update devflow@aocyber
+/plugin update aoforge@aocyber
 ```
 
 Or use the Claude Desktop UI to check for and apply updates.
@@ -76,10 +80,10 @@ Or use the Claude Desktop UI to check for and apply updates.
 <details>
 <summary><strong>Migrating from a previous npm install</strong></summary>
 
-If you previously installed DevFlow via `npx @ao-cyber-systems/devflow-cc`, the legacy hook registrations and files in `~/.claude/hooks/` and `~/.claude/settings.json` will conflict with the plugin-managed installation. Clean up before installing the plugin:
+If you previously installed it with the old `npx` installer, from before it shipped as a plugin, the legacy hook registrations and files in `~/.claude/hooks/` and `~/.claude/settings.json` will conflict with the plugin-managed installation. Clean up before installing the plugin:
 
 ```bash
-# Remove legacy DevFlow hook files
+# Remove legacy AOForge hook files
 rm -f ~/.claude/hooks/df-*.js ~/.claude/hooks/check-update.js \
       ~/.claude/hooks/statusline.js ~/.claude/hooks/verify-completion.js \
       ~/.claude/hooks/verify-commits.js ~/.claude/hooks/route-intent.js \
@@ -89,7 +93,7 @@ rm -f ~/.claude/hooks/df-*.js ~/.claude/hooks/check-update.js \
 
 Then open `~/.claude/settings.json` and remove any `hooks` entries pointing at `~/.claude/hooks/df-*.js` or the unprefixed names above, plus the `statusLine` block if it references one of those paths. The plugin will re-register everything automatically on first session start.
 
-The plugin keeps the runtime at `~/.claude/devflow/` (mirrored from the plugin source on each session start). You don't need to remove that directory — it gets refreshed.
+The plugin keeps the runtime at `~/.claude/aoforge/` (mirrored from the plugin source on each session start). You don't need to remove that directory — it gets refreshed.
 
 </details>
 
@@ -99,28 +103,28 @@ The plugin keeps the runtime at `~/.claude/devflow/` (mirrored from the plugin s
 Clone the repository and add it as a local marketplace:
 
 ```bash
-git clone https://github.com/AO-Cyber-Systems/devflow-claude.git
+git clone https://github.com/AO-Cyber-Systems/aoforge-claude.git
 ```
 
 In Claude Code:
 
 ```
-/plugin marketplace add /absolute/path/to/devflow-claude
-/plugin install devflow@aocyber
+/plugin marketplace add /absolute/path/to/aoforge-claude
+/plugin install aoforge@aocyber
 ```
 
 </details>
 
 ### Recommended: Skip Permissions Mode
 
-DevFlow is designed for frictionless automation. Run Claude Code with:
+AOForge is designed for frictionless automation. Run Claude Code with:
 
 ```bash
 claude --dangerously-skip-permissions
 ```
 
 > [!TIP]
-> This is how DevFlow is intended to be used — stopping to approve `date` and `git commit` 50 times defeats the purpose.
+> This is how AOForge is intended to be used — stopping to approve `date` and `git commit` 50 times defeats the purpose.
 
 <details>
 <summary><strong>Alternative: Granular Permissions</strong></summary>
@@ -157,28 +161,28 @@ If you prefer not to use that flag, add this to your project's `.claude/settings
 
 ### Recommended: CLAUDE.md Routing Hint
 
-The plugin's `route-intent` hook only fires inside directories containing `.planning/`. For greenfield work or projects you haven't initialized yet, add a short routing hint to a CLAUDE.md so Claude reaches for DevFlow skills instead of editing files directly.
+The plugin's `route-intent` hook only fires inside directories containing `.aoforge/`. For greenfield work or projects you haven't initialized yet, add a short routing hint to a CLAUDE.md so Claude reaches for AOForge skills instead of editing files directly.
 
 <details>
 <summary><strong>Global hint — <code>~/.claude/CLAUDE.md</code></strong></summary>
 
-Applies to every directory. Use this if you want DevFlow nudges everywhere, including projects that don't have `.planning/` yet.
+Applies to every directory. Use this if you want AOForge nudges everywhere, including projects that don't have `.aoforge/` yet.
 
 ```markdown
-# DevFlow Routing
+# AOForge Routing
 
-The DevFlow plugin (`devflow@aocyber`) is installed. When the user's request fits a DevFlow workflow, invoke the matching skill via the Skill tool instead of editing files directly.
+The AOForge plugin (`aoforge@aocyber`) is installed. When the user's request fits an AOForge workflow, invoke the matching skill via the Skill tool instead of editing files directly.
 
-- Building a feature end-to-end → `/devflow:build`
-- Planning before building → `/devflow:plan-objective`
-- Executing a planned objective → `/devflow:execute-objective`
-- Verifying / UAT → `/devflow:verify-work`
-- Debugging a bug → `/devflow:debug`
-- Quick ad-hoc task with atomic commits → `/devflow:quick`
-- New project setup → `/devflow:new-project`
-- Resume / status / progress → `/devflow:status resume`, `/devflow:status`
+- Building a feature end-to-end → `/aoforge:build`
+- Planning before building → `/aoforge:plan-objective`
+- Executing a planned objective → `/aoforge:execute-objective`
+- Verifying / UAT → `/aoforge:verify-work`
+- Debugging a bug → `/aoforge:debug`
+- Quick ad-hoc task with atomic commits → `/aoforge:quick`
+- New project setup → `/aoforge:new-project`
+- Resume / status / progress → `/aoforge:status resume`, `/aoforge:status`
 
-Skills enforce atomic commits, state tracking, and verification. Bypassing them causes drift. Run `/devflow:help` to list all commands.
+Skills enforce atomic commits, state tracking, and verification. Bypassing them causes drift. Run `/aoforge:help` to list all commands.
 ```
 
 </details>
@@ -186,22 +190,22 @@ Skills enforce atomic commits, state tracking, and verification. Bypassing them 
 <details>
 <summary><strong>Project hint — <code>./CLAUDE.md</code> (recommended)</strong></summary>
 
-Add to a project that uses DevFlow. Stronger and more specific than the global hint — drop it in the repo root next to `.planning/`.
+Add to a project that uses AOForge. Stronger and more specific than the global hint — drop it in the repo root next to `.aoforge/`.
 
 ```markdown
 # Project Conventions
 
-This project uses DevFlow (`devflow@aocyber`). Planning state lives in `.planning/`.
+This project uses AOForge (`aoforge@aocyber`). Planning state lives in `.aoforge/`.
 
-**Always route through DevFlow skills** for non-trivial work — do not edit code directly when a skill applies:
+**Always route through AOForge skills** for non-trivial work — do not edit code directly when a skill applies:
 
-- `/devflow:build` — feature end-to-end (plan → execute → verify)
-- `/devflow:plan-objective <N>` / `/devflow:execute-objective <N>` / `/devflow:verify-work <N>` — staged workflow
-- `/devflow:quick` — small / ad-hoc tasks (still gets atomic commits + state)
-- `/devflow:debug` — bugs and errors
-- `/devflow:status resume` — pick up where the last session left off
+- `/aoforge:build` — feature end-to-end (plan → execute → verify)
+- `/aoforge:plan-objective <N>` / `/aoforge:execute-objective <N>` / `/aoforge:verify-work <N>` — staged workflow
+- `/aoforge:quick` — small / ad-hoc tasks (still gets atomic commits + state)
+- `/aoforge:debug` — bugs and errors
+- `/aoforge:status resume` — pick up where the last session left off
 
-Skills enforce atomic per-task commits, state tracking, and verification gates. Bypassing them breaks the audit trail and trips the `gate-commits` / `gate-edits` hooks. If a request is genuinely out-of-scope for any skill (e.g. a one-line typo fix), proceed directly — otherwise prefer `/devflow:quick`.
+Skills enforce atomic per-task commits, state tracking, and verification gates. Bypassing them breaks the audit trail and trips the `gate-commits` / `gate-edits` hooks. If a request is genuinely out-of-scope for any skill (e.g. a one-line typo fix), proceed directly — otherwise prefer `/aoforge:quick`.
 ```
 
 </details>
@@ -210,12 +214,12 @@ Skills enforce atomic per-task commits, state tracking, and verification gates. 
 
 ## How It Works
 
-> **Already have code?** Run `/devflow:map-codebase` first. It spawns parallel agents to analyze your stack, architecture, conventions, and concerns. Then `/devflow:new-project` knows your codebase — questions focus on what you're adding, and planning automatically loads your patterns.
+> **Already have code?** Run `/aoforge:map-codebase` first. It spawns parallel agents to analyze your stack, architecture, conventions, and concerns. Then `/aoforge:new-project` knows your codebase — questions focus on what you're adding, and planning automatically loads your patterns.
 
 ### 1. Initialize Project
 
 ```
-/devflow:new-project
+/aoforge:new-project
 ```
 
 One command, one flow. The system:
@@ -227,14 +231,14 @@ One command, one flow. The system:
 
 You approve the roadmap. Now you're ready to build.
 
-**Creates:** `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `.planning/research/`
+**Creates:** `PROJECT.md`, `REQUIREMENTS.md`, `ROADMAP.md`, `STATE.md`, `.aoforge/research/`
 
 ---
 
 ### 2. Discuss Objective
 
 ```
-/devflow:discuss-objective 1
+/aoforge:discuss-objective 1
 ```
 
 **This is where you shape the implementation.**
@@ -262,7 +266,7 @@ The deeper you go here, the more the system builds what you actually want. Skip 
 ### 3. Plan Objective
 
 ```
-/devflow:plan-objective 1
+/aoforge:plan-objective 1
 ```
 
 The system:
@@ -280,7 +284,7 @@ Each job is small enough to execute in a fresh context window. No degradation, n
 ### 4. Execute Objective
 
 ```
-/devflow:execute-objective 1
+/aoforge:execute-objective 1
 ```
 
 The system:
@@ -331,7 +335,7 @@ This is why "vertical slices" (Job 01: User feature end-to-end) parallelize bett
 ### 5. Verify Work
 
 ```
-/devflow:verify-work 1
+/aoforge:verify-work 1
 ```
 
 **This is where you confirm it actually works.**
@@ -345,7 +349,7 @@ The system:
 3. **Diagnoses failures automatically** — Spawns debug agents to find root causes
 4. **Creates verified fix jobs** — Ready for immediate re-execution
 
-If everything passes, you move on. If something's broken, you don't manually debug — you just run `/devflow:execute-objective` again with the fix jobs it created.
+If everything passes, you move on. If something's broken, you don't manually debug — you just run `/aoforge:execute-objective` again with the fix jobs it created.
 
 **Creates:** `{objective_num}-UAT.md`, fix jobs if issues found
 
@@ -354,47 +358,47 @@ If everything passes, you move on. If something's broken, you don't manually deb
 ### 6. Repeat → Complete → Next Milestone
 
 ```
-/devflow:discuss-objective 2
-/devflow:plan-objective 2
-/devflow:execute-objective 2
-/devflow:verify-work 2
+/aoforge:discuss-objective 2
+/aoforge:plan-objective 2
+/aoforge:execute-objective 2
+/aoforge:verify-work 2
 ...
-/devflow:milestone complete
-/devflow:milestone new
+/aoforge:milestone complete
+/aoforge:milestone new
 ```
 
 Loop **discuss → plan → execute → verify** until milestone complete.
 
 Each objective gets your input (discuss), proper research (plan), clean execution (execute), and human verification (verify). Context stays fresh. Quality stays high.
 
-When all objectives are done, `/devflow:milestone complete` archives the milestone and tags the release.
+When all objectives are done, `/aoforge:milestone complete` archives the milestone and tags the release.
 
-Then `/devflow:milestone new` starts the next version — same flow as `new-project` but for your existing codebase. You describe what you want to build next, the system researches the domain, you scope requirements, and it creates a fresh roadmap. Each milestone is a clean cycle: define → build → ship.
+Then `/aoforge:milestone new` starts the next version — same flow as `new-project` but for your existing codebase. You describe what you want to build next, the system researches the domain, you scope requirements, and it creates a fresh roadmap. Each milestone is a clean cycle: define → build → ship.
 
 ---
 
 ### Quick Mode
 
 ```
-/devflow:quick
+/aoforge:quick
 ```
 
 **For ad-hoc tasks that don't need full planning.**
 
-Quick mode gives you DevFlow guarantees (atomic commits, state tracking) with a faster path:
+Quick mode gives you AOForge guarantees (atomic commits, state tracking) with a faster path:
 
 - **Same agents** — Planner + executor, same quality
 - **Skips optional steps** — No research, no job checker, no verifier
-- **Separate tracking** — Lives in `.planning/quick/`, not objectives
+- **Separate tracking** — Lives in `.aoforge/quick/`, not objectives
 
 Use for: bug fixes, small features, config changes, one-off tasks.
 
 ```
-/devflow:quick
+/aoforge:quick
 > What do you want to do? "Add dark mode toggle to settings"
 ```
 
-**Creates:** `.planning/quick/001-add-dark-mode-toggle/JOB.md`, `SUMMARY.md`
+**Creates:** `.aoforge/quick/001-add-dark-mode-toggle/JOB.md`, `SUMMARY.md`
 
 ---
 
@@ -404,7 +408,7 @@ Use for: bug fixes, small features, config changes, one-off tasks.
 
 Claude Code is incredibly powerful *if* you give it the context it needs. Most people don't.
 
-DevFlow handles it for you:
+AOForge handles it for you:
 
 | File | What it does |
 |------|--------------|
@@ -487,73 +491,73 @@ You're never locked in. The system adapts.
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:new-project [--auto]` | Full initialization: questions → research → requirements → roadmap |
-| `/devflow:discuss-objective [N] [--auto]` | Capture implementation decisions before planning |
-| `/devflow:plan-objective [N] [--auto]` | Research + plan + verify for a objective |
-| `/devflow:execute-objective <N>` | Execute all jobs in parallel waves, verify when complete |
-| `/devflow:verify-work [N]` | Manual user acceptance testing |
-| `/devflow:milestone audit` | Verify milestone achieved its definition of done |
-| `/devflow:milestone complete` | Archive milestone, tag release |
-| `/devflow:milestone new [name]` | Start next version: questions → research → requirements → roadmap |
+| `/aoforge:new-project [--auto]` | Full initialization: questions → research → requirements → roadmap |
+| `/aoforge:discuss-objective [N] [--auto]` | Capture implementation decisions before planning |
+| `/aoforge:plan-objective [N] [--auto]` | Research + plan + verify for a objective |
+| `/aoforge:execute-objective <N>` | Execute all jobs in parallel waves, verify when complete |
+| `/aoforge:verify-work [N]` | Manual user acceptance testing |
+| `/aoforge:milestone audit` | Verify milestone achieved its definition of done |
+| `/aoforge:milestone complete` | Archive milestone, tag release |
+| `/aoforge:milestone new [name]` | Start next version: questions → research → requirements → roadmap |
 
 ### Navigation
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:help` | Show all commands and usage guide |
+| `/aoforge:help` | Show all commands and usage guide |
 
 ### Brownfield
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:map-codebase` | Analyze existing codebase before new-project |
+| `/aoforge:map-codebase` | Analyze existing codebase before new-project |
 
 ### Roadmap & Milestone Management
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:objective <add\|remove>` | Add or remove objectives in current milestone roadmap |
-| `/devflow:milestone <new\|audit\|complete\|gaps>` | Manage milestones from start to archive |
-| `/devflow:list-objective-assumptions [N]` | See Claude's intended approach before planning |
+| `/aoforge:objective <add\|remove>` | Add or remove objectives in current milestone roadmap |
+| `/aoforge:milestone <new\|audit\|complete\|gaps>` | Manage milestones from start to archive |
+| `/aoforge:list-objective-assumptions [N]` | See Claude's intended approach before planning |
 
 ### Parallel Workstreams
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:workstreams <setup\|status\|merge\|run>` | Parallel feature development via git worktrees |
+| `/aoforge:workstreams <setup\|status\|merge\|run>` | Parallel feature development via git worktrees |
 
 ### Status & Session
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:status [check\|pause\|resume]` | Project status, health, save/resume work |
+| `/aoforge:status [check\|pause\|resume]` | Project status, health, save/resume work |
 
 ### Todo Management
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:todo <add\|list>` | Capture ideas for later / morning standup view |
+| `/aoforge:todo <add\|list>` | Capture ideas for later / morning standup view |
 
 ### Utilities
 
 | Command | What it does |
 |---------|--------------|
-| `/devflow:settings` | Configure model profile and workflow agents |
-| `/devflow:set-profile <profile>` | Switch model profile (quality/balanced/budget) |
-| `/devflow:debug [desc]` | Systematic debugging with persistent state |
-| `/devflow:quick [--full]` | Execute ad-hoc task with DevFlow guarantees (`--full` adds job-checking and verification) |
+| `/aoforge:settings` | Configure model profile and workflow agents |
+| `/aoforge:set-profile <profile>` | Switch model profile (quality/balanced/budget) |
+| `/aoforge:debug [desc]` | Systematic debugging with persistent state |
+| `/aoforge:quick [--full]` | Execute ad-hoc task with AOForge guarantees (`--full` adds job-checking and verification) |
 
-> Older single-purpose command names were consolidated in v2.2 — run `/devflow:help` for the rename map.
+> Older single-purpose command names were consolidated in v2.2 — run `/aoforge:help` for the rename map.
 
 ---
 
 ## Configuration
 
-DevFlow stores project settings in `.planning/config.json`. Configure during `/devflow:new-project` or update later with `/devflow:settings`. For the full config schema, workflow toggles, git branching options, and per-agent model breakdown, see the [User Guide](docs/USER-GUIDE.md#configuration-reference).
+AOForge stores project settings in `.aoforge/config.json`. Configure during `/aoforge:new-project` or update later with `/aoforge:settings`. For the full config schema, workflow toggles, git branching options, and per-agent model breakdown, see the [User Guide](docs/USER-GUIDE.md#configuration-reference).
 
 ### Project Intent: `kind` and `work`
 
-Two enumerated fields drive how DevFlow plans every objective:
+Two enumerated fields drive how AOForge plans every objective:
 
 - **`kind`** (PROJECT.md frontmatter, required) — what the project IS:
   - `api` · backend API/service consumed by clients
@@ -574,11 +578,11 @@ Two enumerated fields drive how DevFlow plans every objective:
 
 The planner combines them into a `(kind, work)` lookup that derives TDD posture, planning depth, model profile, and verification rigor automatically. Set `default_work` in PROJECT.md to inherit a default for every objective (e.g., a Rails→Go port project sets `default_work: port`); the planner is louder about inherited values so silent inheritance can't mask a wrong default.
 
-**Override at four levels** (highest wins): TRD frontmatter > `OBJECTIVE.md overrides` block > `~/.claude/CLAUDE.md` or `./CLAUDE.md` user playbook directives > the defaults table. One-shot overrides via skill flags: `--work TYPE`, `--tdd POSTURE`, `--depth LEVEL`, `--model PROFILE` on `/devflow:plan-objective` and `/devflow:build`.
+**Override at four levels** (highest wins): TRD frontmatter > `OBJECTIVE.md overrides` block > `~/.claude/CLAUDE.md` or `./CLAUDE.md` user playbook directives > the defaults table. One-shot overrides via skill flags: `--work TYPE`, `--tdd POSTURE`, `--depth LEVEL`, `--model PROFILE` on `/aoforge:plan-objective` and `/aoforge:build`.
 
-**Migrating an existing project**: `/devflow:status check --migrate` walks you through setting `kind` and (optionally) per-objective `work` for projects created before this model. Always backs up before writing.
+**Migrating an existing project**: `/aoforge:status check --migrate` walks you through setting `kind` and (optionally) per-objective `work` for projects created before this model. Always backs up before writing.
 
-See `docs/PROPOSAL-kind-and-work.md` for the full design and `plugins/devflow/devflow/references/defaults-table.md` for the 42-cell defaults lookup.
+See `docs/PROPOSAL-kind-and-work.md` for the full design and `plugins/aoforge/aoforge/references/defaults-table.md` for the 42-cell defaults lookup.
 
 ### Core Settings
 
@@ -599,10 +603,10 @@ Control which Claude model each agent uses. Balance quality vs token spend.
 
 Switch profiles:
 ```
-/devflow:set-profile budget
+/aoforge:set-profile budget
 ```
 
-Or configure via `/devflow:settings`.
+Or configure via `/aoforge:settings`.
 
 ### Workflow Agents
 
@@ -615,20 +619,20 @@ These spawn additional agents during planning/execution. They improve quality bu
 | `workflow.verifier` | `true` | Confirms must-haves were delivered after execution |
 | `workflow.auto_advance` | `false` | Auto-chain discuss → plan → execute without stopping |
 
-Use `/devflow:settings` to toggle these, or override per-invocation:
-- `/devflow:plan-objective --skip-research`
-- `/devflow:plan-objective --skip-verify`
+Use `/aoforge:settings` to toggle these, or override per-invocation:
+- `/aoforge:plan-objective --skip-research`
+- `/aoforge:plan-objective --skip-verify`
 
 ### Execution
 
 | Setting | Default | What it controls |
 |---------|---------|------------------|
 | `parallelization.enabled` | `true` | Run independent jobs simultaneously |
-| `planning.commit_docs` | `true` | Track `.planning/` in git |
+| `planning.commit_docs` | `true` | Track `.aoforge/` in git |
 
 ### Git Branching
 
-Control how DevFlow handles branches during execution.
+Control how AOForge handles branches during execution.
 
 | Setting | Options | Default | What it does |
 |---------|---------|---------|--------------|
@@ -641,7 +645,7 @@ Control how DevFlow handles branches during execution.
 - **`objective`** — Creates a branch per objective, merges at objective completion
 - **`milestone`** — Creates one branch for entire milestone, merges at completion
 
-At milestone completion, DevFlow offers squash merge (recommended) or merge with history.
+At milestone completion, AOForge offers squash merge (recommended) or merge with history.
 
 ---
 
@@ -649,7 +653,7 @@ At milestone completion, DevFlow offers squash merge (recommended) or merge with
 
 ### Protecting Sensitive Files
 
-DevFlow's codebase mapping and analysis commands read files to understand your project. **Protect files containing secrets** by adding them to Claude Code's deny list:
+AOForge's codebase mapping and analysis commands read files to understand your project. **Protect files containing secrets** by adding them to Claude Code's deny list:
 
 1. Open Claude Code settings (`.claude/settings.json` or global)
 2. Add sensitive file patterns to the deny list:
@@ -672,7 +676,7 @@ DevFlow's codebase mapping and analysis commands read files to understand your p
 This prevents Claude from reading these files entirely, regardless of what commands you run.
 
 > [!IMPORTANT]
-> DevFlow includes built-in protections against committing secrets, but defense-in-depth is best practice. Deny read access to sensitive files as a first line of defense.
+> AOForge includes built-in protections against committing secrets, but defense-in-depth is best practice. Deny read access to sensitive files as a first line of defense.
 
 ---
 
@@ -681,15 +685,15 @@ This prevents Claude from reading these files entirely, regardless of what comma
 **Commands not found after install?**
 - Restart Claude Code to reload the plugin
 - Verify the plugin is enabled with `/plugin list`
-- Run `/devflow:help` to confirm skills are loaded
+- Run `/aoforge:help` to confirm skills are loaded
 
 **Hooks or statusline not firing?**
-- Check `~/.claude/devflow/.plugin-version` exists (proves the SessionStart sync hook ran)
+- Check `~/.claude/aoforge/.plugin-version` exists (proves the SessionStart sync hook ran)
 - If you previously installed via npm, remove stale entries from `~/.claude/settings.json` (see migration note in Getting Started)
 
 **Updating to the latest version?**
 ```
-/plugin update devflow@aocyber
+/plugin update aoforge@aocyber
 ```
 
 ### Uninstalling
@@ -697,23 +701,23 @@ This prevents Claude from reading these files entirely, regardless of what comma
 In Claude Code:
 
 ```
-/plugin uninstall devflow@aocyber
+/plugin uninstall aoforge@aocyber
 ```
 
-The plugin's skills, agents, hooks, and statusline are removed automatically. The mirrored runtime at `~/.claude/devflow/` is left in place — remove manually if you want to clean it up:
+The plugin's skills, agents, hooks, and statusline are removed automatically. The mirrored runtime at `~/.claude/aoforge/` is left in place — remove manually if you want to clean it up:
 
 ```bash
-rm -rf ~/.claude/devflow
+rm -rf ~/.claude/aoforge
 ```
 
 ---
 
 ## Credits
 
-DevFlow's design guidance is **derived from
+AOForge's design guidance is **derived from
 [taste-skill](https://github.com/Leonxlnx/taste-skill)** by Leonxlnx, used under
 the MIT License. Five references adapt its structure, rules and thresholds to
-DevFlow's stacks and intent model:
+AOForge's stacks and intent model:
 
 | Reference | Covers |
 |---|---|
@@ -740,6 +744,6 @@ notices this project carries forward.
 
 <div align="center">
 
-**Claude Code is powerful. DevFlow makes it reliable.**
+**Claude Code is powerful. AOForge makes it reliable.**
 
 </div>

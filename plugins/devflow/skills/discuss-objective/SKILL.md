@@ -6,25 +6,10 @@ description: |
   Triggers on: "discuss objective", "shape the objective", "lock in preferences", "before planning I want to discuss", "implementation decisions"
 argument-hint: "<objective-number>"
 allowed-tools:
-  - Read
-  - Bash
-  - Write
-  - AskUserQuestion
+  - Skill
 ---
-<objective>
-Extract implementation decisions that downstream agents (objective-researcher, planner) need. Surface the gray areas in the objective, let the user pick what to discuss, then deep-dive until decisions are crisp enough to act on.
+DevFlow is now AOForge. This command moved to `/aoforge:discuss-objective`.
 
-**Output:** `.planning/objectives/<obj>/CONTEXT.md` — captures decisions about layout, data, UX, dependencies, and explicit "Claude's Discretion" items. Feeds directly into research queries and planner task specs.
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:discuss-objective` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-**Not the job:** figuring out HOW to implement. That happens in research + planning using the decisions captured here.
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/discuss-objective.md
-@~/.claude/devflow/references/questioning.md
-</execution_context>
-
-<process>
-Execute the discuss-objective workflow end-to-end. Publish CONTEXT.md when decisions are locked (draft, then
-`node ~/.claude/devflow/bin/df-tools.cjs doc put objectives/<dir>/<NN>-CONTEXT.md --from <draft>`). Do not proceed to planning — the user runs `/devflow:plan-objective <N>` when ready.
-</process>
+If it is not installed (`aoforge:discuss-objective` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

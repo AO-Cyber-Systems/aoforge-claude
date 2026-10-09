@@ -1,45 +1,19 @@
 ---
 name: adopt
 description: |
-  Turn an existing repository into a DevFlow project, unattended: map the code, infer PROJECT.md
+  Turn an existing repository into an AOForge project, unattended: map the code, infer PROJECT.md
   and STACK.md, scaffold config/STATE/ROADMAP, add the CLAUDE.md block, and make one recorded
-  change on a devflow/adopt branch. Never asks a question — uncertain inferences are written down
+  change on an aoforge/adopt branch. Never asks a question — uncertain inferences are written down
   with their confidence and evidence for review.
-  Use when the user has an existing repository they want DevFlow set up in, without answering
+  Use when the user has an existing repository they want AOForge set up in, without answering
   setup questions themselves.
-  Triggers on: "adopt this repo", "set up devflow here", "bootstrap this repo"
+  Triggers on: "adopt this repo", "set up aoforge here", "bootstrap this repo"
 argument-hint: "[path]"
 allowed-tools:
-  - Read
-  - Bash
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - Task
-  - mcp__gopls__*
-  - mcp__dart__*
-disallowed-tools:
-  - AskUserQuestion
+  - Skill
 ---
+DevFlow is now AOForge. This command moved to `/aoforge:adopt`.
 
-<objective>
-Turn the repository at [path] (default: the current directory) into a DevFlow project, unattended:
-map the code, infer PROJECT.md and STACK.md, scaffold config/STATE/ROADMAP (no invented objectives),
-add the CLAUDE.md block, stamp the version, and make ONE recorded change on a `devflow/adopt`
-branch. Never pushes. Never asks: uncertain inferences go to `.planning/ADOPT-REPORT.md` under
-"Needs review". Already a DevFlow project → upgrade. No source code yet → /devflow:new-project.
-Dirty tree, rebase/merge in progress, detached HEAD, or not a git repo → stops with the reason,
-changes nothing.
-</objective>
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:adopt` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-<execution_context>
-@~/.claude/devflow/workflows/adopt.md
-@~/.claude/devflow/workflows/map-codebase.md
-@~/.claude/devflow/templates/project.md
-</execution_context>
-
-<process>
-Execute the adopt workflow from @~/.claude/devflow/workflows/adopt.md end-to-end for the target in
-$ARGUMENTS. Never call AskUserQuestion.
-</process>
+If it is not installed (`aoforge:adopt` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

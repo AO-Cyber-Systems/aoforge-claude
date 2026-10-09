@@ -2,61 +2,15 @@
 name: objective
 description: |
   Add or remove an objective from the current milestone roadmap.
-  Subcommand-style: /devflow:objective add | remove
+  Subcommand-style: /aoforge:objective add | remove
   Use when explicitly requested.
   Note: 'insert' (decimal objectives) was removed in v1.2 — use 'add' instead.
 argument-hint: "<add|remove> [args...]"
 allowed-tools:
-  - Read
-  - Write
-  - Bash
-  - Glob
-  - AskUserQuestion
+  - Skill
 ---
+DevFlow is now AOForge. This command moved to `/aoforge:objective`.
 
-<objective>
-Manage objectives in the current milestone roadmap. Routes by first argument:
-- `add <description>` — Add a new integer objective to the end of the milestone
-- `remove <number> [--force] [--confirm]` — Preview the removal + renumber plan. Store mode refuses deletes; close the objective with `df-tools objective set-status <id> cancelled` instead.
-  Dry-run by default: without `--confirm` nothing is deleted or renamed.
-  `--confirm` authorizes the destructive cascade (delete the objective, then
-  renumber every subsequent objective's directory, the files inside it, and its
-  ROADMAP references).
-  `--force` separately overrides the refusal to remove an objective that has
-  executed SUMMARY.md jobs. Removing an executed objective needs BOTH flags.
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:objective` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-Replaces 3 sibling skills: add-objective, insert-objective, remove-objective.
-Note: decimal objectives (insert) were removed in v1.2 (TRD 12-06, I2 survey: 0% usage).
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/add-objective.md
-@~/.claude/devflow/workflows/remove-objective.md
-</execution_context>
-
-<context>
-Subcommand: $ARGUMENTS
-
-@.planning/ROADMAP.md
-@.planning/STATE.md
-</context>
-
-<process>
-**1. Resolve subcommand and workflow:**
-
-```bash
-ROUTE_JSON=$(node ~/.claude/devflow/bin/df-tools.cjs skill-route objective $ARGUMENTS --raw)
-```
-
-Parse the JSON. If it contains `error`, display the `usage` field to the user and stop. Otherwise extract `subcommand`, `args`, and `workflow`.
-
-**2. Follow the resolved workflow.**
-
-Based on `subcommand`:
-- `add` → execute the add-objective workflow loaded above with the residual args
-- `remove` → execute the remove-objective workflow with the residual args
-
-Pass residual `args` to the workflow as if the user had typed them.
-
-**3. Display deprecation summary if invoked via redirect** (handled by redirect skills; this consolidated skill does not log deprecation itself).
-</process>
+If it is not installed (`aoforge:objective` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

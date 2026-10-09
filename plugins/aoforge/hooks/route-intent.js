@@ -1,0 +1,469 @@
+#!/usr/bin/env node
+
+/**
+ * AOForge Intent Routing Hook (UserPromptSubmit)
+ *
+ * When an AOForge-initialized project is detected (.aoforge/ exists) and the
+ * user prompt signals build/plan/verify/debug intent WITHOUT invoking a
+ * /aoforge: skill, inject a box-drawn OBLIGATORY directive telling Claude to
+ * route through the appropriate skill rather than editing code directly.
+ *
+ * Regexes require imperative/possessive form -- bare verbs without article+noun
+ * do NOT fire (prevents Q&A false positives).
+ *
+ * Phase G consolidated skill names only.
+ *
+ * TRD 24-02 additions:
+ *   - EXECUTE rule (/aoforge:execute-objective)
+ *   - TODO rule (/aoforge:todo add)
+ *   - QUICK rule (/aoforge:quick)
+ *   - BUILD rule extended (bare objective, this/that, let's build, start building)
+ *   - BUILD suppression post-filter: if todo-add/quick/objective-add matched, drop build
+ *   - Override phrase suppression via hasOverridePhrase (from lib/edit-override.js)
+ *   - matchIntent opts.skillActive: pure second-arg option suppresses all matches
+ *   - main() writes .edit-override marker before early-return on override prompts
+ */
+
+const fs = require('fs');
+const path = require('path');
+// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
+try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
+const { NAMES } = require('../aoforge/bin/lib/legacy-names.cjs');
+const { hasOverridePhrase, writeEditOverrideMarker } = require('./lib/edit-override.js');
+
+function readStdin() {
+  try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
+}
+
+function findPlanningDir(start) {
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
+}
+
+// INTENT_MAP -- EXPORTED for unit tests.
+// Rules require imperative verb + article/possessive + project noun.
+// No bare-verb matches -- prevents Q&A prompts from firing.
+
+const INTENT_MAP = [
+  // MICRO: imperative + article + trivial-noun (typo / line / semicolon / import / comment / whitespace / property name)
+  // Routes ONLY trivial single-token changes; "small change" stays with quick.
+  {
+    rx: /\b(?:fix|correct|update|change|rename)\s+(?:the|this|that|a|an)\s+(?:typo|spelling|misspelling|comment|whitespace|indent(?:ation)?|semicolon|import|line|prop(?:erty)?\s+name|variable\s+name|function\s+name|filename)\b/i,
+    skill: '/aoforge:micro',
+    label: 'micro',
+  },
+  // BUILD: imperative + article + noun (original)
+  //      | build/implement + objective (bare, no article required)
+  //      | build/implement + this/that (no trailing noun required)
+  //      | let's/lets + build/implement
+  //      | start building
+  {
+    rx: /\b(?:build|implement|ship|make|create|add)\s+(?:the|a|an|this|that|some)\s+\w+|\b(?:build|implement)\s+objective\b|\b(?:build|implement)\s+(?:this|that)\b|let'?s\s+(?:build|implement)\b|\bstart\s+building\b/i,
+    skill: '/aoforge:build',
+    label: 'build',
+  },
+  // EXECUTE: execute/run + (the)? + objective
+  {
+    rx: /\b(?:execute|run)\s+(?:the\s+)?(?:planned\s+)?objective\b/i,
+    skill: '/aoforge:execute-objective',
+    label: 'execute',
+  },
+  // TODO: add/create + (a)? + todo | remember to
+  {
+    rx: /\b(?:add|create)\s+(?:a\s+)?todo\b|\bremember\s+to\b/i,
+    skill: '/aoforge:todo add',
+    label: 'todo-add',
+  },
+  // QUICK: make/take/do + a + quick pass | small change
+  {
+    rx: /\b(?:make|take|do)\s+a\s+quick\s+pass\b|\bsmall\s+change\b/i,
+    skill: '/aoforge:quick',
+    label: 'quick',
+  },
+  // DEBUG: imperative + article + optional-adjectives + bug-noun
+  {
+    rx: /\b(?:fix|debug|investigate|diagnose|troubleshoot)\s+(?:the|this|that|a|an)\s+(?:\w+\s+){0,3}(?:bug|error|crash|failure|issue|problem|test|build|ci)\b/i,
+    skill: '/aoforge:debug',
+    label: 'debug',
+  },
+  // PLAN: plan + article + optional-adj + objective-noun
+  {
+    rx: /\b(?:plan|break\s+down|design)\s+(?:the|this|an|a)\s+(?:next\s+)?(?:objective|feature|task|work|milestone)\b|\bplan\s+next\s+(?:objective|feature|task|work|milestone)\b/i,
+    skill: '/aoforge:plan-objective',
+    label: 'plan',
+  },
+  // VERIFY: verify/validate + article + work-noun -- explicit verification intent only.
+  // 25-01 audit fix: previous test|check verbs fired 15x, followed 0x (audit item 5,
+  // verify-work 0/8 sessions -- worst follow rate). test|check are ordinary dev speech
+  // ("check the build", "test the feature"); verify|validate + article is explicit intent.
+  {
+    rx: /\b(?:verify|validate)\s+(?:the|this)\s+(?:work|build|objective|feature|implementation)\b/i,
+    skill: '/aoforge:verify-work',
+    label: 'verify',
+  },
+  // STATUS: possessive phrase "our/the progress/status" or "where are we"
+  {
+    rx: /\b(?:what'?s?\s+(?:our|the)\s+(?:progress|status))|\b(?:show|check)\s+(?:the\s+)?(?:progress|status)\b|\bwhere\s+are\s+we\b/i,
+    skill: '/aoforge:status',
+    label: 'status',
+  },
+  // RESUME (consolidated): resume/continue/pick up + work/project/objective
+  {
+    rx: /\b(?:resume|continue|pick\s+up)\s+(?:the\s+)?(?:work|project|objective)\b|\bwhere\s+(?:we|I)\s+left\s+off\b/i,
+    skill: '/aoforge:status resume',
+    label: 'resume',
+  },
+  // PAUSE (consolidated): pause/stop + work/project
+  {
+    rx: /\b(?:pause|stop)\s+(?:the\s+)?(?:work|project)\b|\b(?:pause|stop)\s+(?:for\s+(?:now|today|tonight|the\s+day))\b|\bsave\s+(?:the\s+)?context\b/i,
+    skill: '/aoforge:status pause',
+    label: 'pause',
+  },
+  // OBJECTIVE ADD (consolidated): add/create + a/an/the + objective
+  {
+    rx: /\b(?:add|create)\s+(?:a|an|the)\s+objective\b/i,
+    skill: '/aoforge:objective add',
+    label: 'objective-add',
+  },
+  // ADOPT (objective 37): turn an existing repo into an AOForge project
+  {
+    rx: /\b(?:adopt\s+(?:this|the|my)\s+(?:repo|repository|project|codebase)|set\s+up\s+aoforge\s+(?:here|in\s+(?:this|the|my)\s+(?:repo|repository|project))|bootstrap\s+(?:this|the|my)\s+(?:repo|repository|project|codebase))\b/i,
+    skill: '/aoforge:adopt',
+    label: 'adopt',
+  },
+  // DOCTOR (objective 45): diagnose/repair the AOForge environment. Explicit intent only:
+  // the bare word "doctor" is ordinary speech and must not fire.
+  {
+    rx: /\b(?:aoforge\s+doctor|diagnose\s+(?:the\s+)?aoforge|aoforge\s+(?:is|seems|looks)\s+(?:broken|misbehaving|slow|stale|off)|fix\s+(?:my|the)\s+aoforge\s+(?:setup|install|installation|environment))\b/i,
+    skill: '/aoforge:doctor',
+    label: 'doctor',
+  },
+  // NEW PROJECT: new project / start a project / initialize aoforge
+  {
+    rx: /\b(?:new\s+project|start\s+a\s+(?:new\s+)?project|initialize\s+(?:aoforge|planning))\b/i,
+    skill: '/aoforge:new-project',
+    label: 'new-project',
+  },
+  // RESEARCH: research/explore + objective/approach/library
+  {
+    rx: /\b(?:research|explore\s+options\s+for)\s+(?:the\s+)?(?:objective|approach|library|framework)\b/i,
+    skill: '/aoforge:research-objective',
+    label: 'research',
+  },
+
+  // ─── Obj 12: broader-lexicon entries (B item) ────────────────────────────
+  // New entries are additive. Existing 11 are intentionally strict and unchanged.
+  // Each carries an optional `hint` (4-6 words) used in multi-match disambig UI.
+
+  // NEW-MILESTONE: must come BEFORE build to win for "make a new milestone".
+  // Otherwise the build rule (make + a + \w+) wins via filter-first-match order.
+  {
+    rx: /\b(?:make|create|start|kick\s+off)\s+a\s+(?:new\s+)?milestone\b|\bnew\s+milestone\s+for\b/i,
+    skill: '/aoforge:milestone new',
+    label: 'milestone-new',
+    hint: 'create a new milestone',
+  },
+  // BUILD (extension): ship-it, let's work-on, let's start, I want to build
+  {
+    rx: /\bship\s+it\b|\blet'?s\s+(?:work\s+on|start)\s+(?:the|a|an)\s+\w+|\bI\s+want\s+to\s+(?:build|implement|make|create)\s+(?:the|a|an)\s+\w+/i,
+    skill: '/aoforge:build',
+    label: 'build',
+    hint: 'plan + execute a multi-subsystem feature',
+  },
+  // DEBUG (extension): "I want to fix the broken/failing X" with broader noun list
+  {
+    rx: /\bI\s+want\s+to\s+fix\s+(?:the|this|that)\s+(?:\w+\s+){0,3}(?:bug|error|crash|failure|issue|problem|test|build|ci|broken\s+\w+|failing\s+\w+|login|module|component|hook|service)\b/i,
+    skill: '/aoforge:debug',
+    label: 'debug',
+    hint: 'fix a bug or failing test',
+  },
+  // QUICK: do/make/take a quick pass/fix/change/update
+  {
+    rx: /\b(?:do|make|take)\s+a\s+quick\s+(?:pass|fix|change|update)\b/i,
+    skill: '/aoforge:quick',
+    label: 'quick',
+    hint: 'small feature, <5 files',
+  },
+  // STATUS (extension): natural status queries (what NOT in Q&A skip-list)
+  {
+    rx: /\bwhat\s+should\s+I\s+work\s+on\b|\bwhat'?s\s+next\b|\bwhat'?s\s+on\s+my\s+plate\b/i,
+    skill: '/aoforge:status',
+    label: 'status',
+    hint: 'show current position + next action',
+  },
+  // STATUS PAUSE (extension): save my progress / I'm stopping / leaving for now
+  {
+    rx: /\bsave\s+my\s+progress\b|\bI'?m\s+stopping\b|\bleaving\s+for\s+now\b/i,
+    skill: '/aoforge:status pause',
+    label: 'pause',
+    hint: 'snapshot state + pause work',
+  },
+  // STATUS RESUME (extension): let's pick up where we/I stopped
+  {
+    rx: /\blet'?s\s+pick\s+up\s+where\s+(?:we|I)\s+stopped\b/i,
+    skill: '/aoforge:status resume',
+    label: 'resume',
+    hint: 'resume work from last snapshot',
+  },
+  // AWARENESS: what'd I miss / show me recent activity
+  {
+    rx: /\bwhat'?d\s+I\s+miss\b|\bshow\s+me\s+(?:the\s+)?recent\s+activity\b/i,
+    skill: '/aoforge:awareness',
+    label: 'awareness',
+    hint: 'cross-repo + peer activity check',
+  },
+  // ADD-TODO: add/create a todo for/item/about
+  {
+    rx: /\b(?:add|create)\s+a\s+todo\s+(?:for|item|about)\b/i,
+    skill: '/aoforge:todo add',
+    label: 'add-todo',
+    hint: 'add a new todo item',
+  },
+  // CHECK-TODOS: any todos / check (this|the|my) todos / list|show todos / what todos do I have
+  {
+    rx: /\b(?:any\s+(?:open\s+)?todos|check\s+(?:this|the|my)\s+todos?|list\s+(?:the\s+|my\s+)?todos?|show\s+(?:me\s+)?(?:the\s+|my\s+)?todos?|what\s+todos?\s+(?:do\s+I\s+have|are\s+(?:open|left)))\b/i,
+    skill: '/aoforge:todo list',
+    label: 'check-todos',
+    hint: 'list outstanding todos',
+  },
+  // VERIFY (extension): verify this/the-current objective
+  {
+    rx: /\bverify\s+(?:this|the\s+current)\s+objective\b/i,
+    skill: '/aoforge:verify-work',
+    label: 'verify',
+    hint: 'verify objective completion',
+  },
+  // RESEARCH (extension): research how to X / investigate the X library
+  {
+    rx: /\bresearch\s+how\s+to\s+\w+|\binvestigate\s+(?:the\s+)?\w+\s+library\b/i,
+    skill: '/aoforge:research-objective',
+    label: 'research',
+    hint: 'research approach + libraries',
+  },
+  // AUDIT-MILESTONE: audit the milestone
+  {
+    rx: /\baudit\s+(?:the\s+)?milestone\b/i,
+    skill: '/aoforge:milestone audit',
+    label: 'audit-milestone',
+    hint: 'audit milestone state',
+  },
+  // GH-SYNC: sync/push (words) to github|gh / sync the objectives|issues|roadmap|planning
+  {
+    rx: /\b(?:sync|push)\s+(?:\w+\s+){0,3}to\s+(?:github|gh)\b|\bsync\s+(?:the\s+)?(?:objectives?|issues?|roadmap|planning)\b/i,
+    skill: '/aoforge:gh-sync',
+    label: 'gh-sync',
+    hint: 'sync planning state to GitHub',
+  },
+  // DISCUSS-OBJECTIVE: discuss/talk through/walk me through/think through + the/this objective
+  {
+    rx: /\b(?:discuss|talk\s+through|walk\s+me\s+through|think\s+through)\s+(?:the|this|an?)\s+(?:next\s+)?objective\b|\blet'?s\s+(?:talk|chat)\s+(?:about|through)\s+(?:the|this)\s+objective\b|\bwalk\s+me\s+through\s+the\s+plan\b/i,
+    skill: '/aoforge:discuss-objective',
+    label: 'discuss-objective',
+    hint: 'interactive objective discussion',
+  },
+];
+
+// matchIntent -- Returns deduplicated array of enriched match objects.
+// Shape: Array<{ skill, label, hint }>. `hint` defaults to '' for legacy entries.
+// Q&A skip-rule: prompts starting with interrogative words (Why/How/Can/etc) return [].
+// NOTE: "What" NOT in skip-list -- "What's our progress?" is a status fire prompt.
+//
+// TRD 24-02 additions:
+//   opts.skillActive {boolean} -- if true, suppress all matches (pure option, no fs)
+//   Override phrase suppression via hasOverridePhrase (imported from lib/edit-override.js)
+//   BUILD suppression post-filter: drop 'build' entry whenever any of
+//     {todo-add, quick, objective-add} are in the matched labels.
+
+function matchIntent(prompt, opts = {}) {
+  if (!prompt) return [];
+  if (/^\s*\/(aoforge:|df:)/i.test(prompt)) return [];
+  // Q&A skip-rule: prompts starting with interrogative words return [] -- EXCEPT the
+  // adopt intent, which is routinely phrased as a polite request ("can you set up
+  // aoforge in this repo") rather than a question about the code (TRD 37-10).
+  const adoptEntry = INTENT_MAP.find(e => e.label === 'adopt');
+  const matchesAdopt = !!(adoptEntry && adoptEntry.rx.test(prompt));
+  if (!matchesAdopt && /^\s*(?:why|how|can|could|would|should|is|are|does|did|do)\b/i.test(prompt)) return [];
+  // Override phrase suppression — returns [] (no directive; main() writes marker separately)
+  if (hasOverridePhrase(prompt)) return [];
+  // skillActive suppression — pure option, no fs I/O
+  if (opts.skillActive) return [];
+  const matched = INTENT_MAP.filter(e => e.rx.test(prompt));
+  // BUILD suppression post-filter (option c — smallest diff):
+  // If any of {todo-add, quick, objective-add} matched, drop the build entry
+  const suppressBuild = matched.some(e => ['todo-add', 'quick', 'objective-add'].includes(e.label));
+  const matches = suppressBuild ? matched.filter(e => e.label !== 'build') : matched;
+  // Dedup by skill (preserve first match metadata for that skill)
+  const seen = new Set();
+  const result = [];
+  for (const m of matches) {
+    if (seen.has(m.skill)) continue;
+    seen.add(m.skill);
+    result.push({ skill: m.skill, label: m.label, hint: m.hint || '' });
+  }
+  return result;
+}
+
+// renderDirective -- box-drawn obligatory directive for additionalContext injection.
+// Accepts enriched match objects from matchIntent: Array<{ skill, label, hint }>.
+// When 2+ matches, renders a disambiguation box and asks Claude to confirm with user.
+// `prompt` (optional) is echoed back via a "Triggered by:" line for routing visibility.
+
+function padEnd(s, width) {
+  if (s.length >= width) return s.slice(0, width);
+  return s + ' '.repeat(width - s.length);
+}
+
+function extractTriggerExcerpt(prompt) {
+  const trimmed = (prompt || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.length <= 45) return trimmed;
+  return trimmed.slice(0, 42) + '...';
+}
+
+function renderSingleMatch(match, prompt, planningDirName = NAMES.planningDir) {
+  const skillList = match.skill;
+  const excerpt = extractTriggerExcerpt(prompt);
+  const BOX_TOP = '╔' + '═'.repeat(70) + '╗';
+  const BOX_DIV = '╠' + '═'.repeat(70) + '╣';
+  const BOX_BOT = '╚' + '═'.repeat(70) + '╝';
+  const L = '║';
+  const pad = (s, w) => L + ' ' + padEnd(s, w) + L;
+  const lines = [
+    BOX_TOP,
+    pad('           AOFORGE ROUTING DIRECTIVE — OBLIGATORY', 68),
+    BOX_DIV,
+  ];
+  if (excerpt) {
+    lines.push(pad('Triggered by: "' + excerpt + '"', 68));
+    lines.push(pad('', 68));
+  }
+  lines.push(
+    pad('This is an AOFORGE project (' + planningDirName + '/ exists).', 68),
+    pad('Intent matched: ' + skillList, 68),
+    pad('', 68),
+    pad('You MUST invoke ' + skillList, 68),
+    pad('via the Skill tool BEFORE editing any code.', 68),
+    pad('', 68),
+    pad('Do NOT call Edit, Write, or MultiEdit first.', 68),
+    pad('gate-edits.js will DENY edits in ambient mode without a skill.', 68),
+    pad('', 68),
+    pad('If the request is out of scope (a question, tiny ad-hoc fix),', 68),
+    pad('you may proceed -- but prefer /aoforge:quick for <5 file changes.', 68),
+    BOX_BOT,
+  );
+  return lines.join('\n');
+}
+
+function renderMultiMatch(matches, prompt) {
+  const excerpt = extractTriggerExcerpt(prompt);
+  const BOX_TOP = '╔' + '═'.repeat(70) + '╗';
+  const BOX_DIV = '╠' + '═'.repeat(70) + '╣';
+  const BOX_BOT = '╚' + '═'.repeat(70) + '╝';
+  const L = '║';
+  const pad = (s, w) => L + ' ' + padEnd(s, w) + L;
+  const lines = [
+    BOX_TOP,
+    pad('       AOFORGE ROUTING — MULTIPLE INTENTS MATCHED', 68),
+    BOX_DIV,
+  ];
+  if (excerpt) {
+    lines.push(pad('Triggered by: "' + excerpt + '"', 68));
+    lines.push(pad('', 68));
+  }
+  lines.push(pad('Your prompt matched more than one routing intent:', 68));
+  lines.push(pad('', 68));
+  matches.forEach((m, i) => {
+    const hint = m.hint ? ' — ' + m.hint : '';
+    lines.push(pad('  ' + (i + 1) + '. ' + m.skill + hint, 68));
+  });
+  lines.push(pad('', 68));
+  lines.push(pad('Confirm with the user which skill to invoke BEFORE', 68));
+  lines.push(pad('editing code. Do NOT call Edit/Write/MultiEdit until', 68));
+  lines.push(pad('the user picks one. gate-edits.js will DENY edits', 68));
+  lines.push(pad('in ambient mode without a skill.', 68));
+  lines.push(BOX_BOT);
+  return lines.join('\n');
+}
+
+// `planningDirName` (optional) is the project's planning directory name, `.aoforge` unless the project
+// still uses the legacy one (TRD 72-06); the single-match directive names it.
+function renderDirective(matches, prompt = '', planningDirName = NAMES.planningDir) {
+  if (!matches || matches.length === 0) return '';
+  if (matches.length === 1) return renderSingleMatch(matches[0], prompt, planningDirName);
+  return renderMultiMatch(matches, prompt);
+}
+
+// renderAdoptReminder -- short reminder emitted in NON-AOForge directories (no .aoforge/)
+// when the prompt matches ONLY the adopt intent. Deliberately not box-drawn (that treatment
+// is reserved for the "you MUST route" directive inside AOForge projects); this is a nudge
+// in a repo route-intent otherwise stays silent in.
+
+function renderAdoptReminder() {
+  return [
+    'Not an AOForge project yet. This prompt matches /aoforge:adopt -- it maps the',
+    'code, infers PROJECT.md/STACK.md and makes one commit on an aoforge/adopt',
+    'branch (never pushed). Invoke it via the Skill tool.',
+  ].join('\n');
+}
+
+// main -- entry point when executed directly
+//
+// TRD 24-02 wiring:
+//   1. Parse input (prompt from UserPromptSubmit payload)
+//   2. Find planningDir; none → adopt-only reminder (TRD 37-10), else return
+//   3. If override phrase detected → writeEditOverrideMarker BEFORE matchIntent early-return
+//      (override prompts produce no directive but MUST arm gate bypass — decisions 1+4)
+//   4. Read skillActive from .aoforge/.skill-active presence (fs I/O here, not in matchIntent)
+//   5. Match intent with { skillActive }; empty → return
+//   6. Emit directive
+
+function main() {
+  let input;
+  try { input = JSON.parse(readStdin() || '{}'); } catch { return; }
+  // `null`, an array or a string parses fine but is not a payload (TRD 63-05): exit 0 and say nothing.
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return;
+  const prompt = (input.prompt || '').trim();
+  if (!prompt) return;
+
+  const planningDir = findPlanningDir(process.cwd());
+  if (!planningDir) {
+    // Not an AOForge project yet -- route-intent stays silent EXCEPT for the one intent
+    // that applies here: adopt. Only fire when adopt is the sole match (never swallow
+    // an unrelated prompt just because it happens to also mention adopt-ish wording).
+    const matches = matchIntent(prompt);
+    if (matches.length === 1 && matches[0].label === 'adopt') {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'UserPromptSubmit',
+          additionalContext: renderAdoptReminder(),
+        },
+      }));
+    }
+    return;
+  }
+
+  // CRITICAL: write marker BEFORE matchIntent check — override prompts return [] by design
+  // yet MUST still arm the gate bypass (locked decisions 1+4 from 24-CONTEXT.md)
+  if (hasOverridePhrase(prompt)) {
+    writeEditOverrideMarker(planningDir);
+    return;
+  }
+
+  const skillActive = fs.existsSync(path.join(planningDir, '.skill-active'));
+  const matches = matchIntent(prompt, { skillActive });
+  if (matches.length === 0) return;
+
+  const out = {
+    hookSpecificOutput: {
+      hookEventName: 'UserPromptSubmit',
+      additionalContext: renderDirective(matches, prompt, path.basename(planningDir)),
+    },
+  };
+  process.stdout.write(JSON.stringify(out));
+}
+
+if (require.main === module) main();
+
+module.exports = { INTENT_MAP, matchIntent, renderDirective, findPlanningDir, renderAdoptReminder };

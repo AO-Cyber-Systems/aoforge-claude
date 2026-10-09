@@ -1,11 +1,11 @@
 ---
 title: "config.json"
 weight: 10
-lede: "The full workflow configuration schema, field by field, with the defaults DevFlow ships."
+lede: "The full workflow configuration schema, field by field, with the defaults AOForge ships."
 ---
 
-`.planning/config.json` is created by `/devflow:new-project` and edited by
-`/devflow:settings`. You can also edit it directly.
+`.aoforge/config.json` is created by `/aoforge:new-project` and edited by
+`/aoforge:settings`. You can also edit it directly.
 
 ## The shipped defaults
 
@@ -59,9 +59,9 @@ lede: "The full workflow configuration schema, field by field, with the defaults
     "repo": "",
     "milestone_prefix": "v",
     "labels": {
-      "objective": "devflow:objective",
-      "in_progress": "devflow:in-progress",
-      "gaps": "devflow:gaps"
+      "objective": "aoforge:objective",
+      "in_progress": "aoforge:in-progress",
+      "gaps": "aoforge:gaps"
     }
   },
   "awareness": {
@@ -123,7 +123,7 @@ legacy convenience and approves without evidence at all.
 
 | Field | Default | Effect |
 |---|---|---|
-| `commit_docs` | `true` | Commit `.planning/` artifacts. Set `false` plus a `.gitignore` entry for sensitive work. |
+| `commit_docs` | `true` | Commit `.aoforge/` artifacts. Set `false` plus a `.gitignore` entry for sensitive work. |
 | `search_gitignored` | `false` | Let agents search gitignored paths. |
 
 ## parallelization
@@ -177,7 +177,7 @@ Opt-in, disabled by default. See the
 
 ## daemon
 
-Settings for the `devflow-watch` handoff daemon. See the
+Settings for the `aoforge-watch` handoff daemon. See the
 [handoff guide](/docs/guides/handoff/).
 
 | Field | Default | Effect |
@@ -191,10 +191,10 @@ Settings for the `devflow-watch` handoff daemon. See the
 ## Reading and writing config from the CLI
 
 ```bash
-df-tools config-get <key>
-df-tools config-set <key> <value>
-df-tools config-ensure-section <section>
+aof-tools config-get <key>
+aof-tools config-set <key> <value>
+aof-tools config-ensure-section <section>
 
-df-tools global-config get <key>     # machine-wide, ~/.claude/devflow/
-df-tools global-config set <key> <value>
+aof-tools global-config get <key>     # machine-wide, ~/.claude/aoforge/
+aof-tools global-config set <key> <value>
 ```

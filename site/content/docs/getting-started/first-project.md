@@ -4,13 +4,13 @@ weight: 30
 lede: "A closer look at what new-project produces, and how to steer it before it commits to a plan."
 ---
 
-`/devflow:new-project` is the only command that creates `.planning/` from nothing.
+`/aoforge:new-project` is the only command that creates `.aoforge/` from nothing.
 Everything downstream reads what it writes, so it is worth understanding what
 comes out.
 
 ## The interview
 
-DevFlow asks what you're building. Answer in prose — a paragraph is plenty. It
+AOForge asks what you're building. Answer in prose — a paragraph is plenty. It
 uses your answer to decide how much research it needs and what `kind` the project
 is.
 
@@ -19,7 +19,7 @@ assumptions and moves straight to research. Use it when you already know exactly
 what you want and would rather correct a draft than answer questions.
 
 ```text
-/devflow:new-project --auto
+/aoforge:new-project --auto
 ```
 
 ### Starting from a document
@@ -32,7 +32,7 @@ one-line description.
 
 ### PROJECT.md
 
-Vision and context. This file is loaded on essentially every DevFlow operation, so
+Vision and context. This file is loaded on essentially every AOForge operation, so
 it stays short. It carries the project's `kind` on its frontmatter:
 
 {{< intent >}}
@@ -44,19 +44,19 @@ profile and verification rigor.
 ### REQUIREMENTS.md
 
 Scoped requirements with stable IDs, split into v1 (this milestone) and v2 (later).
-IDs matter: the roadmap references them, and `/devflow:milestone audit` checks that
+IDs matter: the roadmap references them, and `/aoforge:milestone audit` checks that
 each v1 requirement was actually delivered.
 
 ### ROADMAP.md
 
 Objectives in dependency order, each with success criteria. This is the file you
 will look at most. Objectives are numbered; those numbers are what you pass to
-`/devflow:build`.
+`/aoforge:build`.
 
 ### STATE.md
 
 Living project memory: current position, decisions with rationale, open blockers,
-session history. This is what makes DevFlow survive a `/clear` or a week off — the
+session history. This is what makes AOForge survive a `/clear` or a week off — the
 state was never in the context window, so losing the window costs nothing.
 
 ### research/
@@ -73,7 +73,7 @@ cheap relative to rebuilding.
 ### Discuss an objective
 
 ```text
-/devflow:discuss-objective 3
+/aoforge:discuss-objective 3
 ```
 
 Captures your implementation preferences into `CONTEXT.md` for that objective
@@ -83,7 +83,7 @@ assumption you would have corrected in ten seconds. This is where you correct it
 ### See the assumptions first
 
 ```text
-/devflow:list-objective-assumptions 3
+/aoforge:list-objective-assumptions 3
 ```
 
 Shows what Claude intends to do without creating any files. Read it, and if it is
@@ -92,17 +92,17 @@ wrong, run `discuss-objective`.
 ### Research first
 
 ```text
-/devflow:research-objective 3
+/aoforge:research-objective 3
 ```
 
 Runs the `objective-researcher` against the objective's domain and writes
-`RESEARCH.md`. `/devflow:build` does this automatically unless you pass
+`RESEARCH.md`. `/aoforge:build` does this automatically unless you pass
 `--skip-research`.
 
 ## Confirmation gates
 
-By default DevFlow stops for your confirmation at several points. They are all
-toggleable in `.planning/config.json`:
+By default AOForge stops for your confirmation at several points. They are all
+toggleable in `.aoforge/config.json`:
 
 ```json
 {
@@ -130,5 +130,5 @@ For client or sensitive work, keep planning artifacts out of git:
 { "planning": { "commit_docs": false } }
 ```
 
-Then add `.planning/` to `.gitignore`. Planning stays local; only code is
+Then add `.aoforge/` to `.gitignore`. Planning stays local; only code is
 committed.

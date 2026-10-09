@@ -2,54 +2,14 @@
 name: quick
 description: |
   Small features (single executor, no planner, no verifier) — between micro (1-line) and build (multi-subsystem). Cutoff: <5 files, <200 LOC, no new abstractions.
-  Use when the change is too big for /devflow:micro but doesn't warrant full /devflow:build planning.
+  Use when the change is too big for /aoforge:micro but doesn't warrant full /aoforge:build planning.
   Triggers on: "small change", "small feature", "5-file change", "isolated bug fix", "do this small task", "tackle this small change", "make a quick pass"
 argument-hint: "[--full]"
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - Bash
-  - Task
-  - AskUserQuestion
-  - TaskCreate
-  - TaskUpdate
+  - Skill
 ---
-<objective>
-Execute small features with DevFlow guarantees (atomic commits, STATE.md tracking) at the small-feature tier of the DevFlow ladder.
+DevFlow is now AOForge. This command moved to `/aoforge:quick`.
 
-**Cutoff (advisory, enforced by convention):**
-- <5 files modified
-- <200 LOC changed
-- No new abstractions, no architectural decisions, no new external dependencies
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:quick` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-**Smaller? Use `/devflow:micro`** — sub-30-LOC, single-file, ~2k token cost.
-**Larger or multi-subsystem? Use `/devflow:build`** — full plan/execute/verify pipeline.
-
-Quick mode is the same system with a shorter path:
-- Spawns planner (quick mode) + executor(s)
-- Quick tasks are saved with `df-tools quick put` / `quick summary`, separate from planned objectives (local mode: `.planning/quick/`; with `github.store` on: Quick issues)
-- Updates STATE.md "Quick Tasks Completed" table in local mode only (NOT ROADMAP.md; STATE.md is a generated view in store mode)
-
-**Default:** Skips research, job-checker, verifier. Use when you know exactly what to do.
-
-**`--full` flag:** Enables job-checking (max 2 iterations) and post-execution verification. Use when you want quality guarantees without full milestone ceremony.
-
-**Intent defaults for quick mode:** `work: bugfix` (smallest TDD posture commensurate with quick's purpose). CLAUDE.md absorption is **skipped** — quick mode honors the no-ceremony promise rather than applying user playbook directives that would require strict TDD on a typo fix. To opt back into the user playbook, prefer `/devflow:build` or `/devflow:plan-objective --work <type>` instead.
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/quick.md
-</execution_context>
-
-<context>
-@.planning/STATE.md
-$ARGUMENTS
-</context>
-
-<process>
-Execute the quick workflow from @~/.claude/devflow/workflows/quick.md end-to-end.
-Preserve all workflow gates (validation, task description, planning, execution, state updates, commits).
-</process>
+If it is not installed (`aoforge:quick` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

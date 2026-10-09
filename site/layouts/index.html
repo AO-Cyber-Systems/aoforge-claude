@@ -1,24 +1,24 @@
 {{ define "main" }}
-{{- $d := site.Data.devflow }}
+{{- $d := site.Data.aoforge }}
 <section class="hero">
   {{ partial "mesh.html" . }}
   <div class="hero-inner">
     <p class="microlabel">{{ site.Params.org }} · Claude Code plugin v{{ $d.version }}</p>
     <h1>Ship features,<br>not context windows.</h1>
     <p class="lede">
-      DevFlow is a meta-prompting, context engineering and spec-driven development
+      AOForge is a meta-prompting, context engineering and spec-driven development
       system for Claude Code. It breaks work into objectives, plans each one in a
       fresh context, and executes in parallel waves with atomic commits. Then it
       verifies the result against the goal, not against a checklist of finished
       tasks.
     </p>
     <div class="btn-row">
-      <a class="btn" href="/docs/getting-started/installation/">Install DevFlow</a>
+      <a class="btn" href="/docs/getting-started/installation/">Install AOForge</a>
       <a class="btn ghost" href="/docs/">Read the docs</a>
     </div>
     <div class="install">
-      <div><span class="prompt">/</span>plugin marketplace add AO-Cyber-Systems/devflow-claude</div>
-      <div><span class="prompt">/</span>plugin install devflow@aocyber</div>
+      <div><span class="prompt">/</span>plugin marketplace add AO-Cyber-Systems/aoforge-claude</div>
+      <div><span class="prompt">/</span>plugin install aoforge@aocyber</div>
     </div>
   </div>
 </section>
@@ -33,8 +33,8 @@
     model repeats itself, and work silently degrades.
   </p>
   <p>
-    DevFlow's answer is structural rather than advisory. Planning artifacts live on disk in
-    <code>.planning/</code> instead of in the conversation. Each job is dispatched to a
+    AOForge's answer is structural rather than advisory. Planning artifacts live on disk in
+    <code>.aoforge/</code> instead of in the conversation. Each job is dispatched to a
     subagent with a fresh window and only the context that job needs. State survives
     <code>/clear</code>, context resets and machine reboots, because it was never in the
     context window to begin with.
@@ -86,7 +86,7 @@
     </div>
     <div class="card">
       <h3>Memory that outlives context</h3>
-      <p>Decisions, blockers and position live in <code>.planning/STATE.md</code>. Resume a week later with <code>/devflow:status resume</code>.</p>
+      <p>Decisions, blockers and position live in <code>.aoforge/STATE.md</code>. Resume a week later with <code>/aoforge:status resume</code>.</p>
     </div>
     <div class="card">
       <h3>Cost you choose</h3>
@@ -99,12 +99,12 @@
   <p class="microlabel">Get started</p>
   <h2>Install in two lines</h2>
   <p>
-    DevFlow ships as a Claude Code plugin. It works on macOS, Windows and Linux, and
+    AOForge ships as a Claude Code plugin. It works on macOS, Windows and Linux, and
     installs from the <code>/plugin</code> command or the Claude Desktop plugin UI.
   </p>
   <div class="install">
-    <div><span class="prompt">/</span>plugin marketplace add AO-Cyber-Systems/devflow-claude</div>
-    <div><span class="prompt">/</span>plugin install devflow@aocyber</div>
+    <div><span class="prompt">/</span>plugin marketplace add AO-Cyber-Systems/aoforge-claude</div>
+    <div><span class="prompt">/</span>plugin install aoforge@aocyber</div>
   </div>
   <p style="margin-top:var(--s5)">
     <a class="btn" href="/docs/getting-started/quickstart/">Quickstart →</a>

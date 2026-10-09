@@ -41,7 +41,7 @@ key-decisions:
 patterns-established:
   - "calibration.json version 2 key table (below): 58-05..58-07 read these keys"
 
-requirements-completed: []
+requirements-completed: [EST-03]
 
 # Verification evidence
 verification:

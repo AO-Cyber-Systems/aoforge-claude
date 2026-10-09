@@ -34,7 +34,7 @@ key-decisions:
   - "Unplanned agent minutes equal wall minutes: objective_level minutes are serial executor time, and the wall basis is 'serial (unplanned)'"
   - "estimateUnplanned has no mixture and is capped low; with no objective_level it returns null metrics, missing ['objective_level'] and confidence none, without listing overhead"
 
-requirements-completed: []
+requirements-completed: [EST-03]
 
 verification:
   gates_defined: 2

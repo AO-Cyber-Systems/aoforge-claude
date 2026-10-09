@@ -8,14 +8,14 @@ Some commands cannot run in an agent's non-interactive Bash. Without a mechanism
 Claude has to stop and ask you to paste `! cmd`, which breaks both its flow and
 your concentration.
 
-`devflow-watch` is a small local daemon that closes that loop.
+`aoforge-watch` is a small local daemon that closes that loop.
 
 ## Quick start
 
 ```bash
-devflow-watch start      # start the daemon for the current project
-devflow-watch status     # verify
-devflow-watch stop
+aoforge-watch start      # start the daemon for the current project
+aoforge-watch status     # verify
+aoforge-watch stop
 ```
 
 That is the whole setup. From then on, when Claude tries to run something on the
@@ -43,12 +43,12 @@ Claude runs a gated command
         │
         ▼
 gate-interactive denies the Bash call
-  → writes .devflow-handoff/pending/<id>.json
+  → writes .aoforge-handoff/pending/<id>.json
   → tells Claude "queued for daemon — continue with other work"
         │
         ▼
-devflow-watch picks it up, runs it in your interactive shell
-  → writes .devflow-handoff/done/<id>.json
+aoforge-watch picks it up, runs it in your interactive shell
+  → writes .aoforge-handoff/done/<id>.json
         │
         ▼
 route-results injects the result on your next prompt
@@ -80,16 +80,16 @@ does not waste a turn discovering it by failing.
 
 | Variable | Effect |
 |---|---|
-| `DEVFLOW_WATCH_ALLOW_FILE` | Path to a custom allowlist |
-| `DEVFLOW_HANDOFF_PID_FILE` | Override the PID file location |
-| `DEVFLOW_HANDOFF_RESULT_TTL_MS` | How long an unconsumed result stays valid |
-| `DEVFLOW_SKIP_INTERACTIVE_GATE=1` | Disable interception entirely |
+| `AOFORGE_WATCH_ALLOW_FILE` | Path to a custom allowlist |
+| `AOFORGE_HANDOFF_PID_FILE` | Override the PID file location |
+| `AOFORGE_HANDOFF_RESULT_TTL_MS` | How long an unconsumed result stays valid |
+| `AOFORGE_SKIP_INTERACTIVE_GATE=1` | Disable interception entirely |
 
 ### Allowlist and deny list
 
 The allowlist is curated rather than open — the daemon runs commands in *your*
 shell, so what it will accept is a security boundary, not a convenience setting.
-Extend it with your own patterns via `DEVFLOW_WATCH_ALLOW_FILE`. A deny list takes
+Extend it with your own patterns via `AOFORGE_WATCH_ALLOW_FILE`. A deny list takes
 precedence over the allowlist.
 
 ### Auto-launch
@@ -98,14 +98,14 @@ The daemon can install itself as a launchd (macOS) or systemd (Linux) unit so it
 starts with your session:
 
 ```bash
-devflow-watch install
-devflow-watch uninstall
+aoforge-watch install
+aoforge-watch uninstall
 ```
 
 ### Multi-project
 
 One daemon can watch several projects, added and removed while it runs.
-`devflow-watch status` shows all watched projects with per-project pending and
+`aoforge-watch status` shows all watched projects with per-project pending and
 done counts.
 
 {{< callout title="A known gap" type="warn" >}}
@@ -117,5 +117,5 @@ run.
 `gate-commits` solved this class of problem with invocation-aware detection that
 strips heredoc bodies and quoted arguments before matching.
 `gate-interactive` does not yet do the same. If you hit it, the escape hatch is
-`DEVFLOW_SKIP_INTERACTIVE_GATE=1`.
+`AOFORGE_SKIP_INTERACTIVE_GATE=1`.
 {{< /callout >}}

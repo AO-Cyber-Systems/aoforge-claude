@@ -7,15 +7,15 @@ lede: "Three profiles map every agent onto a model tier. What each costs, and wh
 ## Switching profile
 
 ```text
-/devflow:set-profile quality
-/devflow:set-profile balanced
-/devflow:set-profile budget
+/aoforge:set-profile quality
+/aoforge:set-profile balanced
+/aoforge:set-profile budget
 ```
 
 Or for one run only, without changing any files:
 
 ```text
-/devflow:build 4 --model budget
+/aoforge:build 4 --model budget
 ```
 
 ## The assignment table
@@ -39,8 +39,8 @@ costs a whole build, a slightly worse codebase map costs a re-read.
 ## How resolution works
 
 ```bash
-df-tools resolve-model planner
-df-tools resolve-model df-planner    # the df- prefix is accepted too
+aof-tools resolve-model planner
+aof-tools resolve-model df-planner    # the df- prefix is accepted too
 ```
 
 `resolve-model` emits a `Task()` model **alias**, not a model id. The `opus` tier
@@ -106,5 +106,5 @@ overrides:
 Or via the environment for a single invocation:
 
 ```bash
-DEVFLOW_MODEL_PROFILE=budget claude
+AOFORGE_MODEL_PROFILE=budget claude
 ```

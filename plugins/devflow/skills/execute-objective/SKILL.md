@@ -6,41 +6,10 @@ description: |
   Triggers on: "execute objective", "run objective", "run the jobs", "run the planned objective", "execute the plan"
 argument-hint: "<phase-number> [--gaps-only]"
 allowed-tools:
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-  - Bash
-  - Task
-  - TaskCreate
-  - TaskUpdate
-  - AskUserQuestion
+  - Skill
 ---
-<objective>
-Execute all jobs in an objective using wave-based parallel execution.
+DevFlow is now AOForge. This command moved to `/aoforge:execute-objective`.
 
-Orchestrator stays lean: discover plans, analyze dependencies, group into waves, spawn subagents, collect results. Each subagent loads the full execute-trd context and handles its own TRD.
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:execute-objective` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-Context budget: ~15% orchestrator, 100% fresh per subagent.
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/execute-objective.md
-@~/.claude/devflow/references/ui-brand.md
-</execution_context>
-
-<context>
-Objective: $ARGUMENTS
-
-**Flags:**
-- `--gaps-only` — Execute only gap closure plans (plans with `gap_closure: true` in frontmatter). Use after verify-work creates fix plans.
-
-@.planning/ROADMAP.md
-@.planning/STATE.md
-</context>
-
-<process>
-Execute the execute-objective workflow from @~/.claude/devflow/workflows/execute-objective.md end-to-end.
-Preserve all workflow gates (wave execution, checkpoint handling, verification, state updates, routing).
-</process>
+If it is not installed (`aoforge:execute-objective` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

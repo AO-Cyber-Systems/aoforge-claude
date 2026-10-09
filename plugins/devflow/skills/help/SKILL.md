@@ -1,25 +1,14 @@
 ---
 name: help
 description: |
-  Show available DevFlow commands and usage guide.
-  Use when the user asks about DevFlow capabilities, available commands, or how to use the system.
-  Triggers on: "what can you do?", "how do I use DevFlow?", "show commands", "devflow help", "what commands are available?"
+  Show available AOForge commands and usage guide.
+  Use when the user asks about AOForge capabilities, available commands, or how to use the system.
+  Triggers on: "what can you do?", "how do I use AOForge?", "show commands", "aoforge help", "what commands are available?"
+allowed-tools:
+  - Skill
 ---
-<objective>
-Display the complete DevFlow command reference.
+DevFlow is now AOForge. This command moved to `/aoforge:help`.
 
-Output ONLY the reference content below. Do NOT add:
-- Project-specific analysis
-- Git status or file context
-- Next-step suggestions
-- Any commentary beyond the reference
-</objective>
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:help` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-<execution_context>
-@~/.claude/devflow/workflows/help.md
-</execution_context>
-
-<process>
-Output the complete DevFlow command reference from @~/.claude/devflow/workflows/help.md.
-Display the reference content directly — no additions or modifications.
-</process>
+If it is not installed (`aoforge:help` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

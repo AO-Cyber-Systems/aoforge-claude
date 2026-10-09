@@ -121,18 +121,18 @@ test('e2e: blocks .exe even if tiny', () => {
   expectDeny(res, /deny list|exe/);
 });
 
-test('e2e: bypass via DEVFLOW_ALLOW_BINARIES=1', () => {
+test('e2e: bypass via AOFORGE_ALLOW_BINARIES=1', () => {
   const repo = mkRepo();
   writeFile(repo, 'tools/helper.exe', Buffer.from('not an exe'));
-  const res = runHook(repo, 'git commit -m "tool"', { DEVFLOW_ALLOW_BINARIES: '1' });
+  const res = runHook(repo, 'git commit -m "tool"', { AOFORGE_ALLOW_BINARIES: '1' });
   expectAllow(res);
 });
 
-test('e2e: respects .devflow/no-binaries.yml allowed_paths', () => {
+test('e2e: respects .aoforge/no-binaries.yml allowed_paths', () => {
   const repo = mkRepo();
-  fs.mkdirSync(path.join(repo, '.devflow'), { recursive: true });
+  fs.mkdirSync(path.join(repo, '.aoforge'), { recursive: true });
   fs.writeFileSync(
-    path.join(repo, '.devflow', 'no-binaries.yml'),
+    path.join(repo, '.aoforge', 'no-binaries.yml'),
     [
       'enabled: true',
       'max_size_mb: 5',
@@ -140,7 +140,7 @@ test('e2e: respects .devflow/no-binaries.yml allowed_paths', () => {
       '  - "vendored/**"'
     ].join('\n') + '\n'
   );
-  execFileSync('git', ['add', '.devflow/no-binaries.yml'], { cwd: repo });
+  execFileSync('git', ['add', '.aoforge/no-binaries.yml'], { cwd: repo });
   const elf = Buffer.concat([
     Buffer.from([0x7f, 0x45, 0x4c, 0x46]),
     Buffer.alloc(1024)
@@ -152,12 +152,12 @@ test('e2e: respects .devflow/no-binaries.yml allowed_paths', () => {
 
 test('e2e: enabled: false disables the hook entirely', () => {
   const repo = mkRepo();
-  fs.mkdirSync(path.join(repo, '.devflow'), { recursive: true });
+  fs.mkdirSync(path.join(repo, '.aoforge'), { recursive: true });
   fs.writeFileSync(
-    path.join(repo, '.devflow', 'no-binaries.yml'),
+    path.join(repo, '.aoforge', 'no-binaries.yml'),
     'enabled: false\n'
   );
-  execFileSync('git', ['add', '.devflow/no-binaries.yml'], { cwd: repo });
+  execFileSync('git', ['add', '.aoforge/no-binaries.yml'], { cwd: repo });
   writeFile(repo, 'tools/helper.exe', Buffer.alloc(100));
   const res = runHook(repo, 'git commit -m "disabled"');
   expectAllow(res);

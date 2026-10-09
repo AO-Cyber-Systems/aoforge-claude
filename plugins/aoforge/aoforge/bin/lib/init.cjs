@@ -1,0 +1,1280 @@
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const { execSync, spawnSync } = require('child_process');
+const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, MODEL_PROFILES, MODEL_IDS } = require('./helpers.cjs');
+const { loadConfig } = require('./config.cjs');
+const { planningMode } = require('./planning-mode.cjs');
+const { findObjectiveInternal } = require('./objective.cjs');
+const { getMilestoneInfo, getRoadmapObjectiveInternal } = require('./roadmap.cjs');
+const { bootstrapProjectMd, bootstrapObjectiveMd } = require('./project-bootstrap.cjs');
+const { planningRoot, planningRel, planningDirName, planningDirLabel, PLANNING_DIR_NAMES, userDotFile } = require('./compat.cjs');
+
+// ─── Git plumbing (TRD 22-01) ─────────────────────────────────────────────────
+//
+// Pattern mirrors awareness.cjs lines 233-251: a thin spawnSync wrapper plus a
+// `_setRunGit` test injection hook so unit tests can mock git without spawning
+// processes. Use ONLY the `_runGit` shadow inside production code paths added
+// by TRD 22-01; existing init.cjs code paths keep using `execSync` directly
+// (back-compat preserved).
+
+function runGit(args, opts = {}) {
+  const r = spawnSync('git', args, {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    timeout: 30000,
+    ...opts,
+  });
+  return {
+    ok: r.status === 0,
+    status: r.status,
+    stdout: r.stdout || '',
+    stderr: (r.stderr || '').trim(),
+  };
+}
+
+let _runGit = runGit;
+function _setRunGit(fn) { _runGit = (fn != null) ? fn : runGit; }
+function _resetGitMock() { _runGit = runGit; }
+
+// ─── --branch flag resolution (TRD 22-01) ─────────────────────────────────────
+
+/**
+ * Resolve --branch flag from argv slice into a branch spec.
+ *
+ * Modes:
+ *   working_tree (default): read .aoforge/* via fs from cwd
+ *   git_show:               read .aoforge/* via `git show <branch>:<path>`
+ *
+ * Aliases: 'current', 'HEAD' → working_tree mode (per G3 in 22-RESEARCH.md;
+ * detached HEAD returns literal 'HEAD' from git rev-parse, so treat it as alias).
+ *
+ * Errors (calls helpers.cjs error() → process.exit(1)):
+ *   --branch=<name> where <name> does not exist (rev-parse --verify fails)
+ *
+ * Accepts both `--branch foo` and `--branch=foo` forms.
+ *
+ * @param {string[]} args - argv slice
+ * @param {string}   cwd  - working directory (passed to git for repo context)
+ * @returns {{ mode: 'working_tree'|'git_show', branch: string|null }}
+ */
+function _resolveBranch(args, cwd) {
+  let requested = null;
+
+  // Form 1: --branch foo  (separate tokens)
+  const idx = args.indexOf('--branch');
+  if (idx !== -1 && idx + 1 < args.length) {
+    const next = args[idx + 1];
+    // Only accept as the value if it doesn't itself look like a flag
+    if (typeof next === 'string' && !next.startsWith('--')) {
+      requested = next;
+    }
+  }
+
+  // Form 2: --branch=foo  (single token; takes precedence if present)
+  for (const a of args) {
+    if (typeof a === 'string' && a.startsWith('--branch=')) {
+      requested = a.slice('--branch='.length);
+      break;
+    }
+  }
+
+  if (!requested || requested === 'current' || requested === 'HEAD') {
+    return { mode: 'working_tree', branch: null };
+  }
+
+  const verifyR = _runGit(['rev-parse', '--verify', '--quiet', requested], { cwd });
+  if (!verifyR.ok) {
+    error(
+      `--branch=${requested} does not exist. ` +
+      `Hint: 'git branch --list ${requested}*' to find similar names, ` +
+      `or omit --branch to read from current working tree.`
+    );
+  }
+
+  return { mode: 'git_show', branch: requested };
+}
+
+/**
+ * Read .aoforge/STATE.md respecting branch spec.
+ *
+ * working_tree mode: fs.readFileSync — returns null if STATE.md missing (caller decides).
+ * git_show    mode: git show <branch>:.aoforge/STATE.md — errors if missing
+ *                   (explicit cross-branch reads must fail loudly).
+ *
+ * Callers receive null when default working-tree read finds no STATE.md and may
+ * render that as `state_content: null` in --include state output. Cross-branch
+ * reads via --branch=<name> still hard-fail to prevent silent fallback.
+ *
+ * @param {string} cwd
+ * @param {{ mode: string, branch: string|null }} branchSpec
+ * @returns {string|null} STATE.md content, or null in working_tree mode when missing
+ */
+function _readStateBranch(cwd, branchSpec) {
+  if (branchSpec.mode === 'working_tree') {
+    const full = path.join(planningRoot(cwd), 'STATE.md');
+    if (!fs.existsSync(full)) {
+      return null;
+    }
+    return fs.readFileSync(full, 'utf-8');
+  }
+  // git_show mode — keep this branch hard-erroring; cross-branch reads are explicit
+  // the branch may be on either planning-directory layout: the new name first, then the legacy one
+  for (const dir of PLANNING_DIR_NAMES) {
+    const showR = _runGit(['show', `${branchSpec.branch}:${dir}/STATE.md`], { cwd });
+    if (showR.ok) return showR.stdout;
+  }
+  error(`STATE.md not found on branch ${branchSpec.branch} (under ${planningDirLabel()}).`);
+  return null;
+}
+
+/**
+ * Build informational note when --branch=X but current HEAD = Y (X ≠ Y).
+ *
+ * Returns null when:
+ *   - branchSpec.mode === 'working_tree' (no mismatch possible)
+ *   - currentBranch is null or 'HEAD' (detached — no mismatch)
+ *   - currentBranch === branchSpec.branch (same branch — no mismatch)
+ *
+ * Otherwise returns a single-line informational note. Not a warning; the
+ * caller is reading state from another branch on purpose.
+ *
+ * @param {string|null} currentBranch
+ * @param {{ mode: string, branch: string|null }} branchSpec
+ * @returns {string|null}
+ */
+function _buildBranchMismatchNote(currentBranch, branchSpec) {
+  if (!branchSpec || branchSpec.mode !== 'git_show') return null;
+  if (!currentBranch || currentBranch === 'HEAD') return null;
+  if (currentBranch === branchSpec.branch) return null;
+  return `current branch is ${currentBranch}; reading state from ${branchSpec.branch} (--branch flag)`;
+}
+
+/**
+ * Resolve current branch (best-effort). Returns null when not in a git repo
+ * or when git is unavailable. In detached HEAD state, git rev-parse returns
+ * literal 'HEAD' which we propagate so _buildBranchMismatchNote can short
+ * circuit the mismatch check.
+ *
+ * @param {string} cwd
+ * @returns {string|null}
+ */
+function _resolveCurrentBranch(cwd) {
+  const r = _runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd });
+  return r.ok ? r.stdout.trim() : null;
+}
+
+// ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Returns true when lib/awareness.cjs can be required successfully.
+ *
+ * Guidance-only flag — callers (plan-objective, execute-objective skills) read
+ * this field and decide whether to run `aof-tools awareness show --refresh`.
+ * init.cjs does NOT spawn the refresh itself (locked per TRD 02-06 must_haves).
+ *
+ * Returns false on any require error (e.g., awareness.cjs has a syntax error or
+ * a transitive dependency is missing) to avoid breaking init for the caller.
+ *
+ * @returns {boolean}
+ */
+function _awarenessLoadable() {
+  try {
+    require('./awareness.cjs');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read .aoforge/.check-todos-cache.json (cache-only; never spawn fresh fetch).
+ *
+ * Returns:
+ *   { line: '📋 N todos in Now lane (run /aoforge:todo list)', warning: null }
+ *   when cache exists and the `now` lane has ≥1 entry.
+ *   { line: null, warning: null } when cache absent or `now` empty/not-an-array.
+ *   { line: null, warning: '<msg>' } on read/parse error.
+ *
+ * The cache `now` top-level array is written by the post-aggregate check-todos
+ * pipeline. If the user has not yet run /aoforge:todo list the field will be
+ * absent; the helper degrades gracefully to null (no preview line emitted).
+ *
+ * @param {string} cwd - working directory
+ * @returns {{ line: string|null, warning: string|null }}
+ */
+function _buildCheckTodosPreview(cwd) {
+  const cachePath = path.join(planningRoot(cwd), '.check-todos-cache.json');
+  if (!fs.existsSync(cachePath)) return { line: null, warning: null };
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(cachePath, 'utf-8'));
+  } catch (e) {
+    return { line: null, warning: `check-todos-cache parse error: ${e.message}` };
+  }
+  const nowEntries = Array.isArray(parsed.now) ? parsed.now : null;
+  if (!nowEntries || nowEntries.length === 0) return { line: null, warning: null };
+  return {
+    line: `📋 ${nowEntries.length} todos in Now lane (run /aoforge:todo list)`,
+    warning: null,
+  };
+}
+
+/**
+ * Read the awareness cache (cache-only) from the out-of-tree awareness store
+ * (~/.claude/aoforge/state/awareness/<repo-key>.json, TRD 45-01) via awareness.cjs readCache.
+ * Filters out the current branch. A legacy in-tree .aoforge/.awareness-cache.json is ignored.
+ *
+ * Returns:
+ *   { line: '⚠ N other branches active (run aof-tools awareness show)', warning: null }
+ *   when cache exists and ≥1 peer branch (excluding current) is present.
+ *   { line: null, warning: null } when cache absent (or unreadable — readCache treats a
+ *   parse error as "no cache"), peer.branches missing, or all branches filtered.
+ *   The warning slot is kept for the caller's contract but is always null here.
+ *
+ * @param {string} cwd - working directory
+ * @returns {{ line: string|null, warning: string|null }}
+ */
+function _buildAwarenessPreview(cwd) {
+  // Fail open: a broken awareness.cjs (see _awarenessLoadable) must not break init.
+  let parsed;
+  try {
+    parsed = require('./awareness.cjs').readCache(cwd);
+  } catch {
+    return { line: null, warning: null };
+  }
+  if (!parsed) return { line: null, warning: null };
+  const branches =
+    parsed && parsed.peer && Array.isArray(parsed.peer.branches)
+      ? parsed.peer.branches
+      : null;
+  if (!branches) return { line: null, warning: null };
+  const currentBranch = (parsed.peer && parsed.peer.current_branch) || null;
+  const otherBranches = branches.filter(b => {
+    const name = typeof b === 'string' ? b : (b && b.branch);
+    return name && name !== currentBranch;
+  });
+  if (otherBranches.length === 0) return { line: null, warning: null };
+  return {
+    line: `⚠ ${otherBranches.length} other branches active (run aof-tools awareness show)`,
+    warning: null,
+  };
+}
+
+/**
+ * Canonicalise an agent key (TRD 28-02).
+ *
+ * Two spellings were in circulation: compound init commands passed `df-planner`
+ * while skills calling `aof-tools resolve-model` passed `planner`. Profile keys
+ * carried the `df-` prefix, so every un-prefixed call missed the table and fell
+ * through to the hard-coded 'sonnet' default — silently, and regardless of the
+ * configured profile. Measured in the 2026-08-18 audit: resolve-model returned
+ * 'sonnet' with unknown_agent:true for all 7 agents the skills ask about.
+ *
+ * Profile keys are now canonical WITHOUT the prefix; both spellings resolve.
+ */
+function normalizeAgentKey(agentType) {
+  return String(agentType || '').replace(/^df-/, '');
+}
+
+/**
+ * Look up an agent's per-profile tier map, honouring project overrides.
+ * Returns null when the agent is genuinely unknown (so callers can be loud
+ * rather than silently defaulting).
+ */
+function agentTierMap(config, agentType) {
+  const key = normalizeAgentKey(agentType);
+  const merged = Object.assign(
+    {},
+    MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || {},
+    config.agent_models?.[key] || config.agent_models?.[`df-${key}`] || {}
+  );
+  return Object.keys(merged).length ? merged : null;
+}
+
+function resolveModelInternal(cwd, agentType) {
+  const config = loadConfig(cwd);
+  const key = normalizeAgentKey(agentType);
+
+  // Check per-agent override first (legacy key) — accept either spelling
+  const override = config.model_overrides?.[key] ?? config.model_overrides?.[`df-${key}`];
+  if (override) {
+    return override === 'opus' ? 'inherit' : override;
+  }
+
+  const profile = config.model_profile || 'balanced';
+  const agentModels = agentTierMap(config, key);
+  if (!agentModels) return 'sonnet';
+  const resolved = agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  return resolved === 'opus' ? 'inherit' : resolved;
+}
+
+// ─── Commands ─────────────────────────────────────────────────────────────────
+
+function cmdResolveModel(cwd, agentType, raw) {
+  if (!agentType) {
+    error('agent-type required');
+  }
+
+  const config = loadConfig(cwd);
+  const profile = config.model_profile || 'balanced';
+  const key = normalizeAgentKey(agentType);
+  const agentModels = agentTierMap(config, key);
+
+  if (!agentModels) {
+    // Be LOUD. This used to return 'sonnet' silently, which is how a whole-table
+    // key mismatch survived unnoticed — every caller looked like it was working.
+    process.stderr.write(
+      `aof-tools resolve-model: unknown agent "${agentType}" — no entry in ` +
+      `references/model-profiles.json. Falling back to 'sonnet'; the configured ` +
+      `profile "${profile}" is NOT being applied.\n`
+    );
+    const result = { model: 'sonnet', profile, unknown_agent: true, requested: agentType };
+    output(result, raw, 'sonnet');
+    return;
+  }
+
+  const tier = agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  const model = tier === 'opus' ? 'inherit' : tier;
+  // Report the tier and the concrete id alongside the alias so a resolution can
+  // actually be audited (TRD 28-02) — "inherit" alone hid which model ran.
+  const result = { model, profile, agent: key, tier, model_id: MODEL_IDS[tier] || null };
+  output(result, raw, model);
+}
+
+// ─── Objective PR lifecycle (objective 49, GPR-06) ────────────────────────────
+
+const BRANCHING_STRATEGY_DEPRECATION =
+  'git.branching_strategy is deprecated: in store mode (github.store) each objective runs on one linked branch and pull request (gh pr start).';
+
+/**
+ * Whether the objective branch and pull request lifecycle replaces `git.branching_strategy` for this project.
+ *
+ * The mode is decided by the MAIN checkout's config (planningMode resolves it, so a linked worktree's own config
+ * never decides), and nothing here calls gh: the linked branch and PR number come from the local mapping.
+ *
+ *   -> { store, root, fields }
+ *
+ * `fields` is spread into an init's result. It always has `pr_lifecycle`. When a legacy strategy is configured
+ * (anything but 'none'): store mode adds `branching_strategy_ignored: <value>`, local mode adds a `deprecations`
+ * entry. Local mode otherwise changes nothing (D-01); `branching_strategy` itself keeps its value either way.
+ */
+function _prLifecycle(cwd, config) {
+  const mode = planningMode(cwd);
+  const store = mode.mode === 'store';
+  const fields = { pr_lifecycle: store };
+  const strategy = config.branching_strategy;
+  if (typeof strategy === 'string' && strategy !== '' && strategy !== 'none') {
+    if (store) fields.branching_strategy_ignored = strategy;
+    else fields.deprecations = [BRANCHING_STRATEGY_DEPRECATION];
+  }
+  return { store, root: mode.root, fields };
+}
+
+/**
+ * The objective's branch and PR number in store mode. The linked branch recorded in `prs[id]` wins; otherwise
+ * the objective_branch_template is rendered exactly as `branch_name` is rendered for the legacy strategy. With no
+ * recorded branch and no resolvable objective there is nothing to render: `objective_branch` is null.
+ */
+function _objectiveBranchFields(root, config, objectiveInfo, objective) {
+  let entry = null;
+  if (root) {
+    try {
+      const ghMapping = require('./gh-mapping.cjs');
+      entry = ghMapping.getPr(ghMapping.readMappingV3(root), objectiveInfo?.objective_number || objective);
+    } catch {
+      entry = null;
+    }
+  }
+  const number = entry && Number.isInteger(entry.number) ? entry.number : null;
+  if (entry && entry.branch) return { objective_branch: entry.branch, pr_number: number };
+  const rendered = objectiveInfo
+    ? config.objective_branch_template
+        .replace('{objective}', objectiveInfo.objective_number)
+        .replace('{slug}', objectiveInfo.objective_slug || 'objective')
+    : null;
+  return { objective_branch: rendered, pr_number: number };
+}
+
+/**
+ * W066 (objective 72, INST-03): a project still on the legacy planning directory, or holding both, gets the same
+ * one-line advisory `validate health` reports, so the planner and the executor see the migration too.
+ */
+function _pushLegacyPlanningAdvisory(cwd, warnings) {
+  const layout = require('./planning-layout.cjs');
+  const issue = layout.legacyPlanningIssue(cwd);
+  if (issue) warnings.push(layout.advisoryLine(issue));
+}
+
+function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
+  if (!objective) {
+    error('objective required for init execute-objective');
+  }
+
+  const branchSpec = _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const objectiveInfo = findObjectiveInternal(cwd, objective);
+  const milestone = getMilestoneInfo(cwd);
+  const prl = _prLifecycle(cwd, config);
+
+  const result = {
+    // Models
+    executor_model: resolveModelInternal(cwd, 'df-executor'),
+    verifier_model: resolveModelInternal(cwd, 'df-verifier'),
+
+    // Config flags
+    commit_docs: config.commit_docs,
+    parallelization: config.parallelization,
+    branching_strategy: config.branching_strategy,
+    objective_branch_template: config.objective_branch_template,
+    milestone_branch_template: config.milestone_branch_template,
+    verifier_enabled: config.verifier,
+
+    // Objective info
+    objective_found: !!objectiveInfo,
+    objective_dir: objectiveInfo?.directory || null,
+    objective_number: objectiveInfo?.objective_number || null,
+    objective_name: objectiveInfo?.objective_name || null,
+    objective_slug: objectiveInfo?.objective_slug || null,
+
+    // Plan inventory
+    jobs: objectiveInfo?.jobs || [],
+    summaries: objectiveInfo?.summaries || [],
+    incomplete_jobs: objectiveInfo?.incomplete_jobs || [],
+    job_count: objectiveInfo?.jobs?.length || 0,
+    incomplete_count: objectiveInfo?.incomplete_jobs?.length || 0,
+
+    // Branch name (pre-computed). Store mode: null, the legacy `checkout -b` step has nothing to do; the
+    // objective's one linked branch is `objective_branch` below.
+    branch_name: prl.store
+      ? null
+      : config.branching_strategy === 'objective' && objectiveInfo
+        ? config.objective_branch_template
+            .replace('{objective}', objectiveInfo.objective_number)
+            .replace('{slug}', objectiveInfo.objective_slug || 'objective')
+        : config.branching_strategy === 'milestone'
+          ? config.milestone_branch_template
+              .replace('{milestone}', milestone.version)
+              .replace('{slug}', generateSlugInternal(milestone.name) || 'milestone')
+          : null,
+
+    // Objective PR lifecycle (GPR-06): pr_lifecycle always; store mode adds objective_branch / pr_number /
+    // branching_strategy_ignored, local mode adds deprecations when a legacy strategy is configured.
+    ...prl.fields,
+    ...(prl.store ? _objectiveBranchFields(prl.root, config, objectiveInfo, objective) : {}),
+
+    // Milestone info
+    milestone_version: milestone.version,
+    milestone_name: milestone.name,
+    milestone_slug: generateSlugInternal(milestone.name),
+
+    // File existence
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    config_exists: pathExistsInternal(cwd, planningRel(cwd, 'config.json')),
+  };
+
+  // Include file contents if requested via --include
+  // TRD 22-01: STATE.md gets strict missing-state error via _readStateBranch
+  // (vs. silent null fallback). config.json + ROADMAP.md keep safeReadFile
+  // (legitimately-optional artifacts).
+  if (includes.has('state')) {
+    result.state_content = _readStateBranch(cwd, branchSpec);
+  }
+  if (includes.has('config')) {
+    result.config_content = safeReadFile(path.join(planningRoot(cwd), 'config.json'));
+  }
+  if (includes.has('roadmap')) {
+    result.roadmap_content = safeReadFile(path.join(planningRoot(cwd), 'ROADMAP.md'));
+  }
+
+  // Guidance flag for execute-objective skill: trigger aof-tools awareness show --refresh
+  // before spawning the executor agent. The skill is responsible for consuming this flag;
+  // init.cjs only sets it. Falls back to false if awareness.cjs is unavailable/broken.
+  result.awareness_refresh = _awarenessLoadable();
+
+  // TRD 18-03: emit one-line previews from cached data (cache-only, no subprocess spawn)
+  const ctPreviewExec = _buildCheckTodosPreview(cwd);
+  const awPreviewExec = _buildAwarenessPreview(cwd);
+  result.check_todos_preview = ctPreviewExec.line;
+  result.awareness_preview = awPreviewExec.line;
+  result.advisories_warnings = [];
+  if (ctPreviewExec.warning) result.advisories_warnings.push(ctPreviewExec.warning);
+  if (awPreviewExec.warning) result.advisories_warnings.push(awPreviewExec.warning);
+  _pushLegacyPlanningAdvisory(cwd, result.advisories_warnings);
+
+  // TRD 22-01: surface branch resolution + mismatch note
+  result.branch_spec = branchSpec;
+  result.branch_mismatch_note = _buildBranchMismatchNote(_resolveCurrentBranch(cwd), branchSpec);
+
+  // Self-healing bootstrap: ensure PROJECT.md has org + github_repo fields.
+  // If anything was added, the result.bootstrap object communicates what changed
+  // so the calling skill can surface it to the user (no auto-commit; user folds
+  // the change into their next commit).
+  result.bootstrap = bootstrapProjectMd(cwd);
+  // Scoped bootstrap: only touch the target objective's dir, not every
+  // objective under .aoforge/objectives/. Synthesize the legacy shape so
+  // downstream consumers (skills/agents reading bootstrap_objectives) work
+  // unchanged.
+  const _bootstrapObjId = objectiveInfo?.directory
+    ? path.basename(objectiveInfo.directory)
+    : objective;
+  const _bootstrapR = bootstrapObjectiveMd(cwd, _bootstrapObjId);
+  result.bootstrap_objectives = {
+    scanned: 1,
+    applied: _bootstrapR.applied ? 1 : 0,
+    skipped: _bootstrapR.applied ? 0 : 1,
+    errors: [],
+    paths: _bootstrapR.applied
+      ? [path.relative(cwd, _bootstrapR.path).split(path.sep).join('/')]
+      : [],
+  };
+
+  output(result, raw);
+}
+
+function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
+  if (!objective) {
+    error('objective required for init plan-objective');
+  }
+
+  const branchSpec = _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const objectiveInfo = findObjectiveInternal(cwd, objective);
+
+  const result = {
+    // Models
+    researcher_model: resolveModelInternal(cwd, 'df-objective-researcher'),
+    planner_model: resolveModelInternal(cwd, 'df-planner'),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+
+    // Workflow flags
+    research_enabled: config.research,
+    job_checker_enabled: config.job_checker,
+    commit_docs: config.commit_docs,
+
+    // Objective info
+    objective_found: !!objectiveInfo,
+    objective_dir: objectiveInfo?.directory || null,
+    objective_number: objectiveInfo?.objective_number || null,
+    objective_name: objectiveInfo?.objective_name || null,
+    objective_slug: objectiveInfo?.objective_slug || null,
+    padded_objective: objectiveInfo?.objective_number?.padStart(2, '0') || null,
+
+    // Existing artifacts
+    has_research: objectiveInfo?.has_research || false,
+    has_context: objectiveInfo?.has_context || false,
+    has_jobs: (objectiveInfo?.jobs?.length || 0) > 0,
+    job_count: objectiveInfo?.jobs?.length || 0,
+
+    // Environment
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+  };
+
+  // Include file contents if requested via --include
+  // TRD 22-01: STATE.md gets strict missing-state error via _readStateBranch.
+  if (includes.has('state')) {
+    result.state_content = _readStateBranch(cwd, branchSpec);
+  }
+  if (includes.has('roadmap')) {
+    result.roadmap_content = safeReadFile(path.join(planningRoot(cwd), 'ROADMAP.md'));
+  }
+  if (includes.has('requirements')) {
+    result.requirements_content = safeReadFile(path.join(planningRoot(cwd), 'REQUIREMENTS.md'));
+  }
+  if (includes.has('context') && objectiveInfo?.directory) {
+    // Find *-CONTEXT.md in objective directory
+    const objectiveDirFull = path.join(cwd, objectiveInfo.directory);
+    try {
+      const files = fs.readdirSync(objectiveDirFull);
+      const contextFile = files.find(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
+      if (contextFile) {
+        result.context_content = safeReadFile(path.join(objectiveDirFull, contextFile));
+      }
+    } catch {}
+  }
+  if (includes.has('research') && objectiveInfo?.directory) {
+    // Find *-RESEARCH.md in objective directory
+    const objectiveDirFull = path.join(cwd, objectiveInfo.directory);
+    try {
+      const files = fs.readdirSync(objectiveDirFull);
+      const researchFile = files.find(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
+      if (researchFile) {
+        result.research_content = safeReadFile(path.join(objectiveDirFull, researchFile));
+      }
+    } catch {}
+  }
+  if (includes.has('verification') && objectiveInfo?.directory) {
+    // Find *-VERIFICATION.md in objective directory
+    const objectiveDirFull = path.join(cwd, objectiveInfo.directory);
+    try {
+      const files = fs.readdirSync(objectiveDirFull);
+      const verificationFile = files.find(f => f.endsWith('-VERIFICATION.md') || f === 'VERIFICATION.md');
+      if (verificationFile) {
+        result.verification_content = safeReadFile(path.join(objectiveDirFull, verificationFile));
+      }
+    } catch {}
+  }
+  if (includes.has('uat') && objectiveInfo?.directory) {
+    // Find *-UAT.md in objective directory
+    const objectiveDirFull = path.join(cwd, objectiveInfo.directory);
+    try {
+      const files = fs.readdirSync(objectiveDirFull);
+      const uatFile = files.find(f => f.endsWith('-UAT.md') || f === 'UAT.md');
+      if (uatFile) {
+        result.uat_content = safeReadFile(path.join(objectiveDirFull, uatFile));
+      }
+    } catch {}
+  }
+
+  // Guidance flag for plan-objective skill: trigger aof-tools awareness show --refresh
+  // before spawning the planner agent. The skill is responsible for consuming this flag;
+  // init.cjs only sets it. Falls back to false if awareness.cjs is unavailable/broken.
+  result.awareness_refresh = _awarenessLoadable();
+
+  // TRD 18-03: emit one-line previews from cached data (cache-only, no subprocess spawn)
+  const ctPreviewPlan = _buildCheckTodosPreview(cwd);
+  const awPreviewPlan = _buildAwarenessPreview(cwd);
+  result.check_todos_preview = ctPreviewPlan.line;
+  result.awareness_preview = awPreviewPlan.line;
+  result.advisories_warnings = [];
+  if (ctPreviewPlan.warning) result.advisories_warnings.push(ctPreviewPlan.warning);
+  if (awPreviewPlan.warning) result.advisories_warnings.push(awPreviewPlan.warning);
+  _pushLegacyPlanningAdvisory(cwd, result.advisories_warnings);
+
+  // TRD 22-01: surface branch resolution + mismatch note
+  result.branch_spec = branchSpec;
+  result.branch_mismatch_note = _buildBranchMismatchNote(_resolveCurrentBranch(cwd), branchSpec);
+
+  // Self-healing bootstrap: ensure PROJECT.md has org + github_repo fields.
+  // See cmdInitExecuteObjective for the same pattern.
+  result.bootstrap = bootstrapProjectMd(cwd);
+  // Scoped bootstrap: only touch the target objective's dir, not every
+  // objective under .aoforge/objectives/. Synthesize the legacy shape so
+  // downstream consumers (skills/agents reading bootstrap_objectives) work
+  // unchanged.
+  const _bootstrapObjId = objectiveInfo?.directory
+    ? path.basename(objectiveInfo.directory)
+    : objective;
+  const _bootstrapR = bootstrapObjectiveMd(cwd, _bootstrapObjId);
+  result.bootstrap_objectives = {
+    scanned: 1,
+    applied: _bootstrapR.applied ? 1 : 0,
+    skipped: _bootstrapR.applied ? 0 : 1,
+    errors: [],
+    paths: _bootstrapR.applied
+      ? [path.relative(cwd, _bootstrapR.path).split(path.sep).join('/')]
+      : [],
+  };
+
+  output(result, raw);
+}
+
+function cmdInitNewProject(cwd, raw, args = []) {
+  // TRD 22-01: resolve --branch (no-op for new-project — no state to read yet,
+  // but flag must parse cleanly so the missing-branch error fires consistently).
+  const branchSpec = _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+
+  // Detect Brave Search API key availability (~/.aoforge/ first, the legacy dot directory second)
+  const homedir = require('os').homedir();
+  const braveKeyFile = userDotFile(homedir, 'brave_api_key');
+  const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
+
+  // 37-04 (ADP-01): one detector call replaces the `find -maxdepth 3` shell-out, the org-marker
+  // lookup and the manifest list — repo-state.cjs's `detectRepoState` performs all three (and,
+  // unlike `-maxdepth 3`, has no depth limit: a code file nested arbitrarily deep now counts).
+  const { detectRepoState } = require('./repo-state.cjs');
+  const { state: repoStateName, signals: repoSignals } = detectRepoState(cwd, { userHome: homedir });
+
+  const hasCode = repoSignals.code_files > 0;
+  const hasPackageFile = repoSignals.has_manifest;
+  const isBrownfield = repoSignals.code_files > 0 || repoSignals.has_manifest;
+
+  const result = {
+    // Models
+    researcher_model: resolveModelInternal(cwd, 'df-project-researcher'),
+    synthesizer_model: resolveModelInternal(cwd, 'df-research-synthesizer'),
+    roadmapper_model: resolveModelInternal(cwd, 'df-roadmapper'),
+
+    // Config
+    commit_docs: config.commit_docs,
+
+    // Existing state
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    has_codebase_map: pathExistsInternal(cwd, planningRel(cwd, 'codebase')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+
+    // Brownfield detection
+    has_existing_code: hasCode,
+    has_package_file: hasPackageFile,
+    is_brownfield: isBrownfield,
+    needs_codebase_map: isBrownfield && !repoSignals.has_codebase_map,
+
+    // Git state
+    has_git: pathExistsInternal(cwd, '.git'),
+
+    // Enhanced search
+    brave_search_available: hasBraveSearch,
+
+    // 37-04: additive — repo-state.cjs's full classification, for downstream consumers (37-10)
+    repo_state: { state: repoStateName, signals: repoSignals },
+  };
+
+  output(result, raw);
+}
+
+function cmdInitNewMilestone(cwd, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const milestone = getMilestoneInfo(cwd);
+
+  const result = {
+    // Models
+    researcher_model: resolveModelInternal(cwd, 'df-project-researcher'),
+    synthesizer_model: resolveModelInternal(cwd, 'df-research-synthesizer'),
+    roadmapper_model: resolveModelInternal(cwd, 'df-roadmapper'),
+
+    // Config
+    commit_docs: config.commit_docs,
+    research_enabled: config.research,
+
+    // Current milestone
+    current_milestone: milestone.version,
+    current_milestone_name: milestone.name,
+
+    // File existence
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+  };
+
+  output(result, raw);
+}
+
+function cmdInitQuick(cwd, description, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const now = new Date();
+  const slug = description ? generateSlugInternal(description)?.substring(0, 40) : null;
+
+  // Find next quick task number
+  const quickDir = path.join(planningRoot(cwd), 'quick');
+  let nextNum = 1;
+  try {
+    const existing = fs.readdirSync(quickDir)
+      .filter(f => /^\d+-/.test(f))
+      .map(f => parseInt(f.split('-')[0], 10))
+      .filter(n => !isNaN(n));
+    if (existing.length > 0) {
+      nextNum = Math.max(...existing) + 1;
+    }
+  } catch {}
+
+  const result = {
+    // Models
+    planner_model: resolveModelInternal(cwd, 'df-planner'),
+    executor_model: resolveModelInternal(cwd, 'df-executor'),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+    verifier_model: resolveModelInternal(cwd, 'df-verifier'),
+
+    // Config
+    commit_docs: config.commit_docs,
+
+    // Quick task info
+    next_num: nextNum,
+    slug: slug,
+    description: description || null,
+
+    // Timestamps
+    date: now.toISOString().split('T')[0],
+    timestamp: now.toISOString(),
+
+    // Paths
+    quick_dir: planningRel(cwd, 'quick'),
+    task_dir: slug ? planningRel(cwd, 'quick', `${nextNum}-${slug}`) : null,
+
+    // File existence
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+  };
+
+  output(result, raw);
+}
+
+function cmdInitResume(cwd, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+
+  // Check for interrupted agent
+  let interruptedAgentId = null;
+  try {
+    interruptedAgentId = fs.readFileSync(path.join(planningRoot(cwd), 'current-agent-id.txt'), 'utf-8').trim();
+  } catch {}
+
+  const result = {
+    // File existence
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+
+    // Agent state
+    has_interrupted_agent: !!interruptedAgentId,
+    interrupted_agent_id: interruptedAgentId,
+
+    // Config
+    commit_docs: config.commit_docs,
+  };
+
+  output(result, raw);
+}
+
+function cmdInitVerifyWork(cwd, objective, raw, args = []) {
+  if (!objective) {
+    error('objective required for init verify-work');
+  }
+
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const objectiveInfo = findObjectiveInternal(cwd, objective);
+
+  const result = {
+    // Models
+    planner_model: resolveModelInternal(cwd, 'df-planner'),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+
+    // Config
+    commit_docs: config.commit_docs,
+
+    // Objective info
+    objective_found: !!objectiveInfo,
+    objective_dir: objectiveInfo?.directory || null,
+    objective_number: objectiveInfo?.objective_number || null,
+    objective_name: objectiveInfo?.objective_name || null,
+
+    // Existing artifacts
+    has_verification: objectiveInfo?.has_verification || false,
+  };
+
+  output(result, raw);
+}
+
+function cmdInitObjectiveOp(cwd, objective, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  let objectiveInfo = findObjectiveInternal(cwd, objective);
+
+  // Fallback to ROADMAP.md if no directory exists (e.g., **Jobs:** TBD)
+  if (!objectiveInfo) {
+    const roadmapObjective = getRoadmapObjectiveInternal(cwd, objective);
+    if (roadmapObjective?.found) {
+      const objectiveName = roadmapObjective.objective_name;
+      objectiveInfo = {
+        found: true,
+        directory: null,
+        objective_number: roadmapObjective.objective_number,
+        objective_name: objectiveName,
+        objective_slug: objectiveName ? objectiveName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') : null,
+        jobs: [],
+        summaries: [],
+        incomplete_jobs: [],
+        has_research: false,
+        has_context: false,
+        has_verification: false,
+      };
+    }
+  }
+
+  const result = {
+    // Config
+    commit_docs: config.commit_docs,
+    brave_search: config.brave_search,
+
+    // Objective info
+    objective_found: !!objectiveInfo,
+    objective_dir: objectiveInfo?.directory || null,
+    objective_number: objectiveInfo?.objective_number || null,
+    objective_name: objectiveInfo?.objective_name || null,
+    objective_slug: objectiveInfo?.objective_slug || null,
+    padded_objective: objectiveInfo?.objective_number?.padStart(2, '0') || null,
+
+    // Existing artifacts
+    has_research: objectiveInfo?.has_research || false,
+    has_context: objectiveInfo?.has_context || false,
+    has_jobs: (objectiveInfo?.jobs?.length || 0) > 0,
+    has_verification: objectiveInfo?.has_verification || false,
+    job_count: objectiveInfo?.jobs?.length || 0,
+
+    // File existence
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+  };
+
+  output(result, raw);
+}
+
+function cmdInitTodos(cwd, area, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const now = new Date();
+
+  // List todos (reuse existing logic)
+  const pendingDir = path.join(planningRoot(cwd), 'todos', 'pending');
+  let count = 0;
+  const todos = [];
+
+  try {
+    const files = fs.readdirSync(pendingDir).filter(f => f.endsWith('.md'));
+    for (const file of files) {
+      try {
+        const content = fs.readFileSync(path.join(pendingDir, file), 'utf-8');
+        const createdMatch = content.match(/^created:\s*(.+)$/m);
+        const titleMatch = content.match(/^title:\s*(.+)$/m);
+        const areaMatch = content.match(/^area:\s*(.+)$/m);
+        const todoArea = areaMatch ? areaMatch[1].trim() : 'general';
+
+        if (area && todoArea !== area) continue;
+
+        count++;
+        todos.push({
+          file,
+          created: createdMatch ? createdMatch[1].trim() : 'unknown',
+          title: titleMatch ? titleMatch[1].trim() : 'Untitled',
+          area: todoArea,
+          path: path.join(planningDirName(cwd), 'todos', 'pending', file),
+        });
+      } catch {}
+    }
+  } catch {}
+
+  const result = {
+    // Config
+    commit_docs: config.commit_docs,
+
+    // Timestamps
+    date: now.toISOString().split('T')[0],
+    timestamp: now.toISOString(),
+
+    // Todo inventory
+    todo_count: count,
+    todos,
+    area_filter: area || null,
+
+    // Paths
+    pending_dir: planningRel(cwd, 'todos/pending'),
+    completed_dir: planningRel(cwd, 'todos/completed'),
+
+    // File existence
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+    todos_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'todos')),
+    pending_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'todos/pending')),
+  };
+
+  output(result, raw);
+}
+
+function cmdInitMilestoneOp(cwd, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const milestone = getMilestoneInfo(cwd);
+
+  // Count objectives
+  let objectiveCount = 0;
+  let completedPhases = 0;
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
+  try {
+    const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
+    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name);
+    objectiveCount = dirs.length;
+
+    // Count objectives with summaries (completed)
+    for (const dir of dirs) {
+      try {
+        const objectiveFiles = fs.readdirSync(path.join(objectivesDir, dir));
+        const hasSummary = objectiveFiles.some(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
+        if (hasSummary) completedPhases++;
+      } catch {}
+    }
+  } catch {}
+
+  // Check archive
+  const archiveDir = path.join(planningRoot(cwd), 'archive');
+  let archivedMilestones = [];
+  try {
+    archivedMilestones = fs.readdirSync(archiveDir, { withFileTypes: true })
+      .filter(e => e.isDirectory())
+      .map(e => e.name);
+  } catch {}
+
+  const result = {
+    // Config
+    commit_docs: config.commit_docs,
+
+    // Objective PR lifecycle (GPR-06): store mode merges nothing locally, so complete-milestone skips the
+    // local branch merge. No objective is in context here, so no branch fields.
+    ..._prLifecycle(cwd, config).fields,
+
+    // Current milestone
+    milestone_version: milestone.version,
+    milestone_name: milestone.name,
+    milestone_slug: generateSlugInternal(milestone.name),
+
+    // Objective counts
+    objective_count: objectiveCount,
+    completed_objectives: completedPhases,
+    all_objectives_complete: objectiveCount > 0 && objectiveCount === completedPhases,
+
+    // Archive
+    archived_milestones: archivedMilestones,
+    archive_count: archivedMilestones.length,
+
+    // File existence
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+    archive_exists: pathExistsInternal(cwd, planningRel(cwd, 'archive')),
+    objectives_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'objectives')),
+  };
+
+  output(result, raw);
+}
+
+function cmdInitMapCodebase(cwd, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+
+  // Check for existing codebase maps
+  const codebaseDir = path.join(planningRoot(cwd), 'codebase');
+  let existingMaps = [];
+  try {
+    existingMaps = fs.readdirSync(codebaseDir).filter(f => f.endsWith('.md'));
+  } catch {}
+
+  const result = {
+    // Models
+    mapper_model: resolveModelInternal(cwd, 'df-codebase-mapper'),
+
+    // Config
+    commit_docs: config.commit_docs,
+    search_gitignored: config.search_gitignored,
+    parallelization: config.parallelization,
+
+    // Paths
+    codebase_dir: planningRel(cwd, 'codebase'),
+
+    // Existing maps
+    existing_maps: existingMaps,
+    has_maps: existingMaps.length > 0,
+
+    // File existence
+    planning_exists: pathExistsInternal(cwd, planningRel(cwd)),
+    codebase_dir_exists: pathExistsInternal(cwd, planningRel(cwd, 'codebase')),
+  };
+
+  output(result, raw);
+}
+
+function cmdInitSecurityAudit(cwd, raw, args = []) {
+  // TRD 22-01: resolve --branch (validates flag; not currently consumed in body)
+  _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+
+  // Resolve auditor model
+  const auditorModel = resolveModelInternal(cwd, 'df-security-auditor');
+
+  // Check for existing audit report
+  const planningExists = pathExistsInternal(cwd, planningRel(cwd));
+  const outputDir = planningExists ? planningDirName(cwd) : '.';
+  const reportPath = path.join(outputDir, 'SECURITY-AUDIT.md');
+  const existingReport = pathExistsInternal(cwd, reportPath);
+
+  // Check for stale temp dir
+  const tmpDir = '.security-audit-tmp';
+  const staleTmpExists = pathExistsInternal(cwd, tmpDir);
+
+  // Detect stack from common manifest files
+  const stack = [];
+  if (pathExistsInternal(cwd, 'package.json')) stack.push('javascript');
+  if (pathExistsInternal(cwd, 'tsconfig.json')) stack.push('typescript');
+  if (pathExistsInternal(cwd, 'requirements.txt') || pathExistsInternal(cwd, 'pyproject.toml') || pathExistsInternal(cwd, 'Pipfile')) stack.push('python');
+  if (pathExistsInternal(cwd, 'go.mod')) stack.push('go');
+  if (pathExistsInternal(cwd, 'Cargo.toml')) stack.push('rust');
+  if (pathExistsInternal(cwd, 'pom.xml') || pathExistsInternal(cwd, 'build.gradle')) stack.push('java');
+  if (pathExistsInternal(cwd, 'Gemfile')) stack.push('ruby');
+  if (pathExistsInternal(cwd, 'pubspec.yaml')) stack.push('dart');
+  if (pathExistsInternal(cwd, 'build.gradle.kts')) stack.push('kotlin');
+  if (pathExistsInternal(cwd, 'Package.swift')) stack.push('swift');
+
+  // 35-09: each matching installed org profile's own `languages`, deduped against the stack
+  // built above (and across markers that share a profile).
+  const { detectMarkers, matchMarkersAt } = require('./stack-profile.cjs');
+  const orgMarkersHere = matchMarkersAt(cwd, detectMarkers({ userHome: require('os').homedir() }));
+  for (const m of orgMarkersHere) {
+    for (const lang of m.languages) {
+      if (!stack.includes(lang)) stack.push(lang);
+    }
+  }
+
+  const result = {
+    auditor_model: auditorModel,
+    parallelization: config.parallelization,
+    output_dir: outputDir,
+    report_path: reportPath,
+    existing_report: existingReport,
+    stale_tmp_exists: staleTmpExists,
+    tmp_dir: tmpDir,
+    stack: stack,
+    planning_exists: planningExists,
+  };
+
+  output(result, raw);
+}
+
+function cmdInitProgress(cwd, includes, raw, args = []) {
+  const branchSpec = _resolveBranch(args, cwd);
+  const config = loadConfig(cwd);
+  const milestone = getMilestoneInfo(cwd);
+  const { findPlanFiles } = require('./helpers.cjs');
+
+  // Analyze objectives
+  const objectivesDir = path.join(planningRoot(cwd), 'objectives');
+  const objectives = [];
+  let currentObjective = null;
+  let nextObjective = null;
+
+  try {
+    const entries = fs.readdirSync(objectivesDir, { withFileTypes: true });
+    const dirs = entries.filter(e => e.isDirectory()).map(e => e.name).sort();
+
+    for (const dir of dirs) {
+      const match = dir.match(/^(\d+(?:\.\d+)?)-?(.*)/);
+      const objectiveNumber = match ? match[1] : dir;
+      const objectiveName = match && match[2] ? match[2] : null;
+
+      const objectivePath = path.join(objectivesDir, dir);
+      const objectiveFiles = fs.readdirSync(objectivePath);
+
+      const plans = findPlanFiles(objectiveFiles);
+      const summaries = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md');
+      const hasResearch = objectiveFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
+
+      const status = summaries.length >= plans.length && plans.length > 0 ? 'complete' :
+                     plans.length > 0 ? 'in_progress' :
+                     hasResearch ? 'researched' : 'pending';
+
+      const objectiveInfo = {
+        number: objectiveNumber,
+        name: objectiveName,
+        directory: path.join(planningDirName(cwd), 'objectives', dir),
+        status,
+        job_count: plans.length,
+        summary_count: summaries.length,
+        has_research: hasResearch,
+      };
+
+      objectives.push(objectiveInfo);
+
+      // Find current (first incomplete with plans) and next (first pending)
+      if (!currentObjective && (status === 'in_progress' || status === 'researched')) {
+        currentObjective = objectiveInfo;
+      }
+      if (!nextObjective && status === 'pending') {
+        nextObjective = objectiveInfo;
+      }
+    }
+  } catch {}
+
+  // Check for paused work
+  let pausedAt = null;
+  try {
+    const state = fs.readFileSync(path.join(planningRoot(cwd), 'STATE.md'), 'utf-8');
+    const pauseMatch = state.match(/\*\*Paused At:\*\*\s*(.+)/);
+    if (pauseMatch) pausedAt = pauseMatch[1].trim();
+  } catch {}
+
+  const result = {
+    // Models
+    executor_model: resolveModelInternal(cwd, 'df-executor'),
+    planner_model: resolveModelInternal(cwd, 'df-planner'),
+
+    // Config
+    commit_docs: config.commit_docs,
+
+    // Milestone
+    milestone_version: milestone.version,
+    milestone_name: milestone.name,
+
+    // Objective overview
+    objectives,
+    objective_count: objectives.length,
+    completed_count: objectives.filter(p => p.status === 'complete').length,
+    in_progress_count: objectives.filter(p => p.status === 'in_progress').length,
+
+    // Current state
+    current_objective: currentObjective,
+    next_objective: nextObjective,
+    paused_at: pausedAt,
+    has_work_in_progress: !!currentObjective,
+
+    // File existence
+    project_exists: pathExistsInternal(cwd, planningRel(cwd, 'PROJECT.md')),
+    roadmap_exists: pathExistsInternal(cwd, planningRel(cwd, 'ROADMAP.md')),
+    state_exists: pathExistsInternal(cwd, planningRel(cwd, 'STATE.md')),
+  };
+
+  // Include file contents if requested via --include
+  // TRD 22-01: STATE.md gets strict missing-state error via _readStateBranch.
+  if (includes.has('state')) {
+    result.state_content = _readStateBranch(cwd, branchSpec);
+  }
+  if (includes.has('roadmap')) {
+    result.roadmap_content = safeReadFile(path.join(planningRoot(cwd), 'ROADMAP.md'));
+  }
+  if (includes.has('project')) {
+    result.project_content = safeReadFile(path.join(planningRoot(cwd), 'PROJECT.md'));
+  }
+  if (includes.has('config')) {
+    result.config_content = safeReadFile(path.join(planningRoot(cwd), 'config.json'));
+  }
+
+  output(result, raw);
+}
+
+module.exports = {
+  resolveModelInternal,
+  cmdResolveModel,
+  cmdInitExecuteObjective,
+  cmdInitPlanObjective,
+  cmdInitNewProject,
+  cmdInitNewMilestone,
+  cmdInitQuick,
+  cmdInitResume,
+  cmdInitVerifyWork,
+  cmdInitObjectiveOp,
+  cmdInitTodos,
+  cmdInitMilestoneOp,
+  cmdInitMapCodebase,
+  cmdInitSecurityAudit,
+  cmdInitProgress,
+  // TRD 18-03: exported for unit testing (underscore-prefix = test-only, not public API)
+  _buildCheckTodosPreview,
+  _buildAwarenessPreview,
+  // TRD 22-01: --branch flag plumbing + branch-aware state readers
+  _resolveBranch,
+  _readStateBranch,
+  _buildBranchMismatchNote,
+  _resolveCurrentBranch,
+  _setRunGit,
+  _resetGitMock,
+};

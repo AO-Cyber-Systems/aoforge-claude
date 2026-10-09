@@ -13,7 +13,8 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const evalTool = require('./estimate-window-eval.cjs');
-const lib = path.join(__dirname, '..', 'plugins', 'devflow', 'devflow', 'bin', 'lib');
+const { planningRoot } = require('../plugins/aoforge/aoforge/bin/lib/compat.cjs');
+const lib = path.join(__dirname, '..', 'plugins', 'aoforge', 'aoforge', 'bin', 'lib');
 const { makeCalibrationProject, removeCalibrationProject } = require(path.join(lib, '__fixtures__', 'calibration-fixtures.cjs'));
 const { makeEstimateProject, removeEstimateProject, makeCalibration } = require(path.join(lib, '__fixtures__', 'estimate-fixtures.cjs'));
 const em = require(path.join(lib, 'estimate-math.cjs'));
@@ -266,7 +267,7 @@ describe('cutProject', () => {
     dest = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-cut-'));
     try {
       const r = evalTool.cutProject({ snapshotRoot: root, dest, ...over });
-      return { kept: r.kept, listing: fs.readdirSync(path.join(dest, '.planning', 'objectives')).sort(), top: fs.readdirSync(path.join(dest, '.planning')).sort() };
+      return { kept: r.kept, listing: fs.readdirSync(path.join(planningRoot(dest), 'objectives')).sort(), top: fs.readdirSync(planningRoot(dest)).sort() };
     } finally {
       fs.rmSync(dest, { recursive: true, force: true });
     }
@@ -299,7 +300,7 @@ describe('cutProject', () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-cut-'));
     try {
       evalTool.cutProject({ snapshotRoot: bare, before: 9, window: null, dest: d });
-      assert.deepEqual(fs.readdirSync(path.join(d, '.planning')).sort(), ['objectives']);
+      assert.deepEqual(fs.readdirSync(planningRoot(d)).sort(), ['objectives']);
     } finally {
       fs.rmSync(d, { recursive: true, force: true });
       removeCalibrationProject(bare);
@@ -544,7 +545,7 @@ describe('characterization of the objective rollup (suspect S3)', () => {
       const r = rollup.estimateObjective(cal, root, '90', { all: true });
       assert.equal(r.trds.total, 2);
 
-      const dir = path.join(root, '.planning', 'objectives', '90-obj');
+      const dir = path.join(planningRoot(root), 'objectives', '90-obj');
       const dists = fs.readdirSync(dir).filter((f) => f.endsWith('-TRD.md')).sort()
         .map((f) => em.fitQuantiles(est.estimateTrdText(cal, fs.readFileSync(path.join(dir, f), 'utf-8')).minutes));
       assert.equal(dists.length, 2);
@@ -668,7 +669,7 @@ describe('report and CLI', () => {
   test('11b. the CLI refuses any path under ~/.claude', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-window-home-'));
     try {
-      const target = path.join(home, '.claude', 'devflow', 'out.json');
+      const target = path.join(home, '.claude', 'aoforge', 'out.json');
       const r = run(['report', '--snapshot', root, '--eval', '6-6', '--grid', '2', '--json', target], { HOME: home });
       assert.equal(r.status, 1);
       assert.match(r.stderr, /\.claude/);

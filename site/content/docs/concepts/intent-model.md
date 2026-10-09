@@ -5,7 +5,7 @@ lede: "kind × work → TDD posture, planning depth, model profile and verificat
 ---
 
 Uniform rigor is wrong in both directions: it over-tests throwaway spikes and
-under-tests payment paths. DevFlow's intent model derives the right posture from
+under-tests payment paths. AOForge's intent model derives the right posture from
 two declarations.
 
 ## The two axes
@@ -58,7 +58,7 @@ not decoration. The planner reads it and it outranks the defaults table.
 ## Inspecting a resolution
 
 ```bash
-df-tools intent resolve --objective 4
+aof-tools intent resolve --objective 4
 ```
 
 Every resolved field carries provenance, so you can see exactly which level
@@ -77,8 +77,8 @@ supplied it. Two parallel maps come back:
 
 | Value | Meaning |
 |---|---|
-| `project_table` | `.planning/defaults-table.md` |
-| `org_table` | `~/.claude/devflow/defaults-table.md` |
+| `project_table` | `.aoforge/defaults-table.md` |
+| `org_table` | `~/.claude/aoforge/defaults-table.md` |
 | `bundled_table` | the plugin's own reference copy |
 
 Read together: if `provenance.tdd` is `trd_override` and `cell_provenance.tdd` is
@@ -93,10 +93,10 @@ you actually want to change.
 
 ```bash
 # Org-wide, applies to every project on this machine
-df-tools defaults-table init --scope=org      # → ~/.claude/devflow/defaults-table.md
+aof-tools defaults-table init --scope=org      # → ~/.claude/aoforge/defaults-table.md
 
 # Just this project
-df-tools defaults-table init --scope=project  # → .planning/defaults-table.md
+aof-tools defaults-table init --scope=project  # → .aoforge/defaults-table.md
 ```
 
 Omitted cells fall through to the next tier.
@@ -104,6 +104,6 @@ Omitted cells fall through to the next tier.
 ## Migrating older projects
 
 Projects created before the intent model have no `kind` and no `work`. Run
-`/devflow:status check`; if it reports missing intent frontmatter it offers a
-migration, which always backs up to `.planning/.migrate-backup-{timestamp}/`
+`/aoforge:status check`; if it reports missing intent frontmatter it offers a
+migration, which always backs up to `.aoforge/.migrate-backup-{timestamp}/`
 first.

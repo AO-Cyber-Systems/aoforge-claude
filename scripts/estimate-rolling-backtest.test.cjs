@@ -22,7 +22,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const rolling = require('./estimate-rolling-backtest.cjs');
-const lib = path.join(__dirname, '..', 'plugins', 'devflow', 'devflow', 'bin', 'lib');
+const lib = path.join(__dirname, '..', 'plugins', 'aoforge', 'aoforge', 'bin', 'lib');
 const { cloneSpec } = require(path.join(lib, '__fixtures__', 'calibration-fixtures.cjs'));
 const { BACKTEST_SPEC, makeBacktestProject, removeBacktestProject } = require(path.join(lib, '__fixtures__', 'backtest-fixtures.cjs'));
 const { makeCalibration, writeCalibrationFile } = require(path.join(lib, '__fixtures__', 'estimate-fixtures.cjs'));
@@ -106,7 +106,7 @@ function calFile(cal) {
 
 function runCli(args, { cwd = scratch, home = emptyHome } = {}) {
   const env = { ...process.env, HOME: home };
-  delete env.DEVFLOW_CALIBRATION_PATH;
+  delete env.AOFORGE_CALIBRATION_PATH;
   return spawnSync(process.execPath, [SCRIPT, ...args], { cwd, env, encoding: 'utf-8', timeout: 120000 });
 }
 
@@ -227,7 +227,7 @@ describe('20. the CLI', () => {
   });
 
   test('20h. --json refuses a path under ~/.claude', () => {
-    const r = runCli([...oldArgs(), '--repo', project, '--json', path.join(emptyHome, '.claude', 'devflow', 'out.json')]);
+    const r = runCli([...oldArgs(), '--repo', project, '--json', path.join(emptyHome, '.claude', 'aoforge', 'out.json')]);
     assert.equal(r.status, 1);
     assert.match(r.stderr, /refuses a path under ~\/\.claude/);
     assert.equal(fs.existsSync(path.join(emptyHome, '.claude')), false);
@@ -427,11 +427,11 @@ describe('21. isolation', () => {
     assert.equal(fs.existsSync(path.join(home, '.claude')), false);
   });
 
-  test('a calibration named by DEVFLOW_CALIBRATION_PATH is never read', () => {
+  test('a calibration named by AOFORGE_CALIBRATION_PATH is never read', () => {
     const decoy = calFile(makeCalibration({ data_as_of: '1999-01-01' }));
     const files = [calFile(calA()), calFile(calB()), calFile(calC())];
     const args = ['90', '91', '92'].flatMap((n, i) => ['--old', `${n}=${files[i]}`]);
-    const env = { ...process.env, HOME: emptyHome, DEVFLOW_CALIBRATION_PATH: decoy };
+    const env = { ...process.env, HOME: emptyHome, AOFORGE_CALIBRATION_PATH: decoy };
     const r = spawnSync(process.execPath, [SCRIPT, ...args, '--repo', project], { cwd: scratch, env, encoding: 'utf-8', timeout: 120000 });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout.includes('1999-01-01'), false);

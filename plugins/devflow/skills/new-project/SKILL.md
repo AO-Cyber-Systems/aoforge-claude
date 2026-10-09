@@ -2,48 +2,14 @@
 name: new-project
 description: |
   Set up a new project from scratch — asks what you're building, researches the domain, defines requirements, and creates a development roadmap.
-  Use when the user wants to start a new project or initialize DevFlow for the first time.
+  Use when the user wants to start a new project or initialize AOForge for the first time.
   Triggers on: "start a new project", "initialize project", "let's build something new", "set up a new project", "new project"
 argument-hint: "[--auto]"
 allowed-tools:
-  - Read
-  - Bash
-  - Write
-  - Task
-  - AskUserQuestion
-  - TaskCreate
-  - TaskUpdate
-  - EnterPlanMode
+  - Skill
 ---
-<context>
-**Flags:**
-- `--auto` — Automatic mode. After config questions, runs research → requirements → roadmap without further interaction. Expects idea document via @ reference.
-</context>
+DevFlow is now AOForge. This command moved to `/aoforge:new-project`.
 
-<objective>
-Initialize a new project through unified flow: questioning → research (optional) → requirements → roadmap.
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:new-project` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-**Creates:**
-- `.planning/PROJECT.md` — project context
-- `.planning/config.json` — workflow preferences
-- `.planning/research/` — domain research (optional)
-- `.planning/REQUIREMENTS.md` — scoped requirements
-- `.planning/ROADMAP.md` — objective structure
-- `.planning/STATE.md` — project memory
-
-**After this command:** Run `/devflow:plan-objective 1` to start execution.
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/new-project.md
-@~/.claude/devflow/references/questioning.md
-@~/.claude/devflow/references/ui-brand.md
-@~/.claude/devflow/references/built-ins.md
-@~/.claude/devflow/templates/project.md
-@~/.claude/devflow/templates/requirements.md
-</execution_context>
-
-<process>
-Execute the new-project workflow from @~/.claude/devflow/workflows/new-project.md end-to-end.
-Preserve all workflow gates (validation, approvals, commits, routing).
-</process>
+If it is not installed (`aoforge:new-project` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

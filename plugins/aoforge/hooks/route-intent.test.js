@@ -1,0 +1,613 @@
+/**
+ * Tests for route-intent.js UserPromptSubmit hook
+ *
+ * TDD suite for TRD 15-02 (A2 — route-intent tightening):
+ *   - INTENT_MAP shape assertions (exported for unit testing)
+ *   - 10 fire fixtures — each prompt fires and maps to its expected consolidated skill
+ *   - 5 no-fire fixtures — each Q&A/explanation prompt produces no match
+ *   - Skill-prefix exclusion (/aoforge: and /df: prompts → no match)
+ *   - renderDirective shape (box-drawn, OBLIGATORY, gate-edits mention)
+ *   - Subprocess e2e (2 cases: ambient tmpdir fires, non-aoforge project silent)
+ */
+
+'use strict';
+
+const { test, describe } = require('node:test');
+const assert = require('node:assert/strict');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { spawnSync } = require('child_process');
+
+const HOOK_PATH = path.join(__dirname, 'route-intent.js');
+
+// Pure-function imports — these tests drive the RED phase failures
+// (route-intent.js currently has no exports)
+const { INTENT_MAP, matchIntent, renderDirective, renderAdoptReminder } = require('./route-intent.js');
+
+// Fixture imports
+const { FIRE_FIXTURES, NO_FIRE_FIXTURES } = require(
+  '../aoforge/bin/lib/__fixtures__/intent-fixtures.cjs'
+);
+
+// ---------------------------------------------------------------------------
+// INTENT_MAP shape
+// ---------------------------------------------------------------------------
+
+describe('INTENT_MAP — exported shape', () => {
+  test('INTENT_MAP is an array', () => {
+    assert.ok(Array.isArray(INTENT_MAP), 'INTENT_MAP should be an array');
+  });
+
+  test('INTENT_MAP has at least 10 entries', () => {
+    assert.ok(INTENT_MAP.length >= 10,
+      `expected >= 10 INTENT_MAP entries, got ${INTENT_MAP.length}`);
+  });
+
+  test('every entry has rx (RegExp), skill (string), label (string)', () => {
+    for (const entry of INTENT_MAP) {
+      assert.ok(entry.rx instanceof RegExp,
+        `entry missing RegExp rx: ${JSON.stringify(entry)}`);
+      assert.equal(typeof entry.skill, 'string',
+        `entry missing string skill: ${JSON.stringify(entry)}`);
+      assert.equal(typeof entry.label, 'string',
+        `entry missing string label: ${JSON.stringify(entry)}`);
+    }
+  });
+
+  test('INTENT_MAP contains consolidated skills: build, debug, plan-objective, verify-work, status, status resume, status pause, objective add, new-project, adopt, research-objective, micro, execute-objective, todo add, quick, milestone new, milestone audit, todo list, gh-sync, discuss-objective', () => {
+    const skills = new Set(INTENT_MAP.map(e => e.skill));
+    const required = [
+      '/aoforge:build',
+      '/aoforge:debug',
+      '/aoforge:plan-objective',
+      '/aoforge:verify-work',
+      '/aoforge:status',
+      '/aoforge:status resume',
+      '/aoforge:status pause',
+      '/aoforge:objective add',
+      '/aoforge:new-project',
+      '/aoforge:adopt',
+      '/aoforge:doctor',
+      '/aoforge:research-objective',
+      '/aoforge:micro',
+      '/aoforge:execute-objective',
+      '/aoforge:todo add',
+      '/aoforge:quick',
+      '/aoforge:milestone new',
+      '/aoforge:milestone audit',
+      '/aoforge:todo list',
+      '/aoforge:gh-sync',
+      '/aoforge:discuss-objective',
+    ];
+    for (const skill of required) {
+      assert.ok(skills.has(skill),
+        `INTENT_MAP missing consolidated skill: ${skill} (found: ${[...skills].join(', ')})`);
+    }
+  });
+
+  test('INTENT_MAP does NOT contain deprecated pre-Phase-G skill names', () => {
+    const skills = INTENT_MAP.map(e => e.skill);
+    const deprecated = [
+      '/aoforge:progress',
+      '/aoforge:resume-work',
+      '/aoforge:pause-work',
+      '/aoforge:add-objective',
+      '/aoforge:new-milestone',
+      '/aoforge:add-todo',
+      '/aoforge:check-todos',
+      '/aoforge:audit-milestone',
+    ];
+    for (const dep of deprecated) {
+      assert.ok(!skills.includes(dep),
+        `INTENT_MAP still references deprecated skill: ${dep}`);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 37-10: ADOPT intent — routes "adopt this repo" etc. to /aoforge:adopt,
+// including in directories that are not yet AOForge projects (no .aoforge/).
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — ADOPT intent (TRD 37-10)', () => {
+  test('test 1: adopt-flavored prompts fire /aoforge:adopt', () => {
+    const prompts = [
+      'adopt this repo',
+      'please adopt the repository',
+      'set up aoforge here',
+      'can you set up aoforge in this repo',
+      'bootstrap this repo',
+    ];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(matches.length > 0, `expected a match for "${prompt}"`);
+      assert.equal(matches[0].skill, '/aoforge:adopt', `expected /aoforge:adopt for "${prompt}", got ${matches[0].skill}`);
+    }
+  });
+
+  test('test 2: near-miss prompts do NOT match /aoforge:adopt', () => {
+    const prompts = ['adopt a puppy', 'set up the database', 'bootstrap the css grid'];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(!matches.some(m => m.skill === '/aoforge:adopt'), `unexpected /aoforge:adopt match for "${prompt}"`);
+    }
+  });
+
+  test('test 3: "start a new project" still routes to /aoforge:new-project (adopt did not swallow it)', () => {
+    const matches = matchIntent('start a new project');
+    assert.ok(matches.some(m => m.skill === '/aoforge:new-project'), 'expected /aoforge:new-project match');
+    assert.ok(!matches.some(m => m.skill === '/aoforge:adopt'), 'adopt must not also match');
+  });
+
+  test('test 4: no .aoforge/ + adopt-only prompt → reminder naming /aoforge:adopt; other prompts stay silent', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-no-planning-adopt-'));
+    try {
+      const adoptResult = runHook({ prompt: 'adopt this repo' }, root);
+      assert.equal(adoptResult.status, 0, `hook exited non-zero: ${adoptResult.stderr}`);
+      assert.ok(adoptResult.stdout.length > 0, 'expected non-empty stdout for adopt-only prompt with no .aoforge/');
+      const out = JSON.parse(adoptResult.stdout);
+      assert.ok(
+        out.hookSpecificOutput.additionalContext.includes('/aoforge:adopt'),
+        `additionalContext missing "/aoforge:adopt":\n${out.hookSpecificOutput.additionalContext}`
+      );
+
+      const otherResult = runHook({ prompt: 'fix the login bug' }, root);
+      assert.equal(otherResult.status, 0, `hook exited non-zero: ${otherResult.stderr}`);
+      assert.equal(otherResult.stdout, '', 'expected empty stdout for a non-adopt prompt with no .aoforge/');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('renderAdoptReminder returns a short string naming /aoforge:adopt', () => {
+    const reminder = renderAdoptReminder();
+    assert.ok(reminder.includes('/aoforge:adopt'), 'reminder must name /aoforge:adopt');
+    assert.ok(reminder.split('\n').length <= 4, 'reminder should be 3-4 lines');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// objective 45: DOCTOR intent — explicit "aoforge doctor"-flavored prompts route to
+// /aoforge:doctor; ordinary uses of the word "doctor" must not.
+// ---------------------------------------------------------------------------
+
+describe('objective 45: DOCTOR intent', () => {
+  test('fires /aoforge:doctor on explicit doctor prompts', () => {
+    const prompts = [
+      'run aoforge doctor',
+      'diagnose aoforge',
+      'aoforge is broken',
+      'aoforge seems slow',
+      'fix my aoforge setup',
+    ];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(matches.length > 0, `expected a match for "${prompt}"`);
+      assert.equal(matches[0].skill, '/aoforge:doctor',
+        `expected /aoforge:doctor first for "${prompt}", got ${JSON.stringify(matches.map(m => m.skill))}`);
+      assert.equal(matches[0].label, 'doctor');
+    }
+  });
+
+  test('does NOT fire on ordinary "doctor" speech or a bare "aoforge"', () => {
+    const prompts = [
+      'ask the doctor about it',
+      "doctor's appointment tomorrow",
+      'the doctor pattern in this codebase',
+      'aoforge',
+    ];
+    for (const prompt of prompts) {
+      const matches = matchIntent(prompt);
+      assert.ok(!matches.some(m => m.skill === '/aoforge:doctor'),
+        `unexpected /aoforge:doctor match for "${prompt}": ${JSON.stringify(matches.map(m => m.skill))}`);
+    }
+  });
+
+  test('does not change how the existing debug and adopt intents route', () => {
+    assert.equal(matchIntent('fix the login bug')[0].skill, '/aoforge:debug');
+    assert.equal(matchIntent('adopt this repo')[0].skill, '/aoforge:adopt');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// matchIntent — fire fixtures
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — fire fixtures (must match)', () => {
+  for (const f of FIRE_FIXTURES) {
+    test(`fires on "${f.prompt}" → ${f.expected_skill} (${f.label})`, () => {
+      const matches = matchIntent(f.prompt);
+      assert.ok(matches.length > 0,
+        `expected >= 1 match for "${f.prompt}", got: ${JSON.stringify(matches)}\nwhy_fires: ${f.why_fires}`);
+      const skills = matches.map(m => m.skill);
+      assert.ok(skills.includes(f.expected_skill),
+        `expected ${f.expected_skill} in results for "${f.prompt}"\ngot: ${JSON.stringify(skills)}\nlabel: ${f.label}`);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// matchIntent — no-fire fixtures
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — no-fire fixtures (must NOT match)', () => {
+  for (const f of NO_FIRE_FIXTURES) {
+    test(`does NOT fire on "${f.prompt}" (${f.label})`, () => {
+      const matches = matchIntent(f.prompt);
+      assert.equal(matches.length, 0,
+        `expected 0 matches for "${f.prompt}", got: ${JSON.stringify(matches)}\nwhy_no_fire: ${f.why_no_fire}`);
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// matchIntent — skill-prefix exclusion
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — skill-prefix exclusion', () => {
+  test('returns [] when prompt starts with /aoforge:', () => {
+    assert.deepEqual(matchIntent('/aoforge:build the login feature'), []);
+  });
+
+  test('returns [] when prompt starts with /df:', () => {
+    assert.deepEqual(matchIntent('/df:plan-objective the next thing'), []);
+  });
+
+  test('returns [] for empty string', () => {
+    assert.deepEqual(matchIntent(''), []);
+  });
+
+  test('returns [] for null/undefined', () => {
+    assert.deepEqual(matchIntent(null), []);
+    assert.deepEqual(matchIntent(undefined), []);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderDirective — box-drawn shape
+// ---------------------------------------------------------------------------
+
+describe('renderDirective — box-drawn directive', () => {
+  const directive = renderDirective(
+    [{ skill: '/aoforge:debug', label: 'debug', hint: 'fix a bug' }],
+    'Fix the login bug'
+  );
+
+  test('returns a string', () => {
+    assert.equal(typeof directive, 'string');
+  });
+
+  test('contains "OBLIGATORY"', () => {
+    assert.ok(directive.includes('OBLIGATORY'),
+      `renderDirective output missing "OBLIGATORY":\n${directive}`);
+  });
+
+  test('contains "AOFORGE"', () => {
+    assert.ok(directive.includes('AOFORGE'),
+      `renderDirective output missing "AOFORGE":\n${directive}`);
+  });
+
+  test('contains "gate-edits.js will DENY"', () => {
+    assert.ok(directive.includes('gate-edits.js will DENY'),
+      `renderDirective output missing "gate-edits.js will DENY":\n${directive}`);
+  });
+
+  test('contains the passed-in skill name', () => {
+    assert.ok(directive.includes('/aoforge:debug'),
+      `renderDirective output missing skill name "/aoforge:debug":\n${directive}`);
+  });
+
+  test('is multi-line with box-drawn top-left corner ╔', () => {
+    assert.ok(directive.includes('╔'),
+      `renderDirective output missing box-drawn corner ╔:\n${directive}`);
+    assert.ok(directive.includes('\n'),
+      'renderDirective output should be multi-line');
+  });
+
+  test('is multi-line with box-drawn bottom-left corner ╚', () => {
+    assert.ok(directive.includes('╚'),
+      `renderDirective output missing box-drawn corner ╚:\n${directive}`);
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// matchIntent — exclusivity (BUILD suppression post-filter)
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — exclusivity (BUILD suppressed when todo/quick/objective-add fires)', () => {
+  test('matchIntent("Add an objective for caching") deep-equals ["/aoforge:objective add"]', () => {
+    assert.deepEqual(
+      matchIntent('Add an objective for caching').map(m => m.skill),
+      ['/aoforge:objective add'],
+      'BUILD must be suppressed when objective-add fires'
+    );
+  });
+
+  test('matchIntent("add a todo to refactor the parser") deep-equals ["/aoforge:todo add"]', () => {
+    assert.deepEqual(
+      matchIntent('add a todo to refactor the parser').map(m => m.skill),
+      ['/aoforge:todo add'],
+      'BUILD must be suppressed when todo-add fires'
+    );
+  });
+
+  test('matchIntent("make a quick pass over the error handling") deep-equals ["/aoforge:quick"]', () => {
+    assert.deepEqual(
+      matchIntent('make a quick pass over the error handling').map(m => m.skill),
+      ['/aoforge:quick'],
+      'BUILD must be suppressed when quick fires'
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// matchIntent — skillActive option (pure, no fs)
+// ---------------------------------------------------------------------------
+
+describe('matchIntent — skillActive option', () => {
+  test('matchIntent("Fix the login bug", { skillActive: true }) returns []', () => {
+    assert.deepEqual(
+      matchIntent('Fix the login bug', { skillActive: true }),
+      [],
+      'skillActive: true must suppress all matches'
+    );
+  });
+
+  test('matchIntent("Fix the login bug") still fires (back-compat, single-arg)', () => {
+    const skills = matchIntent('Fix the login bug').map(m => m.skill);
+    assert.ok(skills.length > 0, 'single-arg call must still fire');
+    assert.ok(skills.includes('/aoforge:debug'), 'must include /aoforge:debug');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// renderDirective — enriched matches + echo + disambiguation (Obj 12)
+// ---------------------------------------------------------------------------
+
+describe('renderDirective — enriched matches + echo + disambiguation', () => {
+  const singleMatch = [{ skill: '/aoforge:debug', label: 'debug', hint: 'fix a bug or failing test' }];
+  const multiMatch = [
+    { skill: '/aoforge:build', label: 'build', hint: 'plan + execute a multi-subsystem feature' },
+    { skill: '/aoforge:verify-work', label: 'verify', hint: 'verify a completed objective' },
+  ];
+
+  test('single-match: contains "Triggered by:" echo line with prompt excerpt', () => {
+    const out = renderDirective(singleMatch, 'Fix the login bug in the auth flow');
+    assert.ok(out.includes('Triggered by:'), `missing "Triggered by:" line:\n${out}`);
+    assert.ok(out.includes('Fix the login bug'), `missing prompt excerpt:\n${out}`);
+  });
+
+  test('single-match: still contains OBLIGATORY (regression)', () => {
+    const out = renderDirective(singleMatch, 'Fix the login bug');
+    assert.ok(out.includes('OBLIGATORY'), `missing OBLIGATORY:\n${out}`);
+  });
+
+  test('single-match: still contains "gate-edits.js will DENY" (regression)', () => {
+    const out = renderDirective(singleMatch, 'Fix the login bug');
+    assert.ok(out.includes('gate-edits.js will DENY'), `missing gate-edits line:\n${out}`);
+  });
+
+  test('multi-match: contains "MULTIPLE INTENTS MATCHED" banner', () => {
+    const out = renderDirective(multiMatch, 'Build the dashboard and verify the work');
+    assert.ok(out.includes('MULTIPLE INTENTS MATCHED'), `missing banner:\n${out}`);
+  });
+
+  test('multi-match: contains numbered list (1. and 2.)', () => {
+    const out = renderDirective(multiMatch, 'Build the dashboard and verify the work');
+    assert.ok(/\b1\./.test(out), `missing "1." numbered marker:\n${out}`);
+    assert.ok(/\b2\./.test(out), `missing "2." numbered marker:\n${out}`);
+  });
+
+  test("multi-match: contains each match's hint text", () => {
+    const out = renderDirective(multiMatch, 'Build the dashboard and verify the work');
+    assert.ok(out.includes('plan + execute'), `missing build hint:\n${out}`);
+    assert.ok(out.includes('verify a completed objective'), `missing verify hint:\n${out}`);
+  });
+
+  test('multi-match: instructs Claude to confirm with user', () => {
+    const out = renderDirective(multiMatch, 'Build the dashboard and verify the work');
+    assert.ok(/confirm.*user/i.test(out), `missing "confirm with the user":\n${out}`);
+  });
+
+  test('multi-match: still warns about gate-edits.js', () => {
+    const out = renderDirective(multiMatch, 'Build the dashboard and verify the work');
+    assert.ok(
+      out.includes('gate-edits.js will DENY') || /Do NOT call (Edit|Write|MultiEdit)/i.test(out),
+      `missing gate-edits warning:\n${out}`,
+    );
+  });
+
+  test('empty matches: returns empty string', () => {
+    assert.equal(renderDirective([], 'anything'), '');
+  });
+
+  test('handles missing hint gracefully (existing entries have no hint)', () => {
+    const out = renderDirective([{ skill: '/aoforge:build', label: 'build' }], 'Build the dashboard');
+    assert.ok(typeof out === 'string', 'should still return a string when hint absent');
+    assert.ok(out.length > 0, 'should still render box when hint absent');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subprocess e2e tests (2 cases — keep overhead low)
+// ---------------------------------------------------------------------------
+
+const GATE_EDITS_PATH = path.join(__dirname, 'gate-edits.js');
+
+function mkAmbientTmpProject() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-intent-'));
+  fs.mkdirSync(path.join(root, '.aoforge'), { recursive: true });
+  return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+}
+
+function runHook(payload, cwd) {
+  return spawnSync('node', [HOOK_PATH], {
+    cwd,
+    input: JSON.stringify(payload),
+    encoding: 'utf-8',
+  });
+}
+
+// Helper: build realistic UserPromptSubmit payload (TRD 24-02 decision 8 realism)
+function realUserPromptSubmitPayload(prompt, cwd) {
+  return {
+    session_id: 'test-session',
+    transcript_path: '/tmp/transcript.jsonl',
+    cwd,
+    permission_mode: 'default',
+    hook_event_name: 'UserPromptSubmit',
+    prompt,
+  };
+}
+
+describe('hook subprocess — e2e', () => {
+  test('ambient project: "Fix the login bug" → JSON with additionalContext containing /aoforge:debug and OBLIGATORY', () => {
+    const { root, cleanup } = mkAmbientTmpProject();
+    try {
+      const result = runHook({ prompt: 'Fix the login bug' }, root);
+      assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+      assert.ok(result.stdout.length > 0,
+        'expected non-empty stdout for a fire prompt in ambient project');
+      const out = JSON.parse(result.stdout);
+      const ctx = out.hookSpecificOutput.additionalContext;
+      assert.ok(ctx.includes('/aoforge:debug'),
+        `additionalContext missing "/aoforge:debug":\n${ctx}`);
+      assert.ok(ctx.includes('OBLIGATORY'),
+        `additionalContext missing "OBLIGATORY":\n${ctx}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('non-aoforge project (no .aoforge/): same prompt → empty stdout', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'route-no-planning-'));
+    try {
+      const result = runHook({ prompt: 'Fix the login bug' }, root);
+      assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+      assert.equal(result.stdout, '',
+        'expected empty stdout when no .aoforge/ directory exists');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 24-02: main() wiring — marker write, skill-active suppression, e2e
+// ---------------------------------------------------------------------------
+
+describe('route-intent main() — realistic UserPromptSubmit e2e', () => {
+  // Case 2: realistic UserPromptSubmit payload + execute intent → directive with execute-objective
+  test('realistic payload "execute objective 3" → additionalContext includes /aoforge:execute-objective and OBLIGATORY', () => {
+    const { root, cleanup } = mkAmbientTmpProject();
+    try {
+      const payload = realUserPromptSubmitPayload('execute objective 3', root);
+      const result = runHook(payload, root);
+      assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+      assert.ok(result.stdout.length > 0,
+        'expected non-empty stdout for "execute objective 3" in ambient project');
+      const out = JSON.parse(result.stdout);
+      const ctx = out.hookSpecificOutput.additionalContext;
+      assert.ok(ctx.includes('/aoforge:execute-objective'),
+        `additionalContext missing "/aoforge:execute-objective":\n${ctx}`);
+      assert.ok(ctx.includes('OBLIGATORY'),
+        `additionalContext missing "OBLIGATORY":\n${ctx}`);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Case 3: .aoforge/.skill-active present → empty stdout (no directive)
+  test('.aoforge/.skill-active present → empty stdout (no directive injected mid-skill)', () => {
+    const { root, cleanup } = mkAmbientTmpProject();
+    try {
+      fs.writeFileSync(
+        path.join(root, '.aoforge', '.skill-active'),
+        JSON.stringify({ skill: 'executor', started_at: new Date().toISOString() })
+      );
+      const payload = realUserPromptSubmitPayload('Fix the login bug', root);
+      const result = runHook(payload, root);
+      assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+      assert.equal(result.stdout, '',
+        'expected empty stdout when .skill-active is present');
+    } finally {
+      cleanup();
+    }
+  });
+
+  // Case 4: override phrase → empty stdout AND .edit-override marker written
+  test('override phrase "skip aoforge and fix the bug in the auth flow" → empty stdout + marker written', () => {
+    const { root, cleanup } = mkAmbientTmpProject();
+    try {
+      const payload = realUserPromptSubmitPayload('skip aoforge and fix the bug in the auth flow', root);
+      const result = runHook(payload, root);
+      assert.equal(result.status, 0, `hook exited non-zero: ${result.stderr}`);
+      assert.equal(result.stdout, '',
+        'expected empty stdout for override phrase (no directive)');
+      assert.ok(
+        fs.existsSync(path.join(root, '.aoforge', '.edit-override')),
+        '.aoforge/.edit-override marker must exist after override phrase'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 24-02: Cross-hook e2e — decision-1 end-to-end proof
+// route-intent writes .edit-override; gate-edits consumes it (allow + deleted)
+// ---------------------------------------------------------------------------
+
+describe('cross-hook e2e — route-intent marker consumed by gate-edits', () => {
+  test('override prompt → marker written by route-intent → gate-edits allows edit AND deletes marker', () => {
+    const { root, cleanup } = mkAmbientTmpProject();
+    try {
+      // Step 1: run route-intent with override prompt — should produce empty stdout + write marker
+      const routePayload = realUserPromptSubmitPayload('just edit the config loader to add a retry', root);
+      const routeResult = spawnSync('node', [HOOK_PATH], {
+        cwd: root,
+        input: JSON.stringify(routePayload),
+        encoding: 'utf-8',
+      });
+      assert.equal(routeResult.status, 0, `route-intent exited non-zero: ${routeResult.stderr}`);
+      assert.equal(routeResult.stdout, '', 'route-intent must produce empty stdout for override phrase');
+      const markerPath = path.join(root, '.aoforge', '.edit-override');
+      assert.ok(fs.existsSync(markerPath), '.edit-override marker must be written by route-intent');
+
+      // Step 2: run gate-edits with realistic PreToolUse Edit payload in the same project
+      // PreToolUse payloads carry no user_message/prompt keys — only session/tool info
+      const gatePayload = {
+        session_id: 'test-session',
+        transcript_path: '/tmp/transcript.jsonl',
+        cwd: root,
+        permission_mode: 'default',
+        hook_event_name: 'PreToolUse',
+        tool_name: 'Edit',
+        tool_input: {
+          file_path: path.join(root, 'src', 'config-loader.js'),
+          old_string: 'timeout: 1000',
+          new_string: 'timeout: 3000',
+        },
+      };
+      const gateResult = spawnSync('node', [GATE_EDITS_PATH], {
+        cwd: root,
+        input: JSON.stringify(gatePayload),
+        encoding: 'utf-8',
+      });
+      assert.equal(gateResult.status, 0, `gate-edits exited non-zero: ${gateResult.stderr}`);
+      // gate-edits must produce empty stdout (allow decision — no deny output)
+      assert.equal(gateResult.stdout, '',
+        'gate-edits must produce empty stdout (allow) after consuming override marker');
+      // marker must be deleted (consumed on read)
+      assert.ok(
+        !fs.existsSync(markerPath),
+        '.edit-override marker must be deleted after gate-edits consumes it'
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});

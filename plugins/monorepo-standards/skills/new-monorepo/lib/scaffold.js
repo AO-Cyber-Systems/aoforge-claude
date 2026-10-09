@@ -6,7 +6,7 @@
  * Behaviour:
  *   - Copies the entire `templates/monorepo-scaffold/` tree
  *   - Renames `gitignore` → `.gitignore` and `no-binaries.yml` →
- *     `.devflow/no-binaries.yml` (the dotfiles need to be packaged
+ *     `.aoforge/no-binaries.yml` (the dotfiles need to be packaged
  *     non-dot so npm-style installers don't mangle them)
  *   - Expands `{{PRODUCT_NAME}}`, `{{PRODUCT_SLUG}}`,
  *     `{{ONE_LINE_DESCRIPTION}}`, `{{STATE_LIB}}`, `{{FRAMEWORK}}`
@@ -111,11 +111,11 @@ function scaffold(options) {
     copyDirRecursive(giSrc, path.join(target, '.gitignore'), opts, written, skipped);
   }
 
-  // 3. .devflow/no-binaries.yml
+  // 3. .aoforge/no-binaries.yml
   const nbSrc = path.join(templateRoot, 'no-binaries.yml');
   if (fs.existsSync(nbSrc)) {
-    fs.mkdirSync(path.join(target, '.devflow'), { recursive: true });
-    copyDirRecursive(nbSrc, path.join(target, '.devflow', 'no-binaries.yml'),
+    fs.mkdirSync(path.join(target, '.aoforge'), { recursive: true });
+    copyDirRecursive(nbSrc, path.join(target, '.aoforge', 'no-binaries.yml'),
       opts, written, skipped);
   }
 

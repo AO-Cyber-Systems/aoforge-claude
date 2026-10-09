@@ -7,10 +7,10 @@ lede: "Generating Keep-a-Changelog entries from conventional commits, and the ga
 ## Generating an entry
 
 ```bash
-df-tools changelog update --version v2.6.0
-df-tools changelog update --version v2.6.0 --dry-run
-df-tools changelog update --version 1.27.4 --from 6aafba1 --to dcfba83
-df-tools changelog check 2.5.0
+aof-tools changelog update --version v2.6.0
+aof-tools changelog update --version v2.6.0 --dry-run
+aof-tools changelog update --version 1.27.4 --from 6aafba1 --to dcfba83
+aof-tools changelog check 2.5.0
 ```
 
 Commits since the last tag are grouped by conventional-commit type:
@@ -37,12 +37,12 @@ version tag is about to be created. It enforces two invariants:
 
 ```text
 package.json
-plugins/devflow/.claude-plugin/plugin.json
+plugins/aoforge/.claude-plugin/plugin.json
 .claude-plugin/marketplace.json        (the plugin entry matching plugin.json .name)
 ```
 
 Either failure denies the tag with an actionable message. Escape hatch:
-`DEVFLOW_SKIP_CHANGELOG_GATE=1`.
+`AOFORGE_SKIP_CHANGELOG_GATE=1`.
 
 The version-sync half exists because three-file drift is silent — the marketplace
 advertises one version, the plugin manifest another, and users get whichever the
@@ -61,7 +61,7 @@ can trip them. Use the documented escape hatch when it happens.
 With the [GitHub integration](/docs/guides/github/) enabled:
 
 ```bash
-df-tools gh sync-release v2.6.0
+aof-tools gh sync-release v2.6.0
 ```
 
 Generates release notes from the `SUMMARY.md` files written since the previous tag
@@ -72,8 +72,8 @@ creates or edits the GitHub release.
 
 1. Bump the three manifests to the same version.
 2. Generate the changelog entry:
-   `df-tools changelog update --version v2.6.0`
-3. Review it, then commit: `df-tools commit "chore(release): v2.6.0"`
+   `aof-tools changelog update --version v2.6.0`
+3. Review it, then commit: `aof-tools commit "chore(release): v2.6.0"`
 4. Create the annotated tag. The gate verifies the changelog entry and the three
    manifests before allowing it, then push with `--follow-tags`.
-5. Generate release notes: `df-tools gh sync-release v2.6.0`
+5. Generate release notes: `aof-tools gh sync-release v2.6.0`

@@ -4,7 +4,7 @@ weight: 20
 lede: "Six phases, each writing files the next one reads. What each phase produces and when to skip it."
 ---
 
-DevFlow's lifecycle is a loop you can enter and leave at any point. Each phase
+AOForge's lifecycle is a loop you can enter and leave at any point. Each phase
 produces artifacts on disk; the next phase reads them. Nothing is passed through
 the conversation.
 
@@ -16,7 +16,7 @@ new-project → discuss-objective → plan-objective → execute-objective → v
 
 ## 1. new-project
 
-**Command:** `/devflow:new-project` · **Agents:** `project-researcher`, `research-synthesizer`, `roadmapper`
+**Command:** `/aoforge:new-project` · **Agents:** `project-researcher`, `research-synthesizer`, `roadmapper`
 
 Interviews you, researches the domain in parallel, scopes requirements into v1/v2,
 and orders objectives into a roadmap.
@@ -25,11 +25,11 @@ and orders objectives into a roadmap.
 `config.json`, `research/`
 
 **Run once per project.** For a new milestone inside an existing project, use
-`/devflow:milestone new`.
+`/aoforge:milestone new`.
 
 ## 2. discuss-objective
 
-**Command:** `/devflow:discuss-objective <n>` · **Agents:** none
+**Command:** `/aoforge:discuss-objective <n>` · **Agents:** none
 
 Asks you how you want this objective built — libraries, patterns, trade-offs you
 care about — and records the answers.
@@ -42,7 +42,7 @@ seconds. This is where you correct it.
 
 ## 3. plan-objective
 
-**Command:** `/devflow:plan-objective <n>` · **Agents:** `objective-researcher`, `planner`, `job-checker`
+**Command:** `/aoforge:plan-objective <n>` · **Agents:** `objective-researcher`, `planner`, `job-checker`
 
 Researches the objective's domain, then breaks it into atomic jobs. Each job gets
 tasks, success criteria and a dependency position. The `job-checker` then reviews
@@ -56,7 +56,7 @@ context window will produce stubs, not code.
 
 ## 4. execute-objective
 
-**Command:** `/devflow:execute-objective <n>` · **Agents:** `executor` (parallel)
+**Command:** `/aoforge:execute-objective <n>` · **Agents:** `executor` (parallel)
 
 Groups jobs into [waves](/docs/concepts/waves/) by dependency and dispatches each
 job to an `executor` subagent in a fresh window. Every task produces one atomic
@@ -72,7 +72,7 @@ branch already checked out, which is how wave N+1 sees wave N.
 
 ## 5. verify-work
 
-**Command:** `/devflow:verify-work <n>` · **Agents:** `verifier`, `integration-checker`, optionally `ui-evaluator`
+**Command:** `/aoforge:verify-work <n>` · **Agents:** `verifier`, `integration-checker`, optionally `ui-evaluator`
 
 Tests what was built against the objective's *goal*, not against the task list. A
 plan whose tasks all completed but which does not achieve the objective is a
@@ -85,23 +85,23 @@ through Maestro, and deployment verification runs conditionally based on whether
 the objective actually deployed anything.
 
 If gaps are found, the objective's status becomes `gaps_found` and you can plan
-gap-closure work with `/devflow:plan-objective <n> --gaps`.
+gap-closure work with `/aoforge:plan-objective <n> --gaps`.
 
 ## 6. milestone complete
 
-**Commands:** `/devflow:milestone audit`, `/devflow:milestone complete`
+**Commands:** `/aoforge:milestone audit`, `/aoforge:milestone complete`
 
 `audit` checks each v1 requirement was genuinely delivered and reports gaps —
-`/devflow:milestone gaps` turns those into objectives. `complete` archives the
+`/aoforge:milestone gaps` turns those into objectives. `complete` archives the
 milestone into `MILESTONES.md` and opens the next.
 
 ## The one-command version
 
 ```text
-/devflow:build <n>
+/aoforge:build <n>
 ```
 
-`/devflow:build` chains plan → execute → verify with the gates in between. It is
+`/aoforge:build` chains plan → execute → verify with the gates in between. It is
 the command most people use most of the time. Flags let you shape it:
 
 | Flag | Effect |
@@ -117,9 +117,9 @@ the command most people use most of the time. Flags let you shape it:
 
 You do not have to start at the beginning.
 
-- **Existing codebase?** `/devflow:map-codebase` then `/devflow:new-project`.
-- **Roadmap already exists, one objective to build?** `/devflow:build <n>`.
-- **Something broke?** `/devflow:debug "description"` — a different loop entirely,
+- **Existing codebase?** `/aoforge:map-codebase` then `/aoforge:new-project`.
+- **Roadmap already exists, one objective to build?** `/aoforge:build <n>`.
+- **Something broke?** `/aoforge:debug "description"` — a different loop entirely,
   with its own persistent state.
-- **Lost the thread?** `/devflow:status` reads everything and tells you where you
+- **Lost the thread?** `/aoforge:status` reads everything and tells you where you
   are.

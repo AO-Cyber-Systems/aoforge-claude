@@ -1,0 +1,586 @@
+---
+status: active
+---
+<required_reading>
+
+**Read these files NOW:**
+
+1. `.aoforge/STATE.md`
+2. `.aoforge/PROJECT.md`
+3. `.aoforge/ROADMAP.md`
+4. Current objective's job files (`*-TRD.md`)
+5. Current objective's summary files (`*-SUMMARY.md`)
+
+</required_reading>
+
+<purpose>
+
+Mark current objective complete and advance to next. This is the natural point where progress tracking and PROJECT.md evolution happen.
+
+"Planning next objective" = "current objective is done"
+
+</purpose>
+
+<process>
+
+<step name="load_project_state" priority="first">
+
+Before transition, read project state:
+
+```bash
+cat .aoforge/STATE.md 2>/dev/null
+cat .aoforge/PROJECT.md 2>/dev/null
+```
+
+Parse current position to verify we're transitioning the right objective.
+Note accumulated context that may need updating after transition.
+
+</step>
+
+<step name="verify_completion">
+
+Check current objective has all plan summaries:
+
+```bash
+ls .aoforge/objectives/XX-current/*-TRD.md 2>/dev/null | sort
+ls .aoforge/objectives/XX-current/*-SUMMARY.md 2>/dev/null | sort
+```
+
+**Verification logic:**
+
+- Count JOB files
+- Count SUMMARY files
+- If counts match: all jobs complete
+- If counts don't match: incomplete
+
+<config-check>
+
+```bash
+cat .aoforge/config.json 2>/dev/null
+```
+
+</config-check>
+
+**If all jobs complete:**
+
+<if mode="yolo" OR="autonomous">
+
+```
+⚡ Auto-continuing: Transition Objective [X] → Objective [X+1]
+Objective [X] complete — all [Y] plans finished.
+
+Proceeding to mark done and advance...
+```
+
+Proceed directly to cleanup_handoff step.
+
+</if>
+
+<if mode="interactive" OR="custom with gates.confirm_transition true">
+
+```
+AskUserQuestion([
+  {
+    header: "Transition",
+    question: "Objective [X] complete: all [Y] plans finished. Mark it done and move on to Objective [X+1]?",
+    multiSelect: false,
+    options: [
+      { label: "Mark done (Recommended)", description: "Mark Objective [X] complete and advance to Objective [X+1]" },
+      { label: "Not yet", description: "Leave Objective [X] open and stop the transition here" }
+    ]
+  }
+])
+```
+
+- If "Mark done": proceed to cleanup_handoff step.
+- If "Not yet": stop. Nothing is marked done.
+
+</if>
+
+**If plans incomplete:**
+
+**SAFETY RAIL: always_confirm_destructive applies here.**
+Skipping incomplete jobs is destructive — ALWAYS prompt regardless of mode.
+
+Present:
+
+```
+Objective [X] has incomplete jobs:
+- {objective}-01-SUMMARY.md ✓ Complete
+- {objective}-02-SUMMARY.md ✗ Missing
+- {objective}-03-SUMMARY.md ✗ Missing
+
+⚠️ Safety rail: Skipping plans requires confirmation (destructive action)
+```
+
+Then ask, in every mode (yolo and autonomous included):
+
+```
+AskUserQuestion([
+  {
+    header: "Incomplete",
+    question: "Objective [X] has incomplete jobs. How do you want to continue?",
+    multiSelect: false,
+    options: [
+      { label: "Continue objective (Recommended)", description: "Stay on Objective [X] and execute the remaining jobs" },
+      { label: "Review what's left", description: "List the jobs that have no SUMMARY, then ask again" },
+      { label: "Mark complete anyway", description: "Skip the remaining jobs (destructive)" }
+    ]
+  }
+])
+```
+
+- If "Continue objective": stop the transition and execute the remaining jobs (`/aoforge:execute-objective [X]`).
+- If "Review what's left": list each job without a SUMMARY with its one-line goal, then ask the same question again.
+- If "Mark complete anyway": apply "If marking complete with incomplete jobs" from `<partial_completion>`, then proceed to cleanup_handoff step.
+
+</step>
+
+<step name="cleanup_handoff">
+
+Check for lingering handoffs:
+
+```bash
+ls .aoforge/objectives/XX-current/.continue-here*.md 2>/dev/null
+```
+
+If found, delete them — objective is complete, handoffs are stale.
+
+</step>
+
+<step name="update_roadmap_and_state">
+
+**Delegate ROADMAP.md and STATE.md updates to aof-tools:**
+
+```bash
+TRANSITION=$(node ~/.claude/aoforge/bin/aof-tools.cjs objective complete "${current_objective}")
+```
+
+The CLI handles:
+- Marking the objective checkbox as `[x]` complete with today's date
+- Updating job count to final (e.g., "3/3 jobs complete")
+- Updating the Progress table (Status → Complete, adding date)
+- Advancing STATE.md to next objective (Current Objective, Status → Ready to plan, Current Job → Not started)
+- Detecting if this is the last objective in the milestone
+
+Extract from result: `completed_objective`, `jobs_executed`, `next_objective`, `next_objective_name`, `is_last_objective`.
+
+</step>
+
+<step name="archive_prompts">
+
+If prompts were generated for the objective, they stay in place.
+The `completed/` subfolder pattern from create-meta-prompts handles archival.
+
+</step>
+
+<step name="evolve_project">
+
+Evolve PROJECT.md to reflect learnings from completed objective.
+
+**Read objective summaries:**
+
+```bash
+cat .aoforge/objectives/XX-current/*-SUMMARY.md
+```
+
+**Assess requirement changes:**
+
+1. **Requirements validated?**
+   - Any Active requirements shipped in this objective?
+   - Move to Validated with objective reference: `- ✓ [Requirement] — Objective X`
+
+2. **Requirements invalidated?**
+   - Any Active requirements discovered to be unnecessary or wrong?
+   - Move to Out of Scope with reason: `- [Requirement] — [why invalidated]`
+
+3. **Requirements emerged?**
+   - Any new requirements discovered during building?
+   - Add to Active: `- [ ] [New requirement]`
+
+4. **Decisions to log?**
+   - Extract decisions from SUMMARY.md files
+   - Add to Key Decisions table with outcome if known
+
+5. **"What This Is" still accurate?**
+   - If the product has meaningfully changed, update the description
+   - Keep it current and accurate
+
+**Publish PROJECT.md through a draft.** Never edit it in place: in store mode `.aoforge/` is a read-only cache.
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs planning draft PROJECT.md
+```
+
+Make the edits in the printed draft path, including the "Last updated" footer:
+
+```markdown
+---
+*Last updated: [date] after Objective [X]*
+```
+
+Then publish it: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put PROJECT.md --from <draft path>`. Local mode puts the same `.aoforge/PROJECT.md` in place as before.
+
+**Example evolution:**
+
+Before:
+
+```markdown
+### Active
+
+- [ ] JWT authentication
+- [ ] Real-time sync < 500ms
+- [ ] Offline mode
+
+### Out of Scope
+
+- OAuth2 — complexity not needed for v1
+```
+
+After (Objective 2 shipped JWT auth, discovered rate limiting needed):
+
+```markdown
+### Validated
+
+- ✓ JWT authentication — Objective 2
+
+### Active
+
+- [ ] Real-time sync < 500ms
+- [ ] Offline mode
+- [ ] Rate limiting on sync endpoint
+
+### Out of Scope
+
+- OAuth2 — complexity not needed for v1
+```
+
+**Step complete when:**
+
+- [ ] Objective summaries reviewed for learnings
+- [ ] Validated requirements moved from Active
+- [ ] Invalidated requirements moved to Out of Scope with reason
+- [ ] Emerged requirements added to Active
+- [ ] New decisions logged with rationale
+- [ ] "What This Is" updated if product changed
+- [ ] "Last updated" footer reflects this transition
+
+</step>
+
+<step name="update_current_position_after_transition">
+
+**Note:** Basic position updates (Current Objective, Status, Current Job, Last Activity) were already handled by `aof-tools objective complete` in the update_roadmap_and_state step.
+
+Verify the updates are correct by reading STATE.md. If the progress bar is stale, recalculate it from the summaries on disk:
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs state update-progress
+```
+
+That command owns the progress bar line in STATE.md; do not change it by hand.
+
+**Step complete when:**
+
+- [ ] Objective number incremented to next objective (done by objective complete)
+- [ ] Plan status reset to "Not started" (done by objective complete)
+- [ ] Status shows "Ready to plan" (done by objective complete)
+- [ ] Progress bar reflects total completed jobs
+
+</step>
+
+<step name="update_project_reference">
+
+Refresh the Project Reference section in STATE.md one field at a time: `node ~/.claude/aoforge/bin/aof-tools.cjs state update "Current focus" "<next objective name>"` (and `"Core value"` when PROJECT.md changed it).
+
+```markdown
+## Project Reference
+
+See: .aoforge/PROJECT.md (updated [today])
+
+**Core value:** [Current core value from PROJECT.md]
+**Current focus:** [Next objective name]
+```
+
+Update the date and current focus to reflect the transition.
+
+</step>
+
+<step name="review_accumulated_context">
+
+Review the Accumulated Context section in STATE.md and change it only through the state commands: `node ~/.claude/aoforge/bin/aof-tools.cjs state add-decision --objective <X> --summary "<decision>"`, `state add-blocker --text "<concern>"` and `state resolve-blocker --text "<blocker>"`.
+
+**Decisions:**
+
+- Note recent decisions from this objective (3-5 max)
+- Full log lives in PROJECT.md Key Decisions table
+
+**Blockers/Concerns:**
+
+- Review blockers from completed objective
+- If addressed in this objective: Remove from list
+- If still relevant for future: Keep with "Objective X" prefix
+- Add any new concerns from completed objective's summaries
+
+**Example:**
+
+Before:
+
+```markdown
+### Blockers/Concerns
+
+- ⚠️ [Objective 1] Database schema not indexed for common queries
+- ⚠️ [Objective 2] WebSocket reconnection behavior on flaky networks unknown
+```
+
+After (if database indexing was addressed in Objective 2):
+
+```markdown
+### Blockers/Concerns
+
+- ⚠️ [Objective 2] WebSocket reconnection behavior on flaky networks unknown
+```
+
+**Step complete when:**
+
+- [ ] Recent decisions noted (full log in PROJECT.md)
+- [ ] Resolved blockers removed from list
+- [ ] Unresolved blockers kept with objective prefix
+- [ ] New concerns from completed objective added
+
+</step>
+
+<step name="update_session_continuity_after_transition">
+
+Record session continuity in STATE.md with `node ~/.claude/aoforge/bin/aof-tools.cjs state record-session --stopped-at "Objective [X] complete, ready to plan Objective [X+1]"`.
+
+**Format:**
+
+```markdown
+Last session: [today]
+Stopped at: Objective [X] complete, ready to plan Objective [X+1]
+Resume file: None
+```
+
+**Step complete when:**
+
+- [ ] Last session timestamp updated to current date and time
+- [ ] Stopped at describes objective completion and next objective
+- [ ] Resume file confirmed as None (transitions don't use resume files)
+
+</step>
+
+<step name="offer_next_objective">
+
+**MANDATORY: Check for workstream context first, then verify milestone status.**
+
+**Check for workstream context:**
+
+```bash
+cat .aoforge/workstream-marker.json 2>/dev/null
+```
+
+If the file exists, parse it. Check if the completing objective is the LAST objective in this workstream's `objectives` array. If so → **Route C: Workstream Complete**. Otherwise → normal routing below (advance within this workstream).
+
+**Use the transition result from `aof-tools objective complete`:**
+
+The `is_last_objective` field from the objective complete result tells you directly:
+- `is_last_objective: false` → More objectives remain → Go to **Route A**
+- `is_last_objective: true` → Milestone complete → Go to **Route B**
+
+The `next_objective` and `next_objective_name` fields give you the next objective details.
+
+If you need additional context, use:
+```bash
+ROADMAP=$(node ~/.claude/aoforge/bin/aof-tools.cjs roadmap analyze)
+```
+
+This returns all objectives with goals, disk status, and completion info.
+
+---
+
+**Route C: Workstream complete (only when workstream-marker.json exists)**
+
+The completing objective is the last objective in this workstream's scope.
+
+```
+## ✓ Workstream Complete
+
+**{workstream name}** — all objectives done ({objectives list}).
+
+This workstream worktree has completed its scope.
+
+---
+
+## ▶ Next Steps
+
+Return to the **main worktree** and check status:
+
+```bash
+cd {main_worktree_path}
+```
+
+Then run:
+- `/aoforge:workstreams status` — see all workstream progress
+- `/aoforge:workstreams merge` — merge when all workstreams are done
+```
+
+Do NOT offer to plan the next sequential objective — this worktree only owns its assigned objectives. The join objective will be planned from the main worktree after merge.
+
+---
+
+**Route A: More objectives remain in milestone**
+
+Read ROADMAP.md to get the next objective's name and goal.
+
+**Check if next objective has CONTEXT.md:**
+
+```bash
+ls .aoforge/objectives/*[X+1]*/*-CONTEXT.md 2>/dev/null
+```
+
+**If next objective exists:**
+
+<if mode="yolo" OR="autonomous">
+
+```
+Objective [X] marked complete.
+
+Next: Objective [X+1] — [Name]
+
+⚡ Auto-continuing: Plan Objective [X+1]
+```
+
+Exit skill and invoke SlashCommand("/aoforge:plan-objective [X+1] --auto")
+
+</if>
+
+<if mode="interactive" OR="custom with gates.confirm_transition true">
+
+```
+## ✓ Objective [X] Complete
+
+---
+
+## ▶ Next Up
+
+**Objective [X+1]: [Name]** — [Goal from ROADMAP.md]
+
+`/aoforge:plan-objective [X+1]`
+
+---
+
+**Also available:**
+- `/aoforge:research-objective [X+1]` — investigate unknowns first
+
+---
+```
+
+</if>
+
+---
+
+**Route B: Milestone complete (all objectives done)**
+
+**Clear auto-advance** — milestone boundary is the natural stopping point:
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs config-set workflow.auto_advance false
+```
+
+<if mode="yolo" OR="autonomous">
+
+```
+Objective {X} marked complete.
+
+🎉 Milestone {version} is 100% complete — all {N} objectives finished!
+
+⚡ Auto-continuing: Complete milestone and archive
+```
+
+Exit skill and invoke SlashCommand("/aoforge:milestone complete {version}")
+
+</if>
+
+<if mode="interactive" OR="custom with gates.confirm_transition true">
+
+```
+## ✓ Objective {X}: {Objective Name} Complete
+
+🎉 Milestone {version} is 100% complete — all {N} objectives finished!
+
+---
+
+## ▶ Next Up
+
+**Complete Milestone {version}** — archive and prepare for next
+
+`/aoforge:milestone complete {version}`
+
+
+---
+
+**Also available:**
+- Review accomplishments before archiving
+
+---
+```
+
+</if>
+
+</step>
+
+</process>
+
+<implicit_tracking>
+Progress tracking is IMPLICIT: planning objective N implies objectives 1-(N-1) complete. No separate progress step—forward motion IS progress.
+</implicit_tracking>
+
+<partial_completion>
+
+If user wants to move on but objective isn't fully complete:
+
+```
+Objective [X] has incomplete jobs:
+- {objective}-02-JOB.md (not executed)
+- {objective}-03-JOB.md (not executed)
+```
+
+```
+AskUserQuestion([
+  {
+    header: "Partial",
+    question: "Objective [X] still has incomplete jobs. How do you want to move on?",
+    multiSelect: false,
+    options: [
+      { label: "Stay and finish (Recommended)", description: "Stay on Objective [X] and execute the remaining jobs" },
+      { label: "Mark complete anyway", description: "The remaining plans weren't needed" },
+      { label: "Defer to later objective", description: "Move the remaining work to a later objective" }
+    ]
+  }
+])
+```
+
+Respect user judgment — they know if work matters.
+
+- If "Stay and finish": stop the transition. Nothing is marked done.
+- If "Mark complete anyway" or "Defer to later objective": apply the rules below. For a deferral, the transition message names the objective that takes the deferred work.
+
+**If marking complete with incomplete jobs:**
+
+- Keep the roadmap count honest: `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap update-job-progress <X>` counts summaries on disk, so it shows "2/3 jobs complete" (not "3/3")
+- Note in transition message which plans were skipped
+
+</partial_completion>
+
+<success_criteria>
+
+Transition is complete when:
+
+- [ ] Current objective plan summaries verified (all exist or user chose to skip)
+- [ ] Any stale handoffs deleted
+- [ ] ROADMAP.md updated with completion status and job count
+- [ ] PROJECT.md evolved (requirements, decisions, description if needed)
+- [ ] STATE.md updated (position, project reference, context, session)
+- [ ] Progress table updated
+- [ ] User knows next steps
+
+</success_criteria>

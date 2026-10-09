@@ -11,8 +11,8 @@ machine-readable evidence the `verifier` consumes and gates on.
 ## Running it
 
 ```text
-/devflow:ui-eval 6
-/devflow:ui-eval path/to/manifest.json
+/aoforge:ui-eval 6
+/aoforge:ui-eval path/to/manifest.json
 ```
 
 ## The pipeline
@@ -32,16 +32,16 @@ plan, dispatches it through the handoff daemon (or prints it when the daemon is
 down), and chains the bootstrap:
 
 ```bash
-df-tools flutter-ui setup
-df-tools flutter-ui setup --print-only    # just show the plan
-df-tools flutter-ui setup --auto
+aof-tools flutter-ui setup
+aof-tools flutter-ui setup --print-only    # just show the plan
+aof-tools flutter-ui setup --auto
 ```
 
 Then:
 
 ```bash
-df-tools flutter-ui bootstrap [project-dir]
-df-tools flutter-ui eval <manifest|captureResults>
+aof-tools flutter-ui bootstrap [project-dir]
+aof-tools flutter-ui eval <manifest|captureResults>
 ```
 
 ## Verification hooks
@@ -49,9 +49,9 @@ df-tools flutter-ui eval <manifest|captureResults>
 The verifier consumes eval output through dedicated `verify` subcommands:
 
 ```bash
-df-tools verify flutter-ui-bootstrap <project-dir>     # is the project set up for eval?
-df-tools verify flutter-ui-eval <manifest>             # did the captured states score green?
-df-tools verify flutter-state-coverage <trd-path>      # are all declared states covered by tests?
+aof-tools verify flutter-ui-bootstrap <project-dir>     # is the project set up for eval?
+aof-tools verify flutter-ui-eval <manifest>             # did the captured states score green?
+aof-tools verify flutter-state-coverage <trd-path>      # are all declared states covered by tests?
 ```
 
 `flutter-state-coverage` catches the common gap: a widget test that exercises the
@@ -60,7 +60,7 @@ happy path and silently ignores loading, empty and error states.
 ## Scoping
 
 ```bash
-df-tools detect flutter-ui-scope <objective>
+aof-tools detect flutter-ui-scope <objective>
 ```
 
 Determines whether an objective has UI surfaces worth evaluating. The planner uses

@@ -1,5 +1,5 @@
 # The agent shell harness (TRD 34-09/34-10) runs the fenced bash of the named sections of
-# `plugins/devflow/agents/executor.md` under the real Bash-tool model — cwd persists,
+# `plugins/aoforge/agents/executor.md` under the real Bash-tool model — cwd persists,
 # shell variables do not, one command per call — and fails on any finding.
 #
 # This job is PATH-FILTERED, which is a known false-green class in this fleet
@@ -14,10 +14,10 @@ name: Agent shell harness
 on:
   pull_request:
     paths:
-      - 'plugins/devflow/agents/**'
-      - 'plugins/devflow/devflow/workflows/**'
-      - 'plugins/devflow/devflow/bin/lib/agent-shell-harness*'
-      - 'plugins/devflow/devflow/bin/lib/__fixtures__/agent-shell/**'
+      - 'plugins/aoforge/agents/**'
+      - 'plugins/aoforge/aoforge/workflows/**'
+      - 'plugins/aoforge/aoforge/bin/lib/agent-shell-harness*'
+      - 'plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/**'
       - '.github/workflows/agent-shell-harness.yml'
 
 # Least privilege (CodeQL actions/missing-workflow-permissions): this job checks out the tree and runs
@@ -40,9 +40,9 @@ jobs:
       # after a confusing run, so check the fixture mode up front and fail loudly.
       - name: Stub binaries are executable
         run: |
-          git ls-files -s plugins/devflow/devflow/bin/lib/__fixtures__/agent-shell/bin/
-          test "$(git ls-files -s plugins/devflow/devflow/bin/lib/__fixtures__/agent-shell/bin/ | grep -c '^100755')" -eq 6
+          git ls-files -s plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/bin/
+          test "$(git ls-files -s plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/bin/ | grep -c '^100755')" -eq 6
 
       # Nothing swallows this step's exit code: a finding must fail the job.
       - name: Run the harness against agents/executor.md
-        run: node --test plugins/devflow/devflow/bin/lib/agent-shell-harness.test.cjs
+        run: node --test plugins/aoforge/aoforge/bin/lib/agent-shell-harness.test.cjs

@@ -5,33 +5,11 @@ description: |
   Use when the user wants to build something, implement a feature, or work on an objective end-to-end.
   Triggers on: "build this", "build objective", "let's build", "implement this", "ship this", "make this work", "build the", "work on objective", "start building", "let's implement"
 argument-hint: "<objective-number-or-description> [--pause] [--skip-research] [--work TYPE] [--tdd POSTURE] [--depth LEVEL] [--model PROFILE]"
-allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, TaskCreate, TaskUpdate, TaskList, AskUserQuestion, EnterPlanMode
+allowed-tools:
+  - Skill
 ---
+DevFlow is now AOForge. This command moved to `/aoforge:build`.
 
-<objective>
-Build an objective from start to finish: research → plan → execute → verify → done.
+If the AOForge plugin is installed, invoke the Skill tool with skill `aoforge:build` and pass `$ARGUMENTS` unchanged. Do nothing else.
 
-This is the primary way to build with DevFlow. One command, shipped code.
-
-Usage:
-- `/devflow:build 3` — Build objective 3 from the roadmap
-- `/devflow:build "add user authentication"` — Build from description (creates temporary objective if no match)
-- `/devflow:build 3 --pause` — Stop between phases for review
-- `/devflow:build 3 --skip-research` — Skip research phase
-- `/devflow:build 3 --work refactor` — Override the resolved work type for this objective
-- `/devflow:build 3 --tdd skip` — Override TDD posture (use sparingly; documents itself in OBJECTIVE.md)
-
-**Intent override flags** are forwarded to the planner phase and persisted in OBJECTIVE.md so the executor honors them. See `/devflow:plan-objective` for full enum values.
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/build.md
-@~/.claude/devflow/references/ui-brand.md
-@~/.claude/devflow/references/built-ins.md
-</execution_context>
-
-<context>
-@.planning/STATE.md
-@.planning/ROADMAP.md
-@.planning/config.json
-</context>
+If it is not installed (`aoforge:build` is not among your skills, or the Skill tool does not know it), tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

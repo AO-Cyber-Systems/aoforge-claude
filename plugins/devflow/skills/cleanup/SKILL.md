@@ -5,19 +5,10 @@ description: |
   Moves completed work to the milestones archive — use only when explicitly requested.
 disable-model-invocation: true
 allowed-tools:
-  - AskUserQuestion
+  - Skill
 ---
-<objective>
-Archive objective directories from completed milestones into `.planning/milestones/v{X.Y}-objectives/`.
+DevFlow is now AOForge. This command moved to `/aoforge:cleanup`.
 
-Use when `.planning/objectives/` has accumulated directories from past milestones.
-</objective>
+`/aoforge:cleanup` runs only when the user types it, so the Skill tool cannot start it: do not try. Tell the user to type `/aoforge:cleanup $ARGUMENTS` to run it, and do nothing else.
 
-<execution_context>
-@~/.claude/devflow/workflows/cleanup.md
-</execution_context>
-
-<process>
-Follow the cleanup workflow at @~/.claude/devflow/workflows/cleanup.md.
-Identify completed milestones, show a dry-run summary, and archive on confirmation.
-</process>
+If Claude Code does not know `/aoforge:cleanup`, the AOForge plugin is not installed. Tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

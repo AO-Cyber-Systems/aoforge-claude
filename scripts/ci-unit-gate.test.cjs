@@ -90,7 +90,7 @@ function buildJunit(cases, { suiteName = 'suite' } = {}) {
 function buildRun({ total = 5000, fileCount = 200, failing = [], nameCounts,
                     skippedNames = [] } = {}) {
   const files = new Set();
-  for (let i = 0; i < fileCount; i++) files.add(`plugins/devflow/f${i}.test.cjs`);
+  for (let i = 0; i < fileCount; i++) files.add(`plugins/aoforge/f${i}.test.cjs`);
   for (const f of failing) files.add(f.file);
   const counts = new Map(nameCounts || []);
   for (const f of failing) if (!counts.has(f.test)) counts.set(f.test, 1);
@@ -103,7 +103,7 @@ function buildRun({ total = 5000, fileCount = 200, failing = [], nameCounts,
 
 function buildEntry(over = {}) {
   return {
-    file: 'plugins/devflow/devflow/bin/x.test.cjs',
+    file: 'plugins/aoforge/aoforge/bin/x.test.cjs',
     test: 'T1 does a thing',
     reason: 'binds TCP port 41999 on the loopback interface, which a parallel run already holds',
     ...over,
@@ -139,8 +139,8 @@ test('TK-5 an unbalanced quote throws rather than silently truncating', () => {
 
 test('DP-1 extracts the glob patterns from a real scripts.test line', () => {
   assert.deepStrictEqual(
-    derivePatterns("node --test 'plugins/devflow/**/*.test.cjs' 'plugins/devflow/**/*.test.js'"),
-    ['plugins/devflow/**/*.test.cjs', 'plugins/devflow/**/*.test.js']
+    derivePatterns("node --test 'plugins/aoforge/**/*.test.cjs' 'plugins/aoforge/**/*.test.js'"),
+    ['plugins/aoforge/**/*.test.cjs', 'plugins/aoforge/**/*.test.js']
   );
 });
 
@@ -172,8 +172,8 @@ test('DP-7 this repo\'s own package.json still parses (the gate cannot drift fro
   const patterns = derivePatterns(pkg.scripts.test);
   assert.ok(patterns.length >= 1, 'at least one pattern');
   assert.ok(
-    patterns.some((p) => p.includes('plugins/devflow')),
-    `expected a plugins/devflow pattern, got ${JSON.stringify(patterns)}`
+    patterns.some((p) => p.includes('plugins/aoforge')),
+    `expected a plugins/aoforge pattern, got ${JSON.stringify(patterns)}`
   );
 });
 
@@ -181,34 +181,34 @@ test('DP-7 this repo\'s own package.json still parses (the gate cannot drift fro
 
 test('PJ-1 counts passes, failures and skips separately', () => {
   const xml = buildJunit([
-    { name: 'A', file: 'plugins/devflow/a.test.cjs' },
-    { name: 'B', file: 'plugins/devflow/a.test.cjs', status: 'fail' },
-    { name: 'C', file: 'plugins/devflow/b.test.cjs', status: 'skip' },
+    { name: 'A', file: 'plugins/aoforge/a.test.cjs' },
+    { name: 'B', file: 'plugins/aoforge/a.test.cjs', status: 'fail' },
+    { name: 'C', file: 'plugins/aoforge/b.test.cjs', status: 'skip' },
   ]);
   const r = parseJunit(xml);
   assert.strictEqual(r.total, 3);
   assert.strictEqual(r.failures, 1);
   assert.strictEqual(r.skipped, 1);
-  assert.deepStrictEqual([...r.files].sort(), ['plugins/devflow/a.test.cjs', 'plugins/devflow/b.test.cjs']);
+  assert.deepStrictEqual([...r.files].sort(), ['plugins/aoforge/a.test.cjs', 'plugins/aoforge/b.test.cjs']);
 });
 
 test('PJ-2 reports failing tests as repo-relative file + name', () => {
-  const xml = buildJunit([{ name: 'S1: scanPeer', file: 'plugins/devflow/x.test.cjs', status: 'fail' }]);
+  const xml = buildJunit([{ name: 'S1: scanPeer', file: 'plugins/aoforge/x.test.cjs', status: 'fail' }]);
   const r = parseJunit(xml);
   assert.deepStrictEqual(r.failing.map((f) => `${f.file}::${f.test}`),
-    ['plugins/devflow/x.test.cjs::S1: scanPeer']);
+    ['plugins/aoforge/x.test.cjs::S1: scanPeer']);
 });
 
 test('PJ-3 undoes the reporter\'s double-escaping so names match what a human reads', () => {
   const xml = buildJunit([
-    { name: 'BW-5 initLines("pty") starts with stty -echo', file: 'plugins/devflow/w.test.cjs', status: 'fail' },
+    { name: 'BW-5 initLines("pty") starts with stty -echo', file: 'plugins/aoforge/w.test.cjs', status: 'fail' },
   ]);
   const r = parseJunit(xml);
   assert.strictEqual(r.failing[0].test, 'BW-5 initLines("pty") starts with stty -echo');
 });
 
 test('PJ-4 a skipped test is never counted as a failure', () => {
-  const xml = buildJunit([{ name: 'K', file: 'plugins/devflow/s.test.cjs', status: 'skip' }]);
+  const xml = buildJunit([{ name: 'K', file: 'plugins/aoforge/s.test.cjs', status: 'skip' }]);
   const r = parseJunit(xml);
   assert.strictEqual(r.failures, 0);
   assert.deepStrictEqual(r.failing, []);
@@ -221,7 +221,7 @@ test('PJ-5 an empty document yields zero tests (which evaluate() then rejects)',
 });
 
 test('PJ-6 an <error> child counts as a failure, same as <failure>', () => {
-  const xml = buildJunit([{ name: 'E', file: 'plugins/devflow/e.test.cjs', status: 'error' }]);
+  const xml = buildJunit([{ name: 'E', file: 'plugins/aoforge/e.test.cjs', status: 'error' }]);
   assert.ok(xml.includes('<error type="harness" message="load failed"/>'),
     `the fixture must carry the <error> child; got ${xml}`);
   const r = parseJunit(xml);
@@ -332,7 +332,7 @@ test('EV-4b a reporter that omits file attribution entirely does NOT fail the ga
 });
 
 test('EV-5 an undeclared failure fails the gate (regression)', () => {
-  const failing = [{ file: 'plugins/devflow/a.test.cjs', test: 'boom', message: 'AssertionError' }];
+  const failing = [{ file: 'plugins/aoforge/a.test.cjs', test: 'boom', message: 'AssertionError' }];
   const r = evaluate(buildRun({ failing }), []);
   assert.ok(!r.ok);
   assert.match(r.errors.join('\n'), /NOT in \.github\/known-test-failures\.json/);
@@ -340,14 +340,14 @@ test('EV-5 an undeclared failure fails the gate (regression)', () => {
 });
 
 test('EV-6 a declared failure that still fails is tolerated', () => {
-  const failing = [{ file: 'plugins/devflow/a.test.cjs', test: 'boom', message: '' }];
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'boom' })];
+  const failing = [{ file: 'plugins/aoforge/a.test.cjs', test: 'boom', message: '' }];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'boom' })];
   const r = evaluate(buildRun({ failing }), entries);
   assert.ok(r.ok, r.errors.join('\n'));
 });
 
 test('EV-7 RATCHET: a declared failure that PASSED fails the gate until the entry is deleted', () => {
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'boom' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'boom' })];
   const r = evaluate(buildRun({ failing: [] }), entries);
   assert.ok(!r.ok);
   assert.match(r.errors.join('\n'), /PASSED this run/);
@@ -356,23 +356,23 @@ test('EV-7 RATCHET: a declared failure that PASSED fails the gate until the entr
 
 test('EV-8 the recorded file is checked when the runner reports one', () => {
   // Keys are names, but the documentary `file` must not rot into a lie.
-  const failing = [{ file: 'plugins/devflow/OTHER.test.cjs', test: 'boom', message: '' }];
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'boom' })];
+  const failing = [{ file: 'plugins/aoforge/OTHER.test.cjs', test: 'boom', message: '' }];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'boom' })];
   const r = evaluate(buildRun({ failing }), entries);
   assert.ok(!r.ok);
-  assert.match(r.errors.join('\n'), /records file "plugins\/devflow\/a\.test\.cjs"/);
+  assert.match(r.errors.join('\n'), /records file "plugins\/aoforge\/a\.test\.cjs"/);
 });
 
 test('EV-8b when the runner reports NO file, the entry is still honoured', () => {
   const failing = [{ file: '<unknown>', test: 'boom', message: '' }];
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'boom' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'boom' })];
   const r = evaluate(buildRun({ failing }), entries, { matchedFiles: 120 });
   assert.ok(r.ok, r.errors.join('\n'));
 });
 
 test('EV-8c an AMBIGUOUS allowlisted name fails the gate rather than licensing two tests', () => {
-  const failing = [{ file: 'plugins/devflow/a.test.cjs', test: 'boom', message: '' }];
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'boom' })];
+  const failing = [{ file: 'plugins/aoforge/a.test.cjs', test: 'boom', message: '' }];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'boom' })];
   const r = evaluate(buildRun({ failing, nameCounts: [['boom', 2]] }), entries);
   assert.ok(!r.ok);
   assert.match(r.errors.join('\n'), /match MORE THAN ONE test/);
@@ -384,8 +384,8 @@ test('EV-9 key() is the test name — identical on every node version', () => {
 
 test('EV-10 several undeclared failures are all reported, not just the first', () => {
   const failing = [
-    { file: 'plugins/devflow/a.test.cjs', test: 'one', message: '' },
-    { file: 'plugins/devflow/b.test.cjs', test: 'two', message: '' },
+    { file: 'plugins/aoforge/a.test.cjs', test: 'one', message: '' },
+    { file: 'plugins/aoforge/b.test.cjs', test: 'two', message: '' },
   ];
   const r = evaluate(buildRun({ failing }), []);
   const text = r.errors.join('\n');
@@ -403,18 +403,18 @@ test('PJR-1 a RAW ">" inside a test name does not drop the testcase', () => {
   const xml =
     '<?xml version="1.0" encoding="utf-8"?>\n<testsuites>\n\t<testsuite name="s">\n' +
     `\t\t<testcase name="${name}" time="0.1" classname="test" ` +
-    `file="${path.join(REPO_ROOT, 'plugins/devflow/raw.test.cjs')}"/>\n` +
+    `file="${path.join(REPO_ROOT, 'plugins/aoforge/raw.test.cjs')}"/>\n` +
     '\t</testsuite>\n</testsuites>\n';
   const r = parseJunit(xml);
   assert.strictEqual(r.total, 1, 'the testcase must not be dropped');
-  assert.strictEqual([...r.files][0], 'plugins/devflow/raw.test.cjs');
+  assert.strictEqual([...r.files][0], 'plugins/aoforge/raw.test.cjs');
 });
 
 test('PJR-2 a RAW ">" in the name of a FAILING test still reports the failure', () => {
   const name = 'T > U';
   const xml =
     '<testsuites><testsuite name="s">' +
-    `<testcase name="${name}" classname="test" file="${path.join(REPO_ROOT, 'plugins/devflow/raw.test.cjs')}">` +
+    `<testcase name="${name}" classname="test" file="${path.join(REPO_ROOT, 'plugins/aoforge/raw.test.cjs')}">` +
     '<failure type="testCodeFailure" message="boom"/></testcase>' +
     '</testsuite></testsuites>';
   const r = parseJunit(xml);
@@ -428,8 +428,8 @@ test('PJR-3 differential: parseJunit agrees with node\'s own per-suite tests= co
   // counts node itself wrote into the testsuite elements.
   const { execFileSync } = require('child_process');
   const files = [
-    'plugins/devflow/devflow/bin/lib/wrappers/bash.test.cjs',
-    'plugins/devflow/devflow/bin/lib/wrappers/fish.test.cjs',
+    'plugins/aoforge/aoforge/bin/lib/wrappers/bash.test.cjs',
+    'plugins/aoforge/aoforge/bin/lib/wrappers/fish.test.cjs',
   ];
   const xml = execFileSync(
     process.execPath,
@@ -463,11 +463,11 @@ test('PJR-3 differential: parseJunit agrees with node\'s own per-suite tests= co
 // ─── Group GL — pattern globbing (the reporter-independent floor) ────────────
 
 test('GL-1 "**/" matches zero or more directory segments', () => {
-  const re = globToRegExp('plugins/devflow/**/*.test.cjs');
-  assert.ok(re.test('plugins/devflow/a.test.cjs'), 'zero segments');
-  assert.ok(re.test('plugins/devflow/bin/lib/a.test.cjs'), 'several segments');
+  const re = globToRegExp('plugins/aoforge/**/*.test.cjs');
+  assert.ok(re.test('plugins/aoforge/a.test.cjs'), 'zero segments');
+  assert.ok(re.test('plugins/aoforge/bin/lib/a.test.cjs'), 'several segments');
   assert.ok(!re.test('plugins/other/a.test.cjs'));
-  assert.ok(!re.test('plugins/devflow/a.cjs'));
+  assert.ok(!re.test('plugins/aoforge/a.cjs'));
 });
 
 test('GL-2 "*" does not cross a path separator', () => {
@@ -500,7 +500,7 @@ test('GL-5 a pattern that matches nothing resolves to an empty list, not a throw
 function buildQuarantine(over = {}) {
   return buildEntry({
     nondeterministic: true,
-    tracking: 'https://github.com/AO-Cyber-Systems/devflow-claude/issues/91',
+    tracking: 'https://github.com/AO-Cyber-Systems/aoforge-claude/issues/91',
     // Inside MAX_QUARANTINE_DAYS of the '2026-09-23' the QR cases evaluate at.
     expires: '2026-11-30',
     ...over,
@@ -529,21 +529,21 @@ test('QR-3 tracking/expires on a DETERMINISTIC entry is rejected as misleading',
 });
 
 test('QR-4 a quarantined test that PASSES does not trip the ratchet', () => {
-  const entries = [buildQuarantine({ file: 'plugins/devflow/a.test.cjs', test: 'racy' })];
+  const entries = [buildQuarantine({ file: 'plugins/aoforge/a.test.cjs', test: 'racy' })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2026-09-23' });
   assert.ok(r.ok, r.errors.join('\n'));
 });
 
 test('QR-5 a quarantined test that FAILS is still tolerated', () => {
-  const failing = [{ file: 'plugins/devflow/a.test.cjs', test: 'racy', message: '' }];
-  const entries = [buildQuarantine({ file: 'plugins/devflow/a.test.cjs', test: 'racy' })];
+  const failing = [{ file: 'plugins/aoforge/a.test.cjs', test: 'racy', message: '' }];
+  const entries = [buildQuarantine({ file: 'plugins/aoforge/a.test.cjs', test: 'racy' })];
   const r = evaluate(buildRun({ failing }), entries, { now: '2026-09-23' });
   assert.ok(r.ok, r.errors.join('\n'));
 });
 
 test('QR-6 an EXPIRED quarantine fails the gate even when the test passes', () => {
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2026-01-01',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2026-01-01',
   })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2026-09-23' });
   assert.ok(!r.ok);
@@ -552,7 +552,7 @@ test('QR-6 an EXPIRED quarantine fails the gate even when the test passes', () =
 
 test('QR-7 an unexpired quarantine on the boundary day is still valid', () => {
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2026-12-31',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2026-12-31',
   })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2026-09-23' });
   assert.ok(r.ok, r.errors.join('\n'));
@@ -726,8 +726,8 @@ test('EX-3 a non-zero exit EXPLAINED by a declared failure is not a disagreement
   // node exits non-zero whenever a <failure> is emitted. That is ordinary and is
   // judged by the allowlist, not by Guard 0 — otherwise every quarantined
   // failure would double-report as a process/report disagreement.
-  const failing = [{ file: 'plugins/devflow/a.test.cjs', test: 'known', message: 'boom' }];
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'known' })];
+  const failing = [{ file: 'plugins/aoforge/a.test.cjs', test: 'known', message: 'boom' }];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'known' })];
   const r = evaluate(buildRun({ failing }), entries, { matchedFiles: 200, runnerExit: 1 });
   assert.ok(r.ok, r.errors.join('\n'));
 });
@@ -756,7 +756,7 @@ test('SK-1 an allowlisted test that SKIPPED keeps its entry', () => {
   // pwsh availability has moved within one image label. Reading the skip as a
   // pass would tell a human to DELETE a quarantine for a test that still fails
   // every time pwsh is present.
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'PW-9 exit 7' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'PW-9 exit 7' })];
   const r = evaluate(buildRun({ skippedNames: ['PW-9 exit 7'] }), entries, { matchedFiles: 200 });
   assert.ok(r.ok, r.errors.join('\n'));
   assert.deepStrictEqual(r.unexercised, ['PW-9 exit 7']);
@@ -765,14 +765,14 @@ test('SK-1 an allowlisted test that SKIPPED keeps its entry', () => {
 test('SK-2 control: the SAME entry whose test actually PASSED still trips the ratchet', () => {
   // One edit from SK-1 — the name moves out of skippedNames — and the verdict
   // flips. That is what makes SK-1 a policy and not a hole.
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'PW-9 exit 7' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'PW-9 exit 7' })];
   const r = evaluate(buildRun({ skippedNames: [] }), entries, { matchedFiles: 200 });
   assert.ok(!r.ok);
   assert.match(r.errors.join('\n'), /PASSED this run/);
 });
 
 test('SK-3 a skipped allowlisted entry is REPORTED, not silently kept', () => {
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'PW-9 exit 7' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'PW-9 exit 7' })];
   const run = buildRun({ skippedNames: ['PW-9 exit 7'] });
   const notes = notesForRun(run, evaluate(run, entries, { matchedFiles: 200 }));
   assert.match(notes.join('\n'), /SKIPPED rather than ran/);
@@ -809,7 +809,7 @@ test('SK-6 every skipped name is listed on every run, so a NEW skip is a log dif
 
 test('TD-1 a testcase carrying BOTH <skipped type="todo"> and <failure> counts as a failure', () => {
   const xml = buildJunit([
-    { name: 'laundered', file: 'plugins/devflow/a.test.cjs', status: 'todo-fail', message: 'real boom' },
+    { name: 'laundered', file: 'plugins/aoforge/a.test.cjs', status: 'todo-fail', message: 'real boom' },
   ]);
   const r = parseJunit(xml);
   assert.strictEqual(r.failures, 1);
@@ -819,7 +819,7 @@ test('TD-1 a testcase carrying BOTH <skipped type="todo"> and <failure> counts a
 
 test('TD-2 a todo that did not fail is a skip and nothing else', () => {
   const xml = buildJunit([
-    { name: 'honest todo', file: 'plugins/devflow/a.test.cjs', status: 'todo' },
+    { name: 'honest todo', file: 'plugins/aoforge/a.test.cjs', status: 'todo' },
   ]);
   const r = parseJunit(xml);
   assert.strictEqual(r.failures, 0);
@@ -832,21 +832,21 @@ test('TD-2 a todo that did not fail is a skip and nothing else', () => {
 test('AF-1 an entry whose file is not in the selected suite fails the gate', () => {
   // Checked statically against the resolved pattern set, so it runs on node 22 —
   // the version CI pins and the only environment the allowlist describes.
-  const entries = [buildEntry({ file: 'plugins/devflow/moved-away.test.cjs', test: 'T1 does a thing' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/moved-away.test.cjs', test: 'T1 does a thing' })];
   const r = evaluate(buildRun({ failing: [] }), entries, {
     matchedFiles: 200,
-    matchedFileSet: new Set(['plugins/devflow/a.test.cjs']),
+    matchedFileSet: new Set(['plugins/aoforge/a.test.cjs']),
   });
   assert.ok(!r.ok);
   assert.match(r.errors.join('\n'), /not \s*one of the 1 test files/);
 });
 
 test('AF-2 control: the same entry pointing at a selected file passes the static check', () => {
-  const entries = [buildEntry({ file: 'plugins/devflow/a.test.cjs', test: 'T1 does a thing' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/a.test.cjs', test: 'T1 does a thing' })];
   const failing = [{ file: '<unknown>', test: 'T1 does a thing', message: '' }];
   const r = evaluate(buildRun({ failing }), entries, {
     matchedFiles: 200,
-    matchedFileSet: new Set(['plugins/devflow/a.test.cjs']),
+    matchedFileSet: new Set(['plugins/aoforge/a.test.cjs']),
   });
   assert.ok(r.ok, r.errors.join('\n'));
 });
@@ -855,14 +855,14 @@ test('AF-3 the static check runs even when the reporter gives NO file attributio
   // node 22 emits no testcase file=, which is precisely why the old
   // runner-attribution cross-check could never fire on the pinned runner.
   const xml = buildJunit([
-    { name: 'T1 does a thing', file: 'plugins/devflow/a.test.cjs', status: 'fail', omitFile: true },
+    { name: 'T1 does a thing', file: 'plugins/aoforge/a.test.cjs', status: 'fail', omitFile: true },
   ]);
   const run = parseJunit(xml);
   assert.strictEqual(run.files.size, 0, 'the fixture must reproduce node 22\'s missing file=');
-  const entries = [buildEntry({ file: 'plugins/devflow/gone.test.cjs', test: 'T1 does a thing' })];
+  const entries = [buildEntry({ file: 'plugins/aoforge/gone.test.cjs', test: 'T1 does a thing' })];
   const r = evaluate(run, entries, {
     minTests: 1, minTestFiles: 0, matchedFiles: 200,
-    matchedFileSet: new Set(['plugins/devflow/a.test.cjs']),
+    matchedFileSet: new Set(['plugins/aoforge/a.test.cjs']),
   });
   assert.ok(!r.ok);
   assert.match(r.errors.join('\n'), /not one of the 1 test files/);
@@ -886,7 +886,7 @@ test('QC-1 a quarantine expiring past the ceiling is rejected', () => {
   // "nondeterministic: true" + any parseable date was a PERMANENT exemption:
   // 2099-01-01 parses.
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2099-01-01',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2099-01-01',
   })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2026-09-23' });
   assert.ok(!r.ok);
@@ -895,7 +895,7 @@ test('QC-1 a quarantine expiring past the ceiling is rejected', () => {
 
 test('QC-2 control: the same entry inside the ceiling is accepted', () => {
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2026-11-30',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2026-11-30',
   })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2026-09-23' });
   assert.ok(r.ok, r.errors.join('\n'));
@@ -903,7 +903,7 @@ test('QC-2 control: the same entry inside the ceiling is accepted', () => {
 
 test('QC-3 the ceiling is configurable and binds at the edge', () => {
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2026-10-03',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2026-10-03',
   })];
   assert.ok(evaluate(buildRun({}), entries, { now: '2026-09-23', maxQuarantineDays: 11 }).ok);
   assert.ok(!evaluate(buildRun({}), entries, { now: '2026-09-23', maxQuarantineDays: 9 }).ok);
@@ -931,7 +931,7 @@ test('XD-1 a date-only expiry is valid through the END of its named day', () => 
   // `2026-12-31` names a day. Comparing against Date.parse (midnight UTC) killed
   // the quarantine at 00:00:01 on the day it was licensed through.
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2026-12-31',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2026-12-31',
   })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2026-12-31T12:00:00Z' });
   assert.ok(r.ok, r.errors.join('\n'));
@@ -939,7 +939,7 @@ test('XD-1 a date-only expiry is valid through the END of its named day', () => 
 
 test('XD-2 control: one second into the NEXT day it is expired', () => {
   const entries = [buildQuarantine({
-    file: 'plugins/devflow/a.test.cjs', test: 'racy', expires: '2026-12-31',
+    file: 'plugins/aoforge/a.test.cjs', test: 'racy', expires: '2026-12-31',
   })];
   const r = evaluate(buildRun({ failing: [] }), entries, { now: '2027-01-01T00:00:01Z' });
   assert.ok(!r.ok);

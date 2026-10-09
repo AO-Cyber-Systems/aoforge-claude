@@ -4,10 +4,10 @@ weight: 30
 lede: "Which gates block, which merely ask, how to tune each, and how to log an override rather than hiding it."
 ---
 
-DevFlow has two kinds of gate and they are easy to confuse.
+AOForge has two kinds of gate and they are easy to confuse.
 
 **Confirmation gates** are workflow pauses configured in `config.json` — points
-where DevFlow asks you before proceeding.
+where AOForge asks you before proceeding.
 
 **Enforcement gates** are hooks that block tool calls outright. They are not
 configurable per-decision; they are on or off.
@@ -49,11 +49,11 @@ These are hooks. Full detail on [the hooks page](/docs/architecture/hooks/).
 
 | Gate | Blocks | Escape |
 |---|---|---|
-| `gate-edits` | `Edit`/`Write`/`MultiEdit` in ambient mode | skill marker, override phrase, `DEVFLOW_SKIP_EDIT_GATE=1`, or `gates.editGate` |
-| `gate-commits` | raw `git commit` | `DEVFLOW_ALLOW_RAW_COMMIT=1` |
-| `changelog-on-tag` | `git tag -a vX.Y.Z` without a changelog entry or with mismatched versions | `DEVFLOW_SKIP_CHANGELOG_GATE=1` |
-| `gate-interactive` | TTY-requiring commands | `DEVFLOW_SKIP_INTERACTIVE_GATE=1` |
-| `guard-no-progress` | escalates to `ask` at 5 identical calls | `DEVFLOW_SKIP_PROGRESS_GUARD=1` |
+| `gate-edits` | `Edit`/`Write`/`MultiEdit` in ambient mode | skill marker, override phrase, `AOFORGE_SKIP_EDIT_GATE=1`, or `gates.editGate` |
+| `gate-commits` | raw `git commit` | `AOFORGE_ALLOW_RAW_COMMIT=1` |
+| `changelog-on-tag` | `git tag -a vX.Y.Z` without a changelog entry or with mismatched versions | `AOFORGE_SKIP_CHANGELOG_GATE=1` |
+| `gate-interactive` | TTY-requiring commands | `AOFORGE_SKIP_INTERACTIVE_GATE=1` |
+| `guard-no-progress` | escalates to `ask` at 5 identical calls | `AOFORGE_SKIP_PROGRESS_GUARD=1` |
 
 ### Per-project severity
 
@@ -63,9 +63,9 @@ Only `gate-edits` has a severity dial:
 { "gates": { "editGate": "strict" } }   // strict | warn | off
 ```
 
-Use `warn` on a repository where you frequently work outside DevFlow but still
-want the reminder. Use `off` for a repository that has `.planning/` for historical
-reasons but is not actively driven by DevFlow.
+Use `warn` on a repository where you frequently work outside AOForge but still
+want the reminder. Use `off` for a repository that has `.aoforge/` for historical
+reasons but is not actively driven by AOForge.
 
 ## Logging an override
 
@@ -73,8 +73,8 @@ A one-off escape hatch is fine. A permanently exported one is a gate you removed
 When you need to bypass for a real reason, record it:
 
 ```bash
-df-tools override --gate edits --reason "hand-fixing a generated file the executor cannot parse"
-df-tools override --list --limit 20
+aof-tools override --gate edits --reason "hand-fixing a generated file the executor cannot parse"
+aof-tools override --list --limit 20
 ```
 
 This writes a structured log entry. The value is measurement: a gate that gets
@@ -83,7 +83,7 @@ makes the case.
 
 ## What the gates are actually for
 
-Each enforcement gate corresponds to a specific failure mode that DevFlow has
+Each enforcement gate corresponds to a specific failure mode that AOForge has
 observed:
 
 - **`gate-edits`** — ad-hoc edits that leave no plan, no summary and no atomic

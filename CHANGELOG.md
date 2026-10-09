@@ -6,6 +6,220 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-08
+
+DevFlow is now AOForge. 3.0.0 is objective 72 (INST-01 to INST-06), the rename, together with objectives 68 to 71,
+which were unreleased since 2.15.0. It is a major release because every name changes, even though the old names keep
+working for one release. Read the [migration guide](docs/MIGRATING-TO-AOFORGE.md) before you upgrade: most of the move
+happens by itself on the first AOForge session, and what is left is a short checklist.
+
+### DevFlow is now AOForge (breaking)
+
+- **Every name changes** (objective 72, INST-02). The plugin `devflow@aocyber` is now `aoforge@aocyber`, and
+  `/devflow:<skill>` is `/aoforge:<skill>`. Agent types are `aoforge:<agent>`, the CLI is
+  `~/.claude/aoforge/bin/aof-tools.cjs` (was `~/.claude/devflow/bin/df-tools.cjs`), the runtime home is
+  `~/.claude/aoforge/` and the `DEVFLOW_*` environment variables are `AOFORGE_*`. A project's planning directory is
+  `.aoforge/` (was `.planning/`), its `config.json` upgrade stamp is `aoforge{}` (was `devflow{}`) and the CLAUDE.md
+  managed block uses the `AOFORGE` markers. The banner is `AOF ►`, the user dot directory `~/.aoforge/`, the watch
+  daemon `aoforge-watch` and the adopt branch `aoforge/adopt`. GitHub labels, hidden markers and check contexts use
+  `aoforge:` and `aoforge/`, and the reusable checks workflow is `aoforge-checks.yml`. The repository is
+  `AO-Cyber-Systems/aoforge-claude`. The migration guide has the full name map.
+- **The old names keep working for one release** (INST-03; `lib/legacy-names.cjs`, `lib/compat.cjs`). `DEVFLOW_*`
+  variables are still read, and the `AOFORGE_*` form wins when both are set. Every tool looks for `.aoforge/` first and
+  falls back to `.planning/`, and `validate health` reports W066 while a project uses the old directory. Readers accept
+  the `devflow{}` stamp, and W067 reports it while it is the only one. A managed block under the `DEVFLOW` markers is
+  updated in place, never duplicated. The gates treat `devflow:<agent>` subagents as their own. Store and mirror reads
+  accept the `devflow:` labels and hidden markers, and the checks post each verdict under both contexts. **These shims
+  are removed in the release after 3.0.0.**
+- **The move happens by itself** (INST-03, INST-04). The first AOForge session copies the runtime state from
+  `~/.claude/devflow/` to `~/.claude/aoforge/` (calibration, estimate run state and history, stack overrides, hook
+  markers; the GitHub outbox and backups are moved, not copied), records it in `.legacy-state-migrated.json` and moves
+  the global CLAUDE.md managed block to the new markers with a backup. Each project's next session start applies
+  migration 0012 (`git mv .planning .aoforge`, committed on its own, deferred while the tree is dirty or an operation
+  is in progress), 0013 (the `config.json` key), 0014 (the project CLAUDE.md block) and 0007 (the old slash command
+  forms). Hand-written CLAUDE.md text outside a managed block is never rewritten silently: `aof-tools upgrade --global`
+  shows it as a diff and `--confirm` writes it. `aof-tools state rekey` carries repo-keyed runtime state to a moved
+  checkout.
+- **The final `devflow@aocyber` release (3.0.0) is a pointer** (INST-05). Each `/devflow:<name>` forwards to
+  `/aoforge:<name>`, or tells you how to install AOForge when it is missing. It ships no agents, gates or runtime, so
+  nothing runs twice beside AOForge. While the old plugin is still enabled, AOForge's `coexistence-guard` SessionStart
+  hook names the command that disables it. The pointer is dropped in the release after 3.0.0.
+- **GitHub repositories move with `aof-tools gh rebrand`** (INST-04), one repository at a time. It is a dry run unless
+  you pass `--apply`, which renames the labels, hidden markers, managed wording and wiki pages, the required check
+  contexts in rulesets, and the checks caller. The re-rendered caller reads the App variable and secret under their
+  `AOFORGE_*` names, which you set yourself.
+- **`doctor` reports what the rename leaves behind** (INST-01): `df-*` skills or agents back under `~/.claude` (check
+  15), the old plugin and runtime home with `--global` (check 16), the legacy planning layout W066/W067 (check 27), and
+  a checks caller under its old name (check 26 names `gh rebrand`). Legacy `df-*` skills and agents are moved to a
+  backup, never deleted.
+- **Old command forms are gated.** The `doc-refs` repository test fails on `/devflow:`, `/df:` and `/df-` in
+  user-facing files (INST-01); changelogs and archives are exempt.
+- **Three things do not carry over**: the old edit-gate override phrases, the old CLI path once the old plugin is
+  disabled, and a running `devflow-watch` daemon. The migration guide says what to use instead.
+- The sibling plugins take a patch release for the repository rename and the AOForge names in their files:
+  `social-media-generator` 1.3.1, `aosentry-mcp`, `eden-ui-flutter` and `eden-ui-web` 1.0.1, `monorepo-standards`
+  0.1.1.
+
+### Objectives 68 to 71
+
+Objective 71 (SDR-09, SDR-10): the stack drafter drafts the gate that actually scans, and `stack verify --run` has a
+stated policy for tests that need services and builds that write artifacts. A `--self-test` step is skipped when the gate
+step exists, a `lint` target that runs the tier default plus unconditional linters such as `buf lint` is kept as the lint
+entry point, a service-backed gate is skipped `env_required` unless `--allow-services`, and a build's own output is
+removed and listed as `build_outputs` without stopping other components' gates. Entries that need an installed plugin
+take effect once the installed plugin carries objective 71.
+
+Objective 70 (TOOL-07, TOOL-08): three df-tools commands that reported success while doing nothing now do their job or
+fail, and verify-commits.js blocks in the shape Claude Code reads. `state update-progress` writes the Progress line or
+exits 1, `verify trd-pre` finds the objective from anywhere in the project, `objective-job-index` reports `gap_closure`,
+and the SubagentStop block is a top-level `{decision, reason}` checked against a cited schema model. Entries that need an
+installed plugin take effect once the installed plugin carries objective 70.
+
+Objective 69 (TOOL-06, TOOL-09, TOOL-10): a draft can no longer publish stale content, and health and doctor catch a
+tracked or stale skill marker and a satisfied requirement that no SUMMARY lists. `planning draft` reseeds a draft whose
+live file changed and `doc put` refuses one, `validate health` and `doctor` report a committed or abandoned
+`.planning/.skill-active`, and `validate requirements` finds a requirement a VERIFICATION marks satisfied that no
+SUMMARY lists. Entries that need an installed plugin take effect once the installed plugin carries objective 69.
+
+Objective 68 (TOOL-01 to TOOL-05): the milestone and objective verbs stop doing damage on a repeat, a typo or a date.
+`milestone complete` can be previewed and re-run, a misspelled flag on any writing command is refused before anything
+runs, `objective remove` no longer rewrites dates, and `objective complete` sees an objective that exists only in
+ROADMAP.md. Entries that need an installed plugin take effect once the installed plugin carries objective 68.
+
+### Added
+- `stack verify --run` skips a gate that needs a service as `env_required`, and `--allow-services` runs it (objective 71,
+  SDR-10, TRD 71-03; `lib/stack-verify.cjs`, `lib/flag-spec.cjs`). A service signal is the gate's own text (a
+  `postgres://`-style URL, a `DATABASE_URL` or `*_DSN` variable, a loopback `host:port`, in the command, one level of
+  task-runner body or a wrapper script), a CI job that runs the same command with `services:` or such variables, or, for
+  `test` and `e2e`, a `.env.test` file naming one. Detection is static: nothing connects to a port, and the skip detail
+  names files, jobs, services and variables, never a URL or a value. `--allow-services` (valid only with `--run`) runs the
+  gate against whatever is listening, lists the signals in `run.services_allowed` and appends ` services=allowed` to the
+  `--raw` line; a deny-listed command still wins. Needs an installed plugin carrying objective 71.
+- CI steps carry the `services` of their job and the `envNames` in scope (objective 71, SDR-10, TRD 71-03;
+  `lib/stack-ci.cjs`), which is what the CI layer of the service policy reads. Needs an installed plugin carrying
+  objective 71.
+- `validate health` Check 19 reports a tracked or stale `.planning/.skill-active` (objective 69, TOOL-09;
+  `lib/skill-marker-health.cjs`). E006 `skill-marker-tracked` (an error) when the marker is in the git index, because a
+  committed marker holds the edit gate open in every clone and checkout. W064 `skill-marker-stale` (a warning) when an
+  untracked marker is expired, unparseable, or has no `expires_at` and is older than 8 hours; classification fails
+  closed, so an unparseable marker is stale, never live. W064 `skill-marker-check-failed` when the check cannot run.
+  `--repair` untracks the marker (`git rm --cached`) and removes it when stale, or only untracks a live one the
+  repository ignores. A live tracked marker the repository does not ignore is refused and the fix names `.gitignore`,
+  because untracking it would leave it one `git add -A` from being tracked again. An unrelated staged change or a dirty
+  `.gitignore` refuses the repair through the DOC-06 index guard. Nothing but the marker is touched and nothing is
+  committed; the fix text gives the `df-tools commit` command. Needs an installed plugin carrying objective 69.
+- `validate health` Check 20 reports W065 `requirements-unlisted` (objective 69, TOOL-10;
+  `lib/requirements-agreement.cjs`): a requirement an objective's VERIFICATION marks satisfied that no SUMMARY of that
+  objective lists in `requirements-completed`. Only IDs a REQUIREMENTS document defines (`REQUIREMENTS.md` or
+  `milestones/*-REQUIREMENTS.md`) are checked, so the older SC-N, AC-N and similar ID families are skipped. The finding
+  names the TRDs whose `requirements` field lists the ID and the fix (`planning draft` on that SUMMARY, then
+  `summary post`). Advisory and never repaired; a scan that cannot run is W065 `requirements-check-failed`. Needs an
+  installed plugin carrying objective 69.
+- `validate requirements [--objective <N>]` (objective 69, TOOL-10): the same W065 scan as a read-only, network-free
+  command. It prints JSON (`findings`, `checked`, `skipped`), or with `--raw` one `W065` line and a `fix:` line per
+  finding, or `requirements-completed agrees with VERIFICATION (<n> objective(s), <m> requirement(s) checked)`. Findings
+  exit 0. `--objective` takes a number and also accepts `--objective=<N>`. Needs an installed plugin carrying objective
+  69.
+- `doctor-git.checkIgnored(root, paths, opts)` (objective 69, TOOL-09): asks git whether the repository's own ignore
+  rules cover a path, with the user's global excludes off, so a tracked file still reports its rule.
+- `milestone complete --dry-run` (`milestone complete <version> --dry-run`; objective 68, TOOL-01; `lib/roadmap.cjs`,
+  `lib/planning-entity-verbs.cjs`). `milestone complete` is now a read-only plan (`planMilestoneComplete`) and an
+  executor of that plan (`applyMilestonePlan`), so the dry run and the real run cannot drift. The dry run prints
+  `DRY RUN — nothing has been modified.` and the plan to stderr and returns `dry_run: true`, `would_write`,
+  `would_move`, `would_keep`, the exact `milestone_entry` and `warnings`; nothing is written, not even
+  `.planning/milestones/`. A real run reports `written`, `moved`, `kept` (each with a reason), `milestones_reason` and
+  `warnings` beside the existing keys. In store mode the dry run previews the GitHub milestone close and the archives
+  it would publish (`would_close`, `would_publish`) with no `gh` call, so it exits 0 offline. Needs an installed plugin
+  carrying objective 68.
+- A writing command rejects an unknown flag with exit 1 before anything runs (objective 68, TOOL-01;
+  `lib/flag-guard.cjs`, `lib/flag-spec.cjs`, `lib/flag-spec.repo.test.cjs`). `FLAG_SPEC` covers the 51 commands
+  `help.cjs` marks `mutates: true`, the dispatcher checks it once, and the error names the flag and what the command
+  accepts (`unknown flag --dry-runn for \`milestone complete\`; nothing was written (accepted: ...)`). Nine commands
+  that parse their own flags (`upgrade`, `doctor`, `tokens`, `calibrate`, `estimate`, `transcript-export`, `override`,
+  `stack report`, `stack mcp`) are rejected by their own module and probed the same way. `flag-spec.repo.test.cjs`
+  fails CI when a writing command has no spec entry, when a switched-off rule has no reason, and when a documented
+  `df-tools` invocation in the plugin's own prose uses a flag the spec does not accept. `--help` still prints usage.
+  Needs an installed plugin carrying objective 68.
+
+### Changed
+- The stack drafter never fills a key with a `--self-test` step while the gate step exists (objective 71, SDR-09, TRD
+  71-01; `lib/stack-draft.cjs`). A candidate with self-test words (`--self-test`, `--selftest`, `--self-test=<x>`, a
+  bare `selftest`) is recorded as a `self_test` note when a sibling step runs the same entry point at the same cwd
+  without them, so `aodex` drafts `audit` as `bash scripts/check-govulncheck.sh`. A lone self-test and a declared row are
+  unchanged. A `lint` target that runs the tier default plus unconditional linters of other tools (`buf lint`,
+  `golangci-lint run ./...`) is the lint entry point (`lib/stack-classify.cjs`, a `declared_linters` info note), so
+  justinforme and smartWellness draft `lint: make lint`; an optional linter (`|| echo ...`) keeps `lint` inherited.
+  Needs an installed plugin carrying objective 71.
+- `aodex.audit` left the fleet ACCEPTED table, and justinforme and smartWellness `lint` are OPEN rows marked
+  `pending: 'refresh'` (objective 71, SDR-09, TRD 71-02; `lib/__fixtures__/stack-fleet-tables.cjs`,
+  `stack-drafter-fleet.test.cjs`). The harness reports a refresh-pending row as a note while it drifts and keeps the
+  ratchet that fails a row once it stops drifting. A per-repo `selfTestDrafts` guard fails any fleet draft that fills a
+  key with a self-test beside its gate.
+- A `build` gate's own output no longer halts the Dart and Flutter gates of other components (objective 71, SDR-10, TRD
+  71-04; `lib/stack-verify.cjs`). New untracked, unignored files under `bin/`, `build/`, `dist/`, `out/` or `target/`
+  (judged relative to the gate's cwd) are removed and listed in `run.build_outputs`; `--raw` appends
+  ` build_outputs=<n>` after ` mutated=<n>`. Any other change is put back and still halts. Needs an installed plugin
+  carrying objective 71.
+- `planning draft <rel>` reseeds a stale draft and `doc put` refuses one (objective 69, TOOL-06;
+  `lib/planning-drafts.cjs`). Each draft has a sidecar `<draft>.base.json` holding the sha256 of the live text it was
+  seeded from. When the live file has changed since, `planning draft` rewrites the draft from the live file, keeps the
+  replaced draft at `<draft>.stale` so no edit is lost, and prints a `reseeded` notice on stderr; stdout is still the
+  draft path only, and `--raw` adds `seeded`, `reseeded` and `stale_copy`. `doc put --from <draft>` exits 1 with
+  `refused (stale draft)` before anything is written (no file, no outbox operation, no `gh` call in store mode), and the
+  error names `df-tools planning draft <rel>`. Publishing the same unchanged draft again is not refused. Only `doc put`
+  checks the base; stdin and a file outside the drafts tree with no base record are not checked, and a draft made before
+  this release has no base and is judged by modification time (older than the live file means stale). Needs an
+  installed plugin carrying objective 69.
+- Doctor check 23 (`skill-markers`) handles a tracked `.planning/.skill-active` and owns E006 and W064 (objective 69,
+  TOOL-09; `lib/doctor-checks/23-skill-markers.cjs`). A tracked marker is an error naming E006, an untracked stale one a
+  warning naming W064. `doctor --fix` untracks the marker (and removes it when stale) behind the same index guard,
+  touches nothing else, and puts the `df-tools commit` command in its notes. It refuses while an unrelated change is
+  staged, and refuses a live tracked marker the repository does not ignore. Check 22 (`validate-health`) now defers
+  E006 and W064 to check 23 and counts only its own repairable issues, so the problem is reported once and a stale
+  marker alone no longer makes check 22 fixable. Needs an installed plugin carrying objective 69.
+
+### Fixed
+- `state update-progress` writes the Progress line or exits 1 (objective 70, TOOL-07; `lib/state.cjs`). It rewrites a
+  plain template `Progress:` line under `## Current Position`, adds a `**Progress:**` line there when there is none, and
+  exits 1 with an `Error:` line, leaving STATE.md and state.json untouched, when neither is possible or STATE.md is
+  missing. It used to print `updated: false` and exit 0, so a STATE.md like this repository's never got a bar (70-01).
+- `verify trd-pre <N|path>` finds the project root from any directory inside it and accepts an objective directory path
+  (objective 70, TOOL-07; `lib/trd-pre-check.cjs`). A missing objective exits 1 with `error: "Objective not found"` and
+  `project_root`. It used to resolve against the cwd only and print `Objective not found` with exit 0, so a caller saw
+  success for an objective it simply had not found (70-01).
+- `objective-job-index` reports `gap_closure` (a boolean, from TRD frontmatter) on every job (objective 70, TOOL-07;
+  `lib/misc.cjs`), which `execute-objective --gaps-only` filters on; the execute-objective step now names the `jobs[]`
+  key it reads (it said `plans[]`) (70-01).
+- `verify-commits.js` prints its SubagentStop block as top-level `{decision, reason}` and blocks only `devflow:executor`
+  (objective 70, TOOL-08). It was nested in `hookSpecificOutput`, which Claude Code does not read for SubagentStop, so the
+  retry never fired, and it applied to every agent type. `hooks/__fixtures__/hook-output-schema.js` models the documented
+  Stop and SubagentStop schema with a citation per rule, and `verify-commits.test.js` and the `hook-coexistence.test.js`
+  contract check the real stdout against it (70-02).
+- Objective 58's SUMMARY frontmatter lists EST-02 and EST-04 (objective 69, TOOL-10). Eight 58 SUMMARYs were corrected so
+  `requirements-completed` equals each TRD's `requirements` field; `58-VERIFICATION.md` marked both satisfied while no
+  SUMMARY listed them. `requirements-agreement.repo.test.cjs` keeps this repository's `.planning/` in agreement.
+- `milestone complete` run twice for one version no longer leaves two MILESTONES.md entries or overwrites its archives
+  (objective 68, TOOL-02). An existing archive file is kept (`exists`), an existing entry is kept byte for byte
+  (`entry_exists`, whether it came from an earlier run, from `milestone put` or from a legacy `## 1.0` heading), and an
+  audit file or objective directory whose destination already exists stays where it is (`destination_exists`, with a
+  warning), which also removes an ENOTEMPTY crash. `1.0` and `v1.0` are one version and `v1.0.1` is another
+  (`text-escape.milestoneHeadingPattern`); `milestone put` finds a version's entry with the same rule, so it replaces a
+  legacy `## 1.0` section instead of adding a second entry.
+- `objective remove` no longer rewrites dates and metadata when it renumbers ROADMAP.md (objective 68, TOOL-03;
+  `objective.renumberRoadmapText`). The TRD-reference rule is bounded, `(?<![\w.-])NN-(\d{2})(?!\d|-\d)`, so a progress
+  row dated `2026-03-15` no longer becomes `2025-02-15` when objective 1 is removed, and removing objective 26 no
+  longer touches every `2026-` date. Versions (`v1.18-01`), ticket ids (`AUTH-18-01`), `03-15-2026`, statuses, plan
+  counts and `Shipped:` lines are unchanged.
+- `objective complete` finds a next objective that exists only in ROADMAP.md (objective 68, TOOL-04;
+  `objective.nextObjective`, local and store mode). It reads the objective directories and the `### Objective M:`
+  sections of ROADMAP.md, drops a cancelled directory's number and takes the smallest later number, so
+  `is_last_objective` is `false` while a later objective is planned only in the roadmap, a legacy STATE.md moves to
+  `Ready to plan`, and `99-y` comes before `100-z`.
+- `milestone-scope.cjs` resolves objective directories through the shared helpers (objective 68, TOOL-05). It lost its
+  own parser (`DIR_RE`, `canonical`) and proposes a number with `helpers.parseObjectiveDirName`, then confirms it with
+  `objectiveDirMatches`, so `milestone complete`, `estimate milestone` and `tokens coverage --milestone` no longer
+  count an unpadded or hyphen-less directory where `find-objective` cannot find it, and decimals resolve the same way.
+
 ## [2.15.0] - 2026-10-08
 
 Milestone v1.6, objectives 66 and 67 (objective 65 shipped 2.14.0). Executor SUMMARYs stamp their own token usage: the

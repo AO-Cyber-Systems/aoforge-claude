@@ -6,15 +6,15 @@ lede: "Finding out where you are, what's next, and what everyone else is doing."
 
 {{< commands group="status,help,todo,decide,awareness,tui" >}}
 
-## /devflow:status
+## /aoforge:status
 
 The consolidated status command. Four behaviours, one entry point.
 
 ```text
-/devflow:status            # progress + the next action
-/devflow:status check      # integrity check across planning files
-/devflow:status pause      # save session context before you stop
-/devflow:status resume     # restore position and continue
+/aoforge:status            # progress + the next action
+/aoforge:status check      # integrity check across planning files
+/aoforge:status pause      # save session context before you stop
+/aoforge:status resume     # restore position and continue
 ```
 
 Both bare (`status resume`) and flag (`status --resume`) forms are accepted.
@@ -30,35 +30,35 @@ is offered for projects that predate `kind` and `work`.
 what you were mid-thought on; resume restores it. Resume works without a prior
 pause — it reconstructs from state files — but pause preserves the nuance.
 
-## /devflow:todo
+## /aoforge:todo
 
 ```text
-/devflow:todo add "rate limiter should use a sliding window, not fixed"
-/devflow:todo list
+/aoforge:todo add "rate limiter should use a sliding window, not fixed"
+/aoforge:todo list
 ```
 
 `add` captures an idea without derailing what you're doing — it lands in
-`.planning/todos/pending/`. `list` is the morning standup: it merges local todos,
+`.aoforge/todos/pending/`. `list` is the morning standup: it merges local todos,
 GitHub issues and peer activity into one "what should I work on?" view.
 
-## /devflow:decide
+## /aoforge:decide
 
 ```text
-/devflow:decide                              # show pending decisions
-/devflow:decide DECISION-003 option-b
+/aoforge:decide                              # show pending decisions
+/aoforge:decide DECISION-003 option-b
 ```
 
 Resolves a parked `checkpoint:decision` and resumes autonomous execution. See
 [checkpoints](/docs/concepts/waves/#checkpoints) for when decisions get parked
 rather than answered inline.
 
-## /devflow:awareness
+## /aoforge:awareness
 
 ```text
-/devflow:awareness
-/devflow:awareness --peer-only
-/devflow:awareness --org-only --quarter Q3
-/devflow:awareness --refresh peer
+/aoforge:awareness
+/aoforge:awareness --peer-only
+/aoforge:awareness --org-only --quarter Q3
+/aoforge:awareness --refresh peer
 ```
 
 Two views, both rendered by default:
@@ -72,22 +72,22 @@ The cache is warmed in the background at session start by the
 (10 by default). `--refresh` forces a re-scan; `--no-fetch` skips the git fetch
 when you want speed over freshness.
 
-## /devflow:tui
+## /aoforge:tui
 
 ```text
-/devflow:tui
-/devflow:tui --once        # render one frame and exit
-/devflow:tui --no-color
+/aoforge:tui
+/aoforge:tui --once        # render one frame and exit
+/aoforge:tui --no-color
 ```
 
 A read-only terminal UI with three stacked panels: parallel sessions, the org tree,
 and active initiatives. tmux-safe and reflows on narrow terminals.
 
-## /devflow:help
+## /aoforge:help
 
 ```text
-/devflow:help
+/aoforge:help
 ```
 
 Lists every available command with a one-line description. Useful when you know
-DevFlow does the thing but not what it's called.
+AOForge does the thing but not what it's called.

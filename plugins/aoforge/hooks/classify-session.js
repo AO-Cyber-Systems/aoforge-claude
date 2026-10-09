@@ -1,0 +1,152 @@
+#!/usr/bin/env node
+
+/**
+ * classify-session.js — SessionStart hook: classify project + inject routing preamble
+ *
+ * Runs at Claude Code session start. Probes the filesystem from process.cwd()
+ * to classify the project as 'ambient', 'init-offer', or 'skip', then emits
+ * a routing decision table as additionalContext JSON.
+ *
+ * Skips entirely when:
+ *   - AOFORGE_SKIP_CLASSIFY=1 env var is set
+ *   - mode resolves to 'skip' (no .aoforge/, no git, or decline marker present)
+ *
+ * Output shape (when non-skip):
+ *   {
+ *     "hookSpecificOutput": {
+ *       "hookEventName": "SessionStart",
+ *       "additionalContext": "<preamble text>"
+ *     }
+ *   }
+ *
+ * ANTI-PATTERN: Never crash. Errors are caught and silently no-op (stderr diagnostic only).
+ * ANTI-PATTERN: Never call process.exit(). Let the process terminate naturally.
+ * PATH-LOCKED: require path assumes plugins/aoforge/{hooks,aoforge/bin/lib}/ layout.
+ *              If the plugin tree layout changes, update this require path.
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
+try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
+
+// PATH-LOCKED: relative path from plugins/aoforge/hooks/ → plugins/aoforge/aoforge/bin/lib/
+// All requires below use the same path-locked discipline — relative to plugin tree.
+const { classifySession, renderRoutingPreamble } = require('../aoforge/bin/lib/classifier.cjs');
+// 17-03: project-state + global-config wiring (C1 + C4 → C2 keystone)
+const { getProjectState } = require('../aoforge/bin/lib/project-state.cjs');
+const { shouldAutoInit } = require('../aoforge/bin/lib/global-config.cjs');
+
+// ─── Filesystem probes ────────────────────────────────────────────────────────
+
+/**
+ * Walk up the directory tree from start, returning the path of the first
+ * ancestor directory containing a .aoforge/ subdirectory.
+ *
+ * @param {string} start - absolute path to begin walking from
+ * @returns {string|null} path to .aoforge/ dir, or null if not found
+ */
+function findPlanningDir(start) {
+  const root = findProjectRoot(start, { maxUp: Infinity });
+  return root ? planningRoot(root) : null;
+}
+
+/**
+ * Walk up the directory tree from start, returning the path of the first
+ * ancestor directory containing a .git/ subdirectory.
+ *
+ * @param {string} start - absolute path to begin walking from
+ * @returns {string|null} path to .git/ dir, or null if not found
+ */
+function findGitDir(start) {
+  let dir = start;
+  while (dir !== path.dirname(dir)) {
+    if (fs.existsSync(path.join(dir, '.git'))) return path.join(dir, '.git');
+    dir = path.dirname(dir);
+  }
+  return null;
+}
+
+/**
+ * Check whether the decline marker file exists at .aoforge/.aoforge-init-declined.
+ *
+ * @param {string|null} planningDir - path to .aoforge/ dir, or null
+ * @returns {boolean}
+ */
+function hasDeclineMarker(planningDir) {
+  if (!planningDir) return false;
+  return fs.existsSync(path.join(planningDir, '.aoforge-init-declined'));
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+function main() {
+  if (process.env.AOFORGE_SKIP_CLASSIFY === '1') return;
+
+  const cwd = process.cwd();
+  const planningDir = findPlanningDir(cwd);
+  const hasGit = !!findGitDir(cwd);
+  const declineMarker = hasDeclineMarker(planningDir);
+
+  // 17-03: Compute substantive + previously_declined via project-state (C1)
+  // and auto_init flag via global-config (C4).
+  // Only meaningful for non-AOForge git repos — skip for ambient mode (saves ~50ms).
+  let isSubstantive = false;
+  let previouslyDeclined = false;
+  let autoInit = false;
+  let repoState = null;
+  try {
+    if (hasGit && !planningDir) {
+      const state = getProjectState(cwd);
+      isSubstantive = state.is_substantive;
+      previouslyDeclined = state.previously_declined;
+      repoState = state.state;
+      autoInit = shouldAutoInit();
+    }
+  } catch (e) {
+    // Fail-open: any error → safe defaults (skip mode via isSubstantive=false)
+    // Session MUST NOT crash. Diagnostics go to stderr only.
+    process.stderr.write(`[classify-session] project-state lookup failed: ${e.message}\n`);
+  }
+
+  let mode = classifySession({
+    planningDir,
+    hasGitDir: hasGit,
+    hasDeclineMarker: declineMarker,
+    isSubstantive,
+    previouslyDeclined,
+  });
+
+  // 17-03: Promote init-offer → auto-init when global config opt-in is active
+  if (mode === 'init-offer' && autoInit) {
+    mode = 'auto-init';
+  }
+
+  if (mode === 'skip') return;
+
+  const preamble = renderRoutingPreamble({ mode, repoState });
+  if (!preamble) return;
+
+  const out = {
+    hookSpecificOutput: {
+      hookEventName: 'SessionStart',
+      additionalContext: preamble,
+    },
+  };
+  process.stdout.write(JSON.stringify(out));
+}
+
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    // Silent no-op on unexpected errors — never crash session startup
+    process.stderr.write(`[classify-session] error: ${err.message}\n`);
+  }
+}
+
+module.exports = { findPlanningDir, findGitDir, hasDeclineMarker };

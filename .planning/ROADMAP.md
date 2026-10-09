@@ -112,18 +112,18 @@ Full archived roadmaps: `.planning/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 deta
 
 ### 🚧 v1.6 Hardening & Release (In Progress)
 
-Ship v1.5, close what it left open, and clear the backlog. Requirements: `.planning/REQUIREMENTS.md` (25 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; DevFlow never enters a secret value.
+Ship v1.5, close what it left open, and clear the backlog. Requirements: `.planning/REQUIREMENTS.md` (30 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; DevFlow never enters a secret value.
 
-Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, so they are all agent-only work (no human wait time in their minutes) and each records a run-state estimate (`estimate start`) before it runs. 73 (live handoff demo) and 74 (user-action operations) run after the scored five for the same reason. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
+Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, and each records a run-state estimate (`estimate start`) before it runs. 68-71 are agent-only work; 72 is scored in full, including the wait time of its rollout checkpoints (accepted 2026-10-08). 73 (live handoff demo) and 74 (user-action operations) run after the scored five because their minutes are dominated by human wait time. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
 
 - [x] **Objective 65: Release v1.5** - Version bump, CHANGELOG release section, merge to `main`, tag, and the installed runtime carrying the v1.5 libs and hooks (completed 2026-10-08)
 - [x] **Objective 66: Executor token stamp** - Every new executor SUMMARY carries `tokens_input` / `tokens_output`, with measured forward-stamp coverage (completed 2026-10-08)
-- [ ] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on
-- [ ] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection
-- [ ] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check
-- [ ] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema
-- [ ] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts
-- [ ] **Objective 72: Install and naming cleanup** - No legacy `df-*` remnants, doctor flags a reappearance, a repo test on old command forms
+- [x] **Objective 67: Minutes recalibration** - A method frozen and recorded before it is scored; nothing fitted to the objectives it is scored on (completed 2026-10-08)
+- [x] **Objective 68: Milestone and objective verbs** - `milestone complete` dry run and idempotence, `objective remove`/`complete` fixes, shared objective helpers, strict flag rejection (completed 2026-10-08)
+- [x] **Objective 69: Drafts, health and doctor** - Stale `planning draft` protection, skill-marker health checks, requirements-completed agreement check (completed 2026-10-08)
+- [x] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema (completed 2026-10-08)
+- [x] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts (completed 2026-10-08)
+- [ ] **Objective 72: Rename to AOForge and naming cleanup** - DevFlow becomes AOForge with one-release shims and in-place migrations, ships as 3.0.0, the user's setup and fleet move over, and no legacy `df-*` remains
 - [ ] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [ ] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped
@@ -182,9 +182,9 @@ TRDs:
 - [x] 67-04-positive-controls-and-validation-run-TRD.md — (W3) PC1 (fdf60e66) and PC2 (64-09 rows) reproduce, then one score of task_sum vs trd_level on `--through N-1` cuts of 46-66; 64's shipRule selects; 67-VALIDATION.md
 - [x] 67-05-ship-default-and-docs-TRD.md — (W4) `calibrate` default minutes method from the ship rule; method lists tied by a test; CHANGELOG/USER-GUIDE/CLAUDE.md/help
 - [x] 67-06-release-artifacts-and-validation-TRD.md — (W5) 2.15.0 bump, CHANGELOG promotion, docs data, suite, tag-gate dry run, merge-tree (local only)
-- [ ] 67-07-push-branch-and-open-release-pr-TRD.md — (W6) approval gate: push; approval gate: open the release PR; PR CI recorded
-- [ ] 67-08-merge-tag-and-github-release-TRD.md — (W7) approval gate: merge (merge commit); approval gate: annotated tag v2.15.0; release.yml and main runs verified
-- [ ] 67-09-install-and-freeze-calibration-TRD.md — (W8) human action: plugin update + restart; installed `calibrate --minutes <selected> --window 10 --through 66` builds the frozen EST-11 calibration; SC-2/SC-3/SC-4 proven on the installed runtime; 67-FREEZE.md + STATE.md blocker
+- [x] 67-07-push-branch-and-open-release-pr-TRD.md — (W6) approval gate: push; approval gate: open the release PR; PR CI recorded
+- [x] 67-08-merge-tag-and-github-release-TRD.md — (W7) approval gate: merge (merge commit); approval gate: annotated tag v2.15.0; release.yml and main runs verified
+- [x] 67-09-install-and-freeze-calibration-TRD.md — (W8) human action: plugin update + restart; installed `calibrate --minutes <selected> --window 10 --through 66` builds the frozen EST-11 calibration; SC-2/SC-3/SC-4 proven on the installed runtime; 67-FREEZE.md + STATE.md blocker
 
 ### Objective 68: Milestone and objective verbs
 
@@ -197,7 +197,16 @@ TRDs:
   3. A df-tools verb that writes exits with an error naming an unknown flag instead of ignoring it.
   4. `objective remove` keeps the completion dates and other metadata of the objectives it renumbers.
   5. `objective complete` reports the right `next_objective` and `is_last_objective` when later objectives exist only in ROADMAP.md, and `milestone-scope.cjs` finds objective directories through the shared helpers with no local parser.
-**TRDs**: TBD
+**TRDs**: 7 plans
+
+TRDs:
+- [x] 68-01-milestone-complete-dry-run-and-rerun-TRD.md — (W1) `milestone complete` split into a read-only plan and its executor; `--dry-run` (local); re-run keeps the entry and archives, `1.0` = `v1.0`; `milestoneHeadingPattern` in text-escape.cjs
+- [x] 68-02-milestone-scope-shared-helpers-TRD.md — (W1) `parseObjectiveDirName` / `canonicalObjectiveNumber` in helpers.cjs; milestone-scope.cjs resolves directories through `objectiveDirMatches`, no DIR_RE/canonical(); exports `roadmapSections`
+- [x] 68-03-unknown-flag-guard-TRD.md — (W1) dispatcher guard (`lib/flag-guard.cjs`) + `lib/flag-spec.cjs` for the planning and state writers; spawn probes assert exit 1, the named flag, no write
+- [x] 68-04-objective-remove-and-complete-TRD.md — (W2) bounded NN-MM renumber rule keeps dates and metadata; `nextObjective` reads directories and ROADMAP sections for local and store `objective complete`
+- [x] 68-05-flag-spec-every-writer-TRD.md — (W2) spec entries for the remaining writing commands; repo test: spec = help.cjs `mutates`, a probe per entry, exemption reasons, documented invocations accepted
+- [x] 68-06-store-milestone-dry-run-TRD.md — (W2) store-mode `milestone complete --dry-run` with zero gh calls; `milestone put` shares the MILESTONES.md heading rule
+- [x] 68-07-dogfood-and-docs-TRD.md — (W3) SC-1..SC-5 on scratch copies of this repo's `.planning/`; CHANGELOG, USER-GUIDE, CLAUDE.md, df-tools header; objective-complete todo completed
 
 ### Objective 69: Drafts, health and doctor
 
@@ -208,7 +217,15 @@ TRDs:
   1. `planning draft` reseeds a draft older than the live file, and `doc put` refuses a draft whose base is no longer the live file with a message naming the fix.
   2. `validate health` and `doctor` flag a `.planning/.skill-active` marker that is tracked in git or stale, and `--repair` / `--fix` untrack or remove it without touching other files.
   3. A check flags a requirement that a VERIFICATION marks satisfied but no SUMMARY lists in `requirements-completed`, and Objective 58's SUMMARY frontmatter is corrected so the check passes on this repo.
-**TRDs**: TBD
+**TRDs**: 6 plans
+
+TRDs:
+- [x] 69-01-draft-staleness-guard-TRD.md — (W1) draft base records (`<draft>.base.json`); `planning draft` reseeds a stale draft and keeps `.stale`; `doc put` refuses a stale draft naming `planning draft <rel>`
+- [x] 69-02-skill-marker-health-check-TRD.md — (W1) `lib/skill-marker-health.cjs` + `doctor-git.checkIgnored`; `validate health` Check 19 (E006 tracked, W064 stale) and a `--repair` that untracks/removes only the marker behind the DOC-06 guard
+- [x] 69-03-requirements-agreement-check-TRD.md — (W1) `lib/requirements-agreement.cjs` (REQUIREMENTS-document scope); repo test RED then GREEN by correcting eight objective 58 SUMMARYs through `summary post`
+- [x] 69-04-doctor-skill-marker-ownership-TRD.md — (W2) doctor check 23 over skill-marker-health (tracked markers, owns E006/W064); check 22 defers them and counts only its own repairable issues
+- [x] 69-05-validate-requirements-wiring-TRD.md — (W2) `validate health` Check 20 (W065) and `validate requirements [--objective <N>]` (dispatch, help, flag-spec, probe)
+- [x] 69-06-dogfood-and-docs-TRD.md — (W3) SC-1..SC-3 on scratch copies plus landed-state evidence; CHANGELOG, USER-GUIDE, CLAUDE.md; skill-active todo completed
 
 ### Objective 70: CLI defects and hook shape
 
@@ -220,7 +237,12 @@ TRDs:
   2. `verify trd-pre <N>` resolves an objective that exists on disk instead of reporting "Objective not found".
   3. `objective-job-index` reports `gap_closure` read from TRD frontmatter.
   4. A `verify-commits.js` SubagentStop result is valid against Claude Code's hook output schema, and a test pins that shape.
-**TRDs**: TBD
+**TRDs**: 3 plans
+
+TRDs:
+- [x] 70-01-cli-defects-TRD.md — (W1) fixture builders; `state update-progress` rewrites the plain line, inserts under `## Current Position` or exits 1; `verify trd-pre` resolves from any cwd inside the project or a path, not-found exits 1; `objective-job-index` `gap_closure`
+- [x] 70-02-verify-commits-hook-shape-TRD.md — (W1) cited Stop/SubagentStop schema model (`hooks/__fixtures__/hook-output-schema.js`); top-level `{decision, reason}` scoped to `devflow:executor`; shape-pinning test; coexistence contract uses the model
+- [x] 70-03-dogfood-and-docs-TRD.md — (W2) SC-1..SC-4 before/after on scratch copies and read-only live commands; CHANGELOG, CLAUDE.md, USER-GUIDE, job-checker; live-SubagentStop todo; full suite
 
 ### Objective 71: Stack drafter and verify policy
 
@@ -232,19 +254,56 @@ TRDs:
   2. For a repo whose lint target runs `buf lint`, the drafted lint coverage includes it; rows these rules close are removed from ACCEPTED in `stack-fleet-tables.cjs` and the fleet harness guards them.
   3. `stack verify --run` skips a service-backed test, or requires an explicit opt-in, and reports it as `env_required`; it never reaches a local database silently.
   4. A build that writes an untracked, unignored output directory is restored or reported, and it does not halt unrelated components' gates.
-**TRDs**: TBD
+**TRDs**: 5 plans
 
-### Objective 72: Install and naming cleanup
+TRDs:
+- [x] 71-01-drafter-self-test-and-declared-linters-TRD.md — (W1) realshape builders; a `--self-test` step never fills a key beside its gate (`self_test` note); a `lint` target running the tier default plus unconditional linters (`buf lint` via AUX_LINTERS/`linterToolOf`) is kept; read-only fleet check
+- [x] 71-02-fleet-tables-and-guards-TRD.md — (W2) `aodex.audit` leaves ACCEPTED; justinforme/smartWellness `lint` become OPEN `pending: 'refresh'` rows; per-repo `selfTestDrafts` guard; real-fleet harness green
+- [x] 71-03-verify-service-policy-TRD.md — (W1) CI steps carry `services`/`envNames`; `stack verify --run` skips a service-backed gate `env_required` (text, CI job, test env file); `--allow-services` opt-in, marked `services=allowed`
+- [x] 71-04-verify-build-outputs-TRD.md — (W2) a `build`'s new untracked files under bin/build/dist/out/target are removed, listed as `build_outputs` and do not halt other components' Dart/Flutter gates
+- [x] 71-05-dogfood-and-docs-TRD.md — (W3) SC-1..SC-4 before/after (fleet read-only, `--run` on scratch clones with stubs); CHANGELOG, CLAUDE.md, USER-GUIDE, stack guide, workflows, help; todos
 
-**Goal**: Slash-command naming is consistent and the legacy `df-*` install is gone and stays gone. Scored by EST-11.
-**Requirements**: INST-01
+### Objective 72: Rename to AOForge and naming cleanup
+
+**Goal**: DevFlow becomes AOForge everywhere it is a name, old names keep working for one release, every project and the user's setup move over in place, and the legacy `df-*` install is gone and stays gone. Scored by EST-11 (all of it, including checkpoint wait time).
+**Requirements**: INST-01, INST-02, INST-03, INST-04, INST-05, INST-06
 **Depends on**: Objective 71 (execution order)
 **Success Criteria** (what must be TRUE):
-  1. `ls ~/.claude/skills ~/.claude/agents` shows no `df-*` entries (they are moved to backup, never deleted).
-  2. `doctor` flags a `df-*` skill or agent that reappears under `~/.claude`.
-  3. A repo test fails on `/df-` or `/df:` command forms in user-facing files, with changelogs and archives exempt.
-  4. Every user-facing reference found by that test uses `/devflow:<name>`.
-**TRDs**: TBD
+  1. `ls ~/.claude/skills ~/.claude/agents` shows no `df-*` entries (moved to backup, never deleted), and `doctor` flags one that reappears.
+  2. A repo test fails on `/df-`, `/df:` or `/devflow:` command forms in user-facing files (changelogs and archives exempt) and on any legacy DevFlow name outside the compatibility module, the history allowlist and the pointer plugin; every user-facing reference uses `/aoforge:<name>`.
+  3. With only old names present (`DEVFLOW_*` set, a `.planning/` project with a `devflow{}` stamp, an old CLAUDE.md block, `devflow:` agent types and GitHub markers), every tool still works, `validate health` names the migration, and nothing is duplicated.
+  4. A session start in a clean `.planning/` project moves it to `.aoforge/` with `git mv` and commits only the move; a dirty or mid-merge tree is skipped; config, CLAUDE.md and (after a dry run and approval) store-mode GitHub artefacts are renamed.
+  5. 3.0.0 is tagged on `main` with the three version files in step and a CHANGELOG entry leading with the rename; the `devflow@aocyber` pointer release tells users to install `aoforge@aocyber`; aoforge flags an enabled devflow plugin.
+  6. After approval of each step: this repo runs on `.aoforge/`, the global CLAUDE.md routes to `/aoforge:`, the repo is `aoforge-claude`, the checkout is `~/dev/aoforge-claude` with memory and run state carried over, the vanity PR is open for review, the Pages project is `aoforge-docs`, and each fleet repo was upgraded behind its own checkpoint.
+**TRDs**: 26 plans (18 waves)
+
+TRDs:
+- [x] 72-01-rescope-requirements-and-roadmap-TRD.md — (W1) run-state estimate gate (`estimate start 72`; decision: frozen-method recalibration or unscored, never silent); INST-01 rewritten, INST-02..06 added; this entry rescoped to the AOForge rename
+- [x] 72-02-legacy-names-and-compat-TRD.md — (W2) `legacy-names.cjs` (the one name map) and `compat.cjs` shims: env alias, `.aoforge`-first planning root, agent types, dot files
+- [x] 72-03-rename-codemod-TRD.md — (W2) tested idempotent codemod (`scripts/aoforge-rename.cjs`): names and planning rules, preserves, skips, `unclassified=0` inventory
+- [x] 72-04-apply-name-rename-TRD.md — (W3) names pass with `git mv` (plugins/aoforge, aof-tools, ...), entry points alias legacy env, rename guard repo test, CLAUDE.md transition note
+- [x] 72-05-planning-dir-resolver-libs-TRD.md — (W4) libs resolve `.aoforge/` then legacy `.planning/`; legacy-layout contract suite; W066
+- [x] 72-06-planning-dir-hooks-and-prose-TRD.md — (W5) hooks resolve both layouts; prose names `.aoforge/`; guard covers the planning dir name
+- [x] 72-07-runtime-home-move-and-rekey-TRD.md — (W7) `~/.claude/devflow` state to `~/.claude/aoforge` (copy, outbox/backups move) from sync-runtime; `aof-tools state rekey`
+- [x] 72-08-planning-dir-and-config-key-migrations-TRD.md — (W7) migrations 0012 (`git mv` to `.aoforge/`) and 0013 (config key); runner re-resolution; hook commit/defer; W067
+- [x] 72-09-claude-md-markers-and-global-block-TRD.md — (W7) dual block markers, migration 0014, global template v4, outside-block diff applied only with `--confirm`
+- [x] 72-10-coexistence-and-legacy-identities-TRD.md — (W6) coexistence-guard SessionStart hook; gates accept `devflow:` agent types; transcript readers keep old names
+- [x] 72-11-gh-markers-labels-and-checks-TRD.md — (W7) GitHub markers and labels read both namespaces; both status contexts posted; legacy caller flagged
+- [x] 72-12-file-level-legacy-identities-TRD.md — (W7) `.mcp.json` ownership key, todo metadata key, `~/.devflow/` file fallback, legacy adopt branch
+- [x] 72-13-legacy-command-forms-gate-TRD.md — (W8) INST-01 repo test: `/df-`, `/df:`, `/devflow:` via NAMESPACE_RENAMES in skill-route; 0007 rewrites projects
+- [x] 72-14-devflow-pointer-plugin-TRD.md — (W7) final `devflow@aocyber` 3.0.0 pointer: notice hook (no-op beside AOForge) and generated forwarding skills
+- [x] 72-15-doctor-legacy-checks-TRD.md — (W8) doctor 15 (df-* reappearance), 16 (devflow leftovers), 27 (W066/W067); check 26 legacy callers
+- [x] 72-16-gh-rebrand-verb-TRD.md — (W8) `aof-tools gh rebrand`: dry-run preview, per-repo apply, idempotent, resumable
+- [x] 72-17-docs-identity-and-migration-guide-TRD.md — (W9) real gold AO emblem + AOForge wordmark on README and site; migration guide; USER-GUIDE/CLAUDE.md
+- [x] 72-18-release-artifacts-3-0-0-TRD.md — (W10) 3.0.0 versions and CHANGELOG; validation; full upgrade rehearsal on a scratch clone (no live step)
+- [x] 72-19-repo-rename-push-and-pr-TRD.md — (W11) checkpoints: rename repo to aoforge-claude, push, open the 3.0.0 PR
+- [ ] 72-20-merge-tag-and-release-TRD.md — (W12) checkpoints: merge, tag v3.0.0; release and marketplace verified
+- [ ] 72-21-install-aoforge-and-dogfood-migration-TRD.md — (W13) checkpoint install + restart; verify state migration and this repo's `.aoforge/` move; disable devflow
+- [ ] 72-22-active-docs-rewrite-TRD.md — (W14) PROJECT/ROADMAP/STATE/REQUIREMENTS and CLAUDE.md in AOForge terms; transition note removed
+- [ ] 72-23-global-claude-md-and-marketplace-TRD.md — (W15) checkpoints: global CLAUDE.md outside-block diff approval; marketplace re-point decision
+- [ ] 72-24-vanity-pr-and-pages-project-TRD.md — (W16) checkpoints: draft vanity-mapping PR (user merges); `aoforge-docs` Pages project + one deploy
+- [ ] 72-25-fleet-sweep-TRD.md — (W17) fleet discovery and preview; one approval per repository (upgrade, store-mode rebrand); nothing pushed
+- [ ] 72-26-checkout-move-and-rekey-TRD.md — (W18) checkpoint: user moves checkout to `~/dev/aoforge-claude`; worktrees, memory and keyed state carried over; follow-up PR for the post-merge commits (push and PR gates)
 
 ### Objective 73: Handoff gaps and result injection
 
@@ -292,12 +351,12 @@ TRDs:
 | 55–64 (10 objectives) | v1.5 | 81/81 | Complete (EST-08 not met, accepted) | 2026-10-08 |
 | 65. Release v1.5 | v1.6 | 4/4 | Complete | 2026-10-08 |
 | 66. Executor token stamp | v1.6 | 4/4 | Complete | 2026-10-08 |
-| 67. Minutes recalibration | v1.6 | 6/9 | In Progress | - |
-| 68. Milestone and objective verbs | v1.6 | 0/? | Not started | - |
-| 69. Drafts, health and doctor | v1.6 | 0/? | Not started | - |
-| 70. CLI defects and hook shape | v1.6 | 0/? | Not started | - |
-| 71. Stack drafter and verify policy | v1.6 | 0/? | Not started | - |
-| 72. Install and naming cleanup | v1.6 | 0/? | Not started | - |
+| 67. Minutes recalibration | v1.6 | 9/9 | Complete | 2026-10-08 |
+| 68. Milestone and objective verbs | v1.6 | 7/7 | Complete | 2026-10-08 |
+| 69. Drafts, health and doctor | v1.6 | 6/6 | Complete | 2026-10-08 |
+| 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
+| 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
+| 72. Install and naming cleanup | v1.6 | 19/26 | In Progress | - |
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |

@@ -18,10 +18,10 @@
 *.p12
 *.keystore
 
-# ---- DevFlow runtime ------------------------------------------------
-.planning/.skill-active
-.planning/.cache/
-.planning/.migrate-backup-*/
+# ---- AOForge runtime ------------------------------------------------
+.aoforge/.skill-active
+.aoforge/.cache/
+.aoforge/.migrate-backup-*/
 
 # ---- Go -------------------------------------------------------------
 go/bin/

@@ -6,49 +6,10 @@ description: |
 argument-hint: "[objective]"
 disable-model-invocation: true
 allowed-tools:
-  - Read
-  - Bash
-  - Grep
-  - Glob
-  - AskUserQuestion
+  - Skill
 ---
+DevFlow is now AOForge. This command moved to `/aoforge:list-objective-assumptions`.
 
-<objective>
-Analyze an objective and present Claude's assumptions about technical approach, implementation order, scope boundaries, risk areas, and dependencies.
+`/aoforge:list-objective-assumptions` runs only when the user types it, so the Skill tool cannot start it: do not try. Tell the user to type `/aoforge:list-objective-assumptions $ARGUMENTS` to run it, and do nothing else.
 
-Purpose: Help users see what Claude thinks BEFORE planning begins - enabling course correction early when assumptions are wrong.
-Output: Conversational output only (no file creation) - ends with "What do you think?" prompt
-</objective>
-
-<execution_context>
-@~/.claude/devflow/workflows/list-objective-assumptions.md
-</execution_context>
-
-<context>
-Objective number: $ARGUMENTS (required)
-
-**Load project state first:**
-@.planning/STATE.md
-
-**Load roadmap:**
-@.planning/ROADMAP.md
-</context>
-
-<process>
-1. Validate objective number argument (error if missing or invalid)
-2. Check if objective exists in roadmap
-3. Follow list-objective-assumptions.md workflow:
-   - Analyze roadmap description
-   - Surface assumptions about: technical approach, implementation order, scope, risks, dependencies
-   - Present assumptions clearly
-   - Prompt "What do you think?"
-4. Gather feedback and offer next steps
-</process>
-
-<success_criteria>
-
-- Objective validated against roadmap
-- Assumptions surfaced across five areas
-- User prompted for feedback
-- User knows next steps (discuss context, plan objective, or correct assumptions)
-  </success_criteria>
+If Claude Code does not know `/aoforge:list-objective-assumptions`, the AOForge plugin is not installed. Tell the user: run `/plugin install aoforge@aocyber` (marketplace `aocyber`), restart Claude Code, then disable this plugin with `claude plugin disable devflow@aocyber`. This pointer is removed in the release after 3.0.0.

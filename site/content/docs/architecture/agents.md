@@ -11,7 +11,7 @@ agents — the work happens in the agents, each in its own fresh context window.
 
 ## How an agent is defined
 
-Each agent is a single markdown file in `plugins/devflow/agents/` with YAML
+Each agent is a single markdown file in `plugins/aoforge/agents/` with YAML
 frontmatter and an XML-structured body:
 
 ```markdown
@@ -83,9 +83,9 @@ commits, handles deviations from the plan, and manages checkpoints. Runs with a
 **not** declare `isolation: worktree`: the harness resolved that isolation from the
 controller session's repo and from the default branch, which rooted spawns in the
 wrong repository and starved sequential waves
-([#86](https://github.com/AO-Cyber-Systems/devflow-claude/issues/86)). Isolation is
+([#86](https://github.com/AO-Cyber-Systems/aoforge-claude/issues/86)). Isolation is
 provisioned explicitly instead, and the executor proves its repo and base with
-`df-tools exec-context check` before it writes anything.
+`aof-tools exec-context check` before it writes anything.
 
 ### Verification
 
@@ -126,7 +126,7 @@ Which model an agent runs at comes from the active profile, resolved at dispatch
 time:
 
 ```bash
-df-tools resolve-model planner      # → the model alias for the current profile
+aof-tools resolve-model planner      # → the model alias for the current profile
 ```
 
 `opus` resolves to `inherit`, meaning the agent keeps the session's model rather

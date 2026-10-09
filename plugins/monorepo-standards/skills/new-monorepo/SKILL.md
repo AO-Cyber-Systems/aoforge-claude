@@ -16,7 +16,7 @@ Stamp the `monorepo-scaffold` template into a target directory so the new repo s
 1. Root `CLAUDE.md` with a Layout table
 2. Per-area `CLAUDE.md` for every selected area (go / flutter / admin / proto)
 3. `.gitignore` covering Go + Flutter + Node + native build artifacts
-4. `.devflow/no-binaries.yml` (active by default once the plugin is installed)
+4. `.aoforge/no-binaries.yml` (active by default once the plugin is installed)
 5. Per-area GitHub Actions workflows with `paths:` filters
 6. `monorepo-doctor.yml` workflow that runs on every PR
 

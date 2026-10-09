@@ -31,10 +31,10 @@ Output: Working Dart files (build), actionable code findings with fixes (review)
 
 <execution_context>
 @plugins/eden-ui-flutter/references/eden-ui-flutter-conventions.md
-@~/.claude/devflow/references/design-craft.md
-@~/.claude/devflow/references/design-tells.md
-@~/.claude/devflow/references/design-preflight.md
-@~/.claude/devflow/references/design-stack-flutter.md
+@~/.claude/aoforge/references/design-craft.md
+@~/.claude/aoforge/references/design-tells.md
+@~/.claude/aoforge/references/design-preflight.md
+@~/.claude/aoforge/references/design-stack-flutter.md
 </execution_context>
 
 <context>
@@ -82,7 +82,7 @@ When flutter-skill MCP is available, use its tools for live inspection:
    diverges.
 
 2. **Detect greenfield vs redesign** — If this screen already exists in any
-   form, stop and load `~/.claude/devflow/references/design-redesign.md`. Misclassifying a
+   form, stop and load `~/.claude/aoforge/references/design-redesign.md`. Misclassifying a
    redesign as a greenfield build is the largest single source of bad redesign
    work: it silently changes IA, slugs, nav labels and analytics identifiers.
 
@@ -111,7 +111,7 @@ When flutter-skill MCP is available, use its tools for live inspection:
       (`refs/<surface>/pattern-mapping.md`: donor screen -> Eden pattern -> deltas) **first**.
    c. Validate it, and fix every error:
 
-      `node ~/.claude/devflow/bin/df-tools.cjs ui spec validate flutter/ui_spec/<surface>.md`
+      `node ~/.claude/aoforge/bin/aof-tools.cjs ui spec validate flutter/ui_spec/<surface>.md`
 
       A spec that does not validate is not reviewable and cannot seed a TRD.
 
@@ -131,7 +131,7 @@ When flutter-skill MCP is available, use its tools for live inspection:
       - `held` — a human approved this surface and nothing in `routes`, `controls` or `states`
         has moved since. Proceed to composition.
       - `absent` — this surface has never been look-locked. Render the review sheet
-        (`node ~/.claude/devflow/bin/df-tools.cjs ui sheet flutter/ui_spec/<surface>.md --renders <dir> --refs <dir> --out <sheet.html>`)
+        (`node ~/.claude/aoforge/bin/aof-tools.cjs ui sheet flutter/ui_spec/<surface>.md --renders <dir> --refs <dir> --out <sheet.html>`)
         and run the look-lock checkpoint. **Do not compose.**
       - `cleared` — it was approved, and `routes`, `controls` or `states` has changed since; the
         `reason` names which. Re-render the changed states, re-run the sheet, and run the
@@ -140,9 +140,9 @@ When flutter-skill MCP is available, use its tools for live inspection:
         surface is unknown. Stop and ask the user. **Do not compose.**
 
       The look-lock checkpoint itself — what the human is shown, the approval command
-      (`node ~/.claude/devflow/bin/df-tools.cjs ui lock <spec> --sheet-hash <sheet_hash> --by <email>`),
+      (`node ~/.claude/aoforge/bin/aof-tools.cjs ui lock <spec> --sheet-hash <sheet_hash> --by <email>`),
       and what happens on a rejection — is documented once, in the **look-lock variant** section
-      of `~/.claude/devflow/references/checkpoints.md`. Read it there; do not restate it here.
+      of `~/.claude/aoforge/references/checkpoints.md`. Read it there; do not restate it here.
 
    **Refusal:** Do not compose a surface whose spec reports `ok: false`, or whose `lock` is
    anything other than `held` — report the errors or the lock status and stop, rather than
@@ -188,7 +188,7 @@ When flutter-skill MCP is available, use its tools for live inspection:
 9. **Run the pre-flight check** — Work every box in `design-preflight.md` before
    reporting the surface complete. It is a gate, not a checklist to note.
 
-   Flutter has a stronger option than a screenshot: run `/devflow:ui-eval` to
+   Flutter has a stronger option than a screenshot: run `/aoforge:ui-eval` to
    capture every declared state (loading, empty, error, populated), score it
    through the offline visual-eval engine, and write evidence the verifier
    consumes. Declared states that are never rendered are the usual gap — a widget

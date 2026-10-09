@@ -3,7 +3,7 @@
 
 // Rolling-origin (leave-future-out) backtest harness for objective 64 (EST-08, TRD 64-08).
 //
-// `df-tools estimate backtest` judges EST-08 with ONE calibration. A leave-future-out validation needs one calibration
+// `aof-tools estimate backtest` judges EST-08 with ONE calibration. A leave-future-out validation needs one calibration
 // per objective, each built from the history that came before it: this harness loads one calibration file per
 // objective, estimates each objective with its OWN file (`estimateObjective(cal, repo, N, {all: true})`, every TRD as
 // before execution) and sends the estimates through `buildBacktest`, the code that issued the 64-05 verdict. Given a
@@ -21,12 +21,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const ci = require('../plugins/devflow/devflow/bin/lib/calibration-inputs.cjs');
-const est = require('../plugins/devflow/devflow/bin/lib/estimate.cjs');
-const rollup = require('../plugins/devflow/devflow/bin/lib/estimate-rollup.cjs');
-const backtest = require('../plugins/devflow/devflow/bin/lib/estimate-backtest.cjs');
-const fmt = require('../plugins/devflow/devflow/bin/lib/estimate-format.cjs');
-const store = require('../plugins/devflow/devflow/bin/lib/estimate-run-store.cjs');
+const ci = require('../plugins/aoforge/aoforge/bin/lib/calibration-inputs.cjs');
+const est = require('../plugins/aoforge/aoforge/bin/lib/estimate.cjs');
+const rollup = require('../plugins/aoforge/aoforge/bin/lib/estimate-rollup.cjs');
+const backtest = require('../plugins/aoforge/aoforge/bin/lib/estimate-backtest.cjs');
+const fmt = require('../plugins/aoforge/aoforge/bin/lib/estimate-format.cjs');
+const store = require('../plugins/aoforge/aoforge/bin/lib/estimate-run-store.cjs');
 const { isUnderClaudeHome } = require('./estimate-window-eval.cjs');
 
 const OBJECTIVE_RE = /^\d+(?:\.\d+)?$/;
@@ -45,7 +45,7 @@ function isCalibration(cal) {
 /**
  * Estimates each objective from its own calibration and judges EST-08 over the lot.
  *   base        the repository (the directory `estimate backtest` would run in); the project root is chosen as
- *               estimate-cli's runRoot does: the nearest directory above `base` holding `.planning`, else `base`
+ *               estimate-cli's runRoot does: the nearest directory above `base` holding a planning directory, else `base`
  *   old         { '59': <loaded calibration object>, ... } keyed by objective number
  *   objectives  the objectives to estimate (default: the keys of `old`); one without a calibration is excluded
  *   ratesFile   test seam: the model rates (default: the shipped file)

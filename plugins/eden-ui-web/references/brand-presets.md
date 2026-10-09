@@ -6,7 +6,7 @@ Built-in brand presets for eden-ui-web projects. Each preset defines a complete 
 
 Every preset below names typefaces but **not** how to load them. That is one
 mechanism, defined once here. Full rationale in
-`~/.claude/devflow/references/design-stack-web.md` §1.
+`~/.claude/aoforge/references/design-stack-web.md` §1.
 
 ### Option A — self-host through the Hugo pipeline (preferred)
 

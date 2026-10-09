@@ -216,6 +216,56 @@ STATE.md stays lean; this file grows over time.
 - [Objective 67]: 67-04: the pre-registered ship rule returned ship_default true (reason: the new method meets EST-08; improved false, minutes median 1.021 old vs 1.051 new), so the frozen minutes method is trd_level, window 10, through objective 66
 - [Objective 67]: 67-05: calibrate default minutes method is trd_level, set by 67-VALIDATION.md (ship_default true, method_selected trd_level); the docs state that the rule fired on the new method's verdict, not on the median (1.021 task_sum, 1.051 trd_level)
 - [Objective 67]: Release 2.15.0 lead paragraph restates the CHANGELOG's own wording (pre-registered rule, installed plugin at 2.15.0) instead of inventing a /plugin update instruction; release commit carries exactly five files, SUMMARY goes in the docs commit
+- [Objective 67]: 67-08: Docs site deploy failure on MERGE_SHA (Cloudflare Pages project devflow-docs not found, code 8000007) recorded as an objective 74 OPS-03 follow-up, not rolled back
+- [Objective 67]: EST-11 calibration frozen by the installed 2.15.0 runtime (trd_level, window 10, through 66, sha256 f4d1ffa9); state add-blocker/resolve-blocker now accept a spaced '## Blockers / Concerns' heading via a shared BLOCKERS_SECTION_RE instead of hand-editing STATE.md
+- [Objective 68]: milestone complete is a read-only plan plus an executor of that plan; an existing archive file or MILESTONES.md heading is kept on a re-run, never refreshed
+- [Objective 68]: milestone-scope counts a directory as objective N only when objectiveDirMatches(name, normalizeObjectiveName(N)) holds, so unpadded 4-d and hyphen-less 04x are not objectives (find-objective parity, TOOL-05)
+- [Objective 68]: Single decimals in a milestone bullet match by text, not float, so Objectives 4.1 does not select 04.10-ten; ranges and sort order stay numeric (float 4.10 == 4.1 deferred)
+- [Objective 68]: Unknown-flag guard runs once in the dispatcher after the --help pre-switch, only for HELP_TABLE mutates:true commands with a FLAG_SPEC entry; a value flag consumes one token, so multi-word values need no special case — Per-arm checks leave the next command unguarded (issue #87); a declarative spec checked before the switch covers every writer
+- [Objective 68]: objective remove TRD-reference rule is bounded ((?<![\w.-])NN-(\d{2})(?!\d|-\d)); nextObjective picks the smallest later number over directories and ROADMAP sections, cancelled directories excluded, directory spelling wins
+- [Objective 68]: decision-queue gets explicit per-subcommand FLAG_SPEC rules, not ownParser: its parser accepts any unknown --x as a boolean (decision-queue list --zz-unknown exits 0)
+- [Objective 68]: A placeholder (<x>, {x}, ${X}) stays one non-flag token in the documented-invocation scan so a value flag still consumes it and the next flag is still checked
+- [Objective 68]: 68-06: a store dry run's headline is suppressed when the result has dry_run and prose, so stdout opens with the DRY RUN banner
+- [Objective 68]: Dogfood ran only on scratch copies of .planning/ with the repository runtime; each defect SC was also run against the installed pre-68 runtime as a control, so the PASS rows are shown to fail without the fix
+- [Objective 69]: Draft staleness is decided by a per-draft sha256 base record (<draft>.base.json), with mtime only as the fallback for drafts that have no base; planning draft reseeds a stale draft and keeps the old one at <draft>.stale, doc put refuses it
+- [Objective 69]: 69-02: a tracked live marker the repository does not ignore is not repairable (untracking would leave it one git add -A from re-tracking, and the repair never edits .gitignore); a tracked stale marker is one E006 carrying the stale reason, never also W064
+- [Objective 69]: Requirements agreement check is scoped to IDs a REQUIREMENTS document defines; other satisfied IDs are reported as skipped, never as findings
+- [Objective 69]: Check 22 recounts repairable over non-deferred issues (validate's repairable_count includes deferred E006/W064, which made a stale marker alone trigger check 22's --repair ahead of check 23)
+- [Objective 69]: Doctor check 23 keeps no .skill-active classification; every action on it goes through skill-marker-health (untrack before unlink, DOC-06 guard, ctx.changedThisRun as exclude)
+- [Objective 69]: validate requirements has no try/catch: an unreadable planning tree is a loud non-zero exit, while findings always exit 0; W065 doubles as requirements-check-failed in validate health
+- [Objective 69]: Health-check docs for E006/W064 and W065 live in one USER-GUIDE section after Upgrading a Project in Place; the guide has no validate row, so validate requirements is on the /devflow:status check row
+- [Objective 70]: setProgressLine is a pure helper: bold (file-wide), then plain inside ## Current Position, then insertion; null means exit 1 before any write — update-progress must never exit 0 without changing the figure; a Progress line in another section is never rewritten
+- [Objective 70]: verify trd-pre walks up with the exported findProjectRoot inside its own resolveTarget; findObjectiveInternal and normalizeObjectiveName stay cwd-based — those two have about 20 other callers; project_root is added to the not-found result only so the 48-03 success JSON is unchanged
+- [Objective 70]: 70-02: verify-commits.js blocks with a top-level {decision, reason} scoped to agent_type devflow:executor; hooks/__fixtures__/hook-output-schema.js models the Stop/SubagentStop schema and the coexistence contract runs it over every Stop-family hook
+- [Objective 70]: 70-03: SC-4 before column taken from the installed 2.15.0 hook output; the live SubagentStop is a post-release check tracked as a todo, not a pass
+- [Objective 71]: buf lint is recognised by stack-classify linterToolOf via AUX_LINTERS only, never in CLASSIFY_TABLE, so stack-evidence unitKeys and the mixed-aggregate codegen pick are unchanged
+- [Objective 71]: A self-test step is filtered only when a sibling runs the same named entry point at the same cwd without the argument; a lone self-test and a declared row still fill their key
+- [Objective 71]: A lint target adding linters is the entry point only when every extra line is an unconditional (no ||) linter of a tool other than the default's; optional linters keep lint inherited
+- [Objective 71]: stack verify --run skips a gate with a static service signal (own text, CI job running the same command, test env file for test/e2e) as env_required; --allow-services (with --run only) opts in and the result is marked services=allowed. Detection never probes a port.
+- [Objective 71]: The CI layer of the service policy matches an exact command and cwd (a hand-edited command differing from CI is not matched); the loopback regex uses a lookbehind so [::1]:port is visible.
+- [Objective 71]: 71-02: selfTestDrafts does not import stack-draft.cjs; its marker test is its own so a broken drafter predicate cannot hide its own regression
+- [Objective 71]: 71-02: an OPEN pending:'refresh' row (justinforme and smartWellness lint) is a follow-up, not a drafter gap; it is tolerated only while it drifts and the remove-it ratchet is unchanged
+- [Objective 71]: 71-02: ACCEPTED did not grow; aodex.audit was removed because the 71-01 self-test rule now drafts the govulncheck gate
+- [Objective 71]: A build gate's new untracked unignored files under bin/ build/ dist/ out/ target/ (relative to its cwd) are removed, listed in run.build_outputs and do not halt the root; any other change, non-build key or failed restore still halts
+- [Objective 71]: CLAUDE.md names lint targets and build gates in plain text, not backticks: dispatch-completeness reads the first word of every backtick span in a Core Tool bullet as a df-tools command
+- [Objective 71]: justinforme and smartWellness committed STACK.md lint refresh is a recorded todo, not an edit: it is a commit in each fleet repo and needs the user
+- [Objective 72]: Run state for 72 already recorded at TRD start (2026-10-08T22:24:56.615Z); estimate line reads No estimate but per-wave p50/P90 exist; no requirement marked complete by 72-01
+- [Objective 72]: 72-01 correction: objective 72 accepted as unscored for EST-11 (user reply: unscored); the earlier 'run state already recorded' entry came from the orchestrator's wave-start call and had no objective estimate
+- [Objective 72]: compat.cjs destructures the planning-directory key so the literal source guard holds; findProjectRoot treats ENOTDIR as absence
+- [Objective 72]: Codemod renames boundary-crossing tokens (workflow inputs, ~/.devflow, launchd label, .devflow-handoff) like any other and holds back only what is not ours (devflowops, devflow-desktop, devflow.cloud, fleet repo names, monorepo-doctor skip list); 72-10/11/12 add the legacy spellings
+- [Objective 72]: 72-04: hooks alias the legacy env prefix inside a try that tolerates only MODULE_NOT_FOUND (stub plugin trees fail open); aof-tools and aoforge-watch use a plain require
+- [Objective 72]: 72-04: docs/built-in-sweep.md and docs/built-in-integration-status.md are live docs (codemod LIVE_DOCS); changelog-on-tag falls back to the legacy plugin manifest path on pre-rename commits
+- [Objective 72]: 72-05: copies keep the source's planning-directory name (backup, workstreams provision, archive), so a legacy project never grows a second directory
+- [Objective 72]: 72-05: hooks resolve only the legacy planning directory until 72-06, so tests that exercise a hook pin the legacy layout (fixture setPlanningDir, legacy copies); 72-06 removes the pins
+- [Objective 72]: 72-05: W066 legacy-planning-dir (lib/planning-layout.cjs) is reported by validate health Check 21 and both init advisories; migration 0010's store block follows the project's directory, its printed commit steps stay 72-08's
+- [Objective 72]: 72-06: hooks require compat.cjs directly (after the alias line) and print the RESOLVED planning directory in messages and relative paths; the rename guard counts the legacy directory only where the codemod's occurrenceKind says path or regex; the codemod keeps rename-guard ignore regions in both passes
+- [Objective 72]: 72-10: coexistence-guard queues one global notice per session (key coexistence:<session_id>) when the pre-rename plugin is installed and not explicitly disabled; the pointer release (major >= 3) gets an info notice without the double-gate warning
+- [Objective 72]: 72-10: compat.isOwnAgentType requires a non-empty agent name; isOwnExecutor is an exact match for the executor in either namespace; gate-edits, verify-commits and gate-executor-stop use them
+- [Objective 72]: 72-10: session-audit maps the old gate texts, skill/command namespace and override phrases to the unchanged category ids; agent-overhead normalizes aoforge:, the legacy namespace and the df- install prefix
+- [Objective 72]: 72-17: docs/MIGRATING-TO-AOFORGE.md is live documentation: in the codemod LIVE_DOCS and doc-refs SCAN_INCLUDE, listed in the rename guard IGNORE_REGION_FILES with a temp-copy sensitivity test; the site page is the same body with Hugo front matter
+- [Objective 72]: 72-17: the real AO emblem (aocyber.ai ao-icon.svg, sha256 12f6c83e...5965) is cached at assets/ao-icon.svg with assets/SOURCES.md; README and site header size it by height only; the old CLI reference URL redirects 301 via site/static/_redirects inside a rename-guard region
+- [Objective 72]: 72-18: CHANGELOG 3.0.0 is inserted under a kept, empty [Unreleased] heading (2.14.0/2.15.0 practice), so the diff is additions only
+- [Objective 72]: 72-18: every sibling plugin changed in objective 72 takes a patch bump, social-media-generator included (1.3.1; aosentry-mcp, eden-ui-flutter, eden-ui-web 1.0.1; monorepo-standards 0.1.1)
 
 ## Performance Metrics
 
@@ -361,4 +411,37 @@ STATE.md stays lean; this file grows over time.
 | Objective 67 P04 | 9min | 3 tasks | 1 files |
 | Objective 67 P05 | 12min | 2 tasks | 9 files |
 | Objective 67 P06 | 14min | 2 tasks | 5 files |
+| Objective 67 P07 | 10min | 3 tasks | 0 files |
+| Objective 67 P08 | 15min | 3 tasks | 0 files |
+| Objective 67 P09 | 14min | 3 tasks | 6 files |
+| Objective 68 P01 | 11min | 3 tasks | 7 files |
+| Objective 68 P02 | 7min | 3 tasks | 5 files |
+| Objective 68 P03 | 15min | 3 tasks | 6 files |
+| Objective 68 P04 | 9min | 3 tasks | 4 files |
+| Objective 68 P05 | 15min | 2 tasks | 4 files |
+| Objective 68 P06 | 8 min | 2 tasks | 4 files |
+| Objective 68 P07 | 10min | 2 tasks | 5 files |
+| Objective 69 P01 | 9min | 3 tasks | 8 files |
+| Objective 69 P02 | 10min | 3 tasks | 7 files |
+| Objective 69 P03 | 9min | 3 tasks | 12 files |
+| Objective 69 P04 | 10min | 2 tasks | 5 files |
+| Objective 69 P05 | 10min | 2 tasks | 6 files |
+| Objective 69 P06 | 14min | 2 tasks | 4 files |
+| Objective 70 P01 | 11min | 3 tasks | 8 files |
+| Objective 70 P02 | 6min | 2 tasks | 6 files |
+| Objective 70 P03 | 8min | 2 tasks | 5 files |
+| Objective 71 P01 | 10min | 3 tasks | 5 files |
+| Objective 71 P03 | 13min | 3 tasks | 6 files |
+| Objective 71 P02 | 8min | 2 tasks | 3 files |
+| Objective 71 P04 | 7min | 3 tasks | 3 files |
+| Objective 71 P05 | 8min | 2 tasks | 7 files |
+| Objective 72 P01 | 3min | 3 tasks | 2 files |
+| Objective 72 P02 | 7min | 3 tasks | 5 files |
+| Objective 72 P03 | 30min | 3 tasks | 3 files |
+| Objective 72 P04 | 40min | 3 tasks | 1003 files |
+| Objective 72 P05 | 53min | 3 tasks | 422 files |
+| Objective 72 P06 | 19min | 3 tasks | 228 files |
+| Objective 72 P10 | 15min | 3 tasks | 20 files |
+| Objective 72 P17 | 21min | 3 tasks | 15 files |
+| Objective 72 P18 | 9min | 3 tasks | 11 files |
 

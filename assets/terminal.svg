@@ -38,7 +38,7 @@
     <!-- Prompt line -->
     <text class="text prompt" font-size="15" y="0">~</text>
     <text class="text dim" font-size="15" x="16" y="0">$</text>
-    <text class="text command" font-size="15" x="36" y="0">npx devflow-cc</text>
+    <text class="text command" font-size="15" x="36" y="0">npx aoforge-cc</text>
 
     <!-- Banner -->
     <text class="text cyan" font-size="12" y="48" xml:space="preserve">  ██████╗ ███████╗██╗   ██╗███████╗██╗      ██████╗ ██╗    ██╗</text>
@@ -49,16 +49,16 @@
     <text class="text cyan" font-size="12" y="128" xml:space="preserve">  ╚═════╝ ╚══════╝  ╚═══╝  ╚═╝     ╚══════╝ ╚═════╝  ╚══╝╚══╝</text>
 
     <!-- Title and subtitle -->
-    <text class="text white" font-size="15" y="168">  DevFlow <tspan class="dim">v1.20.4</tspan></text>
+    <text class="text white" font-size="15" y="168">  AOForge <tspan class="dim">v1.20.4</tspan></text>
     <text class="text white" font-size="15" y="192">  A meta-prompting, context engineering and spec-driven</text>
     <text class="text white" font-size="15" y="212">  development system for Claude Code by AO Cyber Systems.</text>
 
     <!-- Install output -->
     <text class="text" font-size="15" y="260"><tspan class="green">  ✓</tspan><tspan class="white"> Installed commands/df</tspan></text>
-    <text class="text" font-size="15" y="284"><tspan class="green">  ✓</tspan><tspan class="white"> Installed devflow</tspan></text>
+    <text class="text" font-size="15" y="284"><tspan class="green">  ✓</tspan><tspan class="white"> Installed aoforge</tspan></text>
 
     <!-- Done message -->
-    <text class="text" font-size="15" y="332"><tspan class="green">  Done!</tspan><tspan class="white"> Launch Claude Code and run </tspan><tspan class="cyan">/devflow:help</tspan><tspan class="white">.</tspan></text>
+    <text class="text" font-size="15" y="332"><tspan class="green">  Done!</tspan><tspan class="white"> Launch Claude Code and run </tspan><tspan class="cyan">/aoforge:help</tspan><tspan class="white">.</tspan></text>
 
     <!-- New prompt -->
     <text class="text prompt" font-size="15" y="380">~</text>

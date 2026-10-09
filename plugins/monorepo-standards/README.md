@@ -7,14 +7,14 @@ Enforces AO Cyber Systems monorepo conventions across product repos (aodex, aose
 | Component | Type | Purpose |
 |-----------|------|---------|
 | `hooks/no-binaries.js` | Pre-commit hook (PreToolUse, Bash) | Blocks `git commit` when staged files include compiled binaries, oversize blobs, or deny-listed extensions outside allowed paths. |
-| `skills/monorepo-doctor/` | Skill (`/devflow:monorepo-doctor`) | Validates the working tree against the root CLAUDE.md Layout table — every declared area exists, every area has its own CLAUDE.md, no tracked binaries. |
-| `skills/new-monorepo/` | Skill (`/devflow:new-monorepo`) | Stamps a fresh monorepo from `templates/monorepo-scaffold/` — root + per-area CLAUDE.md, `.gitignore`, path-filtered CI, `.devflow/no-binaries.yml`. |
+| `skills/monorepo-doctor/` | Skill (`/aoforge:monorepo-doctor`) | Validates the working tree against the root CLAUDE.md Layout table — every declared area exists, every area has its own CLAUDE.md, no tracked binaries. |
+| `skills/new-monorepo/` | Skill (`/aoforge:new-monorepo`) | Stamps a fresh monorepo from `templates/monorepo-scaffold/` — root + per-area CLAUDE.md, `.gitignore`, path-filtered CI, `.aoforge/no-binaries.yml`. |
 | `templates/monorepo-scaffold/` | Template tree | Source-of-truth files copied by `new-monorepo`. |
 
 ## Install
 
 ```
-/plugin marketplace add AO-Cyber-Systems/devflow-claude
+/plugin marketplace add AO-Cyber-Systems/aoforge-claude
 /plugin install monorepo-standards@aocyber
 ```
 
@@ -37,15 +37,15 @@ Or pin the plugin via the marketplace block:
 ```jsonc
 {
   "plugins": {
-    "marketplaces": ["AO-Cyber-Systems/devflow-claude"],
-    "enabled": ["monorepo-standards@aocyber", "devflow@aocyber"]
+    "marketplaces": ["AO-Cyber-Systems/aoforge-claude"],
+    "enabled": ["monorepo-standards@aocyber", "aoforge@aocyber"]
   }
 }
 ```
 
 ## Configure (optional)
 
-Create `.devflow/no-binaries.yml` at the repo root:
+Create `.aoforge/no-binaries.yml` at the repo root:
 
 ```yaml
 enabled: true
@@ -62,7 +62,7 @@ A starter copy lives at `templates/monorepo-scaffold/no-binaries.yml`.
 ## Bypass (emergency only)
 
 ```bash
-DEVFLOW_ALLOW_BINARIES=1 git commit -m "vendored runtime"
+AOFORGE_ALLOW_BINARIES=1 git commit -m "vendored runtime"
 ```
 
 Document why in the commit message and open a follow-up to add the path to `allowed_paths` if it's recurring.
@@ -72,7 +72,7 @@ Document why in the commit message and open a follow-up to add the path to `allo
 Inside a Claude Code session in any monorepo:
 
 ```
-/devflow:monorepo-doctor
+/aoforge:monorepo-doctor
 ```
 
 Or from the shell:
@@ -86,7 +86,7 @@ Exit 0 = clean, exit 1 = at least one issue. Pass `--json` for machine-readable 
 ## Scaffold a new monorepo
 
 ```
-/devflow:new-monorepo --slug eden-biz --name "Eden Biz" --areas go,flutter,admin,proto
+/aoforge:new-monorepo --slug eden-biz --name "Eden Biz" --areas go,flutter,admin,proto
 ```
 
 Stamps `./eden-biz/` with the full layout. Run the doctor after to confirm:
@@ -130,7 +130,7 @@ plugins/monorepo-standards/
 │       ├── CLAUDE.md
 │       ├── README.md
 │       ├── gitignore             # → .gitignore on stamp
-│       ├── no-binaries.yml       # → .devflow/no-binaries.yml
+│       ├── no-binaries.yml       # → .aoforge/no-binaries.yml
 │       ├── areas/
 │       │   ├── go-CLAUDE.md
 │       │   ├── flutter-CLAUDE.md
