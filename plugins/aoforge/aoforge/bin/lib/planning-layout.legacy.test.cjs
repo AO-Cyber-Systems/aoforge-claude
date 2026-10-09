@@ -384,3 +384,68 @@ describe('7. layout both: the new directory wins and the legacy one is left alon
     assert.deepEqual(snapshotTree(path.join(p.root, OLD)), legacyBefore);
   });
 });
+
+// ─── Cases 5, 6, 7 (W066) and 8: the migration advisory ──────────────────────
+
+const UPGRADE_FIX = 'aof-tools upgrade --apply --only 0012';
+
+function w066(p) {
+  const j = json(p.run(['validate', 'health', '--raw']), 'validate health');
+  return j.warnings.filter((w) => w.code === 'W066');
+}
+
+describe('5-6. layout legacy: W066 names the migration', () => {
+  let p;
+  before(() => { p = planningProject({ layout: 'legacy' }); });
+  after(() => p.cleanup());
+
+  test('5. validate health --raw reports W066 legacy-planning-dir with the upgrade fix', () => {
+    const found = w066(p);
+    assert.equal(found.length, 1, JSON.stringify(found));
+    assert.match(found[0].message, /^legacy-planning-dir: /);
+    assert.ok(found[0].message.includes(`${OLD}/`), found[0].message);
+    assert.ok(found[0].fix.includes(UPGRADE_FIX), found[0].fix);
+    assert.equal(found[0].repairable, false);
+  });
+
+  test('6. init plan-objective 1 and init execute-objective 1 carry the W066 line in advisories_warnings', () => {
+    for (const verb of ['plan-objective', 'execute-objective']) {
+      const j = json(p.run(['init', verb, '1']), `init ${verb}`);
+      const lines = j.advisories_warnings.filter((l) => l.startsWith('W066 '));
+      assert.equal(lines.length, 1, `init ${verb}: ${JSON.stringify(j.advisories_warnings)}`);
+      assert.ok(lines[0].includes('legacy-planning-dir') && lines[0].includes(UPGRADE_FIX), lines[0]);
+    }
+  });
+
+  test('6b. a read that reports W066 still creates no new directory', () => {
+    assert.equal(exists(p.root, NEW), false, `${NEW} was created`);
+  });
+});
+
+describe('7. layout both: W066 says the legacy directory is ignored', () => {
+  let p;
+  before(() => { p = planningProject({ layout: 'both' }); });
+  after(() => p.cleanup());
+
+  test('7. validate health --raw reports W066: both exist and the legacy one is ignored', () => {
+    const found = w066(p);
+    assert.equal(found.length, 1, JSON.stringify(found));
+    assert.match(found[0].message, /^legacy-planning-dir: /);
+    assert.ok(found[0].message.includes(`${NEW}/`) && found[0].message.includes(`${OLD}/`), found[0].message);
+    assert.match(found[0].message, /both exist/);
+    assert.match(found[0].message, /ignored/);
+    assert.ok(found[0].fix.includes(`${NEW}/`), found[0].fix);
+  });
+});
+
+describe('8. layout aoforge: no W066', () => {
+  let p;
+  before(() => { p = planningProject({ layout: 'aoforge' }); });
+  after(() => p.cleanup());
+
+  test('8. validate health --raw has no W066 and init plan-objective carries no W066 line', () => {
+    assert.deepEqual(w066(p), []);
+    const j = json(p.run(['init', 'plan-objective', '1']), 'init plan-objective');
+    assert.deepEqual(j.advisories_warnings.filter((l) => l.startsWith('W066 ')), []);
+  });
+});
