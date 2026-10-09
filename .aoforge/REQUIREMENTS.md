@@ -38,7 +38,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Handoff (HND)
 
-- [ ] **HND-01**: The three documented PTY handoff gaps are closed: the dispatch-wrapper isatty check, the wrapper stdin race and the detector's late match. Each has a regression test.
+- [x] **HND-01**: The three documented PTY handoff gaps are closed: the dispatch-wrapper isatty check, the wrapper stdin race and the detector's late match. Each has a regression test.
 - [x] **HND-02**: Handoff results reach the session without a manual paste. The draft `inject-handoff-results.js` is completed and registered (or replaced), and it is covered by the hook coexistence suite.
 - [ ] **HND-03**: A TTY-required command (auth login, token paste, sudo prompt) goes from detection to handoff to result in context end to end, demonstrated live with the `aoforge-watch` daemon.
 
@@ -99,7 +99,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | INST-04 | Objective 72 | Complete |
 | INST-05 | Objective 72 | Complete |
 | INST-06 | Objective 72 | Complete |
-| HND-01 | Objective 73 | Pending |
+| HND-01 | Objective 73 | Complete |
 | HND-02 | Objective 73 | Complete |
 | HND-03 | Objective 73 | Pending |
 | OPS-01 | Objective 74 | Pending |
