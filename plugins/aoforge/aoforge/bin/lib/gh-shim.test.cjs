@@ -17,6 +17,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { installGhShim } = require('./__fixtures__/gh-shim.cjs');
+const { buildGhResponse_issuesSlurp } = require('./__fixtures__/gh-fixtures.cjs');
 
 const shims = [];
 
@@ -109,5 +110,86 @@ describe('installGhShim', () => {
     assert.deepEqual(shim.readCalls(), []);
     assert.equal(gh(shim, ['--version']).stdout, 'gh version 0.0.0 (shim)');
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('installGhShim delay_ms and sized answers (TRD 72-27)', () => {
+  function ghWith(shim, args, { timeout, maxBuffer } = {}) {
+    return spawnSync('gh', args, { env: shim.env(), encoding: 'utf-8', timeout, maxBuffer });
+  }
+
+  it('21g. an entry with delay_ms answers only after waiting that long, with its stdout intact', () => {
+    const shim = install({ table: { 'api repos/o/r/slow': { code: 0, stdout: 'late answer', delay_ms: 300 } } });
+    const started = Date.now();
+    const r = ghWith(shim, ['api', 'repos/o/r/slow'], { timeout: 20000 });
+    const elapsed = Date.now() - started;
+    assert.equal(r.error, undefined);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, 'late answer');
+    assert.ok(elapsed >= 250, `the shim answered after ${elapsed} ms, before its 300 ms delay`);
+  });
+
+  it('21h. a caller timeout kills the shim while it waits on delay_ms (ETIMEDOUT)', () => {
+    const shim = install({ table: { 'api repos/o/r/slow': { code: 0, stdout: 'never read', delay_ms: 5000 } } });
+    const r = ghWith(shim, ['api', 'repos/o/r/slow'], { timeout: 300 });
+    assert.ok(r.error, 'spawnSync reports an error when the timeout fires');
+    assert.equal(r.error.code, 'ETIMEDOUT');
+    assert.equal(r.stdout, '');
+  });
+
+  it('21i. no delay_ms, delay_ms 0, a string, a fraction or a negative number all answer at once', () => {
+    // An honoured 60 s delay would outlive the 20 s timeout, so a pass proves no wait happened
+    // without asserting an upper bound on elapsed time.
+    const shim = install({
+      table: {
+        'api none': { code: 0, stdout: 'none' },
+        'api zero': { code: 0, stdout: 'zero', delay_ms: 0 },
+        'api string': { code: 0, stdout: 'string', delay_ms: '60000' },
+        'api fraction': { code: 0, stdout: 'fraction', delay_ms: 60000.5 },
+        'api negative': { code: 0, stdout: 'negative', delay_ms: -60000 },
+      },
+    });
+    for (const name of ['none', 'zero', 'string', 'fraction', 'negative']) {
+      const r = ghWith(shim, ['api', name], { timeout: 20000 });
+      assert.equal(r.error, undefined, `${name}: ${r.error && r.error.code}`);
+      assert.equal(r.status, 0, name);
+      assert.equal(r.stdout, name);
+    }
+  });
+
+  it('21j. buildGhResponse_issuesSlurp builds a deterministic slurped issues answer of more than 2 MiB', () => {
+    const first = buildGhResponse_issuesSlurp({ count: 300, bodyBytes: 8000 });
+    assert.equal(first.ok, true);
+    assert.equal(first.status, 0);
+    assert.equal(first.stderr, '');
+    assert.ok(Buffer.byteLength(first.stdout) > 2 * 1024 * 1024, `${Buffer.byteLength(first.stdout)} bytes`);
+
+    const pages = JSON.parse(first.stdout);
+    assert.equal(Array.isArray(pages), true);
+    assert.deepEqual(pages.map((p) => p.length), [100, 100, 100]);
+    const issues = pages.flat();
+    assert.deepEqual(issues.map((i) => i.number), Array.from({ length: 300 }, (_, k) => k + 1));
+    assert.deepEqual(issues[0], {
+      number: 1,
+      id: 1001,
+      title: 'Issue 1',
+      body: 'x'.repeat(8000),
+      labels: [],
+      updated_at: '2026-10-09T00:00:00Z',
+    });
+    assert.equal(issues[299].title, 'Issue 300');
+    assert.equal(issues[299].id, 1300);
+
+    assert.equal(buildGhResponse_issuesSlurp({ count: 300, bodyBytes: 8000 }).stdout, first.stdout);
+  });
+
+  it('21k. a sized issues answer served by the shim round-trips byte-identical through spawnSync', () => {
+    const payload = buildGhResponse_issuesSlurp({ count: 300, bodyBytes: 8000 });
+    const key = 'api --paginate --slurp repos/o/r/issues?state=all';
+    const shim = install({ table: { [key]: { code: 0, stdout: payload.stdout } } });
+    const r = ghWith(shim, key.split(' '), { timeout: 20000, maxBuffer: 64 * 1024 * 1024 });
+    assert.equal(r.error, undefined, r.error && r.error.code);
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout, payload.stdout);
   });
 });
