@@ -1,18 +1,18 @@
-# DevFlow State
+# AOForge State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
+See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
-**Building:** DevFlow Claude — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
+**Building:** AOForge (formerly DevFlow Claude) — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** v1.6 Hardening & Release: Objectives 65-67 complete (2.15.0 released); Objective 68 (first EST-11 scored objective) is next
-**Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + DevFlow Claude (this — Claude Code plugin)
+**Current focus:** v1.6 Hardening & Release: Objectives 65-71 complete; Objective 72 (rename to AOForge, 3.0.0 released) is at TRD 72-22, with the rollout TRDs 72-23 to 72-26 open
+**Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + AOForge (this — Claude Code plugin, formerly DevFlow Claude)
 
 ## Current Position
 
-**Milestone:** v1.6 Hardening & Release — started 2026-10-08; roadmap defined (Objectives 65-75, 25/25 requirements mapped); Objective 65 (Release v1.5) is next. v1.5 complete 2026-10-08 (archived to .planning/milestones/v1.5-*; EST-08 not met, accepted).
-**Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123)
+**Milestone:** v1.6 Hardening & Release — started 2026-10-08; Objectives 65-75, 30 requirements mapped; Objectives 65-71 complete, Objective 72 in progress (AOForge 3.0.0 released: tag `v3.0.0` on `main` b4a9d870, 2026-10-09). v1.5 complete 2026-10-08 (archived to .aoforge/milestones/v1.5-*; EST-08 not met, accepted).
+**Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123, #128); the planning-record commits made after the release PR's last push (11e98cf4) are local and unpushed (72-26 opens their follow-up PR)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
 **Objective complete:** 2 — Cross-repo awareness layer (verified 2026-05-04, 731/731 tests with integration flags, all 10 SC met, 7 TRDs done)
@@ -232,7 +232,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 ## Blockers / Concerns
 
 - **`feature/v1.1-coordination` is duplicative** — same content as `feature/v1.1`. Should be deleted to avoid confusion. Its worktree at `/Users/markemerson/Source/devflow-claude-v11` can be removed.
-- EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72
+- EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run aof-tools calibrate until objective 75 has scored 68-72
 
 ### Quick Tasks Completed
 
