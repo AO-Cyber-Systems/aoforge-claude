@@ -8,5 +8,5 @@ subsystem: doctor
 
 ## Progress
 - [x] Task 1: Fixture builder: homes and projects with leftovers — 489d2ef5
-- [ ] Task 2: Checks 15 and 16 (global) — RED committed (this commit); next step: write doctor-checks/15-legacy-df-install.cjs (findLegacy/moveLegacy) and 16-legacy-plugin-runtime.cjs (detectLegacyPlugin, migrateLegacyRuntime, moveLegacy with a backup-dir prefix option), add both ids to doctor.e2e.test.cjs GLOBAL_IDS, run the two legacy tests green
-- [ ] Task 3: Check 27, check 22 deferral, check 26 legacy callers, README
+- [x] Task 2: Checks 15 and 16 (global) — RED f8156b6d, GREEN (this commit)
+- [ ] Task 3: Check 27, check 22 deferral, check 26 legacy callers, README — next step: write doctor-checks/27-legacy-planning-layout.legacy.test.cjs (tests 9-11 against leftoverProject and 72-11's legacyCaller), run red, commit RED

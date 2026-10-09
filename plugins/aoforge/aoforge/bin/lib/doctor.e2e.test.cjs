@@ -14,7 +14,8 @@
 //
 // Isolation: each test builds its own fixture and removes it in afterEach. The child env is
 // gitEnv(home) (fake HOME, fake XDG config, no system git config, no GIT_DIR-style redirects) with
-// every inherited AOFORGE_* variable dropped and only the fixture's own overrides added. The last
+// every inherited AOFORGE_* variable (and its legacy-prefixed form, which the legacy-plugin-runtime check
+// reports) dropped and only the fixture's own overrides added. The last
 // test compares a read-only listing of the real ~/.claude/aoforge/{state,backups} taken when this
 // file loaded against one taken at the end.
 
@@ -27,6 +28,7 @@ const { spawnSync, execFileSync } = require('child_process');
 
 const fixtures = require('./__fixtures__/doctor-fixtures.cjs');
 const { gitEnv, snapshot } = require('./__fixtures__/upgrade-fixtures.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 const DOCTOR_TIMEOUT_MS = 120000;
@@ -116,6 +118,8 @@ const GLOBAL_IDS = [
   'hooks-registry',
   'model-profiles',
   'skill-requires',
+  'legacy-df-install',
+  'legacy-plugin-runtime',
   'guard-state',
   'awareness-state',
   'backups',
@@ -128,7 +132,9 @@ const RUNTIME_PATHS = [...fixtures.AODEX_TRACKED_RUNTIME, ...fixtures.AODEX_UNTR
 
 function childEnv(state) {
   const env = { ...gitEnv(state.home), USERPROFILE: state.home };
-  for (const key of Object.keys(env)) if (key.startsWith('AOFORGE_')) delete env[key];
+  for (const key of Object.keys(env)) {
+    if (key.startsWith(NAMES.envPrefix) || key.startsWith(LEGACY.envPrefix)) delete env[key];
+  }
   return { ...env, ...state.env };
 }
 

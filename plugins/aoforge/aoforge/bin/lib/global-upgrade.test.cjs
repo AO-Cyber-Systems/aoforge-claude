@@ -296,6 +296,23 @@ test('13: the real global template is version 4 and routes to /aoforge: skills o
 
 // 14
 // TRD 72-09 added ./legacy-rewrite.cjs, ./legacy-names.cjs and ./text-escape.cjs (sync-runtime's test copies them too).
+// 2b (TRD 72-15): the doctor's legacy runtime check reuses the mover under its own legacy-* backup prefix.
+test('2b: moveLegacy prefix names the backup dir; a prefix outside legacy-* is refused', (t) => {
+  const home = fakeHome(t, { legacy: true });
+  const c = path.join(home, '.claude');
+  const before = fs.readFileSync(path.join(c, 'skills/df-plan/SKILL.md'));
+
+  assert.throws(() => gu().moveLegacy(home, ['skills/df-plan'], { now: NOW, prefix: 'repo-1a2b3c4d' }), /prefix/);
+  assert.throws(() => gu().moveLegacy(home, ['skills/df-plan'], { now: NOW, prefix: '' }), /prefix/);
+  assert.ok(fs.existsSync(path.join(c, 'skills/df-plan')), 'a refused prefix moves nothing');
+
+  const r = gu().moveLegacy(home, ['skills/df-plan'], { now: NOW, prefix: 'legacy-demo-runtime' });
+  assert.equal(r.backupDir, path.join(backupsDir(home), `legacy-demo-runtime-${TS}`));
+  assert.deepEqual(r.moved, ['skills/df-plan']);
+  assert.deepEqual(fs.readFileSync(path.join(r.backupDir, 'skills/df-plan/SKILL.md')), before);
+  assert.equal(fs.existsSync(path.join(c, 'skills/df-plan')), false);
+});
+
 test('14: global-upgrade.cjs requires only Node built-ins and its listed lib closure', () => {
   const src = fs.readFileSync(MOD_PATH, 'utf-8');
   const allowed = new Set([

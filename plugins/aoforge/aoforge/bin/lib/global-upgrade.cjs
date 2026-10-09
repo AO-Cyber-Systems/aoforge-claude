@@ -213,17 +213,23 @@ function findLegacy(userHome) {
 }
 
 /**
- * moveLegacy(userHome, rels = findLegacy(userHome), {now, dryRun}) -> {moved, backupDir}
+ * moveLegacy(userHome, rels = findLegacy(userHome), {now, dryRun, prefix}) -> {moved, backupDir}
  *
- * Renames each entry to `<home>/.claude/aoforge/backups/legacy-<ts>/<rel>`. Nothing is deleted.
- * `backupDir` is null when there is nothing to move. `dryRun` reports without touching the disk.
+ * Renames each entry to `<home>/.claude/aoforge/backups/<prefix>-<ts>/<rel>`. Nothing is deleted.
+ * `prefix` defaults to `legacy`; the doctor's legacy runtime check (TRD 72-15) passes its own
+ * `legacy-…` prefix so the old runtime home lands in a directory named for it. backup-prune never
+ * enters a `legacy-*` directory. `backupDir` is null when there is nothing to move. `dryRun`
+ * reports without touching the disk.
  */
-function moveLegacy(userHome, rels, { now = new Date(), dryRun = false } = {}) {
+function moveLegacy(userHome, rels, { now = new Date(), dryRun = false, prefix = 'legacy' } = {}) {
   requireHome(userHome, 'moveLegacy');
+  if (typeof prefix !== 'string' || !/^legacy(?:-[a-z0-9]+)*$/.test(prefix)) {
+    throw new TypeError(`moveLegacy: prefix must be "legacy" or start with "legacy-" (got ${JSON.stringify(prefix)})`);
+  }
   const list = rels === undefined ? findLegacy(userHome) : [...rels];
   if (list.length === 0) return { moved: [], backupDir: null };
 
-  const backupDir = uniqueDir(path.join(backupsRoot(userHome), `legacy-${stamp(now)}`));
+  const backupDir = uniqueDir(path.join(backupsRoot(userHome), `${prefix}-${stamp(now)}`));
   if (dryRun) return { moved: list, backupDir };
 
   const moved = [];
