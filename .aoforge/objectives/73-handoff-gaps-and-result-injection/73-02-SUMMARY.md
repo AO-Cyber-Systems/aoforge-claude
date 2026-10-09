@@ -10,6 +10,6 @@ tags: [handoff, hooks, delivery, claim, o_excl]
 **In progress (checkpoint, not complete).**
 
 ## Progress
-- [x] Task 1: Fixture builders and the RED test list for the library — (this commit)
-- [ ] Task 2: GREEN, handoff-results.cjs — next step: create plugins/aoforge/aoforge/bin/lib/handoff-results.cjs and make tests 5-16 in handoff-results.test.cjs pass one at a time
-- [ ] Task 3: route-results on the library, the concurrency tests, and the scoped gate
+- [x] Task 1: Fixture builders and the RED test list for the library — a61bb9ef
+- [x] Task 2: GREEN, handoff-results.cjs — (this commit)
+- [ ] Task 3: route-results on the library, the concurrency tests, and the scoped gate — next step: add route-results.test.js items 2-4 (two concurrent copies, catch-all with foreign address, pre-claimed record), run RED, then replace the handoff half of plugins/aoforge/hooks/route-results.js with takeResults({ mode: 'all', by: 'route-results' })

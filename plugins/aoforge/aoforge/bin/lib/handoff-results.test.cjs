@@ -248,22 +248,30 @@ describe('renderResults budget', () => {
   });
 
   test('11b: a record that already fits is left whole while the large ones are cut', () => {
-    const out = L().renderResults([doneRecord({ id: 'h-small' }), big('h-fixture2', 'b'), big('h-fixture3', 'c')]);
+    const out = L().renderResults([
+      doneRecord({ id: 'h-small' }), big('h-fixture2', 'b'), big('h-fixture3', 'c'), big('h-fixture4', 'd'),
+    ]);
     assert.ok(out.length < L().MAX_RENDER_CHARS, `rendered ${out.length} characters`);
     const sections = out.split(/^### /m).slice(1);
+    assert.equal(sections.length, 4);
     assert.doesNotMatch(sections[0], /handoff get/);
     assert.match(sections[0], /fixture\n/);
-    assert.match(sections[1].trimEnd(), POINTER('h-fixture2'));
-    assert.match(sections[2].trimEnd(), POINTER('h-fixture3'));
+    ['h-fixture2', 'h-fixture3', 'h-fixture4'].forEach((id, i) => {
+      assert.match(sections[i + 1].trimEnd(), POINTER(id));
+    });
   });
 
-  test('11c: when even the shortest renderings do not fit, the overflow is named, not silently dropped', () => {
+  test('11c: when even the shortest renderings do not fit, the overflow is counted and named, not dropped', () => {
     const records = [];
     for (let i = 0; i < 80; i++) records.push(big(`h-many${String(i).padStart(2, '0')}`, 'x'));
     const out = L().renderResults(records);
     assert.ok(out.length < L().MAX_RENDER_CHARS, `rendered ${out.length} characters`);
-    assert.match(out, /more results not shown/);
-    assert.match(out, /h-many79/, 'the last record id is listed in the overflow note');
+    const shown = out.split(/^### /m).length - 1;
+    const note = out.match(/(\d+) more results not shown\. Read each with node ~\/\.claude\/aoforge\/bin\/aof-tools\.cjs handoff get <id>: (h-many\d\d)/);
+    assert.ok(note, 'a closing note names the results that are not shown');
+    assert.equal(shown + Number(note[1]), 80, 'every record is either shown or counted in the note');
+    assert.equal(note[2], `h-many${String(shown).padStart(2, '0')}`, 'the note starts at the first record not shown');
+    assert.match(out, /list them with node ~\/\.claude\/aoforge\/bin\/aof-tools\.cjs handoff list/);
   });
 });
 
