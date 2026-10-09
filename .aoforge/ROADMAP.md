@@ -319,7 +319,7 @@ TRDs:
 
 TRDs:
 - [x] 73-01-pty-dispatch-script-TRD.md — (W1) bash/zsh PTY dispatch through a private script file and one input line: output stays on the terminal (gap 1), no queued wrapper lines for `read` (gap 2), INT trap so Ctrl+C still ends in END:130; history guard
-- [ ] 73-02-handoff-delivery-library-TRD.md — (W1) `lib/handoff-results.cjs`: shared select/render, O_EXCL claim (exactly once), session/agent address, pending lookup, watcher check; route-results on it as the catch-all
+- [x] 73-02-handoff-delivery-library-TRD.md — (W1) `lib/handoff-results.cjs`: shared select/render, O_EXCL claim (exactly once), session/agent address, pending lookup, watcher check; route-results on it as the catch-all
 - [ ] 73-03-live-window-listeners-TRD.md — (W2) `attachDataListener(fn, { liveOnly })`: the detector sees only the live command (gap 3, late match); MA-6-synth / MA-7 / MA-6 assert instead of skipping
 - [ ] 73-04-inject-handoff-results-TRD.md — (W2) the DRAFT hook completed: PostToolUse context, Stop block with a bounded wait; gate-interactive records session/agent and names the aoforge-watch terminal
 - [ ] 73-05-attended-watch-terminal-TRD.md — (W3) attended `aoforge-watch start --foreground`: live output mirrored, the user's keys forwarded during a dispatch; respawning shell facade; PTY e2e test that plays the user
@@ -368,6 +368,6 @@ TRDs:
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
-| 73. Handoff gaps and result injection | v1.6 | 1/8 | In Progress | - |
+| 73. Handoff gaps and result injection | v1.6 | 2/8 | In Progress | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
