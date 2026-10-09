@@ -13,9 +13,9 @@ metrics:
 **Checkpoint: Task 1 is done in a scratch clone (one local commit, nothing pushed). Tasks 2 and 3 wait at their approval gates.**
 
 ## Progress
-- [x] Task 1: Prepare the vanity-mapping change in a scratch clone (scratch commit 980c7c0, outside this repo) — (this commit)
-- [ ] Task 2: Approval gate A: push the branch and open a DRAFT PR in AOCyberAI-Ops/vanity — next step: wait for the literal Gate A reply. On `approved with seed update`, `git -C <scratch>/vanity apply /private/tmp/claude-501/-Users-justin-dev-devflow-claude/1c14a6e5-33a1-4f35-adda-4ba2db358951/scratchpad/vanity-seed-contract.patch`, commit it, then run the Gate A commands listed below in order. On `approved`, run them without the seed commit
-- [ ] Task 3: Approval gate B: the aoforge-docs Pages project and one docs deploy. Wait for the literal Gate B reply
+- [x] Task 1: Prepare the vanity-mapping change in a scratch clone (scratch commit 980c7c0, outside this repo) — cc0e27a1
+- [ ] Task 2: Approval gate A: push the branch and open a DRAFT PR in AOCyberAI-Ops/vanity — next step: the reply is "approved with seed update (Recommended)", but gh is not logged in to aocyber.ghe.com, so nothing ran. Once `gh auth status --hostname aocyber.ghe.com` exits 0, run Gate A steps 1-6 below once each (the seed option)
+- [ ] Task 3: Approval gate B: the aoforge-docs Pages project and one docs deploy. The reply is "done (dashboard)"; authoritative DNS does not show `aoforge-docs.pages.dev` yet (see Approvals). Wait for the Gate B2 reply before `gh workflow run docs.yml`
 
 ## Task 1: the vanity-mapping change (2026-10-09T14:06-14:10Z)
 
@@ -97,6 +97,14 @@ PR bodies (end with the attribution line): `<scratch>/vanity-pr-body-seed.md` (w
 | Main docs runs since 2026-09-27 (10 listed) | all failure. 37797973574 (10-08) and 36286213239 (09-27): the same 8000007 for **devflow-docs** |
 | `curl https://devflow-docs.pages.dev/` and `https://devflow.cloud/` | both 200, `<title>DevFlow</title>`. The old project exists and serves the domain, but **not in the account the CI secret names** (CI has seen 8000007 for it since 09-27) |
 | `curl https://aoforge-docs.pages.dev/` | does not resolve: no such project anywhere |
+
+## Approvals (literal replies)
+
+| Gate | Reply | Run |
+|---|---|---|
+| A. Task 2, push and draft PR | "approved with seed update (Recommended)" (user's AskUserQuestion reply, relayed by the orchestrator) | nothing yet. `gh auth status --hostname aocyber.ghe.com` at 2026-10-09T14:1xZ: exit 1, `You are not logged into any accounts on aocyber.ghe.com`. The orchestrator's instruction was to stop if the user is not logged in, so no fetch, apply, push or PR was run |
+| B. Task 3, Pages project | "done (dashboard)" (relayed) | verify only, read-only: `curl -sS -I https://aoforge-docs.pages.dev/` gives `Could not resolve host`. `dig +short aoforge-docs.pages.dev @1.1.1.1` is empty. The authoritative server `dig aoforge-docs.pages.dev @adi.ns.cloudflare.com` returns only the `pages.dev` SOA (NXDOMAIN, negative TTL 60s), while `devflow-docs.pages.dev` is delegated (NS gerardo/veda). **Not confirmed**: either the project is not created yet, or it exists without a first deployment or under a suffixed subdomain. wrangler is logged out and the CI token is a secret, so the Cloudflare API was not queried |
+| B2. One docs deploy | pending | not run |
 
 ## Pending gates (exact commands presented, nothing run)
 
