@@ -6,7 +6,7 @@
 //   - aliasLegacyEnv     the old environment-variable prefix is still honored
 //   - planningDirName    a project's planning directory may be the new one or the legacy one
 //   - findProjectRoot    a project root is a directory holding either planning directory
-//   - isOwnAgentType     gates treat both agent-type namespaces as their own
+//   - isOwnAgentType     gates treat both agent-type namespaces as their own (isOwnExecutor: the executor role)
 //   - userDotFile        a file under the user's dot directory is read from the old
 //                        location when the new one has none
 //   - runtimeHome        the runtime mirror under ~/.claude, new and old
@@ -150,9 +150,27 @@ function findProjectRoot(start, { fsImpl = fs, maxUp = 64 } = {}) {
 
 // ─── agents ───────────────────────────────────────────────────────────────────
 
-/** True for an agent type in either namespace. */
+/**
+ * True for an agent type in either namespace with a non-empty agent name. The exact, case-sensitive prefix is
+ * required: `x:<ns>:y`, an upper-case namespace and a bare namespace are all rejected (gate-edits trusted only a
+ * non-empty name before the shim, TRD 72-10).
+ */
 function isOwnAgentType(t) {
-  return typeof t === 'string' && (t.startsWith(NAMES.agentNs) || t.startsWith(LEGACY.agentNs));
+  if (typeof t !== 'string') return false;
+  for (const ns of [NAMES.agentNs, LEGACY.agentNs]) {
+    if (t.startsWith(ns) && t.length > ns.length) return true;
+  }
+  return false;
+}
+
+const EXECUTOR_AGENT = 'executor';
+
+/**
+ * The executor in either namespace (`<ns>executor` exactly): what verify-commits and gate-executor-stop act on
+ * (TRD 72-10).
+ */
+function isOwnExecutor(t) {
+  return isOwnAgentType(t) && (t === NAMES.agentNs + EXECUTOR_AGENT || t === LEGACY.agentNs + EXECUTOR_AGENT);
 }
 
 // ─── user dot directory and runtime home ──────────────────────────────────────
@@ -189,6 +207,7 @@ module.exports = {
   bothPlanningDirs,
   findProjectRoot,
   isOwnAgentType,
+  isOwnExecutor,
   userDotFile,
   runtimeHome,
   legacyRuntimeHome,

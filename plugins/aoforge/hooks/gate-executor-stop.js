@@ -3,7 +3,8 @@
 /**
  * AOForge Executor Completion Gate (SubagentStop hook) — TRD 44-04, AUT-02
  *
- * Purpose: an `aoforge:executor` that stops NATURALLY while its TRD has no
+ * Purpose: an `aoforge:executor` (for one release also the pre-rename
+ * namespace's executor, compat.isOwnExecutor, TRD 72-10) that stops NATURALLY while its TRD has no
  * `<id>-SUMMARY.md` gets exactly one more turn to finish the work or to write
  * and commit the `## Progress` checkpoint. The hook does that by printing
  * a top-level `{"decision":"block","reason":"..."}`.
@@ -373,7 +374,6 @@ function gitWorktrees(repoRoot) {
 // ─── Decision ─────────────────────────────────────────────────────────────────
 
 const SKIP_ENV = 'AOFORGE_SKIP_EXECUTOR_STOP_GATE';
-const EXECUTOR_AGENT_TYPE = 'aoforge:executor';
 
 /**
  * The block reason. With `summaryRel` (the TRD file was located) it names the
@@ -469,7 +469,7 @@ function decide(payload, {
 } = {}) {
   if (!payload || typeof payload !== 'object') return null;
   if (env && env[SKIP_ENV] === '1') return null;
-  if (payload.agent_type !== EXECUTOR_AGENT_TYPE) return null;
+  if (!compat.isOwnExecutor(payload.agent_type)) return null;
   // The verified once-guard. Any truthy value counts: blocking here could loop the agent.
   if (payload.stop_hook_active) return null;
 

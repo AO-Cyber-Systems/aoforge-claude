@@ -19,17 +19,26 @@ const path = require('path');
 const { forEachRecord } = require('./context-audit.cjs');
 const trdIdentify = require('./trd-identify.cjs');
 const { sumUsage, repoMatcher, repoMatch } = require('./token-usage.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 /** The six non-executor agents whose spawns count as objective overhead. The debugger is ad hoc work, not overhead. */
 const OVERHEAD_AGENTS = Object.freeze([
   'integration-checker', 'job-checker', 'objective-researcher', 'planner', 'roadmapper', 'verifier',
 ]);
 
-const AGENT_PREFIX_RE = /^(?:aoforge:|df-)/;
+/**
+ * The prefixes an AOForge agent type has carried: the current namespace, the pre-rename namespace (objective 72) and
+ * the legacy install prefix. History recorded under the old names keeps counting (TRD 72-10).
+ */
+const AGENT_PREFIX_RE = new RegExp(
+  `^(?:${[NAMES.agentNs, LEGACY.agentNs, LEGACY.installPrefix].map(escapeRegExp).join('|')})`
+);
 
 /**
- * `aoforge:planner` / `df-planner` → `planner`. Only an AOForge-prefixed name that is one of OVERHEAD_AGENTS counts;
- * executors, debuggers, general-purpose and every other agent are null.
+ * `aoforge:planner`, the pre-rename namespace's planner and the install-prefixed planner → `planner`. Only an
+ * AOForge-prefixed name that is one of OVERHEAD_AGENTS counts; executors, debuggers, general-purpose and every other
+ * agent are null.
  *
  * @param {*} agentType  meta.json `agentType`
  * @returns {string|null}

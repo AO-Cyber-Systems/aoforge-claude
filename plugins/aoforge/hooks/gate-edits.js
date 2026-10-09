@@ -43,7 +43,8 @@
  *      are allowed without depending on a marker they may never see. Only the
  *      exact, case-sensitive `aoforge:` prefix with a non-empty name is trusted;
  *      `agent_id` presence alone proves nothing. Allowed in "warn" mode too
- *      (never 'ask').
+ *      (never 'ask'). For one release the pre-rename namespace is trusted the
+ *      same way (compat.isOwnAgentType, TRD 72-10).
  *
  * Permits edits to:
  *   - .aoforge/**        (planning artifacts are edited directly; in store mode
@@ -69,7 +70,7 @@ const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 // TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
-const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
+const { findProjectRoot, planningRoot, isOwnAgentType } = require('../aoforge/bin/lib/compat.cjs');
 const { NAMES, LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
 const { escapeRegExp } = require('../aoforge/bin/lib/text-escape.cjs');
 
@@ -259,22 +260,20 @@ function isOutsideProject(projectRoot, filePath) {
   return true;
 }
 
-const AOFORGE_AGENT_PREFIX = 'aoforge:';
-
 /**
  * True when a PreToolUse payload's `agent_type` names one of AOForge's own
  * agents (objective 44, DF-03): the exact, case-sensitive `aoforge:` prefix
  * followed by a non-empty agent name. `aoforgex:y`, `x:aoforge:y`,
  * `aoforge:`, `AOFORGE:executor` and non-strings are all rejected.
  *
+ * TRD 72-10: for one release the pre-rename namespace (LEGACY.agentNs) is
+ * trusted the same way, so this is compat.isOwnAgentType. The exported name
+ * stays: gate-bash-writes imports it.
+ *
  * @param {unknown} agentType
  * @returns {boolean}
  */
-function isAoforgeAgent(agentType) {
-  return typeof agentType === 'string' &&
-    agentType.startsWith(AOFORGE_AGENT_PREFIX) &&
-    agentType.length > AOFORGE_AGENT_PREFIX.length;
-}
+const isAoforgeAgent = isOwnAgentType;
 
 // ---------------------------------------------------------------------------
 // TRD 48-08 — store-mode cache deny (planning libs from 48-01)

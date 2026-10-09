@@ -76,19 +76,38 @@ const { spawnSync } = require('child_process');
 const {
   evaluateBashWrites, recommendDefault, realpathDeep, BASH_GATE_CLASSIFIER, FP_THRESHOLD,
 } = require('./bash-write-gate.cjs');
-const { findProjectRoot } = require('./compat.cjs');
+const { findProjectRoot, isOwnAgentType } = require('./compat.cjs');
+const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
+
+/** `alts` as one case-insensitive alternation of literal strings. */
+const anyOf = (alts) => alts.map(escapeRegExp).join('|');
+
+/**
+ * An agent type or skill name of ours: either namespace with a non-empty name (compat.isOwnAgentType; skills share
+ * the agent namespace). History recorded under the pre-rename namespace counts as ours (TRD 72-10).
+ */
+const isAoforgeName = isOwnAgentType;
 
 /**
  * Classifiers, applied ONLY to the content of a failed tool_result.
  * Order matters — first match wins, most specific first.
  * The Bash rule's denial text starts with the same `AOForge ambient mode active`
  * as the Edit/Write one, so it must come first.
+ *
+ * TRD 72-10: every gate's pre-rename denial text maps to the same id as its new
+ * one (the product name, the CLI name and the env prefix come from NAMES and
+ * LEGACY), so history recorded before the rename keeps counting. Reports keyed
+ * by the old ids are history.
  */
 const RULES = [
   ['aoforge-bash-edit-gate', BASH_GATE_CLASSIFIER],
-  ['aoforge-edit-gate', /AOForge ambient mode active|direct Edit\/Write\/MultiEdit denied/i],
-  ['aoforge-commit-gate', /Raw .?git commit.? is blocked|aof-tools\.cjs commit.*so the commit is scoped/i],
-  ['aoforge-changelog-gate', /CHANGELOG\.md lacks|AOFORGE_SKIP_CHANGELOG_GATE/i],
+  ['aoforge-edit-gate', new RegExp(
+    `(?:${anyOf([NAMES.product, LEGACY.product])}) ambient mode active|direct Edit\\/Write\\/MultiEdit denied`, 'i')],
+  ['aoforge-commit-gate', new RegExp(
+    `Raw .?git commit.? is blocked|(?:${anyOf([NAMES.cli, LEGACY.cli])})\\.cjs commit.*so the commit is scoped`, 'i')],
+  ['aoforge-changelog-gate', new RegExp(
+    `CHANGELOG\\.md lacks|(?:${anyOf([NAMES.envPrefix, LEGACY.envPrefix])})SKIP_CHANGELOG_GATE`, 'i')],
   ['worktree-isolation', /is isolated in the worktree/i],
   ['skill-not-invocable', /disable-model-invocation/i],
   ['tool-not-available', /No such tool available|is not enabled in this context/i],
@@ -133,6 +152,18 @@ const OVERRIDE_PHRASES = [
   'bypass aoforge',
   'force edit',
 ];
+
+/**
+ * The override phrases as history recorded them: the current list plus each phrase under the pre-rename product
+ * name (TRD 72-10). A transcript from before the rename says the old phrase, and it was a sanctioned route then.
+ */
+const HISTORY_OVERRIDE_PHRASES = Object.freeze([...new Set([
+  ...OVERRIDE_PHRASES,
+  ...OVERRIDE_PHRASES.map((p) => p.split(NAMES.slug).join(LEGACY.slug)),
+])]);
+
+/** A typed slash command of ours, in either namespace, as the transcript records it. */
+const OWN_COMMAND_TAGS = Object.freeze([NAMES.commandNs, LEGACY.commandNs].map((ns) => `<command-name>${ns}`));
 
 /** A Bash call that starts a skill marker is a route into the sanctioned path. */
 const SKILL_ACTIVE_RE = /\bskill-active\s+--start\b/;
@@ -245,13 +276,16 @@ function resolveAll(acc, st, outcome) {
   st.open = [];
 }
 
-/** A user's own words: a typed /aoforge: command routes, as does an override phrase. */
+/**
+ * A user's own words: a typed /aoforge: command routes, as does an override phrase. The pre-rename command
+ * namespace and phrases route too (TRD 72-10).
+ */
 function trackUserText(acc, st, text, isMeta) {
   if (typeof text !== 'string' || !st.open.length) return;
-  if (text.includes('<command-name>/aoforge:')) { resolveAll(acc, st, 'routed'); return; }
+  if (OWN_COMMAND_TAGS.some(tag => text.includes(tag))) { resolveAll(acc, st, 'routed'); return; }
   if (isMeta) return; // skill-body injections are not the user's words
   const lower = text.toLowerCase();
-  if (OVERRIDE_PHRASES.some(p => lower.includes(p))) resolveAll(acc, st, 'routed');
+  if (HISTORY_OVERRIDE_PHRASES.some(p => lower.includes(p))) resolveAll(acc, st, 'routed');
 }
 
 /**
@@ -278,7 +312,7 @@ function trackEditGate(acc, row, sid) {
         const p = input.file_path || input.notebook_path;
         if (block.id && typeof p === 'string') st.editPaths.set(block.id, p);
       } else if (block.name === 'Skill') {
-        if (typeof input.skill === 'string' && input.skill.startsWith('aoforge:')) resolveAll(acc, st, 'routed');
+        if (isAoforgeName(input.skill)) resolveAll(acc, st, 'routed');
       } else if (block.name === 'Bash' && typeof input.command === 'string') {
         const cmd = input.command;
         if (SKILL_ACTIVE_RE.test(cmd)) { resolveAll(acc, st, 'routed'); continue; }
@@ -355,7 +389,6 @@ const SKILL_END_RE = /\bskill-active\s+--end\b/;
 const SAMPLE_CAP = 10;
 const FP_BASIS = 'upper bound: every would-deny in the ambient replay counts as a false positive';
 
-const isAoforgeName = v => typeof v === 'string' && v.startsWith('aoforge:');
 
 /** The directory a cp or mv would write into, if it exists now. A read, like the hook's check. */
 function liveIsDirectory(abs) {

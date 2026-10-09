@@ -19,7 +19,8 @@
  * took effect. hooks/__fixtures__/hook-output-schema.js models the schema and
  * verify-commits.test.js pins the shape against it.
  *
- * Scope: only agent_type "aoforge:executor" is blocked. SubagentStop has no matcher
+ * Scope: only agent_type "aoforge:executor" is blocked (and, for one release, the
+ * pre-rename namespace's executor: compat.isOwnExecutor). SubagentStop has no matcher
  * in hooks.json, and planners, checkers, Explore and internal agents commit nothing
  * by design. Now that the block is effective it would otherwise stop all of them.
  *
@@ -45,12 +46,15 @@ const path = require('path');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 // TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
-const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
+const { findProjectRoot, planningRoot, isOwnExecutor } = require('../aoforge/bin/lib/compat.cjs');
 const store = require('../aoforge/bin/lib/hook-marker-store.cjs');
 
 const RETRY_PREFIX = 'autonomous-retry-';
 
-/** The agent type the retry-once block applies to; same value as gate-executor-stop.js. */
+/**
+ * The agent type the retry-once block applies to. The check itself is compat.isOwnExecutor, which gate-executor-stop.js
+ * uses too: for one release it also accepts the pre-rename namespace's executor (TRD 72-10).
+ */
 const EXECUTOR_AGENT_TYPE = 'aoforge:executor';
 
 const BLOCK_REASON = 'AOForge autonomous mode: executor produced no commits in the last 10 minutes during mid-execution work. Retry once: re-read your TRD/plan file, check git status for uncommitted work, commit completed tasks atomically, and write SUMMARY.md. If genuinely blocked, return a structured failure report instead of stopping silently. Never use port 8080 for anything — use 8091.';
@@ -187,7 +191,7 @@ function main() {
 
       // Only the executor is expected to commit. Planners, checkers, Explore and
       // internal agents commit nothing by design, and SubagentStop has no matcher.
-      if (payload.agent_type !== EXECUTOR_AGENT_TYPE) return;
+      if (!isOwnExecutor(payload.agent_type)) return;
 
       const agentId = String(payload.agent_id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
       const marker = retryMarkerPath(planningDir, agentId);
