@@ -18,6 +18,7 @@ const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
 const { NAMES } = require('../legacy-names.cjs');
+const { watchStateDir } = require('../compat.cjs');
 
 // The planning-directory name buildStatuslineEnv writes (TRD 72-05). The status line hook reads only the legacy name
 // until 72-06 moves it onto the resolver, so its tests call setPlanningDir(LEGACY.planningDir) once at load; 72-06
@@ -277,13 +278,14 @@ function buildMultiProjectFixture(tmpDir, opts = {}) {
 }
 
 /**
- * Write a fixture PID file at $HOME/.aoforge/aoforge-watch.pid. Caller must
- * have HOME pointing at a tmp dir already (e.g. via buildMultiProjectFixture
- * or buildServiceInstallerTmpHome).
+ * Write a fixture PID file where the daemon keeps it: the watch state directory,
+ * $HOME/.claude/aoforge/state/watch/aoforge-watch.pid (compat.watchStateDir,
+ * TRD 73-12). Caller must have HOME pointing at a tmp dir already (e.g. via
+ * buildMultiProjectFixture or buildServiceInstallerTmpHome).
  */
 function buildPidFileFixture(opts = {}) {
   const home = process.env.HOME || os.homedir();
-  const pidFile = path.join(home, '.aoforge', 'aoforge-watch.pid');
+  const pidFile = path.join(watchStateDir(home), `${NAMES.watch}.pid`);
   fs.mkdirSync(path.dirname(pidFile), { recursive: true });
   const payload = {
     pid: opts.pid || process.pid,
@@ -336,9 +338,13 @@ function buildStatuslineInput(opts = {}) {
 
 /**
  * Build a complete env for spawning statusline.js as a subprocess. Sets up:
- * - tmpHome with optional .aoforge/aoforge-watch.pid (alive vs stale vs absent)
+ * - tmpHome with an optional pid file in the watch state directory,
+ *   .claude/aoforge/state/watch/aoforge-watch.pid (alive vs stale vs absent;
+ *   TRD 73-12)
  * - tmpHome/.claude/aoforge/bin/lib/watcher-state.cjs (copy from real source)
- *   so statusline.js can require it without depending on plugin sync state
+ *   so statusline.js can require it without depending on plugin sync state.
+ *   It is copied alone, so it reads only the watch state directory (no
+ *   compat beside it, so no 3.0.0 or pre-rename fallback)
  * - projectDir/.aoforge/config.json with the requested daemon block
  * - projectDir's per-project .aoforge-handoff/pending/<id>.json fixtures
  *   matching the requested counts in pendingByProject
@@ -394,7 +400,7 @@ function buildStatuslineEnv(opts = {}) {
 
   // 2. Write PID file (alive / dead / absent).
   if (daemonAlive !== 'absent') {
-    const pidFile = path.join(tmpHome, '.aoforge', 'aoforge-watch.pid');
+    const pidFile = path.join(watchStateDir(tmpHome), `${NAMES.watch}.pid`);
     fs.mkdirSync(path.dirname(pidFile), { recursive: true });
     if (malformedPidFile) {
       fs.writeFileSync(pidFile, '{not valid json');

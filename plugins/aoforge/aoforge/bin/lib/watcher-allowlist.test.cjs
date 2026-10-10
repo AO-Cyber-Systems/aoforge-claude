@@ -13,6 +13,18 @@
  *  10. shell-flow patterns pass
  *  11. interactive patterns pass
  *  12. skipIf semantics for `gh auth login --with-token`
+ *
+ * The hook and the daemon agree (TRD 73-12), over 73-10's shared case table
+ * (__fixtures__/interactive-command-cases.cjs) and the hook itself:
+ *  16. every row the hook gates is accepted, with the hit's label
+ *  17. every row the hook does not gate (quoted mentions, heredoc data,
+ *      read-only key forms, skip flags) is refused
+ *  18. the skip form `gh auth login --with-token < f.txt` keeps its
+ *      non-interactive reason (test 12, unchanged)
+ *  19. built-in entries are never regex-tested on the whole command; a user
+ *      entry still is
+ *  20. every default entry is the shared matcher's own pattern: a label and
+ *      a RegExp match, no second copy
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -23,6 +35,10 @@ const os = require('os');
 
 const lib = require('./watcher-allowlist.cjs');
 const { writeUserFile } = require('./__fixtures__/home-dot-dir-fixtures.cjs');
+const { GATED_CASES, NOT_GATED_CASES } = require('./__fixtures__/interactive-command-cases.cjs');
+const { INTERACTIVE_PATTERNS } = require('./interactive-commands.cjs');
+// Requiring the hook does not run it (require.main guard).
+const hook = require('../../../hooks/gate-interactive.js');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -220,5 +236,86 @@ describe('watcher-allowlist — user allowlist file', () => {
     }));
     const r = lib.loadAllowlist();
     assert.equal(r.userPatterns, 1, 'one valid, one dropped');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 16-20. The hook and the daemon agree (TRD 73-12)
+// ---------------------------------------------------------------------------
+
+describe('watcher-allowlist — hook and daemon agree (TRD 73-12)', () => {
+  const list = lib.defaultAllowlist();
+
+  describe('16. every command the hook hands off is accepted, with the hit\'s label', () => {
+    for (const row of GATED_CASES) {
+      test(`accepts: ${JSON.stringify(row.cmd)}`, () => {
+        const hit = hook.detectInteractive(row.cmd);
+        assert.ok(hit, 'the hook gates it (row check)');
+        assert.equal(hit.label, row.label);
+        assert.deepStrictEqual(lib.validateCommand(row.cmd, list), { ok: true, matched: row.label });
+      });
+    }
+  });
+
+  describe('17. every command the hook lets through is refused by the built-in entries', () => {
+    for (const row of NOT_GATED_CASES) {
+      test(`refuses: ${JSON.stringify(row.cmd)} (${row.why})`, () => {
+        assert.equal(hook.detectInteractive(row.cmd), null, 'the hook does not gate it (row check)');
+        const r = lib.validateCommand(row.cmd, list);
+        assert.equal(r.ok, false, `the daemon would run a command the hook never hands off (matched ${r.matched})`);
+        assert.ok(r.reason, 'has a reason');
+      });
+    }
+  });
+
+  test('18. the skip form keeps its non-interactive reason, naming the skipped entry', () => {
+    const r = lib.validateCommand('gh auth login --with-token < f.txt', list);
+    assert.equal(r.ok, false);
+    assert.match(r.reason, /not.*needed|non-interactive|skipped/i);
+    assert.match(r.reason, /"gh auth login"/);
+  });
+
+  describe('19. built-ins are matched per invocation; user entries are regexes on the whole command', () => {
+    let h;
+    let prevHome;
+    let prevAllow;
+    beforeEach(() => {
+      h = fs.mkdtempSync(path.join(os.tmpdir(), 'dfw-allow-agree-'));
+      prevHome = process.env.HOME;
+      prevAllow = process.env.AOFORGE_WATCH_ALLOW_FILE;
+      process.env.HOME = h;
+    });
+    afterEach(() => {
+      if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+      if (prevAllow === undefined) delete process.env.AOFORGE_WATCH_ALLOW_FILE;
+      else process.env.AOFORGE_WATCH_ALLOW_FILE = prevAllow;
+      fs.rmSync(h, { recursive: true, force: true });
+    });
+
+    test('a built-in name inside a quoted argument is not a call: rg "a|npm login" f is refused', () => {
+      const r = lib.validateCommand('rg "a|npm login" f', list);
+      assert.equal(r.ok, false);
+      assert.match(r.reason, /does not match the daemon allowlist/);
+    });
+
+    test('a user entry from the override file still accepts on a whole-command regex', () => {
+      const userFile = path.join(h, 'user-allow.json');
+      fs.writeFileSync(userFile, JSON.stringify({ commands: [{ pattern: '^echo\\b' }] }));
+      process.env.AOFORGE_WATCH_ALLOW_FILE = userFile;
+      const { allowlist, userPatterns } = lib.loadAllowlist();
+      assert.equal(userPatterns, 1);
+      assert.deepStrictEqual(lib.validateCommand('echo hi', allowlist), { ok: true, matched: '^echo\\b' });
+      assert.equal(lib.validateCommand('rg "a|npm login" f', allowlist).ok, false, 'and only what it matches');
+    });
+  });
+
+  test('20. every default entry has a label and a RegExp match, and is the shared matcher\'s own pattern', () => {
+    assert.equal(list.length, INTERACTIVE_PATTERNS.length);
+    list.forEach((p, i) => {
+      assert.ok(p.label, 'each entry has a label');
+      assert.ok(p.match instanceof RegExp, `${p.label}: match is a RegExp`);
+      assert.equal(p.label, INTERACTIVE_PATTERNS[i].label);
+      assert.strictEqual(p.match, INTERACTIVE_PATTERNS[i].match, `${p.label}: no second copy of the pattern`);
+    });
   });
 });

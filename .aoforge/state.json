@@ -1,8 +1,8 @@
 {
   "current_objective": "73",
-  "current_job": 11,
+  "current_job": 12,
   "total_jobs": 14,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
@@ -1589,6 +1589,16 @@
     {
       "objective": "73",
       "summary": "73-11: user files (defaults.json, Brave key, watch allowlist) resolve from the runtime home ~/.claude/aoforge/ first, then ~/.aoforge/ (3.0.0) and the pre-rename dot directory for one release; the resolver only stats, never migrates on read",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-12: a 3.0.0 pid file at ~/.aoforge/ is the same AOForge daemon for one release (read, rewritten by add/remove, cleared by stop/start); the pre-rename one stays legacy and is never written or removed",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-12: the daemon's built-in allowlist entries are gate-interactive's own matcher (interactive-commands.matchInvocations); user entries stay whole-command regexes and the deny list runs first",
       "rationale": null
     }
   ],

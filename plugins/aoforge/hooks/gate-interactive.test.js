@@ -1008,3 +1008,74 @@ describe('the daemon is read through watcher-state (TRD 73-10 Task 3)', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 73-12 item 14: the daemon is found where watcher-state keeps it
+// ---------------------------------------------------------------------------
+//
+// The hook spawned with HOME = a temp home and the override unset:
+//   - a live pid file in the watch state directory (compat.watchStateDir) -> daemon-live
+//   - a live pid file only where AOForge 3.0.0 kept it (~/.aoforge/) -> daemon-live: the same AOForge daemon,
+//     read for one release
+//   - a pre-rename daemon's pid file only -> daemon-absent, as before
+
+describe('the daemon is found where watcher-state keeps it (TRD 73-12 item 14)', () => {
+  const { watchStateDir } = require('../aoforge/bin/lib/compat.cjs');
+  const handoffFixtures = require('../aoforge/bin/lib/__fixtures__/handoff-fixtures.cjs');
+
+  /** Run the hook on `npm login` in `work` with HOME = `home` and no override; return the deny reason. */
+  function reasonFor(home, work) {
+    const { result } = runHook(
+      { tool_name: 'Bash', tool_input: { command: 'npm login' } },
+      { HOME: home, AOFORGE_HANDOFF_PID_FILE: undefined },
+      work,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    return JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+  }
+
+  function withSandbox(fn) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-73-12-'));
+    try {
+      const home = path.join(dir, 'home');
+      const work = path.join(dir, 'work');
+      fs.mkdirSync(home);
+      fs.mkdirSync(work);
+      fn({ home, work });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  function writeLivePid(file, work) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ pid: process.pid, version: '3.1.0', watching: [work] }));
+  }
+
+  test('a live pid file in the watch state directory gives the daemon-live reason', () => {
+    withSandbox(({ home, work }) => {
+      writeLivePid(path.join(watchStateDir(home), 'aoforge-watch.pid'), work);
+      const reason = reasonFor(home, work);
+      assert.match(reason, /aoforge-watch terminal/);
+      assert.match(reason, new RegExp(`pid ${process.pid}\\b`));
+    });
+  });
+
+  test('a live pid file only where AOForge 3.0.0 kept it gives the daemon-live reason', () => {
+    withSandbox(({ home, work }) => {
+      writeLivePid(path.join(home, '.aoforge', 'aoforge-watch.pid'), work);
+      const reason = reasonFor(home, work);
+      assert.match(reason, /aoforge-watch terminal/, 'the 3.0.0 daemon is the same AOForge daemon');
+      assert.match(reason, new RegExp(`pid ${process.pid}\\b`));
+    });
+  });
+
+  test('only a pre-rename daemon\'s pid file gives the daemon-absent reason', () => {
+    withSandbox(({ home, work }) => {
+      handoffFixtures.writePidFile(home, { legacy: true, watching: [work] });
+      const reason = reasonFor(home, work);
+      assert.match(reason, /`! npm login`/);
+      assert.doesNotMatch(reason, /aoforge-watch terminal/);
+    });
+  });
+});

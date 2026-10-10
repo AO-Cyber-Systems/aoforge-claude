@@ -19,7 +19,8 @@
 //     archives a todo identified by the legacy key alone.
 //  4. config-ensure-section with only ~/.devflow/defaults.json -> its defaults apply; with both -> ~/.aoforge/ wins.
 //  5. Brave key: only the legacy file -> found; `init new-project` reports it present.
-//  6. Watch allowlist and pid: legacy-only files are read; a write goes to ~/.aoforge/.
+//  6. Watch allowlist and pid: legacy-only files are read; a pid write goes to the watch state directory,
+//     ~/.claude/aoforge/state/watch/ (TRD 73-12).
 //  7. Nothing under the legacy dot dir is moved, renamed or deleted by any of the above (listing before/after).
 //  8. `adopt preflight` on a repo with the legacy adopt branch and its in-progress marker -> route `resume`,
 //     branch = the legacy one; on a fresh repo -> aoforge/adopt; with both branches -> refuse naming both.
@@ -32,6 +33,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { watchStateDir } = require('./compat.cjs');
 const fx = require('./__fixtures__/legacy-identity-fixtures.cjs');
 const profileFx = require('./__fixtures__/stack-profile-fixtures.cjs');
 const verifyFx = require('./__fixtures__/stack-verify-fixtures.cjs');
@@ -299,14 +301,14 @@ describe('72-12 user files under the legacy dot directory', () => {
     assert.deepEqual(r2.allowlist.filter((p) => /-extra$/.test(p.label)).map((p) => p.label), ['new-extra']);
   });
 
-  test('6b. the daemon pid is read from the legacy file; writes and removals touch ~/.aoforge/ only', () => {
+  test('6b. the daemon pid is read from the legacy file; writes and removals land in the watch state directory (TRD 73-12)', () => {
     const state = require('./watcher-state.cjs');
     const h = dotHome({ files: { [OLD_PID]: LEGACY_PID_TEXT } });
-    const newPid = path.join(h.newDir, NEW_PID);
+    const newPid = path.join(watchStateDir(h.home), NEW_PID);
     const oldPid = path.join(h.legacyDir, OLD_PID);
 
     withHome(h.home, () => {
-      assert.equal(state.pidFilePath(), newPid, 'the write target is the new file');
+      assert.equal(state.pidFilePath(), newPid, 'the write target is the watch state directory\'s file');
 
       const legacy = state.readPidFile();
       assert.ok(legacy, 'the legacy pid file is read');
@@ -318,10 +320,10 @@ describe('72-12 user files under the legacy dot directory', () => {
         'the legacy daemon watches its own directories: never adopt its pid file');
       assert.equal(fs.existsSync(newPid), false, 'nothing was written for the refused add');
 
-      state.writePidFile({ pid: process.pid, version: '3.0.0', watching: [] });
-      assert.ok(fs.existsSync(newPid), 'the write lands under ~/.aoforge/');
+      state.writePidFile({ pid: process.pid, version: '3.1.0', watching: [] });
+      assert.ok(fs.existsSync(newPid), 'the write lands in the watch state directory');
       const current = state.readPidFile();
-      assert.equal(current.version, '3.0.0', 'the new file wins once it exists');
+      assert.equal(current.version, '3.1.0', 'the new file wins once it exists');
       assert.equal(current.legacy, undefined);
 
       state.addWatchedProject('/tmp/another-project');
@@ -330,6 +332,7 @@ describe('72-12 user files under the legacy dot directory', () => {
       state.removePidFile();
       assert.equal(fs.existsSync(newPid), false);
     });
+    assert.equal(fs.existsSync(h.newDir), false, 'nothing is written under ~/.aoforge/');
     assert.equal(fs.readFileSync(oldPid, 'utf-8'), LEGACY_PID_TEXT, 'the legacy pid file is never written or removed');
   });
 

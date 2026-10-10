@@ -296,7 +296,8 @@ async function processOnce(pending, deps) {
   }
 
   // Log the COMMAND, never the resolved secret values. Audit-grep for
-  // "dispatching " in ~/.aoforge/aoforge-watch.log should show only cmd lines.
+  // "dispatching " in the daemon log (~/.claude/aoforge/state/watch/aoforge-watch.log)
+  // should show only cmd lines.
   logFn('info', `dispatching ${pending.id}: ${pending.cmd}`);
   let result;
   try {

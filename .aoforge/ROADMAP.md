@@ -329,7 +329,7 @@ TRDs:
 - [x] 73-09-home-is-never-a-project-TRD.md — (gap W1, G5a) `compat.findProjectRoot` and planning-mode stop at $HOME; spawned-hook regression under a temp HOME holding a watcher's `.aoforge/`
 - [x] 73-10-gate-interactive-reads-invocations-TRD.md — (gap W1, G3/G1/G2) detection on `shell-words.parseCommand` segments: quoted text and heredoc bodies are data, flags and reasons per call, read-only key forms pass; daemon read through watcher-state
 - [x] 73-11-user-files-in-runtime-home-TRD.md — (gap W2, G5b) `userDotFile` reads `~/.claude/aoforge/` first, `~/.aoforge/` and the pre-rename dir for one release; `watchStateDir`, `resolveUserFile`
-- [ ] 73-12-watch-daemon-state-dir-TRD.md — (gap W3, G5b) the daemon's pid and log in `~/.claude/aoforge/state/watch/`; a 3.0.0 pid file read and cleared for one release; tests and fixtures follow
+- [x] 73-12-watch-daemon-state-dir-TRD.md — (gap W3, G5b) the daemon's pid and log in `~/.claude/aoforge/state/watch/`; a 3.0.0 pid file read and cleared for one release; tests and fixtures follow
 - [ ] 73-13-service-logs-and-doctor-check-TRD.md — (gap W3, G5) service logs in the watch dir; doctor check 17 `user-dot-dir` moves a leftover `~/.aoforge/` safely
 - [ ] 73-14-gap-closure-docs-TRD.md — (gap W4) CHANGELOG, USER-GUIDE known limitations and file locations, site guides, settings workflow, migration pages, CLAUDE.md, HOOK_DOCS + docs data
 
@@ -374,6 +374,6 @@ TRDs:
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
-| 73. Handoff gaps and result injection | v1.6 | 11/14 | In Progress | 2026-10-10 |
+| 73. Handoff gaps and result injection | v1.6 | 12/14 | In Progress | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |

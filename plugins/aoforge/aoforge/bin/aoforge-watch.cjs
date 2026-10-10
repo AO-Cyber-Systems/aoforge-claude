@@ -31,7 +31,10 @@
  *                   pending_count, done_count, allowlist_size }
  *
  *   logs [--tail N]
- *     Print the last N lines of ~/.aoforge/aoforge-watch.log (default 100).
+ *     Print the last N lines of the daemon log (default 100), which lives in
+ *     the watch state directory: ~/.claude/aoforge/state/watch/aoforge-watch.log
+ *     (TRD 73-12), beside the pid file. For one release, when that log does
+ *     not exist yet, the log AOForge 3.0.0 wrote to ~/.aoforge/ is printed.
  *
  *   version
  *     Print "aoforge-watch <version>".
@@ -46,7 +49,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { planningRoot } = require('./lib/compat.cjs');
+const { planningRoot, watchStateDir, resolveUserFile } = require('./lib/compat.cjs');
 require('./lib/compat.cjs').aliasLegacyEnv();
 const { spawn } = require('child_process');
 
@@ -54,7 +57,6 @@ const state = require('./lib/watcher-state.cjs');
 const allowlistLib = require('./lib/watcher-allowlist.cjs');
 
 const VERSION = '0.1.0'; // bumped per release
-const LOG_DIR_NAME = '.aoforge';
 const LOG_FILE_NAME = 'aoforge-watch.log';
 const STOP_TIMEOUT_MS = 5000;
 // How long the daemon's own SIGTERM handler may spend draining before it exits
@@ -64,7 +66,12 @@ const STOP_TIMEOUT_MS = 5000;
 const SHUTDOWN_DEADLINE_MS = STOP_TIMEOUT_MS;
 
 function homeDir() { return process.env.HOME || os.homedir(); }
-function logFilePath() { return path.join(homeDir(), LOG_DIR_NAME, LOG_FILE_NAME); }
+/** The log the daemon writes: in the watch state directory, beside its pid file (TRD 73-12). */
+function logFilePath() { return path.join(watchStateDir(homeDir()), LOG_FILE_NAME); }
+/** The log `logs` prints: the watch-directory log, else for one release the 3.0.0 log in ~/.aoforge/. */
+function readableLogFile() {
+  return resolveUserFile(homeDir(), LOG_FILE_NAME, { currentDir: watchStateDir(homeDir()) }).file;
+}
 
 function printErr(msg) { process.stderr.write(msg + '\n'); }
 function printOut(msg) { process.stdout.write(msg + '\n'); }
@@ -147,7 +154,7 @@ function cmdStatus() {
 // ---------------------------------------------------------------------------
 
 function cmdLogs(flags) {
-  const file = logFilePath();
+  const file = readableLogFile();
   if (!fs.existsSync(file)) {
     printOut('(no log file yet)');
     return 0;

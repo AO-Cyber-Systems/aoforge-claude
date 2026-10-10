@@ -28,6 +28,7 @@ const {
 } = require('./flutter-ui-setup.cjs');
 
 const { validateInputsSchema } = require('./handoff.cjs');
+const { watchStateDir } = require('./compat.cjs');
 
 // ───── Fixture builders (hand-built; no LLM-generated data) ──────────────────
 
@@ -132,7 +133,8 @@ function buildFlutterRepoFixture(tmpdir, opts) {
 }
 
 /**
- * Write a fake aoforge-watch PID file inside the given temp HOME.
+ * Write a fake aoforge-watch PID file inside the given temp HOME, where the
+ * daemon keeps it: the watch state directory (compat.watchStateDir, TRD 73-12).
  *
  *   live=true  → pid points at the current test process (process.kill(pid,0) succeeds)
  *   live=false → pid points at 999999 (unlikely to exist; process.kill throws)
@@ -142,7 +144,7 @@ function buildFlutterRepoFixture(tmpdir, opts) {
 function buildFakePidFile(tmpHome, opts) {
   const o = opts || {};
   const pid = o.live ? process.pid : 999999;
-  const dir = path.join(tmpHome, '.aoforge');
+  const dir = watchStateDir(tmpHome);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'aoforge-watch.pid');
   const payload = {
