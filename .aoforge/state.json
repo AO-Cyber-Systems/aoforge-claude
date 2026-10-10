@@ -1,9 +1,9 @@
 {
-  "current_objective": "73",
-  "current_job": 14,
-  "total_jobs": 14,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "74",
+  "current_job": 1,
+  "total_jobs": 9,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1614,6 +1614,11 @@
     {
       "objective": "73",
       "summary": "73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-03: the main ruleset keeps the repository admin as a pull_request-mode bypass actor, not gh-setup's always mode, so a force-push is rejected for everyone; only test (npm test, gated) pinned to app 15368 is required because harness and build are path-filtered",
       "rationale": null
     }
   ],
