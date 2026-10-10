@@ -63,7 +63,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 70 — CLI defects and hook shape (completed 2026-10-08, 3/3 TRDs)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
 **Objective complete:** 72 — Rename to AOForge and naming cleanup (completed 2026-10-09, 27/27 TRDs)
-**Status:** Executing objective 73 — 7/8 TRDs complete
+**Status:** Objective 73 executed — 8/8 TRDs complete, ready for verification
 **Progress:** [██████████] 100%
 
 ## Branch State (post-merge)
@@ -234,6 +234,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 - **`feature/v1.1-coordination` is duplicative** — same content as `feature/v1.1`. Should be deleted to avoid confusion. Its worktree at `/Users/markemerson/Source/devflow-claude-v11` can be removed.
 - EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run aof-tools calibrate until objective 75 has scored 68-72
+- G5 (73-08): the aoforge-watch home ~/.aoforge/ makes HOME resolve as an AOForge project root (compat.findProjectRoot walks up unbounded); every repo under HOME without its own .aoforge/ is treated as ambient AOForge by gate-edits, gate-commits, route-intent, classify-session and others; 4 classify-session tests fail on this machine. Fix before the release (move the daemon home or bound the walk).
 
 ### Quick Tasks Completed
 
@@ -284,6 +285,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 ## Session Continuity
 
-Last session: 2026-10-10T00:19:43.187Z
+Last session: 2026-10-10T00:31:26.530Z
 Resume file: `None`
-Stopped at: Completed 73-07-live-tty-demonstration-TRD.md
+Stopped at: Completed 73-08-docs-and-close-out-TRD.md

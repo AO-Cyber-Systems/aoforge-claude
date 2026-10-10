@@ -124,7 +124,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 70: CLI defects and hook shape** - `state update-progress`, `verify trd-pre`, `objective-job-index` and the `verify-commits.js` output schema (completed 2026-10-08)
 - [x] **Objective 71: Stack drafter and verify policy** - govulncheck gate preference, buf lint drafting, `stack verify --run` policy for services and artifacts (completed 2026-10-08)
 - [x] **Objective 72: Rename to AOForge and naming cleanup** - DevFlow becomes AOForge with one-release shims and in-place migrations, ships as 3.0.0, the user's setup and fleet move over, and no legacy `df-*` remains (completed 2026-10-09)
-- [ ] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration
+- [x] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration (completed 2026-10-10)
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [ ] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped
 
@@ -325,7 +325,7 @@ TRDs:
 - [x] 73-05-attended-watch-terminal-TRD.md — (W3) attended `aoforge-watch start --foreground`: live output mirrored, the user's keys forwarded during a dispatch; respawning shell facade; PTY e2e test that plays the user
 - [x] 73-06-hook-registration-and-coexistence-TRD.md — (W3) hooks.json PostToolUse `*` + Stop (timeout 150); coexistence RUNS entries; cited PostToolUse schema model; CLAUDE.md bullet out of Draft
 - [x] 73-07-live-tty-demonstration-TRD.md — (W4, checkpoint) live run: ssh-keygen passphrase prompt answered by the user in the aoforge-watch terminal, result in context with no paste; evidence and cleanup
-- [ ] 73-08-docs-and-close-out-TRD.md — (W5) CHANGELOG [Unreleased], USER-GUIDE, site handoff guide, handoff skill, CLAUDE.md, HOOK_DOCS + docs data; todo complete; full suite
+- [x] 73-08-docs-and-close-out-TRD.md — (W5) CHANGELOG [Unreleased], USER-GUIDE, site handoff guide, handoff skill, CLAUDE.md, HOOK_DOCS + docs data; todo complete; full suite
 
 ### Objective 74: Operations decisions
 
@@ -368,6 +368,6 @@ TRDs:
 | 70. CLI defects and hook shape | v1.6 | 3/3 | Complete | 2026-10-08 |
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
-| 73. Handoff gaps and result injection | v1.6 | 7/8 | In Progress | - |
+| 73. Handoff gaps and result injection | v1.6 | 8/8 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |

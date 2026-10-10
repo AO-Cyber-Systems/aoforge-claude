@@ -1,9 +1,9 @@
 {
   "current_objective": "73",
-  "current_job": 7,
+  "current_job": 8,
   "total_jobs": 8,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1560,10 +1560,16 @@
       "objective": "73",
       "summary": "73-07: gate-interactive false positives found in the demo are recorded as gaps G1-G3 for verify-work, not fixed in the demo TRD: the key-generation pattern gates the read-only fingerprint mode and matches inside quoted arguments, gate-interactive.js lines 54 and 108",
       "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-08: gate-interactive false positives (73-07 G1-G3) and the exit-? header are documented as known limitations with escapes, not fixed; verify-work routes them to gap closure",
+      "rationale": null
     }
   ],
   "blockers": [
-    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72"
+    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72",
+    "G5 (73-08): the aoforge-watch home ~/.aoforge/ makes HOME resolve as an AOForge project root (compat.findProjectRoot walks up unbounded); every repo under HOME without its own .aoforge/ is treated as ambient AOForge by gate-edits, gate-commits, route-intent, classify-session and others; 4 classify-session tests fail on this machine. Fix before the release (move the daemon home or bound the walk)."
   ],
   "session_log": []
 }
