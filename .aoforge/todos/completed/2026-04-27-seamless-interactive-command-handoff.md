@@ -1,3 +1,4 @@
+completed: 2026-10-10
 ---
 created: 2026-04-27T19:10:24.837Z
 title: Seamless interactive command handoff
