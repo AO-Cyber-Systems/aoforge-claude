@@ -58,6 +58,7 @@ The reconciliation rules (from 09-CONTEXT.md decision #2):
 
 - `trd_summary_exists`: TRD has SUMMARY → `[x]`
 - `trd_summary_failed`: SUMMARY contains `Self-Check: FAILED` → `[ ]` + `(failed)`
+- `trd_summary_not_complete`: SUMMARY frontmatter `status:` is `deferred` or `checkpoint` → not completion; a `[x]` line goes back to `[ ]`, a `[ ]` line stays
 - `trd_orphan_warning`: TRD in ROADMAP but no TRD file → warning, no auto-flip
 
 Plus objective-level rollup (decision #3) when ALL TRDs are `[x]`.

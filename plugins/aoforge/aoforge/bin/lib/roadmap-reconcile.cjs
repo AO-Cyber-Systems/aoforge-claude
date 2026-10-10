@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { objectiveNumPattern } = require('./text-escape.cjs');
 const { planningRoot } = require('./compat.cjs');
+const { extractFrontmatter } = require('./frontmatter.cjs');
 
 // ─── TRD 09-01: Constants ─────────────────────────────────────────────────────
 
@@ -145,6 +146,41 @@ function _checkSummaryFailed(summaryContent) {
   }
 
   return false; // no Self-Check section → assume not failed (defensive)
+}
+
+// ─── Objective 74: SUMMARY frontmatter status that is not completion ─────────
+
+/**
+ * Frontmatter `status:` values that mark a SUMMARY as NOT completion evidence:
+ *   deferred   — the user deferred the TRD; the SUMMARY records why
+ *   checkpoint — the TRD stopped at an approval gate and will resume
+ * Matched as the whole value (trimmed, quotes stripped, case-insensitive), so a
+ * free-text status that merely mentions a checkpoint is not matched.
+ */
+const INCOMPLETE_SUMMARY_STATUSES = Object.freeze(['deferred', 'checkpoint']);
+
+/**
+ * Return true if the SUMMARY's frontmatter `status:` says the TRD did not
+ * complete (a value in INCOMPLETE_SUMMARY_STATUSES). Reads the frontmatter with
+ * frontmatter.cjs extractFrontmatter; a `status:` line in the body is ignored.
+ *
+ * Defensive: returns false for non-string, empty, no frontmatter or no status.
+ *
+ * @param {string} summaryContent - full text of a SUMMARY.md file
+ * @returns {boolean}
+ */
+function _summaryNotComplete(summaryContent) {
+  if (typeof summaryContent !== 'string' || !summaryContent) return false;
+  let fm;
+  try {
+    fm = extractFrontmatter(summaryContent);
+  } catch {
+    return false;
+  }
+  const raw = fm && fm.status;
+  if (typeof raw !== 'string') return false;
+  const status = raw.trim().replace(/^(['"])(.*)\1$/, '$2').trim().toLowerCase();
+  return INCOMPLETE_SUMMARY_STATUSES.includes(status);
 }
 
 // ─── TRD 09-01: _writeReconciledRoadmap ───────────────────────────────────────
@@ -427,10 +463,13 @@ function _rollupObjectiveStatus(lines, today) {
 /**
  * Reconcile ROADMAP.md checkbox state against on-disk SUMMARY.md presence + verdict.
  *
- * Three rule kinds:
- *   trd_summary_exists  — SUMMARY.md present + PASSED → mark [x]
- *   trd_summary_failed  — SUMMARY.md present + FAILED → mark [ ] (failed)
- *   trd_orphan_warning  — TRD listed but no TRD file on disk → warning only
+ * Rule kinds:
+ *   trd_summary_exists        — SUMMARY.md present + PASSED → mark [x]
+ *   trd_summary_failed        — SUMMARY.md present + FAILED → mark [ ] (failed)
+ *   trd_summary_not_complete  — SUMMARY.md present, not FAILED, frontmatter
+ *                               status in INCOMPLETE_SUMMARY_STATUSES → a [x]
+ *                               becomes [ ]; a [ ] is left alone (objective 74)
+ *   trd_orphan_warning        — TRD listed but no TRD file on disk → warning only
  *
  * TRD 09-02: calls _rollupObjectiveStatus after the rule loop (before write).
  *
@@ -494,6 +533,14 @@ function reconcile({ projectRoot, mode = 'write', today } = {}) {
           kind = 'trd_summary_failed';
         }
         // else already [ ] (failed) → no change
+      } else if (_summaryNotComplete(summaryContent)) {
+        // Rule 1b (objective 74): frontmatter status deferred/checkpoint → the
+        // SUMMARY is not completion evidence. A [x] is the drift: un-tick it,
+        // keeping any annotation as it is. A [ ] line is left alone.
+        if (entry.checked) {
+          newChecked = false;
+          kind = 'trd_summary_not_complete';
+        }
       } else {
         // Rule 1: trd_summary_exists → [x], no failed annotation
         // Only emit change if not already in the correct checked state
@@ -554,6 +601,8 @@ function reconcile({ projectRoot, mode = 'write', today } = {}) {
 }
 
 // ─── module.exports — LOCKED by TRD 09-03 (8-entry surface; SC-7) ────────────
+// Objective 74 extended the locked surface to 10 entries:
+// INCOMPLETE_SUMMARY_STATUSES + _summaryNotComplete (EX1 pins the list).
 // _findObjectiveSections + _updateProgressTable are intentionally NOT exported —
 // they're internal helpers consumed only by _rollupObjectiveStatus.
 
@@ -566,4 +615,6 @@ module.exports = {
   _setRunFs,
   _resetMocks,
   _rollupObjectiveStatus,
+  INCOMPLETE_SUMMARY_STATUSES,
+  _summaryNotComplete,
 };

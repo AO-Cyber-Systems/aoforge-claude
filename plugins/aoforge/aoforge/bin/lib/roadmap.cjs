@@ -411,7 +411,9 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   fs.writeFileSync(roadmapPath, roadmapContent, 'utf-8');
 
   // Nested per-TRD checkboxes (`- [ ] NN-MM-TRD.md — ...`) from SUMMARY.md
-  // presence + Self-Check verdict. Reuses the LOCKED `reconcile` export of
+  // presence + Self-Check verdict + frontmatter status (a `deferred` or
+  // `checkpoint` SUMMARY un-ticks a [x] line: trd_summary_not_complete,
+  // objective 74). Reuses the LOCKED `reconcile` export of
   // roadmap-reconcile.cjs in dry-run and applies ONLY this objective's per-TRD
   // changes. Write mode is deliberately not used: it rewrites every
   // objective's TRD lines and applies the `**Status:** complete` /
@@ -423,8 +425,9 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   const trdCheckboxes = [];
   if (/^\d+$/.test(String(objectiveNum))) {
     const want = String(parseInt(objectiveNum, 10)); // '040' / '40' -> '40'
+    const TRD_KINDS = ['trd_summary_exists', 'trd_summary_failed', 'trd_summary_not_complete'];
     const mine = reconcile({ projectRoot: cwd, mode: 'dry-run' }).changes.filter(c =>
-      (c.kind === 'trd_summary_exists' || c.kind === 'trd_summary_failed') &&
+      TRD_KINDS.includes(c.kind) &&
       String(parseInt(c.objective_num, 10)) === want);
     if (mine.length) {
       const lines = fs.readFileSync(roadmapPath, 'utf-8').split('\n');
