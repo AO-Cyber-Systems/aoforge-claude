@@ -24,14 +24,26 @@
  *     to surface `! cmd` for the user to paste. Original behaviour preserved
  *     so the hook is useful even without the watcher running.
  *
- * Detection covers two command categories at command position (after start
- * of line, ;, &&, ||, |, &, (, or newline):
+ * Detection is invocation-aware (TRD 73-10) and lives in the shared module
+ * aoforge/bin/lib/interactive-commands.cjs, which the watch daemon's allowlist
+ * uses too (TRD 73-12), so the two agree on what is handed off. It reads the
+ * command's simple commands (shell-words.parseCommand):
+ *   - quoted text and heredoc bodies are data, so a grep, a note or a commit
+ *     message that mentions a command is not intercepted; a heredoc fed to a
+ *     shell (`bash <<'EOF'`) is read as commands;
+ *   - every call is matched on its own and its skip flags are read from its own
+ *     words; when the command has more than one call, the reason names the call
+ *     that matched;
+ *   - read-only key forms (fingerprint, find, remove) pass.
+ * Two categories:
  *   1. TTY-interactive: doctl auth init, gh auth login, gcloud auth login,
  *      aws configure, aws sso login, op signin, npm login, vault login,
  *      passwd, ssh-keygen
  *   2. Shell-flow (need user's interactive shell env, aliases, sourced rc):
  *      nvm use/install, pyenv shell/install, conda activate, direnv exec/allow,
  *      mise use/install/run, asdf shell/install, rbenv shell
+ * If the shared module (or shell-words, which it requires) cannot load, the
+ * hook gates nothing (fail open, like gate-commits).
  *
  * Escape hatch: AOFORGE_SKIP_INTERACTIVE_GATE=1
  * Test override: AOFORGE_HANDOFF_PID_FILE=<path>
@@ -44,151 +56,18 @@ const os = require('os');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
-// Patterns for commands that require a TTY. Each `match` regex requires
-// `${CMD_POS}` at the front so we only fire when the interactive command sits
-// in real command position (start of line or after a shell separator), not
-// when it appears inside an `echo` string or a quoted arg.
-//
-// CMD_POS matches: start of string (with optional leading whitespace),
-// OR a separator (; && || | & ( newline) optionally followed by whitespace.
-const CMD_POS = /(?:^\s*|[;&|\n(]\s*|&&\s*|\|\|\s*)/.source;
-
-const INTERACTIVE_PATTERNS = [
-  // ── TTY-interactive (need a real TTY, the original Approach A scope) ──
-  {
-    match: new RegExp(`${CMD_POS}doctl\\s+auth\\s+init\\b`),
-    skipIf: /--access-token[\s=]/,
-    reason: 'doctl auth init prompts for an access token',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}gcloud\\s+auth\\s+login\\b`),
-    skipIf: /--cred-file[\s=]/,
-    reason: 'gcloud auth login opens a browser flow',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}gh\\s+auth\\s+login\\b`),
-    skipIf: /--with-token\b/,
-    reason: 'gh auth login is interactive without --with-token',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}aws\\s+configure\\b(?!\\s+(get|list|set|import|export|sso))`),
-    reason: 'aws configure prompts for credentials',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}aws\\s+sso\\s+login\\b`),
-    reason: 'aws sso login opens a browser flow',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}op\\s+signin\\b`),
-    reason: '1Password signin prompts for the master password',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}npm\\s+login\\b`),
-    reason: 'npm login prompts for username/password/OTP',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}vault\\s+login\\b`),
-    skipIf: /-method=token\b/,
-    reason: 'vault login is interactive without -method=token',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}passwd\\b(?!\\s*=)`),
-    reason: 'passwd prompts for the current and new password',
-    category: 'tty',
-  },
-  {
-    match: new RegExp(`${CMD_POS}ssh-keygen\\b(?!.*\\s-N\\s)`),
-    reason: 'ssh-keygen prompts for a passphrase without -N',
-    category: 'tty',
-  },
-
-  // ── Shell-flow (need the user's interactive shell env: aliases, mise/nvm/conda activations, sourced rc files) ──
-  {
-    match: new RegExp(`${CMD_POS}nvm\\s+use\\b`),
-    reason: 'nvm is a shell function — needs user shell',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}nvm\\s+install\\b`),
-    reason: 'nvm is a shell function — needs user shell',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}pyenv\\s+shell\\b`),
-    reason: 'pyenv shell modifies the active shell session',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}pyenv\\s+install\\b`),
-    reason: 'pyenv install needs full shell env',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}conda\\s+activate\\b`),
-    reason: 'conda activate is a shell function',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}direnv\\s+exec\\b`),
-    reason: 'direnv exec needs the user shell to source the env',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}direnv\\s+allow\\b`),
-    reason: 'direnv allow trusts a directory in the user shell',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}mise\\s+use\\b`),
-    reason: 'mise use modifies the active shell session',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}mise\\s+install\\b`),
-    reason: 'mise install needs the shimmed shell env',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}mise\\s+run\\b`),
-    reason: 'mise run dispatches via the shimmed shell',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}asdf\\s+shell\\b`),
-    reason: 'asdf shell modifies the active shell session',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}asdf\\s+install\\b`),
-    reason: 'asdf install needs the shimmed shell env',
-    category: 'shell-flow',
-  },
-  {
-    match: new RegExp(`${CMD_POS}rbenv\\s+shell\\b`),
-    reason: 'rbenv shell modifies the active shell session',
-    category: 'shell-flow',
-  },
-];
+// The shared per-invocation matcher (TRD 73-10). Fail open: if it (or shell-words, which it requires) cannot load,
+// nothing is gated. The plugin always ships aoforge/ beside hooks/, so this only happens on a broken install or a stub
+// plugin tree. The exports below are the module's own objects, so the hook and the daemon allowlist share one matcher.
+let matcher = null;
+try { matcher = require(path.join(__dirname, '..', 'aoforge', 'bin', 'lib', 'interactive-commands.cjs')); } catch { /* fail open */ }
+const detectInteractive = matcher ? matcher.detectInteractive : () => null;
+const INTERACTIVE_PATTERNS = matcher ? matcher.INTERACTIVE_PATTERNS : Object.freeze([]);
+const CMD_POS = matcher ? matcher.CMD_POS : /(?:^\s*|[;&|\n(]\s*|&&\s*|\|\|\s*)/.source;
+const sshKeygenFlags = matcher ? matcher.sshKeygenFlags : () => new Set();
 
 function readStdin() {
   try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
-}
-
-function detectInteractive(cmd) {
-  for (const p of INTERACTIVE_PATTERNS) {
-    if (!p.match.test(cmd)) continue;
-    if (p.skipIf && p.skipIf.test(cmd)) continue;
-    return p;
-  }
-  return null;
 }
 
 function pidFilePath() {
@@ -267,16 +146,19 @@ function deny(reason) {
 }
 
 function buildDenyReason({ id, cmd, hit, watcherLive, watcherInfo }) {
+  // A command with more than one call names the call that matched (TRD 73-10); a single call keeps today's wording.
+  const named = hit.compound && hit.segment && hit.segment !== String(cmd).trim();
+  const what = named ? `\`${hit.segment}\`: ${hit.reason}` : hit.reason;
   if (watcherLive) {
     return [
-      `This command needs the user's shell (${hit.reason}; category: ${hit.category}).`,
+      `This command needs the user's shell (${what}; category: ${hit.category}).`,
       `It has been queued to the aoforge-watch PTY-backed daemon (pid ${watcherInfo && watcherInfo.pid}). Continue with other work — the daemon will run it via a real PTY in the user's aoforge-watch terminal, and if it prompts, the user answers there. Tell the user in one line that \`${cmd}\` is waiting in their aoforge-watch terminal. Its result is delivered into your context automatically after your next tool call, or when you end your turn (the Stop hook waits briefly for it). Do NOT instruct the user to paste anything; do NOT retry the Bash tool.`,
       `(handoff id: ${id} — record at .aoforge-handoff/pending/${id}.json)`,
       'Escape hatch: set AOFORGE_SKIP_INTERACTIVE_GATE=1 if this is a false positive.',
     ].join(' ');
   }
   return [
-    `This command requires the user's shell (${hit.reason}; category: ${hit.category}).`,
+    `This command requires the user's shell (${what}; category: ${hit.category}).`,
     'The Claude Code harness cannot run it directly, and the aoforge-watch daemon is not running.',
     `Tell the user verbatim to paste this in the prompt: \`! ${cmd}\``,
     'The `!` prefix runs the command in their shell so the output returns inline.',
@@ -321,6 +203,7 @@ module.exports = {
   detectInteractive,
   INTERACTIVE_PATTERNS,
   CMD_POS,
+  sshKeygenFlags,
   isWatcherLive,
   readWatcherInfo,
   pidFilePath,
