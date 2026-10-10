@@ -300,6 +300,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-07: live demo used option B (claude --plugin-dir, aoforge@aocyber disabled at local scope in the demo dir only); the pre-rename homelab watcher was stopped for the demo and restored with the same command (pid 74371)
 - [Objective 73]: 73-07: gate-interactive false positives found in the demo are recorded as gaps G1-G3 for verify-work, not fixed in the demo TRD: the key-generation pattern gates the read-only fingerprint mode and matches inside quoted arguments, gate-interactive.js lines 54 and 108
 - [Objective 73]: 73-08: gate-interactive false positives (73-07 G1-G3) and the exit-? header are documented as known limitations with escapes, not fixed; verify-work routes them to gap closure
+- [Objective 73]: 73-10: interactive-command detection lives in lib/interactive-commands.cjs on shell-words.parseCommand segments; quoted text and heredoc bodies are data, a heredoc fed to a shell is code (depth 1), flags and reasons are per call; the hook re-exports it fail-open and 73-12's daemon allowlist reuses it
+- [Objective 73]: 73-10: the deny reason names the matching call only for compound commands (hit.compound and segment differs from the trimmed command); single-call reasons stay byte-identical
 
 ## Performance Metrics
 
@@ -495,4 +497,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P06 | 9min | 3 tasks | 6 files |
 | Objective 73 P07 | 337min | 3 tasks | 0 files |
 | Objective 73 P08 | 12min | 3 tasks | 11 files |
+| Objective 73 P10 | 12min | 3 tasks | 6 files |
 

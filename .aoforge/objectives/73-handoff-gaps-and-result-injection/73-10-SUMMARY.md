@@ -49,8 +49,14 @@ verification:
   tdd_evidence: true
   test_pairing: true
 
-duration: FILLED_AT_END
+duration: 12min
 completed: 2026-10-09
+tokens_input: 10711700
+tokens_output: 75101
+tokens_cache_read: 10539196
+tokens_cache_write: 172370
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 73 TRD 10: gate-interactive reads invocations, not mentions Summary
@@ -60,7 +66,7 @@ completed: 2026-10-09
 ## Progress
 - [x] Task 1: RED, the shared case table and invocation-aware detection tests — 8944efc4
 - [x] Task 2: GREEN, the shared matcher on parseCommand segments — 80e160e7
-- [x] Task 3: the daemon is read through watcher-state — (this commit)
+- [x] Task 3: the daemon is read through watcher-state — 771ef319
 
 ## What changed
 
@@ -136,3 +142,10 @@ The TRD was otherwise executed as written, with two additions:
 - Must-haves verified: 9/9 truths. Mentions and heredoc data are null. Every command position and `$( )` is gated. Shell heredocs are gated. ssh-keygen forms behave as specified. Flags and the reason's parenthesis are per call. Single-call wording is unchanged. The daemon is read through watcher-state (legacy record means absent, a missing module means absent). The shared module carries labels and is re-exported. Missing libs and unterminated quotes fail open.
 - Structural: `rg "match: "` and `rg "aoforge-watch\.pid"` find nothing in gate-interactive.js. `interactive-commands.cjs` and `watcher-state` are both loaded there. No `.aoforge-handoff/` remains in the worktree.
 - Gate failures: None
+
+## Self-Check: PASSED
+
+- FOUND: plugins/aoforge/aoforge/bin/lib/interactive-commands.cjs
+- FOUND: plugins/aoforge/aoforge/bin/lib/interactive-commands.test.cjs
+- FOUND: plugins/aoforge/aoforge/bin/lib/__fixtures__/interactive-command-cases.cjs
+- FOUND: 8944efc4 (RED), 80e160e7 (GREEN), 771ef319 (watcher-state) on df/exec-73-10-gate-interactive-reads-invocations
