@@ -39,6 +39,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-09
+tokens_input: 4469966
+tokens_output: 38054
+tokens_cache_read: 4286735
+tokens_cache_write: 183127
+token_model: "claude-sonnet-5-5"
+tokens_source: "live"
 ---
 
 # Objective 74 TRD 07: Apply the main ruleset Summary
@@ -58,7 +64,7 @@ treated as satisfied-by-deferral. `exec-context check` passed; no pre-check refu
 
 - [x] Task 1: Refresh the read-only proof that the required check reports — 5722cbd1
 - [x] Task 2: Approval gate: the exact ruleset text, then one POST — 2331fc41 (reply `approved`; POST run once by the orchestrator; ruleset id 24829006)
-- [x] Task 3: Read the ruleset back and prove it matches — (this commit)
+- [x] Task 3: Read the ruleset back and prove it matches — 4a93359c
 
 ## Task 1 evidence (all reads, 2026-10-10)
 
@@ -236,3 +242,12 @@ through `summary checkpoint`, `summary post`, `requirements mark-complete`, `sta
 ## Authentication gates
 
 None.
+
+## Self-Check: PASSED
+
+- FOUND: commit 5722cbd1 (Task 1), 2331fc41 (Task 2), 4a93359c (Task 3) in `git log`.
+- FOUND: `.github/rulesets/main.json` sha256 `02208b0017425dc1cba59b3acd68255350fa91ae47a3d12ce3f62a87d8a0cb06`, unchanged;
+  `git diff --stat 5722cbd1 HEAD -- .github scripts` is empty.
+- FOUND: exactly one repository ruleset named `aoforge: default branch` (id 24829006, active) beside the org's
+  "Private Repos" (11490149).
+- FOUND: compare exit 0; four rules under 24829006 on `main`; bypass `pull_requests_only`.
