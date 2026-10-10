@@ -9,5 +9,5 @@ tags: [est-09, est-11, todo-01, close-out]
 
 ## Progress
 - [x] Task 1: Re-measure EST-09 over v1.6 and report it beside the verdict — c483d8dd
-- [x] Task 2: REQUIREMENTS and STATE from the evidence — (this commit)
-- [ ] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, full suite — next step: add three objective 75 entries under `## [Unreleased]` `### Fixed` in /Users/justin/dev/aoforge-claude/CHANGELOG.md (about line 75), then edit the 0008 file list in CLAUDE.md and docs/USER-GUIDE.md
+- [x] Task 2: REQUIREMENTS and STATE from the evidence — 2e89944b
+- [ ] Task 3: CHANGELOG, CLAUDE.md, USER-GUIDE, full suite — next step: commit CHANGELOG.md and docs/USER-GUIDE.md as `docs(75-05): changelog and user guide for objective 75 fixes` (CLAUDE.md is committed; guards and the full suite already pass)
