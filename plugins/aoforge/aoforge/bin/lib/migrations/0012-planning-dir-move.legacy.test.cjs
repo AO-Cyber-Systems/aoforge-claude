@@ -27,6 +27,8 @@
 //          are tracked under `.aoforge/`, nothing is tracked under the legacy directory.
 //     10c. a tracked file the USER deleted (not in changedSoFar) still defers as `dirty`, with nothing staged.
 //     10d. a tracked file missing from disk AND in changedSoFar gets its removal staged, and the move succeeds.
+//     10e. (75-02 case 9) a tracked, MODIFIED dup-detect log with 0008 + 0012 pending: 0008 untracks it and 0012 moves
+//          the directory instead of deferring `dirty`.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -431,6 +433,24 @@ describe('10. 0012 after 0002 in one run', () => {
         `everything else is an exact rename: ${ns.join('|')}`,
       );
       assert.match(String(res.notes), /055-JOB\.md/, 'the notes name the staged removal');
+    });
+  });
+
+  test('10e. a tracked, modified dup-detect log: 0008 untracks it and 0012 moves the directory instead of deferring', () => {
+    withLegacy({ state: 'clean', dupDetectLog: 'tracked-modified' }, (p) => {
+      const log = `${OLD}/.dup-detect-log.jsonl`;
+      assert.equal(p.git(['status', '--porcelain']).trim(), `M ${log}`, 'precondition: an uncommitted edit to the log');
+      const bytes = fs.readFileSync(path.join(p.root, ...log.split('/')), 'utf-8');
+
+      const report = runner(p, ['0008', '0012']);
+
+      assert.deepEqual(report.failed, [], JSON.stringify(report.failed));
+      assert.deepEqual(report.deferred, [], `0012 is not deferred: ${JSON.stringify(report.deferred)}`);
+      assert.deepEqual(report.applied.map((a) => a.id), ['0008', '0012']);
+      assert.equal(fs.existsSync(p.dir), false, 'the legacy directory moved');
+      assert.equal(read(p, `${NEW}/.dup-detect-log.jsonl`), bytes, 'the log moved with its bytes intact');
+      assert.equal(p.git(['ls-files', '--', `${NEW}/.dup-detect-log.jsonl`, log]).trim(), '', 'the log is tracked nowhere');
+      assert.equal(gitRaw(p, ['check-ignore', '-q', `${NEW}/.dup-detect-log.jsonl`]).status, 0, 'and it is ignored');
     });
   });
 });

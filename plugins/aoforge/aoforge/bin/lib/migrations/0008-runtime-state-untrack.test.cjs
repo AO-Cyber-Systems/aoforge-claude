@@ -14,6 +14,7 @@ const { execFileSync, spawnSync } = require('child_process');
 
 const upgrade = require('../upgrade.cjs');
 const fx = require('../__fixtures__/upgrade-fixtures.cjs');
+const { LEGACY } = require('../legacy-names.cjs');
 
 const MIGRATION_PATH = path.join(__dirname, '0008-runtime-state-untrack.cjs');
 const GUARD = '.aoforge/.progress-guard.json';
@@ -399,5 +400,86 @@ describe('nested runtime state (TRD 45-02)', () => {
     fs.writeFileSync(path.join(root, NESTED_GUARD), '{}\n');
     const found = m0008().discover({ projectRoot: root, userHome: home, pluginVersion: PLUGIN_VERSION, dryRun: true, options: {} });
     assert.deepEqual(found, { tracked: [], present: [], unignored: [] });
+  });
+});
+
+// ─── TRD 75-02: the dup-detect log is runtime state too ───────────────────────
+//
+// dup-detect.cjs recordResolution appends to `.aoforge/.dup-detect-log.jsonl`. In the 72-25 fleet sweep it was a tracked
+// file with uncommitted changes (it alone made 0012 defer in two repositories) or an untracked, unignored file that an
+// upgrade commit swept in. Cases 6-8 and 10 of the 75-02 test list (case 9 is in the 0012 legacy suite).
+
+const LOG = '.aoforge/.dup-detect-log.jsonl';
+const NESTED_LOG = 'flutter/.aoforge/.dup-detect-log.jsonl';
+const LEGACY_DIR = LEGACY.planningDir;
+const NESTED_LEGACY_LOG = `sub/${LEGACY_DIR}/.dup-detect-log.jsonl`;
+
+describe('the dup-detect log (TRD 75-02)', () => {
+  test('6. a tracked log is detected, apply untracks it (index only) and the working file is byte-identical', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [LOG] });
+    const bytes = readRel(p.root, LOG);
+    assert.equal(bytes, fx.RUNTIME_STATE_CONTENT['.dup-detect-log.jsonl'], 'precondition: the fixture body');
+
+    const det = m0008().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.ok(det.reason.includes(LOG), det.reason);
+
+    const res = m0008().apply(ctxFor(p));
+    assert.ok(res.changed.includes(LOG), JSON.stringify(res.changed));
+    assert.ok(res.changed.includes(GITIGNORE), JSON.stringify(res.changed));
+    assert.equal(git(p, 'ls-files', '--', LOG).trim(), '', 'the log is no longer in the index');
+    assert.equal(readRel(p.root, LOG), bytes, 'working copy never deleted or rewritten');
+    assert.equal(git(p, 'check-ignore', '--no-index', '--', LOG).trim(), LOG, 'now ignored');
+  });
+
+  test('7a. an untracked, unignored log gets a .gitignore entry and git reports it ignored', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [], untrackedPresent: [LOG] });
+    assert.equal(m0008().detect(ctxFor(p)).applies, true);
+
+    const res = m0008().apply(ctxFor(p));
+    assert.ok(res.changed.includes(GITIGNORE), JSON.stringify(res.changed));
+    assert.ok(readRel(p.root, GITIGNORE).split('\n').includes(LOG), readRel(p.root, GITIGNORE));
+    assert.equal(git(p, 'check-ignore', '--no-index', '--', LOG).trim(), LOG);
+    assert.equal(git(p, 'status', '--porcelain', '--', LOG), '', 'no longer shows as untracked');
+    assert.ok(fs.existsSync(path.join(p.root, LOG)), 'still on disk');
+  });
+
+  test('7b. under both planning directory names, at any depth: the nested log is covered by a `**/<dir>/` entry', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [], untrackedPresent: [NESTED_LOG, NESTED_LEGACY_LOG] });
+    const det = m0008().detect(ctxFor(p));
+    assert.equal(det.applies, true, det.reason);
+    assert.ok(det.reason.includes(NESTED_LOG) && det.reason.includes(NESTED_LEGACY_LOG), det.reason);
+
+    m0008().apply(ctxFor(p));
+    const lines = readRel(p.root, GITIGNORE).split('\n');
+    assert.ok(lines.includes('**/.aoforge/.dup-detect-log.jsonl'), lines.join('|'));
+    assert.ok(lines.includes(`**/${LEGACY_DIR}/.dup-detect-log.jsonl`), lines.join('|'));
+    assert.ok(isIgnored(p, NESTED_LOG), `${NESTED_LOG} is ignored`);
+    assert.ok(isIgnored(p, NESTED_LEGACY_LOG), `${NESTED_LEGACY_LOG} is ignored`);
+    assert.equal(m0008().detect(ctxFor(p, { dryRun: true })).applies, false);
+  });
+
+  test('8. isRuntimeStatePath: the log at the root and nested is runtime state; STATE.md is not', () => {
+    const { isRuntimeStatePath, RUNTIME_STATE_BASENAMES } = m0008();
+    assert.ok(RUNTIME_STATE_BASENAMES.includes('.dup-detect-log.jsonl'), RUNTIME_STATE_BASENAMES.join('|'));
+    assert.equal(isRuntimeStatePath(LOG), true);
+    assert.equal(isRuntimeStatePath(NESTED_LOG), true);
+    assert.equal(isRuntimeStatePath(NESTED_LEGACY_LOG), true);
+    assert.equal(isRuntimeStatePath('.aoforge/STATE.md'), false);
+    assert.equal(isRuntimeStatePath('.aoforge/sub/.dup-detect-log.jsonl'), false);
+    assert.equal(isRuntimeStatePath('.dup-detect-log.jsonl'), false);
+  });
+
+  test('10. a project already stamped with 0008 and a tracked log still detects 0008 (detection-based runner)', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const p = project({ tracked: [LOG] });
+    upgrade.writeStamp(p.root, { version: '2.12.0', migrations_applied: ['0001', '0008'], upgraded_at: '2026-10-01T00:00:00.000Z' });
+
+    assert.equal(m0008().detect(ctxFor(p)).applies, true, 'detect ignores the stamp');
+    const report = upgrade.check({ projectRoot: p.root, userHome: p.home, pluginVersion: PLUGIN_VERSION, only: ['0008'] });
+    assert.deepEqual(report.pending.map((x) => x.id), ['0008'], JSON.stringify(report));
   });
 });
