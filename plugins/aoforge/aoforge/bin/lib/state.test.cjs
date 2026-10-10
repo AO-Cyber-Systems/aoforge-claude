@@ -535,6 +535,25 @@ describe('48-13 characterization — local-mode STATE.md mutators write today\'s
     assert.equal(readFile(dir, 'state.json'), sjBytes({ progress_pct: 50 }));
   });
 
+  // Objective 74: a deferred or checkpoint SUMMARY is not a completed TRD, so it does
+  // not move the progress bar.
+  test('2c\'. state update-progress → deferred and checkpoint SUMMARYs are not counted', () => {
+    const dir = charProject();
+    fs.writeFileSync(path.join(dir, '.aoforge', 'objectives', '07-x', '07-02-SUMMARY.md'),
+      '---\nobjective: 07\ntrd: 07-02\nstatus: deferred\n---\n\n# x\n\n## Self-Check: PASSED\n', 'utf-8');
+    const obj8 = path.join(dir, '.aoforge', 'objectives', '08-y');
+    fs.mkdirSync(obj8, { recursive: true });
+    fs.writeFileSync(path.join(obj8, '08-01-TRD.md'), '# x\n', 'utf-8');
+    fs.writeFileSync(path.join(obj8, '08-01-SUMMARY.md'),
+      '---\nobjective: 08\ntrd: 08-01\nstatus: checkpoint\n---\n\n# x\n', 'utf-8');
+
+    const r = run(['state', 'update-progress'], dir);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json, { updated: true, percent: 33, completed: 1, total: 3, bar: '[███░░░░░░░] 33%' });
+    assert.equal(readFile(dir, 'STATE.md'), edit(CHAR_STATE, '[░░░░░░░░░░] 0%', '[███░░░░░░░] 33%'));
+    assert.equal(readFile(dir, 'state.json'), sjBytes({ progress_pct: 33 }));
+  });
+
   test('2d. state record-metric → seeded STATE_ARCHIVE.md row; STATE.md and state.json untouched', () => {
     const dir = charProject();
     const r = run(['state', 'record-metric', '--objective', '7', '--job', '02', '--duration', '5min', '--tasks', '3', '--files', '4'], dir);

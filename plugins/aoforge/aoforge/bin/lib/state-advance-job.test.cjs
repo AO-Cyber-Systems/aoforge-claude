@@ -223,6 +223,34 @@ describe('state advance-job --objective: position from disk (PLMB-01)', () => {
     assert.equal(second.json.current_job, 2);
   });
 
+  // Objective 74: a SUMMARY whose frontmatter status is `deferred` or `checkpoint` is on
+  // disk but is not a completed TRD, so it never counts toward the position.
+  test('7a. deferred and checkpoint SUMMARYs do not count: 2/4, executing, idempotent', () => {
+    const state = narrativeState({});
+    const p = project({ state, objectives: [{ dir: '07-alpha', trds: FOUR_TRDS, summaries: ['01', '02'] }] });
+    const dir = path.join(p.root, '.aoforge', 'objectives', '07-alpha');
+    fs.writeFileSync(path.join(dir, '07-03-SUMMARY.md'),
+      '---\nobjective: 07\ntrd: 07-03\nstatus: deferred\n---\n\n# s\n\n## Self-Check: PASSED\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '07-04-SUMMARY.md'),
+      '---\nobjective: 07\ntrd: 07-04\nstatus: checkpoint\n---\n\n# s\n', 'utf-8');
+
+    const r = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(r.status, 0, r.stderr);
+    const want = edit(state, '**Status:** Planning objective 7', '**Status:** Executing objective 7 — 2/4 TRDs complete');
+    assert.equal(mask(p.read('STATE.md')), mask(want));
+    assert.equal(r.json.current_job, 2);
+    assert.equal(r.json.total_jobs, 4);
+    assert.equal(r.json.status, 'executing');
+    assert.equal(JSON.parse(p.read('state.json')).current_job, 2);
+
+    const after = p.read('STATE.md');
+    const second = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(p.read('STATE.md'), after, 'a re-run is byte-identical');
+    assert.equal(second.json.advanced, false);
+    assert.equal(second.json.current_job, 2);
+  });
+
   test('7b. a SUMMARY landing between runs advances and reports the previous count', () => {
     const p = project({
       state: narrativeState({}),
