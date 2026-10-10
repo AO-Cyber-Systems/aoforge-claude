@@ -1,3 +1,4 @@
+completed: 2026-10-10
 ---
 created: 2026-10-07T12:37:00.000Z
 title: Recalibrate estimate minutes (EST-08 not met)
@@ -27,3 +28,11 @@ Options the diagnostics support, in order of expected payoff (change the estimat
 3. Widen cost P90 for the prompt_tdd, test and prompt classes, or fall back to a TRD-level cost distribution where class samples are small.
 
 Next check: run `df-tools estimate backtest` on the next five objectives executed after this change. 64-02's run history makes their estimate prospective, so the verdict will no longer rest on a reconstruction. Re-open EST-08 on that evidence.
+
+## Resolution (objective 75, 2026-10-10)
+
+The recalibration this todo asked for was done by objective 67, and the "next check" it asked for was run by objective 75. What is left over is carried by a named follow-up todo, so this one is complete.
+
+- **Recalibration (objective 67, EST-10 Complete).** `.aoforge/REQUIREMENTS.md`: `[x] EST-10`, traceability `EST-10 | Objective 67 | Complete`. DECISION-003 chose a TRD-level minutes estimate (todo solution option 1) and a recency window (option 2) before any scoring: `.aoforge/objectives/67-minutes-recalibration/67-FREEZE.md` frontmatter `method: {minutes: trd_level, window_objectives: 10, through_objective: 66}`, `calibration_sha256: f4d1ffa9e83276f195870fe51e39148003a8c83ceef2523a2c84847a8fc28134`; the validation run is `67-VALIDATION.md`; `67-VERIFICATION.md` is `status: passed`. Window length is part of the calibration identity (todo option 2).
+- **Next check (objective 75, TRD 75-01).** The prospective retest on the objectives executed after the change, judged against the estimates recorded before execution: `.aoforge/objectives/75-prospective-estimate-retest-and-todo-sweep/75-RETEST-REPORT.md`. Its verdict line: "**EST-11 not met.** Rule 4 of the pre-registered rule makes EST-11 met only if the scored set S has all five candidates and `est08` is `met`. S has four." The report also says "No SC failed on the scored set ... The miss is the missing fifth estimate, not the calibration." On the four scored objectives (68-71) agent minutes have median ratio 1.086 (4 of 4 in the 0.70-1.30 band, P90 covers 4 of 4 objectives and 21 of 21 TRDs), against the 1.51 that made EST-08 fail on 59-63.
+- **Not done, and where it went.** Todo option 3 (widen the cost P90 for small classes) was not applied: the retest does not show cost failing (median 1.14, P90 covers 19 of 21 TRDs), and the requirement forbids tuning to pass a number. The classes the verb still flags, and the missing objective-level estimate for objective 72, are carried by `.aoforge/todos/pending/est-11-follow-up-objective-75.md` (disposition `follow-up`, target the next estimation objective). EST-11 itself stays Pending in REQUIREMENTS.md.

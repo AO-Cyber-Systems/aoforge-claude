@@ -1,3 +1,4 @@
+completed: 2026-10-10
 ---
 created: 2026-05-23T02:37:40.935Z
 title: Clean up devflow-claude dual install + slash command naming inconsistency
@@ -60,3 +61,16 @@ Recommend option 2 unless there's a reason to keep the user-global install.
 
 - Also add as findings F7 (dual install + version skew) and F8 (name-field prefix inconsistency) to the handoff doc at `~/.claude/devflow-efficiency-handoff.md` — that doc tracks devflow-claude maintenance findings from the 2026-05-08 session (F1-F6 already present).
 - Investigate why `sync-runtime.js` didn't update `~/.claude/devflow/VERSION` past 1.22.0 (mirror's `.plugin-version` says 2.1.2 but `VERSION` file says 1.22.0 — divergent metadata).
+
+## Resolution (objective 75, 2026-10-10)
+
+The dual install is gone: the legacy user-global skills and agents no longer exist, and only the AOForge plugin is enabled. Problems A, B and C all depended on the second install. Objective 72 did the cleanup (INST-01), and these checks were re-run on 2026-10-10 in TRD 75-04:
+
+- `ls ~/.claude/skills ~/.claude/agents | rg -c '^df-'` printed nothing and exited 1 (no match). `~/.claude/skills` holds only `synced`; `~/.claude/agents` is empty.
+- `~/.claude/settings.json` `enabledPlugins` (read with `node -e`): `devflow@aocyber` is `false`, `aoforge@aocyber` is `true`. The pre-rename plugin is installed but disabled, so only the `/aoforge:*` namespace is registered.
+- `node ~/.claude/aoforge/bin/aof-tools.cjs doctor --global --json` (read-only, no `--fix`): check 15 `legacy-df-install` has severity `ok` and the finding "no legacy df-* skills or agents under ~/.claude". The same run's summary is `{"ok":7,"warn":3,"error":0,"fixable":2}`.
+- `.aoforge/REQUIREMENTS.md`: `[x] INST-01`, traceability row `INST-01 | Objective 72 | Complete`. The legacy skills and agents were moved to a backup by the 72 global upgrade, never deleted.
+
+One leftover remains by design and is not this todo's problem. Doctor check 16 `legacy-plugin-runtime` reports `warn`: the old runtime home `~/.claude/devflow` is still on disk (`migrated: true`, `legacy_home_present: true`). It registers no skill, agent or hook (those come only from `~/.claude/skills`, `~/.claude/agents` and enabled plugins), so it does not recreate the dual install. Moving it into `~/.claude/aoforge/backups/` is `aof-tools doctor --global --fix`, which is the user's own call and was not run here (CLAUDE.md, "Where we left off").
+
+The todo's "related follow-ups" (findings F7 and F8 in the old efficiency handoff doc, and the stale mirror `VERSION` metadata) described the removed install. Nothing in the current tree reads that doc, and the runtime mirror is now rebuilt by `sync-runtime` under the AOForge names, so they have nothing left to act on.
