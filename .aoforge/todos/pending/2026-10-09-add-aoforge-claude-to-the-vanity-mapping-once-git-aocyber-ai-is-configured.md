@@ -2,6 +2,11 @@
 title: add aoforge-claude to the vanity mapping once git.aocyber.ai is configured
 area: vanity-mapping
 files: ["AOCyberAI-Ops/vanity modules.yaml (aocyber.ghe.com, outside this repo)"]
+disposition: re-scoped
+disposition_reason: "Deferred by the user on 2026-10-09 (TRD 72-24): \"Defer that until we are completely done - that vanity URL is not configured yet.\""
+disposition_target: "When git.aocyber.ai is configured and the user resumes it, with their explicit approval for the push and the PR."
+disposition_date: 2026-10-10
+disposition_by: objective 75 (TODO-01)
 ---
 
 ## Problem
@@ -136,3 +141,13 @@ Do this only after the rest of the rename is complete and git.aocyber.ai is conf
    - The body covers: what and why (the rename); that the `devflow-claude` key stays and GitHub redirects it; the seed-contract commit and the stale inventory; the format note; the test results; that nothing deploys until a `v*` tag and the `production` environment approval; that the PR stays a draft. It ends with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
    - Never merge it or mark it ready. The user reviews and merges, then tags.
 9. Mark INST-06's vanity part done (objective 72 / REQUIREMENTS.md) once the draft PR URL is recorded.
+
+## Disposition (objective 75, 2026-10-10)
+
+Re-scoped by the objective 75 todo sweep (TRD 75-04), not completed. Reason and target are in the frontmatter above; the detail follows.
+
+- **User's words (TRD 72-24, Gate A, 2026-10-09):** "Defer that until we are completely done - that vanity URL is not configured yet." It replaced the earlier "approved with seed update". The rest of the rename is now done (objective 72, released as 3.0.0), but the reason the user gave, that the vanity URL is not configured, is unchanged, so this stays deferred.
+- **Done already.** Nothing is pushed and no PR is open. Both patches (the mapping commit and the seed-contract patch) are kept verbatim in this todo, with the facts read on 2026-10-09 (the vanity repository is on GHE.com, `aocyber.ghe.com/AOCyberAI-Ops/vanity`, with no gh or git login on this machine; `git.aocyber.ai/aoforge-claude.git` returned 404).
+- **Why it is not done here.** The vanity mapping is "decided, not yet deployed" (global CLAUDE.md), and the step is a push to, and a PR in, another repository. Objective 75 has no live or cross-repository step.
+- **What resuming needs.** git.aocyber.ai configured; the user's login for the vanity repository's host (`gh auth login --hostname aocyber.ghe.com`, or the new remote if it moved); then Solution steps 1 to 9 above, with the user's explicit approval for the push and for the draft PR. The PR stays a draft; the user reviews, merges and tags.
+- **Observation, not changed here.** REQUIREMENTS.md marks INST-06 Complete (objective 72) although its "a vanity-mapping PR is drafted for review" clause waits on this todo (Solution step 9: "Mark INST-06's vanity part done once the draft PR URL is recorded"). Whether to reopen the wording is the user's call; this sweep did not edit REQUIREMENTS.md for it.

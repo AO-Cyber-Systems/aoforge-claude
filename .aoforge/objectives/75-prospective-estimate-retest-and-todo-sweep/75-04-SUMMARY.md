@@ -27,5 +27,5 @@ completed: 2026-10-10
 In progress.
 
 ## Progress
-- [x] Task 1: Inventory, evidence and completions — (this commit)
-- [ ] Task 2: Re-scope the rest with a recorded reason and target, then publish the sweep table — next step: draft each of the ten remaining pending todos with `planning draft todos/pending/<stem>.md`, add the five disposition fields and a `## Disposition (objective 75, 2026-10-10)` section, and write each back with `todo add --stem`
+- [x] Task 1: Inventory, evidence and completions — 4b6b4858
+- [x] Task 2: Re-scope the rest with a recorded reason and target, then publish the sweep table — (this commit)

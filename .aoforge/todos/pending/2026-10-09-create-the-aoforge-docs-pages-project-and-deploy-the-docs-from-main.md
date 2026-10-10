@@ -2,6 +2,11 @@
 title: create the aoforge-docs Pages project and deploy the docs from main
 area: docs-deploy
 files: [.github/workflows/docs.yml]
+disposition: re-scoped
+disposition_reason: "OPS-03 was deferred by the user on 2026-10-10 (TRD 74-06): \"Skip this for now - we aren't doing this right now.\""
+disposition_target: "OPS-03 resume on the user's go-ahead (TRD 74-06 Tasks 2 and 3, then the production deploy at the merge in TRD 74-08)."
+disposition_date: 2026-10-10
+disposition_by: objective 75 (TODO-01)
 ---
 
 ## Problem
@@ -42,3 +47,12 @@ TRD 74-06 was deferred by the user ("Skip this for now - we aren't doing this ri
 2. Create `aoforge-docs` in that account: Pages, then Create, then Direct upload, name `aoforge-docs`, production branch `main`. Pages projects cannot be renamed.
 3. With approval, run one deploy: `gh workflow run docs.yml --repo AO-Cyber-Systems/aoforge-claude --ref main`. Confirm it with `gh run list --repo AO-Cyber-Systems/aoforge-claude --workflow docs.yml --limit 1 --json conclusion,status,url`.
 4. Move devflow.cloud and www.devflow.cloud from devflow-docs to aoforge-docs. Delete devflow-docs only when the user decides to.
+
+## Disposition (objective 75, 2026-10-10)
+
+Re-scoped by the objective 75 todo sweep (TRD 75-04), not completed. Reason and target are in the frontmatter above; the detail follows.
+
+- **User's words.** 2026-10-10, TRD 74-06, at the Task 2 checkpoint: "Skip this for now - we aren't doing this right now." Earlier, on 2026-10-09 (TRD 72-24, Gates B and B2): "Lets put off the docs runs". The deferral is what makes objective 74 stay open on OPS-03 (REQUIREMENTS.md: OPS-03 Pending), and it is the settlement this objective depends on. The todo is re-scoped, not completed.
+- **Done already.** The cause is confirmed (TRD 74-06 Task 1, class B): the organisation-level `CLOUDFLARE_ACCOUNT_ID` names "Dont Panic Consulting, Co." and the token sees no other account, so CI cannot reach the AOCyber Systems account, and `aoforge-docs` does not exist there. The 74-02 diagnostic ran on PR #130 (run 38020394881). The Status and Solution sections above already hold the steps and the one known diagnostic bug (`per_page=100` rejected with 8000024).
+- **Why it is not done here.** Every remaining step is live: repository secrets, a Cloudflare project, a workflow dispatch, a domain move. The user sets the secrets (AOForge never enters a token). PR #130 stays open and unmerged until this resumes; nothing was pushed, and no Cloudflare or GitHub state changed in this sweep.
+- **What resuming needs.** The user's go-ahead, then TRD 74-06 Task 2 (the user corrects the credentials and creates `aoforge-docs`; AOForge first runs `npx --yes wrangler@4 whoami` and stops unless it names AOCyber Systems), the diagnostic fix, and Task 3 (one preview deploy from `ops/74-ci-operations`). The production deploy happens at the merge in TRD 74-08.

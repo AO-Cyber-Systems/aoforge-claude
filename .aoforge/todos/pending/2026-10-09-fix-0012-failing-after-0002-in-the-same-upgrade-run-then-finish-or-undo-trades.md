@@ -2,6 +2,11 @@
 title: fix 0012 failing after 0002 in the same upgrade run, then redo trades
 area: upgrade
 files: [plugins/aoforge/aoforge/bin/lib/migrations/0012-planning-dir-move.cjs, plugins/aoforge/aoforge/bin/lib/migrations/0002-job-to-trd.cjs]
+disposition: re-scoped
+disposition_reason: "The code fix is done and committed (TRD 75-02), but it reaches users only with the next plugin release, and redoing trades (and recycling-oracle's first session) needs that release plus the user's per-repository approval."
+disposition_target: "After the next plugin release and runtime re-sync, with a fresh approval per repository (trades first, then recycling-oracle). Keep the AOFORGE_SKIP_UPGRADE=1 advice until then."
+disposition_date: 2026-10-10
+disposition_by: objective 75 (TODO-01)
 ---
 
 ## Problem
@@ -28,3 +33,11 @@ Result: `git status --porcelain` is empty, HEAD is 30c2c5b1, and nothing else wa
 1. Fix: in 0012, stage the legacy directory's own working-tree changes before the move (`git add -A -- .planning`, limited to paths the run changed), or have 0002 use `git mv` when the source is tracked. Add a runner test with 0002 and 0012 both pending.
 2. **Redo trades after the fix ships** (and after re-syncing the runtime), with a fresh per-repository approval: re-check (main, 30c2c5b1, clean), `aof-tools upgrade --apply --path ~/dev/trades`, then `aof-tools --cwd ~/dev/trades commit "chore: move to AOForge (3.0.0 upgrade)" --files <changed_files>`. Mind the untracked-file sweep todo (trades had no untracked files on 2026-10-09).
 3. Workaround if trades or recycling-oracle cannot wait for the fix: run the migrations before 0012 (`upgrade --apply --only 0001,0002,...`), commit them, then run `upgrade --apply` so 0012 meets a clean index. This needs its own approval.
+
+## Disposition (objective 75, 2026-10-10)
+
+Re-scoped by the objective 75 todo sweep (TRD 75-04), not completed. Reason and target are in the frontmatter above; the detail follows.
+
+- **Done (Solution step 1).** TRD 75-02 (`.aoforge/objectives/75-prospective-estimate-retest-and-todo-sweep/75-02-SUMMARY.md`, Self-Check PASSED): `0012-planning-dir-move.cjs` gains `stageOwnRemovals(ctx)`, which stages (with `git rm --cached`) only the removals this run made (tracked, missing from disk, inside `ctx.changedSoFar`) before `git mv`, so 0002 and 0012 in one upgrade run no longer fail with `bad source`. A file the user deleted still defers the move as `dirty` and is never staged. Commits: fixtures `165a01ed`, RED `92e5e671`, GREEN `c1080db5`. The runner test with 0002 and 0012 both pending is in `0012-planning-dir-move.legacy.test.cjs` (cases 1 to 5).
+- **Why the rest is not done here.** (a) Neither the hook nor doctor runs this checkout: they run the bundled aof-tools, so the fix reaches a project only when the plugin is released and the runtime re-synced. This objective does not release. (b) Steps 2 and 3 act on other repositories (an upgrade apply and a commit in trades, and a session in recycling-oracle), each needing its own approval.
+- **What resuming needs.** After the release, re-check trades (main, 30c2c5b1, clean), then `aof-tools upgrade --apply --path ~/dev/trades`, then `aof-tools --cwd ~/dev/trades commit "chore: move to AOForge (3.0.0 upgrade)" --files <changed_files>`, each with a fresh approval; mind the untracked-file sweep todo (trades had no untracked files on 2026-10-09). Once the fix ships, recycling-oracle no longer hits `bad source` through the SessionStart hook, so the two-step workaround (Solution step 3) is not needed after that. Until then open sessions there with `AOFORGE_SKIP_UPGRADE=1`.
