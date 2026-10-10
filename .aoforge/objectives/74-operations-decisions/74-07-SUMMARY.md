@@ -19,8 +19,9 @@ requirements-completed: []
 
 # Objective 74 TRD 07: Apply the main ruleset (checkpoint, awaiting approval)
 
-**CHECKPOINT, NOT COMPLETE.** Task 1 (read-only proof) is done. Task 2 (the approval gate) is open: nothing was
-POSTed, PUT, PATCHed or DELETEd. OPS-02 stays Pending. No GitHub or Cloudflare state changed.
+**CHECKPOINT, NOT COMPLETE.** Task 1 (read-only proof) is done. Task 2 (the approval gate) is done: the user replied
+`approved` and the ruleset was POSTed once (id 24829006). Task 3 (the read-back) is next. OPS-02 stays Pending until
+the read-back matches.
 
 Dependency note: the TRD lists `depends_on: ["74-03", "74-06"]`. 74-03 is complete. 74-06 was deferred by the user
 (commit ab9f8d24). That dependency is wave ordering only (the ruleset does not need the Pages project), so it is
@@ -28,9 +29,9 @@ treated as satisfied-by-deferral. `exec-context check` passed; no pre-check refu
 
 ## Progress
 
-- [x] Task 1: Refresh the read-only proof that the required check reports — (this commit)
-- [ ] Task 2: Approval gate: the exact ruleset text, then one POST — OPEN: awaiting the user's reply. Next step: on `approved`, run `gh api --method POST repos/AO-Cyber-Systems/aoforge-claude/rulesets --input /Users/justin/dev/aoforge-claude/.github/rulesets/main.json` once from the main checkout and record the returned `id` and `_links.html.href`.
-- [ ] Task 3: Read the ruleset back and prove it matches — NOT STARTED. Next step: after the POST, run `node scripts/ruleset-check.cjs compare --repo AO-Cyber-Systems/aoforge-claude --file .github/rulesets/main.json` (expect exit 0), then `gh api repos/AO-Cyber-Systems/aoforge-claude/rules/branches/main --jq '[.[] | {type, ruleset_id}]'`.
+- [x] Task 1: Refresh the read-only proof that the required check reports — 5722cbd1
+- [x] Task 2: Approval gate: the exact ruleset text, then one POST — (this commit) (reply `approved`; POST run once by the orchestrator; ruleset id 24829006)
+- [ ] Task 3: Read the ruleset back and prove it matches — next step: from /Users/justin/dev/aoforge-claude run `node scripts/ruleset-check.cjs compare --repo AO-Cyber-Systems/aoforge-claude --file .github/rulesets/main.json` (expect exit 0), then `gh api repos/AO-Cyber-Systems/aoforge-claude/rules/branches/main --jq '[.[] | {type, ruleset_id}]'` and `gh api repos/AO-Cyber-Systems/aoforge-claude/rulesets/24829006 --jq '.current_user_can_bypass'` (all read-only GETs).
 
 ## Task 1 evidence (all reads, 2026-10-10)
 
@@ -67,12 +68,29 @@ release PR, so the POST must run from the main checkout (or with the absolute pa
 9. Repo settings: default branch `main`, merge commit, squash and rebase all allowed, `delete_branch_on_merge` false,
    current user `admin: true`. No merge queue, no auto-merge dependence.
 
-## Commands the gate will run (none run yet)
+## Task 2 evidence (approval gate)
 
-POST (once, after `approved`):
+- Text shown: the full `.github/rulesets/main.json`, verbatim, at HEAD 5722cbd1. sha256
+  `02208b0017425dc1cba59b3acd68255350fa91ae47a3d12ce3f62a87d8a0cb06` (re-verified unchanged before the POST, and again
+  by this executor after it).
+- The user's reply, literal: `approved`. No variant and no edit was asked for, so the file was not changed.
+- The orchestrator ran the POST exactly once, from the main checkout:
+  `gh api --method POST repos/AO-Cyber-Systems/aoforge-claude/rulesets --input .github/rulesets/main.json`
+- Result: ruleset id **24829006**, name `aoforge: default branch`, enforcement `active`, target `branch`, source
+  `Repository`, created 2026-10-09T23:44:45.856-04:00.
+- URL (`_links.html.href`, read with a GET): https://github.com/AO-Cyber-Systems/aoforge-claude/rules/24829006
+- Task verify `gh api repos/AO-Cyber-Systems/aoforge-claude/rulesets --jq '.[] | select(.name == "aoforge: default branch") | .id'`
+  exit 0: `24829006` (exactly one ruleset with that name).
+- GET of the ruleset: rules `deletion`, `non_fast_forward`, `pull_request`, `required_status_checks`; conditions
+  `ref_name.include: ["~DEFAULT_BRANCH"]`, `exclude: []`; bypass `RepositoryRole` 5 in `pull_request` mode.
+- This executor made no ruleset write: GETs only.
+
+## Commands run at the gate
+
+POST (once, after `approved`, by the orchestrator):
 
 ```
-gh api --method POST repos/AO-Cyber-Systems/aoforge-claude/rulesets --input /Users/justin/dev/aoforge-claude/.github/rulesets/main.json
+gh api --method POST repos/AO-Cyber-Systems/aoforge-claude/rulesets --input .github/rulesets/main.json
 ```
 
 Read-back:
@@ -128,7 +146,7 @@ untouched (bypass OrganizationAdmin always, applies to repository settings, not 
 | 1: before picture | `gh api repos/AO-Cyber-Systems/aoforge-claude/rules/branches/main` | 0 | PASS (org rules only) |
 | 1: no ruleset yet | `node scripts/ruleset-check.cjs compare ...` | 1 | PASS (expected baseline) |
 | 1: record test | `node --test scripts/ruleset-check.test.cjs` | 0 | PASS (16 of 16) |
-| 2: approval gate | n/a | n/a | OPEN, awaiting user reply |
+| 2: approval gate | `gh api repos/AO-Cyber-Systems/aoforge-claude/rulesets --jq '.[] \| select(.name == "aoforge: default branch") \| .id'` | 0 | PASS (`24829006`; reply `approved`) |
 
 ## Deviations from Plan
 
