@@ -369,7 +369,7 @@ TRDs:
 
 TRDs:
 - [x] 75-01-est-11-prospective-retest-TRD.md — (W1) E1-E5 eligibility for 68-72 committed before scoring (72 unscored: no pre-execution estimate, accepted in 72-01); one `estimate backtest` run on the frozen calibration; EST-11 verdict by the pre-registered rule; classes and follow-up
-- [ ] 75-02-upgrade-migration-fixes-TRD.md — (W1, TDD) 0012 stages the run's own removals so it survives 0002 in one run; 0008 gitignores and untracks `.dup-detect-log.jsonl`
+- [x] 75-02-upgrade-migration-fixes-TRD.md — (W1, TDD) 0012 stages the run's own removals so it survives 0002 in one run; 0008 gitignores and untracks `.dup-detect-log.jsonl`
 - [x] 75-03-progress-only-summary-in-progress-TRD.md — (W1, TDD) a SUMMARY with an unticked Progress task and no Self-Check is not complete, for reconcile and every `completedSummaryFiles` consumer
 - [ ] 75-04-todo-sweep-TRD.md — (W2) every pending todo completed with evidence or re-scoped with disposition fields; 75-TODO-SWEEP.md; SC-4 check
 - [ ] 75-05-coverage-and-close-out-TRD.md — (W3) EST-09 coverage over v1.6 beside the verdict; REQUIREMENTS/STATE from evidence; CHANGELOG, CLAUDE.md, USER-GUIDE; full suite
@@ -394,4 +394,4 @@ TRDs:
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
-| 75. Prospective estimate retest and todo sweep | v1.6 | 1/5 | In Progress | - |
+| 75. Prospective estimate retest and todo sweep | v1.6 | 3/5 | In Progress | - |
