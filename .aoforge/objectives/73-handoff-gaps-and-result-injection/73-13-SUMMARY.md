@@ -55,6 +55,12 @@ verification:
 
 duration: 12min
 completed: 2026-10-10
+tokens_input: 11298540
+tokens_output: 75222
+tokens_cache_read: 11116488
+tokens_cache_write: 181896
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 73 TRD 13: Service logs leave ~/.aoforge, and doctor cleans up a leftover ~/.aoforge Summary
@@ -64,7 +70,7 @@ completed: 2026-10-10
 ## Progress
 - [x] Task 1: Service logs in the watch state directory — c9a02d10 (RED), f69468f4 (GREEN)
 - [x] Task 2: RED, doctor check user-dot-dir — b36341ff
-- [x] Task 3: GREEN, check 17 and its README row — (this commit)
+- [x] Task 3: GREEN, check 17 and its README row — e733f144
 
 ## What was built
 
@@ -139,3 +145,11 @@ None. The TRD was executed as written, with these additions inside its scope:
 - Auto-fix cycles used: 0
 - Must-haves verified: 6/6 truths (service log paths and mkdir; ok/warn/fixable; the fix's destinations, backups and rmdir; refusals for a live pid and a service; report-only for planning files; unknown files left)
 - Gate failures: None
+
+## Self-Check: PASSED
+
+- FOUND: plugins/aoforge/aoforge/bin/lib/doctor-checks/17-user-dot-dir.cjs
+- FOUND: plugins/aoforge/aoforge/bin/lib/doctor-checks/17-user-dot-dir.test.cjs
+- FOUND: .aoforge/objectives/73-handoff-gaps-and-result-injection/73-13-SUMMARY.md
+- FOUND commits: c9a02d10, f69468f4, b36341ff, e733f144 (on df/exec-73-13-service-logs-and-doctor-check, based on 2300e640)
+- Files changed are exactly the TRD's files_modified plus this SUMMARY; none of 73-12's files were touched

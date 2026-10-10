@@ -1,8 +1,8 @@
 {
   "current_objective": "73",
-  "current_job": 11,
+  "current_job": 12,
   "total_jobs": 14,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
@@ -1589,6 +1589,11 @@
     {
       "objective": "73",
       "summary": "73-11: user files (defaults.json, Brave key, watch allowlist) resolve from the runtime home ~/.claude/aoforge/ first, then ~/.aoforge/ (3.0.0) and the pre-rename dot directory for one release; the resolver only stats, never migrates on read",
+      "rationale": null
+    },
+    {
+      "objective": "73-handoff-gaps-and-result-injection",
+      "summary": "73-13: a leftover ~/.aoforge/ is cleared only by the global doctor check user-dot-dir on --fix; it moves AOForge 3.0.0 files to the runtime home or backups/aoforge-dot-dir-<ts>/, never deletes or overwrites, and waits while a live daemon or an installed service still uses the directory",
       "rationale": null
     }
   ],
