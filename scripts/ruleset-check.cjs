@@ -25,9 +25,32 @@ function canonical(value) {
 
 const ruleMap = (rules) => new Map((rules || []).map((r) => [r.type, r]));
 
+/** How one element of a list-valued field is named in a set comparison. */
+function elementKey(path, item) {
+  if (path.endsWith('.required_status_checks') && item && typeof item === 'object') {
+    return `${item.context}@${item.integration_id}`;
+  }
+  return typeof item === 'string' ? item : canonical(item);
+}
+
+/**
+ * Compare two lists as sets. Every element on only one side becomes a difference, named by its key
+ * (approved side: the key where the file has it and the reply lacks it; applied side the other way round).
+ */
+function compareSets(path, want, have, differ) {
+  const wantKeys = new Set((want || []).map((item) => elementKey(path, item)));
+  const haveKeys = new Set((have || []).map((item) => elementKey(path, item)));
+  for (const k of wantKeys) if (!haveKeys.has(k)) differ(path, k, null);
+  for (const k of haveKeys) if (!wantKeys.has(k)) differ(path, null, k);
+}
+
 /**
  * Compare an applied ruleset (as GitHub returns it) with the approved file.
  * Returns { match, differences: [{ path, approved, applied }], serverDefaults: [path] }.
+ *
+ * Lists are sets: order never matters. Fields the server owns (id, node_id, source, _links, timestamps,
+ * current_user_can_bypass) are never read. A parameter the reply carries and the file does not is a
+ * server default: listed, not counted.
  */
 function compareRuleset(applied, approved) {
   const differences = [];
@@ -36,6 +59,23 @@ function compareRuleset(applied, approved) {
 
   for (const field of ['name', 'target', 'enforcement']) {
     if (applied[field] !== approved[field]) differ(field, approved[field], applied[field]);
+  }
+
+  const refName = (ruleset) => (ruleset.conditions && ruleset.conditions.ref_name) || {};
+  for (const list of ['include', 'exclude']) {
+    compareSets(`conditions.ref_name.${list}`, refName(approved)[list], refName(applied)[list], differ);
+  }
+
+  // A bypass actor is its role or team and the mode it bypasses in; the mode is what is compared.
+  const actors = (ruleset) => new Map((ruleset.bypass_actors || []).map((a) => [`${a.actor_type}:${a.actor_id}`, a.bypass_mode]));
+  const wantActors = actors(approved);
+  const haveActors = actors(applied);
+  for (const [id, mode] of wantActors) {
+    if (!haveActors.has(id)) differ(`bypass_actors[${id}]`, mode, null);
+    else if (haveActors.get(id) !== mode) differ(`bypass_actors[${id}].bypass_mode`, mode, haveActors.get(id));
+  }
+  for (const [id, mode] of haveActors) {
+    if (!wantActors.has(id)) differ(`bypass_actors[${id}]`, null, mode);
   }
 
   const approvedRules = ruleMap(approved.rules);
@@ -49,13 +89,16 @@ function compareRuleset(applied, approved) {
     const want = rule.parameters || {};
     const have = other.parameters || {};
     for (const key of Object.keys(want)) {
-      if (canonical(want[key]) !== canonical(have[key])) {
-        differ(`rules.${type}.parameters.${key}`, want[key], have[key]);
-      }
+      const path = `rules.${type}.parameters.${key}`;
+      if (Array.isArray(want[key]) && Array.isArray(have[key])) compareSets(path, want[key], have[key], differ);
+      else if (canonical(want[key]) !== canonical(have[key])) differ(path, want[key], have[key]);
     }
     for (const key of Object.keys(have)) {
       if (!(key in want)) serverDefaults.push(`rules.${type}.parameters.${key}`);
     }
+  }
+  for (const type of appliedRules.keys()) {
+    if (!approvedRules.has(type)) differ(`rules.${type}`, 'absent', 'present');
   }
 
   return { match: differences.length === 0, differences, serverDefaults };
