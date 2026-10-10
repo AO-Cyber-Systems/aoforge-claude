@@ -304,6 +304,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-09: the $HOME stop realpaths a walked directory only when its basename equals home's; a found planning directory gets one realpath candidate check, so a symlinked home under another name is still refused
 - [Objective 73]: 73-10: interactive-command detection lives in lib/interactive-commands.cjs on shell-words.parseCommand segments; quoted text and heredoc bodies are data, a heredoc fed to a shell is code (depth 1), flags and reasons are per call; the hook re-exports it fail-open and 73-12's daemon allowlist reuses it
 - [Objective 73]: 73-10: the deny reason names the matching call only for compound commands (hit.compound and segment differs from the trimmed command); single-call reasons stay byte-identical
+- [Objective 73]: 73-11: user files (defaults.json, Brave key, watch allowlist) resolve from the runtime home ~/.claude/aoforge/ first, then ~/.aoforge/ (3.0.0) and the pre-rename dot directory for one release; the resolver only stats, never migrates on read
 
 ## Performance Metrics
 
@@ -501,4 +502,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P08 | 12min | 3 tasks | 11 files |
 | Objective 73 P09 | 9min | 3 tasks | 7 files |
 | Objective 73 P10 | 12min | 3 tasks | 6 files |
+| Objective 73 P11 | 7min | 2 tasks | 8 files |
 

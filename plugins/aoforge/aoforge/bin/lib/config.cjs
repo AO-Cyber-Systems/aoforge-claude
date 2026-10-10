@@ -91,13 +91,14 @@ function cmdConfigEnsureSection(cwd, raw) {
     return;
   }
 
-  // Detect Brave Search API key availability. User files are read from ~/.aoforge/ first and,
-  // for one release (objective 72, INST-03), from the legacy dot directory second.
+  // Detect Brave Search API key availability. User files are read from the runtime home
+  // (~/.claude/aoforge/) first, then ~/.aoforge/ (AOForge 3.0.0) and the pre-rename dot
+  // directory, for one release (compat.userDotFile, TRD 73-11).
   const homedir = require('os').homedir();
   const braveKeyFile = userDotFile(homedir, 'brave_api_key');
   const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
 
-  // Load user-level defaults from ~/.aoforge/defaults.json (else the legacy one) if available
+  // Load user-level defaults from defaults.json in the same order, if available
   const globalDefaultsPath = userDotFile(homedir, 'defaults.json');
   let userDefaults = {};
   try {

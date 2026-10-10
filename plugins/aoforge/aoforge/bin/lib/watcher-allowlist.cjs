@@ -4,10 +4,12 @@
  * Watcher allowlist — what the aoforge-watch daemon will execute.
  *
  * Default = the curated interactive + shell-flow patterns. Users may extend
- * via ~/.aoforge/aoforge-watch-allow.json (override:
- * $AOFORGE_WATCH_ALLOW_FILE; the legacy daemon's file is read when the new
- * one is missing, for one release). The daemon NEVER runs anything outside the
- * combined allowlist; the deny-list is a belt-and-braces sanity check.
+ * via aoforge-watch-allow.json in the runtime home, ~/.claude/aoforge/ (override:
+ * $AOFORGE_WATCH_ALLOW_FILE). For one release the file is still read from
+ * ~/.aoforge/ (AOForge 3.0.0) and the legacy daemon's file from the pre-rename
+ * dot directory when the runtime home has none (TRD 73-11). The daemon NEVER
+ * runs anything outside the combined allowlist; the deny-list is a
+ * belt-and-braces sanity check.
  *
  * NOTE: regex semantics here mirror gate-interactive.js (CMD_POS prefix so
  * we only match at command position). The same skipIf-style guards apply
@@ -124,9 +126,11 @@ function validateCommand(cmd, allowlist) {
 }
 
 /**
- * The user allowlist file: ~/.aoforge/aoforge-watch-allow.json, else (for one release,
- * objective 72 INST-03) the legacy daemon's file under the legacy dot directory, else
- * the ~/.aoforge/ path. Read only; the daemon never writes it.
+ * The user allowlist file (compat.userDotFile, TRD 73-11): the runtime home
+ * (~/.claude/aoforge/aoforge-watch-allow.json), then, for one release, ~/.aoforge/
+ * (AOForge 3.0.0) and the legacy daemon's file under the pre-rename dot directory
+ * (objective 72 INST-03), else the runtime-home path. Read only; the daemon never
+ * writes it.
  */
 function userAllowFilePath() {
   if (process.env.AOFORGE_WATCH_ALLOW_FILE) {
