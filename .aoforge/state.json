@@ -1,9 +1,9 @@
 {
   "current_objective": "73",
-  "current_job": 8,
-  "total_jobs": 8,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_job": 9,
+  "total_jobs": 14,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1564,6 +1564,16 @@
     {
       "objective": "73",
       "summary": "73-08: gate-interactive false positives (73-07 G1-G3) and the exit-? header are documented as known limitations with escapes, not fixed; verify-work routes them to gap closure",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-09: $HOME is never an AOForge project root (either planning-directory name); compat.findProjectRoot returns null when its walk reaches $HOME, and planning-mode delegates to it and refuses a $HOME git holder",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-09: the $HOME stop realpaths a walked directory only when its basename equals home's; a found planning directory gets one realpath candidate check, so a symlinked home under another name is still refused",
       "rationale": null
     }
   ],

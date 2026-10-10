@@ -9,6 +9,8 @@
 //      `gitdir: <main>/.git/worktrees/wt1` -> resolveMainRoot(wt) is main, and planningMode(wt) reads MAIN's config (D-14).
 //      Also: no `commondir` (older git), a relative gitdir, and a `.git` file that is not a worktree (submodule shape).
 //   4. A non-git temp dir with `.aoforge/` -> that dir; no `.aoforge/` anywhere -> null.
+//   17-18 (TRD 73-09, G5): $HOME is never the main root: a `.aoforge/` at $HOME (the watcher's dot directory) is not
+//      found by the nearest-planning-dir walk, and a $HOME kept in git is refused as the git-holder candidate.
 //
 // Fixtures are hand-built temp trees. Nothing here spawns git or touches ~/.claude.
 
@@ -325,11 +327,55 @@ describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
   });
 });
 
+describe('$HOME is never the main root (TRD 73-09)', () => {
+  const {
+    WATCH_FOOTPRINT,
+    mkHome,
+    mkRepoBelow,
+    rmHome,
+  } = require('./__fixtures__/home-dot-dir-fixtures.cjs');
+
+  /** Run `fn(home)` with process.env.HOME set to a temp home holding the watcher's dot directory. */
+  function withHomeEnv(fn) {
+    const { home } = mkHome({ dotDir: WATCH_FOOTPRINT });
+    const saved = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      fn(home);
+    } finally {
+      if (saved === undefined) delete process.env.HOME;
+      else process.env.HOME = saved;
+      rmHome(home);
+    }
+  }
+
+  test('17. only $HOME holds .aoforge/: a repo below it has no main root and the mode has no root', () => {
+    withHomeEnv((home) => {
+      const start = mkdirs(mkRepoBelow(home), 'sub');
+      assert.strictEqual(mode.resolveMainRoot(start), null);
+      assert.strictEqual(mode.resolveCheckoutRoot(start), null);
+      assert.strictEqual(mode.planningMode(start).root, null);
+    });
+  });
+
+  test('18. a $HOME kept in git (.git/ and .aoforge/ at $HOME): neither resolver returns $HOME', () => {
+    withHomeEnv((home) => {
+      mkdirs(home, '.git');
+      fs.writeFileSync(path.join(home, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+      const start = mkdirs(home, 'notes');
+      assert.strictEqual(mode.resolveMainRoot(start), null);
+      assert.strictEqual(mode.resolveCheckoutRoot(start), null);
+      assert.strictEqual(mode.resolveMainRoot(home), null);
+      assert.strictEqual(mode.resolveCheckoutRoot(home), null);
+    });
+  });
+});
+
 describe('module hygiene', () => {
   test('requires only fs, path, os and ./compat.cjs (hook-safe, no child_process)', () => {
     const src = fs.readFileSync(path.join(__dirname, 'planning-mode.cjs'), 'utf8');
     const required = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]).sort();
-    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, path and legacy-names.cjs
+    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, os, path and legacy-names.cjs
     assert.deepStrictEqual([...new Set(required)].filter((r) => !['fs', 'os', 'path', './compat.cjs'].includes(r)), []);
     assert.doesNotMatch(src, /child_process/);
   });

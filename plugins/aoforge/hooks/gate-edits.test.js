@@ -1342,11 +1342,19 @@ function makeStoreProject(config) {
   return root;
 }
 
-/** Spawn the hook in `root` with a clean env: no AOFORGE_SKIP_EDIT_GATE, HOME inside the temp dir. */
+/**
+ * Spawn the hook in `root` with a clean env: no AOFORGE_SKIP_EDIT_GATE, HOME a sibling temp dir. Never the project
+ * root itself: $HOME is never a project root (TRD 73-09), so HOME=root would stop the project being one.
+ */
 function runStoreHook(root, { tool = 'Write', filePath, agentType, extraEnv = {} }) {
   const payload = realPreToolUsePayload({ tool_name: tool, file_path: filePath, cwd: root });
   if (agentType) payload.agent_type = agentType;
-  return runHook(payload, { cwd: root, extraEnv: { HOME: root, ...extraEnv } }).result;
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-edits-home-'));
+  try {
+    return runHook(payload, { cwd: root, extraEnv: { HOME: home, ...extraEnv } }).result;
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 }
 
 const trdOf = (root) => path.join(root, '.aoforge', 'objectives', '07-x', '07-01-a-TRD.md');
