@@ -80,7 +80,6 @@ const NOT_UNDER_PLANNING = {
   '.git': 'repository metadata, read to find the repo or worktree root',
   '.claude': "the user's ~/.claude config dir",
   '.claude-plugin': 'the plugin manifest directory',
-  '.aoforge': "the watcher's ~/.aoforge pid directory",
   '.aoforge-handoff': 'the handoff queue at the PROJECT ROOT, not inside .aoforge/',
   '.plugin-version': 'runtime-mirror marker under ~/.claude/aoforge',
   '.plugin-digest': 'runtime-mirror content digest marker under ~/.claude/aoforge (45-03)',
