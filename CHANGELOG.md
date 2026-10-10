@@ -74,6 +74,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Migration 0012 survives 0002 in the same upgrade run** (objective 75, TODO-01). It stages the removals an earlier
+  migration of the run made (0002's renamed `*-JOB.md` files) before `git mv`, so a repository with both pending no
+  longer stops half-applied with `bad source`. A deletion the user made still defers the move.
+- **Migration 0008 covers the dup-detect log** (objective 75, TODO-01). `.dup-detect-log.jsonl` is gitignored and
+  untracked like the other runtime-state files, and a modified tracked copy no longer defers 0012. The dotfile audit
+  added three more written-at-runtime files to the same list: `.check-todos-cache.json`, `.deprecation-log.jsonl` and
+  `.override-log.jsonl`, so the gitignore block grows from two lines to six.
+- **A mid-TRD progress checkpoint is not a completed SUMMARY** (objective 75, TODO-01). A SUMMARY whose `## Progress`
+  lists an unticked task and that has no `## Self-Check` is no longer ticked by `sync-roadmap` or counted by
+  `roadmap`, `objective complete` or `state advance-job` / `update-progress`. A mid-TRD commit no longer makes the
+  reconcile end-to-end test report drift.
 - **A deferred or checkpoint SUMMARY is not a completed TRD** (found in objective 74). A SUMMARY whose frontmatter
   `status:` is `deferred` or `checkpoint` no longer counts as a completed TRD anywhere completion is derived from
   SUMMARY files: `sync-roadmap` and `roadmap update-job-progress` leave or put its line back to `[ ]` (new change kind
