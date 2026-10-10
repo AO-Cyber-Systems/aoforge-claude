@@ -386,5 +386,5 @@ TRDs:
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
-| 74. Operations decisions | v1.6 | 7/9 | In Progress | - |
+| 74. Operations decisions | v1.6 | 6/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
