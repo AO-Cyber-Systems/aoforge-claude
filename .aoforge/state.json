@@ -1,9 +1,9 @@
 {
-  "current_objective": "73",
-  "current_job": 14,
-  "total_jobs": 14,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "74",
+  "current_job": 1,
+  "total_jobs": 9,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1614,6 +1614,16 @@
     {
       "objective": "73",
       "summary": "73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-02: OPS-03 stays Pending after the diagnostic and preview-safe deploy land; only 74-08 evidence on main ticks it (74-09 closes it)",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-02: the deploy-target diagnostic prints account and project names only (ids compared in-process, other accounts counted); the docs.yml deploy branch comes from github.ref_name through env so a dispatch off main is a preview",
       "rationale": null
     }
   ],
