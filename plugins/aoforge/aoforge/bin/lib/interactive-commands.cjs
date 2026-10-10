@@ -26,8 +26,9 @@
  *     requires this module fail-open and re-exports it.
  *   - the watch daemon's allowlist (lib/watcher-allowlist.cjs) must accept
  *     exactly what this module gates; TRD 73-12 switches it to this module and
- *     pins that against __fixtures__/interactive-command-cases.cjs. Each
- *     pattern's `label` is the daemon's label for the same command.
+ *     pins that against the shared case table (interactive-command-cases.cjs,
+ *     beside the tests). Each pattern's `label` is the daemon's label for the
+ *     same command.
  *
  * A plain require of shell-words: the hook's try/catch is the fail-open boundary.
  */

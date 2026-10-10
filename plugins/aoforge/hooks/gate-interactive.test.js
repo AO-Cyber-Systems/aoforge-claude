@@ -872,7 +872,7 @@ describe('hook agreement: the shared case table and module (TRD 73-10 item 21)',
     });
   }
 
-  test('the hook re-exports the shared module\'s own objects', () => {
+  test('the hook re-exports the shared module\'s own objects (item 21)', () => {
     // Required here, not at the top of the file, so a missing module fails this test only.
     const shared = require('../aoforge/bin/lib/interactive-commands.cjs');
     const hook = require('./gate-interactive.js');
@@ -880,5 +880,131 @@ describe('hook agreement: the shared case table and module (TRD 73-10 item 21)',
     assert.strictEqual(hook.INTERACTIVE_PATTERNS, shared.INTERACTIVE_PATTERNS);
     assert.strictEqual(hook.sshKeygenFlags, shared.sshKeygenFlags);
     assert.strictEqual(hook.CMD_POS, shared.CMD_POS);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 73-10 Task 3: the daemon is read through watcher-state
+// ---------------------------------------------------------------------------
+//
+//   4. a pid file where watcher-state.pidFilePath() says (temp HOME, override unset) is a live daemon
+//   5. a pre-rename daemon's pid file only counts as no daemon, as before
+//   the hook's pidFilePath() is watcher-state's, with the override unset and set
+//   a stub tree without watcher-state.cjs behaves as daemon-absent
+
+/** Run `fn` with HOME and the pid-file override set as given in this process, then restore both. */
+function withEnv({ HOME, AOFORGE_HANDOFF_PID_FILE }, fn) {
+  const saved = { HOME: process.env.HOME, AOFORGE_HANDOFF_PID_FILE: process.env.AOFORGE_HANDOFF_PID_FILE };
+  process.env.HOME = HOME;
+  if (AOFORGE_HANDOFF_PID_FILE === undefined) delete process.env.AOFORGE_HANDOFF_PID_FILE;
+  else process.env.AOFORGE_HANDOFF_PID_FILE = AOFORGE_HANDOFF_PID_FILE;
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+describe('the daemon is read through watcher-state (TRD 73-10 Task 3)', () => {
+  const watcherState = require('../aoforge/bin/lib/watcher-state.cjs');
+  const handoffFixtures = require('../aoforge/bin/lib/__fixtures__/handoff-fixtures.cjs');
+
+  test('4. a live daemon\'s pid file where watcher-state puts it gives the daemon-live reason', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-ws-'));
+    try {
+      const home = path.join(dir, 'home');
+      const work = path.join(dir, 'work');
+      fs.mkdirSync(home);
+      fs.mkdirSync(work);
+      const pidFile = withEnv({ HOME: home }, () => watcherState.pidFilePath());
+      fs.mkdirSync(path.dirname(pidFile), { recursive: true });
+      fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, watching: [work] }));
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'npm login' } },
+        { HOME: home, AOFORGE_HANDOFF_PID_FILE: undefined },
+        work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.match(reason, /aoforge-watch terminal/);
+      assert.match(reason, new RegExp(`pid ${process.pid}\\b`));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('5. only a pre-rename daemon\'s pid file: the daemon-absent reason, as before', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-ws-'));
+    try {
+      const home = path.join(dir, 'home');
+      const work = path.join(dir, 'work');
+      fs.mkdirSync(home);
+      fs.mkdirSync(work);
+      handoffFixtures.writePidFile(home, { legacy: true, watching: [work] });
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'npm login' } },
+        { HOME: home, AOFORGE_HANDOFF_PID_FILE: undefined },
+        work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.match(reason, /`! npm login`/);
+      assert.match(reason, /not running/);
+      assert.doesNotMatch(reason, /aoforge-watch terminal/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the hook\'s pidFilePath() is watcher-state\'s, with the override unset and set', () => {
+    const hook = require('./gate-interactive.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-ws-'));
+    try {
+      withEnv({ HOME: dir }, () => {
+        assert.equal(hook.pidFilePath(), watcherState.pidFilePath());
+      });
+      const override = path.join(dir, 'elsewhere', 'daemon.pid');
+      withEnv({ HOME: dir, AOFORGE_HANDOFF_PID_FILE: override }, () => {
+        assert.equal(hook.pidFilePath(), watcherState.pidFilePath());
+        assert.equal(hook.pidFilePath(), override);
+      });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('without watcher-state.cjs beside it, the hook behaves as daemon-absent', () => {
+    // A stub tree with the matcher and shell-words but no watcher-state: a live daemon's pid file is not read.
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-nows-'));
+    try {
+      const libSrc = path.join(__dirname, '..', 'aoforge', 'bin', 'lib');
+      const libDst = path.join(tmp, 'aoforge', 'bin', 'lib');
+      const hooksDir = path.join(tmp, 'hooks');
+      const work = path.join(tmp, 'work');
+      const home = path.join(tmp, 'home');
+      for (const d of [libDst, hooksDir, work, home]) fs.mkdirSync(d, { recursive: true });
+      for (const f of ['interactive-commands.cjs', 'shell-words.cjs']) {
+        fs.copyFileSync(path.join(libSrc, f), path.join(libDst, f));
+      }
+      const copy = path.join(hooksDir, 'gate-interactive.js');
+      fs.copyFileSync(HOOK_PATH, copy);
+      const pidFile = path.join(tmp, 'aoforge-watch.pid');
+      fs.writeFileSync(pidFile, JSON.stringify({ pid: process.pid, watching: [work] }));
+      const result = spawnSync('node', [copy], {
+        cwd: work,
+        input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'npm login' } }),
+        encoding: 'utf-8',
+        env: { ...process.env, HOME: home, AOFORGE_HANDOFF_PID_FILE: pidFile },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.match(reason, /`! npm login`/, 'daemon-absent wording');
+      assert.doesNotMatch(reason, /aoforge-watch terminal/);
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });

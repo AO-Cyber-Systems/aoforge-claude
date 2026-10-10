@@ -52,7 +52,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const os = require('os');
 // Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
@@ -70,39 +69,32 @@ function readStdin() {
   try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
 }
 
+// The watch daemon is read through watcher-state (TRD 73-10): the pid file's location, the AOFORGE_HANDOFF_PID_FILE
+// override and the record are that module's, so a move of the pid file reaches this hook with no edit here. Without
+// it (a stub plugin tree), there is no daemon: the hook gives the paste instruction.
+let watcherState = null;
+try { watcherState = require(path.join(__dirname, '..', 'aoforge', 'bin', 'lib', 'watcher-state.cjs')); }
+catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
+
+/** The AOForge daemon's pid file, as watcher-state resolves it; null without watcher-state. */
 function pidFilePath() {
-  if (process.env.AOFORGE_HANDOFF_PID_FILE) {
-    return process.env.AOFORGE_HANDOFF_PID_FILE;
-  }
-  const home = process.env.HOME || os.homedir();
-  return path.join(home, '.aoforge', 'aoforge-watch.pid');
+  return watcherState ? watcherState.pidFilePath() : null;
+}
+
+/** The daemon's pid record, or null. A pre-rename daemon's record never serves this hook's handoffs. */
+function readWatcherInfo() {
+  const info = watcherState ? watcherState.readPidFile() : null;
+  return info && !info.legacy ? info : null;
 }
 
 function isWatcherLive() {
-  const file = pidFilePath();
-  if (!fs.existsSync(file)) return false;
-  let info;
-  try {
-    info = JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return false;
-  }
+  const info = readWatcherInfo();
   if (!info || typeof info.pid !== 'number') return false;
   try {
     process.kill(info.pid, 0);
     return true;
   } catch {
     return false;
-  }
-}
-
-function readWatcherInfo() {
-  const file = pidFilePath();
-  if (!fs.existsSync(file)) return null;
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return null;
   }
 }
 
