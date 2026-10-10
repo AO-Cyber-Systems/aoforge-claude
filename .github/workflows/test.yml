@@ -24,9 +24,11 @@
 #      waving the suite through. They are also inside `npm test`, so a change to
 #      the gate is checked twice.
 #
-# OUT OF BAND: this job must be added to branch protection as a REQUIRED check.
-# That is a repo setting, not a file in this tree. Until it is set, a PR can
-# still merge with this job red.
+# REQUIRED: the ruleset `aoforge: default branch` (.github/rulesets/main.json,
+# applied as ruleset 24829006 in objective 74) requires this job's check
+# `test (npm test, gated)` on main, so a PR merges with it red only through a
+# repository admin's explicit bypass (`gh pr merge --admin`). Renaming the job
+# breaks that requirement: change the ruleset file and the live ruleset together.
 name: Unit suite
 
 # `push:` unqualified plus `pull_request:` runs this ~3-minute, 3,300-test job

@@ -3,12 +3,13 @@
 # shell variables do not, one command per call — and fails on any finding.
 #
 # This job is PATH-FILTERED, which is a known false-green class in this fleet
-# (fleet memory: path-filtered-ci-hides-red). Two mitigations, both deliberate:
+# (fleet memory: path-filtered-ci-hides-red). One mitigation and one deliberate choice:
 #   1. the filter includes this workflow's own path and the harness's own sources, so a
 #      PR that weakens the gate re-runs the gate;
-#   2. the job must be added to branch protection as a REQUIRED check. That is a repo
-#      setting and is OUT OF BAND of this file — until it is set, a PR that skips this
-#      job merges on a green tick that never ran.
+#   2. the job is deliberately NOT a required check. The ruleset `aoforge: default branch`
+#      (.github/rulesets/main.json, objective 74) requires only the unit suite: a required
+#      check that the path filter skips never reports, and GitHub would hold every other
+#      PR waiting for it. A red run here shows on the PR but does not block its merge.
 name: Agent shell harness
 
 on:

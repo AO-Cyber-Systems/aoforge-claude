@@ -8,6 +8,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The `main` ruleset as a file, with a read-back checker** (objective 74, OPS-02). `.github/rulesets/main.json` is
+  the approved text of the ruleset `aoforge: default branch`. `scripts/ruleset-check.cjs compare` reads the live ruleset
+  back by name and compares it with the file (lists as sets, bypass actors by role and mode, server defaults named
+  rather than counted), and `checks` proves from recent pull requests that the required check really reports. Both are
+  read-only.
+- **A Cloudflare deploy-target diagnostic for the docs deploy** (objective 74, OPS-03, deferred).
+  `scripts/ci-cloudflare-target.cjs` names the account the deploy credentials reach and the Pages projects it can see,
+  without printing ids, and `docs.yml` runs it before the deploy; a dispatch from a branch other than `main` now deploys
+  a Pages preview (`--branch="$DEPLOY_BRANCH"`), not production. Its first CI run (PR #130, run 38020394881) found that
+  the credentials reach an account other than AOCyber Systems, which explains every `Project not found [8000007]` docs
+  run on `main` since 2026-09-27. The same run showed that Cloudflare refuses its project listing (code 8000024 on
+  `per_page=100`); that is not fixed yet. OPS-03 is deferred by the user: the change is on this branch and on PR #130,
+  neither is merged, so `main` does not have it and its docs deploy still fails.
 - **Answer a queued command's prompt in the aoforge-watch terminal** (objective 73, HND-03). `aoforge-watch start
   --foreground` run in a terminal is now attended: a queued command's live output appears there and the keys typed
   there go to the command, so you answer a passphrase or token prompt yourself, and the daemon never types, logs or
@@ -29,6 +42,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **`main` takes changes only through a pull request** (objective 74, OPS-02). The ruleset `aoforge: default branch`
+  (id 24829006) was applied on 2026-10-09 after the user approved the exact text of `.github/rulesets/main.json`: `main`
+  cannot be deleted or force-pushed, a direct push to it is rejected, and a change reaches it only through a pull
+  request (no approvals required) with the check `test (npm test, gated)` from GitHub Actions green (not strict). The
+  repository-admin role may bypass only inside a pull request (`gh pr merge --admin`), never by a push. Tags are not
+  covered. On 2026-10-10 `ruleset-check compare` matched the live ruleset to the file.
+- **The live visual judge runs locally only** (objective 74, OPS-01, re-scoped by the user). The CI judge built in TRD
+  74-01 (`visual-judge.yml`, `scripts/ci-visual-judge.cjs` and its screenshot fixtures) was reverted before it reached
+  `main`, and no Anthropic credential is stored in GitHub. The binding judge is `/aoforge:ui-eval --judge live`, run on
+  your own credential (`ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` with `ANTHROPIC_BASE_URL`).
 - **PTY results carry stderr in stdout** (objective 73, HND-01). On a bash or zsh daemon a queued command runs with the
   terminal on both stdout and stderr, so its stderr text arrives in the result's stdout and the stderr field is empty.
   Pipe mode and fish and PowerShell daemons keep separate streams.
@@ -51,6 +74,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A deferred or checkpoint SUMMARY is not a completed TRD** (found in objective 74). A SUMMARY whose frontmatter
+  `status:` is `deferred` or `checkpoint` no longer counts as a completed TRD anywhere completion is derived from
+  SUMMARY files: `sync-roadmap` and `roadmap update-job-progress` leave or put its line back to `[ ]` (new change kind
+  `trd_summary_not_complete`), and it is left out of the Plans count, Jobs line and Complete status, `roadmap analyze`'s
+  disk status, `objective complete`'s count, and `state advance-job --objective` and `state update-progress`.
 - **Three PTY gaps in aoforge-watch are closed** (objective 73, HND-01). On bash and zsh a queued command now sees a
   terminal on stdout and stderr (`doctl` no longer fails with `unknown terminal`), and a command that reads input can no
   longer swallow the daemon's wrapper lines, because each dispatch is one line sourcing a 0600 script in a private 0700
