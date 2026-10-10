@@ -15,12 +15,14 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
-const { main } = require('./ruleset-check.cjs');
+const { main, compareRuleset } = require('./ruleset-check.cjs');
 const {
   REPO,
   APPLIED_ID,
   approvedRuleset,
   appliedRuleset,
+  withoutRule,
+  withRequiredChecks,
   orgRulesetSummary,
   rulesetSummary,
   ok,
@@ -84,4 +86,69 @@ test('RC-5 compare: the ruleset is applied but not enforced', () => {
   assert.match(r.all, /enforcement/);
   assert.match(r.all, /disabled/);
   assert.ok(!r.out.includes(`'${RULESET_NAME}' matches`), 'it must not claim a match');
+});
+
+test('RC-4 compare: the bypass actor may force-push where the file says pull_request only', () => {
+  const applied = appliedRuleset({
+    bypass_actors: [{ actor_id: 5, actor_type: 'RepositoryRole', bypass_mode: 'always' }],
+  });
+  const gh = fakeGh(compareRoutes(applied));
+
+  const r = run(COMPARE, { gh });
+
+  assert.strictEqual(r.exitCode, 1, r.all);
+  assert.match(r.all, /RepositoryRole:5/, 'the actor is named');
+  assert.match(r.all, /always/);
+  assert.match(r.all, /pull_request/);
+});
+
+test('RC-3 compare: the applied ruleset requires a context the file does not', () => {
+  const applied = withRequiredChecks(appliedRuleset(), [
+    { context: 'test (npm test, gated)', integration_id: 15368 },
+    { context: 'build', integration_id: 15368 },
+  ]);
+  const gh = fakeGh(compareRoutes(applied));
+
+  const r = run(COMPARE, { gh });
+
+  assert.strictEqual(r.exitCode, 1, r.all);
+  assert.match(r.all, /build@15368/, 'the extra context is named');
+  assert.ok(!r.all.includes('test (npm test, gated)@15368'), 'the agreeing context is not a difference');
+});
+
+/** The approved ruleset widened to several of everything, and the same ruleset with each list reversed. */
+function widenedPair() {
+  const approved = approvedRuleset();
+  approved.bypass_actors.push({ actor_id: 1, actor_type: 'OrganizationAdmin', bypass_mode: 'always' });
+  approved.conditions.ref_name.include.push('refs/heads/release/*');
+  approved.rules.find((r) => r.type === 'required_status_checks').parameters.required_status_checks.push(
+    { context: 'harness', integration_id: 15368 }
+  );
+  const applied = appliedRuleset(JSON.parse(JSON.stringify(approved)));
+  applied.bypass_actors.reverse();
+  applied.conditions.ref_name.include.reverse();
+  applied.rules.reverse();
+  const checks = applied.rules.find((r) => r.type === 'required_status_checks').parameters.required_status_checks;
+  checks.reverse();
+  applied.rules.find((r) => r.type === 'pull_request').parameters.allowed_merge_methods.reverse();
+  return { approved, applied };
+}
+
+test('RC-9 compareRuleset ignores order in rules, contexts, bypass actors and the include list', () => {
+  const { approved, applied } = widenedPair();
+
+  const result = compareRuleset(applied, approved);
+
+  assert.deepStrictEqual(result.differences, []);
+  assert.strictEqual(result.match, true);
+});
+
+test('RC-10 compareRuleset reports a missing rule type as a difference', () => {
+  const result = compareRuleset(withoutRule(appliedRuleset(), 'non_fast_forward'), approvedRuleset());
+
+  assert.strictEqual(result.match, false);
+  assert.ok(
+    result.differences.some((d) => d.path === 'rules.non_fast_forward'),
+    JSON.stringify(result.differences)
+  );
 });
