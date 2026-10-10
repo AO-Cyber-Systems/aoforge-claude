@@ -327,12 +327,15 @@ function initGitFixture(root, home) {
   git('commit', '-q', '-m', 'init');
 }
 
-// Hand-written runtime-state bodies (TRD 44-06). Shaped like what guard-no-progress.js and
-// awareness-cache-populate.js write, but literal and tiny — the migration never parses them.
-// keyed by file name: the content is the same under either planning-directory name
+// Hand-written runtime-state bodies (TRD 44-06). Shaped like what guard-no-progress.js,
+// awareness-cache-populate.js and dup-detect.cjs recordResolution (TRD 75-02) write, but literal and tiny — the
+// migration never parses them. Keyed by file name: the content is the same under either planning-directory name.
 const RUNTIME_STATE_CONTENT = {
   '.progress-guard.json': '{\n  "last": "Bash:9f2c1e",\n  "count": 1\n}\n',
   '.awareness-cache.json': '{\n  "generated_at": "2026-01-01T00:00:00.000Z",\n  "branches": []\n}\n',
+  '.dup-detect-log.jsonl':
+    '{"timestamp":"2026-01-01T00:00:00.000Z","objective_id":"01-alpha","mode":"plan","blocking":false,"top_match":null,"resolution":"none"}\n' +
+    '{"timestamp":"2026-01-02T00:00:00.000Z","objective_id":"02-beta","mode":"execute","blocking":true,"top_match":{"strength":"strong","peer":"peer-repo","score":0.82},"resolution":"proceed-anyway"}\n',
 };
 
 /**
