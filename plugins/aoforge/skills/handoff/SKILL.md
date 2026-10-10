@@ -25,7 +25,7 @@ Out of scope: commands that can run non-interactively via flags or env vars (e.g
 
 Triggers on: "auth init", "log in to", "interactive command", "needs my password", "I need to paste a token", "needs my shell environment", "nvm/mise/conda activate".
 
-When the aoforge-watch daemon is running, the handoff is fully non-disruptive — Claude continues executing while the daemon runs the command and returns the result on the next turn.
+When the aoforge-watch daemon is running, the handoff is fully non-disruptive — Claude continues executing while the daemon runs the command in the user's aoforge-watch terminal (where the user answers any prompt), and the result comes back by itself: after Claude's next tool call, when Claude ends its turn, or at the latest on the user's next prompt.
 </objective>
 
 <execution_context>
@@ -43,7 +43,7 @@ node ~/.claude/aoforge/bin/aoforge-watch.cjs status
 
 The status JSON has a `running: true|false` field. Branch on that for the next steps.
 
-- If `running: true` → **Approach B (non-disruptive)**: write pending record, continue with other work, expect result on next turn.
+- If `running: true` → **Approach B (non-disruptive)**: write pending record, tell the user in one line where it waits, continue with other work; the result arrives by itself (see branch_b_continue).
 - If `running: false` → **Approach A (paste-driven)**: write pending record AND instruct user to paste `! cmd`.
 </step>
 
@@ -87,20 +87,25 @@ Do not retry the command via the Bash tool. Wait for the user's next message con
 <step name="branch_b_continue">
 **ONLY when watcher IS running.**
 
-The daemon will pick up the pending record from `.aoforge-handoff/pending/<id>.json`, run it in the user's interactive shell, write the result to `.aoforge-handoff/done/<id>.json`, and the `route-results.js` UserPromptSubmit hook will inject the result into your next turn as `additionalContext`.
+The daemon will pick up the pending record from `.aoforge-handoff/pending/<id>.json` and run it in the user's shell. When the daemon was started attended (`aoforge-watch start --foreground` in a terminal), the command's live output appears in that aoforge-watch terminal and the user answers its prompt there; Ctrl+C there interrupts the command. The daemon writes the result to `.aoforge-handoff/done/<id>.json`, and it reaches you once, with no paste, at the first of these:
+
+- **after your next tool call**: `inject-handoff-results.js` (PostToolUse) adds it as `additionalContext`;
+- **when you end your turn**: `inject-handoff-results.js` (Stop) blocks the stop with the result and tells you to continue. If the command is still running, it waits up to 120 s for it;
+- **on the user's next prompt**: `route-results.js` (UserPromptSubmit), the catch-all, adds whatever is still undelivered.
 
 What you should do RIGHT NOW:
-1. Acknowledge in one line that the command was queued: e.g. `"Queued \`gh auth login\` to the watcher (handoff id: h-abc123). Continuing with other work."`
+1. Tell the user in one line that the command is waiting in their aoforge-watch terminal: e.g. `"\`gh auth login\` is waiting in your aoforge-watch terminal (handoff h-abc123); answer its prompt there. Continuing with other work."`
 2. **Do NOT instruct the user to paste anything.**
 3. **Do NOT retry the Bash tool for this command.**
-4. Continue with any non-blocking work you can do without the result.
-5. On the user's next turn, the result will appear automatically as `additionalContext` from the route-results hook. Pick up whatever depended on this command at that point.
+4. **Do NOT pre-answer the prompt** by adding a flag the user did not ask for (such as an empty passphrase); the handoff exists so the user answers it.
+5. Continue with any non-blocking work you can do without the result. If there is none, end your turn: the result arrives at the end of the turn.
+6. When the result arrives, pick up whatever depended on this command.
 </step>
 
 <step name="resume">
-On the user's next turn:
+When the result arrives:
 
-- **Approach B** (most common when watcher is running): the result arrives as `additionalContext` from the route-results hook, marked under `## Deferred command results`. Read the stdout/stderr/exit_code, validate success, and continue the deferred work.
+- **Approach B** (most common when watcher is running): the result arrives under `## Deferred command results`, as `additionalContext` after a tool call or on the user's next prompt, or as Stop hook feedback when you ended your turn. Read the stdout/stderr/exit_code, validate success, and continue the deferred work. On a bash or zsh daemon the command's stderr is inside its stdout. A header of `✗ exit ?` means the record has no exit code: judge success from its status and output.
 - **Approach A** (fallback): the result is in the user's message body (whatever the harness echoed back from `! cmd`). Same continuation logic.
 
 In either case:
@@ -151,7 +156,7 @@ In either case:
 
 <success_criteria>
 - [ ] Pending handoff record written to `.aoforge-handoff/pending/<id>.json`
-- [ ] Watcher-on path: user gets a one-line "queued" acknowledgement, no paste instruction, no Bash retry
+- [ ] Watcher-on path: user gets one line saying the command waits in their aoforge-watch terminal, no paste instruction, no Bash retry
 - [ ] Watcher-off path: user receives a one-line copy-paste instruction
 - [ ] Session continues from the captured output without the user retyping context
 - [ ] No wasted Bash retries against the interactive/shell-flow command

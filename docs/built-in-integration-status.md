@@ -75,7 +75,7 @@ Statuses: adopted (a shipped flow, agent or hook uses it; Where says where) · p
 | `MessageDisplay` | n/a | | | |
 | `PreToolUse` | adopted | `plugins/aoforge/hooks/hooks.json`, `plugins/aoforge/hooks/gate-commits.js`, `plugins/aoforge/hooks/gate-edits.js`, `plugins/aoforge/hooks/gate-bash-writes.js`, `plugins/aoforge/hooks/changelog-on-tag.js`, `plugins/aoforge/hooks/gate-interactive.js`, `plugins/aoforge/hooks/guard-no-progress.js` | pre-62 | The gates, the changelog-on-tag check, the interactive-command check and the no-progress guard. |
 | `PermissionRequest` | not adopted | | | |
-| `PostToolUse` | adopted | `plugins/aoforge/hooks/hooks.json`, `plugins/aoforge/hooks/gh-flush.js` | pre-62 | Store mode: flushes the outbox after `aof-tools commit`. |
+| `PostToolUse` | adopted | `plugins/aoforge/hooks/hooks.json`, `plugins/aoforge/hooks/gh-flush.js`, `plugins/aoforge/hooks/inject-handoff-results.js` | pre-62, 73 | Store mode: flushes the outbox after `aof-tools commit`. inject-handoff-results.js (objective 73, matcher `*`) delivers a finished handoff result as `additionalContext` after Claude's next tool call. |
 | `PostToolUseFailure` | not adopted | | | guard-no-progress deliberately ignores tool errors (TRD 28-04). |
 | `PostToolBatch` | not adopted | | | |
 | `PermissionDenied` | not adopted | | | |
@@ -84,7 +84,7 @@ Statuses: adopted (a shipped flow, agent or hook uses it; Where says where) · p
 | `SubagentStop` | adopted | `plugins/aoforge/hooks/hooks.json`, `plugins/aoforge/hooks/verify-commits.js`, `plugins/aoforge/hooks/gate-executor-stop.js` | pre-62 | verify-commits.js and gate-executor-stop.js block with a top-level `decision`/`reason`; verify-commits.js nested them in `hookSpecificOutput` until objective 70 (63-05 finding, closed). |
 | `TaskCreated` | candidate | | | Instant todo capture in sessions with the Task tools. See Candidates. |
 | `TaskCompleted` | candidate | | | Instant todo completion; todo-sync runs at Stop today. See Candidates. |
-| `Stop` | adopted | `plugins/aoforge/hooks/hooks.json`, `plugins/aoforge/hooks/verify-completion.js`, `plugins/aoforge/hooks/auto-continue.js`, `plugins/aoforge/hooks/gh-flush.js`, `plugins/aoforge/hooks/todo-sync.js` | 63 | todo-sync.js (63-03) merges the session's todos into the archive; the other three predate 62. |
+| `Stop` | adopted | `plugins/aoforge/hooks/hooks.json`, `plugins/aoforge/hooks/verify-completion.js`, `plugins/aoforge/hooks/auto-continue.js`, `plugins/aoforge/hooks/gh-flush.js`, `plugins/aoforge/hooks/todo-sync.js`, `plugins/aoforge/hooks/inject-handoff-results.js` | 63, 73 | todo-sync.js (63-03) merges the session's todos into the archive; inject-handoff-results.js (objective 73, `"timeout": 150`) blocks the stop with a finished handoff result, waiting up to 120 s for a command the user is still answering; the other three predate 62. |
 | `StopFailure` | not adopted | | | |
 | `TeammateIdle` | n/a | | | Agent teams are not used. |
 | `ConfigChange` | not adopted | | | |

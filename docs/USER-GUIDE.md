@@ -953,9 +953,12 @@ AOForge installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 | Hook | Event | What it does | Escape hatch |
 |---|---|---|---|
 | `route-intent.js` | UserPromptSubmit | Detects AOForge projects (`.aoforge/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-AOForge repos and explicit `/aoforge:` invocations |
+| `route-results.js` | UserPromptSubmit | On your next prompt, adds queued notices (from `upgrade-project.js`, `coexistence-guard.js` and others) and every finished handoff result that no other hook delivered yet, whichever session or agent queued it: the catch-all behind `inject-handoff-results.js`. Each result is delivered once, through the same claim as the other hook. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_HANDOFF_RESULTS=1` (handoff results only), `AOFORGE_SKIP_NOTICES=1` (notices only) |
 | `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in AOForge projects; demands `aof-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `AOFORGE_ALLOW_RAW_COMMIT=1 git commit …`, or `AOFORGE_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
 | `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.aoforge/.skill-active` marker exists (executor writes this), the editing agent is an AOForge agent (`agent_type` `aoforge:<name>`, and for one release the pre-rename namespace too), user prompt contains an override phrase (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`), or env var is set. Always permits `.aoforge/**` and `*.md` paths. (Prior `AOFORGE_STRICT_EDITS=1` behavior is now the default.) | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
 | `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.aoforge/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
+| `gate-interactive.js` | PreToolUse (Bash) | Denies a command that needs a terminal or your shell's environment (auth logins, `passwd`, `ssh-keygen` without `-N`, `nvm use`, `direnv allow`, ...) and queues it as `.aoforge-handoff/pending/<id>.json`, recording the session and agent that asked. With `aoforge-watch` running, Claude tells you in one line that the command waits in your aoforge-watch terminal, and the result comes back by itself; without it, Claude asks you to run `! cmd`. Has known false positives. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_INTERACTIVE_GATE=1` |
+| `inject-handoff-results.js` | PostToolUse (`*`), Stop | Delivers a finished handoff result to the session and agent that queued it, once: after Claude's next tool call (PostToolUse, as added context), or when Claude ends its turn (Stop, as a block that tells Claude to continue). At Stop it waits up to 120 s for a command you are still answering in the aoforge-watch terminal; its Stop registration has a 150 s timeout. Silent when nothing is ready. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_HANDOFF_INJECT=1` (this hook), `AOFORGE_SKIP_HANDOFF_RESULTS=1` (all handoff delivery), `AOFORGE_HANDOFF_STOP_WAIT_MS=0` (no Stop wait) |
 | `changelog-on-tag.js` | PreToolUse (Bash) | Blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` has no `## [X.Y.Z]` heading. Tells you to run `aof-tools changelog update --version vX.Y.Z` first. | `AOFORGE_SKIP_CHANGELOG_GATE=1` |
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
 | `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. In autonomous mode it also blocks an `aoforge:executor` stop once per agent (for one release also the pre-rename namespace's executor), so the executor commits its work before it ends; other agent types are never blocked. | n/a (one block per agent) |
@@ -1063,6 +1066,68 @@ Transcripts are deleted under the retention window, so a later run covers differ
 - a write made by a program the command merely runs (a script file, a formatter), because its code is not in the command
 
 **The `cd` approximation.** Subshell scoping is not modelled: after `(cd sub && echo a > f)`, a later `echo b > g` in the same command is resolved against `sub`. The error is a wrong path, and the tracked-file check usually absorbs it (a path that is not tracked passes).
+
+### Interactive commands and aoforge-watch
+
+Some commands cannot run in Claude's Bash tool: a login that asks for a token, `ssh-keygen` asking for a passphrase, `passwd`, or `nvm use` and `direnv allow`, which need your own shell's environment. `gate-interactive.js` stops such a command before it runs and queues it for `aoforge-watch`, a small local daemon that runs it in a shell of yours. Since objective 73 you answer the command's prompt in the daemon's terminal, and the result reaches Claude by itself: no `! cmd` to paste, no prompt to type.
+
+**Start it attended.** In a terminal you keep open, in the project:
+
+```bash
+aoforge-watch start --foreground    # the runtime path: node ~/.claude/aoforge/bin/aoforge-watch.cjs start --foreground
+```
+
+It prints `aoforge-watch: started (pid N, projects <dir>)`, then `aoforge-watch: attended: prompts from queued commands appear here; Ctrl+C during a command interrupts it`. `--project <dir>` watches another directory and `--shell zsh` or `--shell bash` picks the shell (default `$SHELL`). Stop it with Ctrl+C between commands, or `aoforge-watch stop` from another terminal.
+
+The daemon is **attended** when it runs in the foreground with a terminal on stdin and stdout. It is **unattended** when it starts detached (`aoforge-watch start` without `--foreground`), runs under launchd or systemd (`aoforge-watch install`), is started with `--no-attend` or `AOFORGE_WATCH_UNATTENDED=1`, or has piped stdio. An unattended daemon runs commands with no one to answer them, so use the attended terminal for anything that asks for input; a command left waiting on a prompt ends as a timeout after 10 minutes.
+
+**The flow.**
+
+```text
+Claude runs a gated command (gate-interactive.js, PreToolUse Bash)
+  -> denied; .aoforge-handoff/pending/<id>.json written with the session and agent that asked
+  -> Claude tells you the command is waiting in your aoforge-watch terminal
+aoforge-watch (started with `start --foreground` in a terminal: attended)
+  -> shows the command's live output there; you answer its prompt there (Ctrl+C interrupts the command)
+  -> writes .aoforge-handoff/done/<id>.json
+The result reaches Claude, once, with no paste:
+  -> after Claude's next tool call (inject-handoff-results.js, PostToolUse), or
+  -> when Claude ends its turn (inject-handoff-results.js, Stop; waits up to 120 s while the command is still running), or
+  -> on your next prompt (route-results.js, the catch-all)
+```
+
+In the attended terminal each command is framed: a start line `[aoforge-watch] <id>: <command>` with the terminal bell, `[aoforge-watch] answer any prompt here; Ctrl+C interrupts the command`, the command's own output, and `[aoforge-watch] <id> finished: done (exit 0)`. Ctrl+C during a command ends the command with exit 130 and the daemon keeps serving. The daemon never types, logs or stores what you type; its log (`aoforge-watch logs`) keeps only the dispatch and completion lines. If the daemon's shell dies (a command that runs `exit`, or a timeout), the next command gets a new shell and the log shows `respawned shell`.
+
+**Delivery.** A result is addressed to the session and agent that queued it, and taken once: the hook that creates `done/<id>.claim` first delivers it, so two hooks running at once never deliver it twice. The Stop wait starts only when all of these hold: no result is ready yet, this session's main loop queued a command in the last 15 minutes, a live AOForge daemon watches this project, and this stop was not already blocked once. It polls every 250 ms and ends the moment the result lands or the pending record disappears; on timeout the stop goes ahead and the next prompt delivers the result. Results appear under `## Deferred command results`. Each record's output is capped, and the whole block stays under 9,000 characters: when several results do not fit together, a record cut to share the space ends with `node ~/.claude/aoforge/bin/aof-tools.cjs handoff get <id>` for the whole record. In the live run of objective 73 (TRD 73-07), `ssh-keygen` prompted twice in the attended terminal, the user pressed Enter, and the fingerprint reached Claude through the Stop hook 33 ms after the command finished, with nothing typed in Claude Code.
+
+**Settings and escapes.** The environment variables below are read by hooks, which run in Claude Code's own process: set them in the environment Claude Code is launched from, never as an inline prefix on a command.
+
+| Setting | Effect |
+|---|---|
+| `aoforge-watch start --foreground` in a terminal | Attended: prompts appear there and you answer them |
+| `--no-attend`, `AOFORGE_WATCH_UNATTENDED=1` | Unattended, even in a terminal |
+| `AOFORGE_HANDOFF_STOP_WAIT_MS` | How long the Stop hook waits for a running command (default `120000`; `0` disables the wait) |
+| `AOFORGE_SKIP_HANDOFF_INJECT=1` | No delivery after a tool call or at the end of a turn; results wait for your next prompt |
+| `AOFORGE_SKIP_HANDOFF_RESULTS=1` | No handoff delivery at all (both hooks); records stay in `.aoforge-handoff/done/` |
+| `AOFORGE_HANDOFF_RESULT_TTL_MS` | How long an undelivered result stays deliverable (default one hour) |
+| `AOFORGE_SKIP_INTERACTIVE_GATE=1` | No interception: gated commands run in Claude's Bash as before |
+
+Without a running daemon, `gate-interactive.js` still queues the command, and Claude asks you to run `! cmd` yourself.
+
+**Known limitations.**
+
+- **fish and PowerShell.** Their daemons keep the old command wrapper, so a command there still sees files instead of a terminal on its output, and one that reads its input can swallow the daemon's own lines. bash and zsh have the fixes: use `--shell zsh` or `--shell bash`.
+- **stderr arrives with stdout.** On a bash or zsh daemon both streams are the terminal, so a result's stderr text is in its stdout and its stderr is empty.
+- **No echo.** What you type is not shown in the aoforge-watch terminal unless the tool turns echo on itself. Echo stays off so nothing you type lands in a result.
+- **Typeahead.** Keys typed while no command runs are delivered to the next command when it starts. Type nothing between commands.
+- **80x24.** The command's terminal is 80 columns by 24 rows whatever the size of yours.
+- **Stopping mid-command.** During a command Ctrl+C goes to the command, not the daemon; use `aoforge-watch stop` from another terminal.
+- **`sudo`** stays refused by the daemon's deny list.
+- **Subagents.** A subagent's result reaches it on its next tool call. The Stop wait is for the main loop only, so a subagent that ends before its command finishes leaves the result to your next prompt. A record queued by `/aoforge:handoff` carries no session, so it goes to the main loop of any session.
+- **`✗ exit ?`.** A result with no exit code (one written by `aof-tools handoff complete` without `--exit-code`) is titled `✗ exit ?`, even when its status is done.
+- **Claude may answer the prompt with a flag.** Asked to run `ssh-keygen`, Claude may add `-N ""` (an empty passphrase), and the command then never prompts. Ask for the command exactly as written when you want to answer it yourself.
+- **gate-interactive false positives.** The gate matches the raw command text. A quoted argument or a heredoc body that mentions a gated command is intercepted (`rg "a|ssh-keygen" file` reads as a pipe into `ssh-keygen`). `ssh-keygen -lf key.pub`, which only prints a fingerprint and never prompts, is gated. When one command holds two `ssh-keygen` calls, the reason "prompts for a passphrase without -N" can show on a command that passes `-N` to the first, because the second call matched. A false positive is queued like a real one: with no daemon serving the project its record stays in `.aoforge-handoff/pending/`, where you can delete it. The escape is `AOFORGE_SKIP_INTERACTIVE_GATE=1`.
+- **`doctl auth init`.** doctl now gets a terminal (it draws its prompt instead of failing with `unknown terminal`), but a live `doctl auth init` through the attended terminal has not been demonstrated yet. In the automated test, where doctl rejects the token it is given, doctl redraws its prompt and the daemon's duplicate-prompt guard ends the command with `duplicate prompt match ... (likely incorrect value)`.
 
 ### "AOForge blocked my command — why?"
 
@@ -1695,5 +1760,13 @@ the published build comes back exactly as it was.
 **Gotcha:** if your checkout and the published marketplace build report the *same* version number,
 `rm ~/.claude/aoforge/.plugin-version` is required both on install **and** on revert -- otherwise
 `sync-runtime.js` sees no version change and keeps serving the mirror it already has.
+
+**One directory only (`--plugin-dir`).** If your Claude Code has `--plugin-dir`, you can try a checkout in one scratch
+directory without touching the marketplace. In that directory run `claude plugin disable aoforge@aocyber --scope local`, so
+the installed copy and the checkout never run together, then start `claude --plugin-dir <checkout>/plugins/aoforge`. That
+session's `sync-runtime.js` mirrors the checkout into `~/.claude/aoforge/`; the next session started with the installed
+plugin mirrors the published build back because the content digest differs (if it does not, `rm
+~/.claude/aoforge/.plugin-version` and start a new session). To undo the disable, remove the entry it wrote to that
+directory's `.claude/settings.local.json`. Objective 73's live handoff demonstration ran this way.
 
 Commits are grouped by conventional-commit type (`feat` → Added, `fix` → Fixed, `perf` → Performance, etc.). Bare commits without a recognized type land under "Other". The `changelog-on-tag` hook blocks `git tag -a vX.Y.Z` until the entry exists, so you cannot ship a release without documenting it.
