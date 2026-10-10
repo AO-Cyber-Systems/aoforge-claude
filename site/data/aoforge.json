@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-10T00:25:22.029Z",
+  "generatedAt": "2026-10-10T02:15:58.682Z",
   "version": "3.0.0",
   "packageVersion": "3.0.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
@@ -1359,7 +1359,7 @@
       "file": "gate-interactive.js",
       "name": "gate-interactive",
       "group": "Enforcement",
-      "purpose": "Intercepts TTY-requiring and shell-environment commands (auth logins, passphrase prompts, `nvm use`, `direnv allow`, ...) and queues them to `aoforge-watch` with the session and agent that asked, rather than letting them hang on a prompt no one can answer. With the daemon running, Claude tells you in one line that the command waits in your aoforge-watch terminal, where you answer its prompt, and the result comes back by itself; without it, Claude asks you to run `! cmd`. It matches the raw command text, so a quoted argument or heredoc that mentions a gated command can be intercepted.",
+      "purpose": "Intercepts TTY-requiring and shell-environment commands (auth logins, passphrase prompts, `nvm use`, `direnv allow`, ...) and queues them to `aoforge-watch` with the session and agent that asked, rather than letting them hang on a prompt no one can answer. With the daemon running, Claude tells you in one line that the command waits in your aoforge-watch terminal, where you answer its prompt, and the result comes back by itself; without it, Claude asks you to run `! cmd`. Detection is invocation-aware: each simple command is matched on its own words, so a quoted argument or heredoc body that mentions a gated command is data, while a heredoc fed to a shell is read as commands. Flags count per call, and a compound command's reason names the call that matched. `ssh-keygen` read-only forms (`-l`, `-F`, `-R`) run directly; a key read with `-y` and no `-P` is handed off. The watch daemon's built-in allowlist is the same matcher, so the daemon runs exactly what the hook hands off. Not matched: a quoted or path-qualified command name, a command behind `env`, `time`, `sudo` or a shell keyword, a `$( )` inside double quotes, backticks and `bash -c` string bodies.",
       "escape": "AOFORGE_SKIP_INTERACTIVE_GATE=1",
       "events": [
         "PreToolUse (Bash)"
