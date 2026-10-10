@@ -53,7 +53,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Operations (OPS): decisions carried since v1.3
 
-- [ ] **OPS-01**: The CI `ANTHROPIC` secret is configured by the user (AOForge never handles the value), and the live visual judge runs in CI on `main` (objectives 32/33).
+- [ ] **OPS-01**: The live visual judge runs locally only (`/aoforge:ui-eval --judge live`), on the user's own credential; no Anthropic credential is stored in GitHub and no CI judge runs on `main`. Re-scoped by the user on 2026-10-09 (was: the CI `ANTHROPIC` secret configured by the user and the live visual judge running in CI on `main`, objectives 32/33).
 - [ ] **OPS-02**: Branch protection on `main` is set (required checks, no force-push), applied only after the user approves the exact ruleset.
 - [ ] **OPS-03**: The docs site deploys from `main`. The Cloudflare Pages project `aoforge-docs` exists, or the workflow's account and token are corrected, and a push to `main` deploys green.
 
@@ -71,7 +71,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 - Tuning the estimator to pass EST-11 on the objectives it is scored on. A failed prospective retest is reported as failed.
 - Making the Bash edit gate `strict` by default (v1.5 measured 0.035 > 0.02). It is revisited only on a new measurement.
-- AOForge entering secrets, tokens or credentials into any system. The user supplies them (OPS-01, OPS-03).
+- AOForge entering secrets, tokens or credentials into any system. The user supplies them (OPS-03; OPS-01 stores none in GitHub).
 
 ## Traceability
 
