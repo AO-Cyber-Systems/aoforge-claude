@@ -22,6 +22,15 @@
  *   - `.gitignore` with one legacy runtime line under the header 2.15.0's migration 0008 wrote;
  *   - an untracked `.planning/.skill-active`, excluded through `.git/info/exclude` (git states only).
  *
+ * Two options model the 72-25 fleet sweep (TRD 75-02), both off by default so every existing test is unchanged:
+ *   `jobFiles`     relative paths under the legacy planning dir (`objectives/055-x/055-JOB.md`), written with a minimal
+ *                  JOB body BEFORE the init commit, so they are tracked: the shape migration 0002 renames
+ *   `dupDetectLog` the legacy dir's `.dup-detect-log.jsonl` (what dup-detect.cjs appends to):
+ *                  'tracked'          written before the init commit
+ *                  'tracked-modified' tracked, then one more line appended after the commit (an uncommitted edit)
+ *                  'untracked'        written after the init commit, never added
+ *                  Git states only: the log needs a repository to be tracked.
+ *
  * `store: true` (git states only) makes it a GitHub store-mode project as DevFlow's migration 0010 left it:
  * config `github.enabled` and `github.store` true, the legacy-marker 0010 block in `.gitignore` covering the cache,
  * and every planning file except config.json and STACK.md removed from the index (`git rm --cached`, committed),
@@ -38,9 +47,11 @@ const fs = require('fs');
 const path = require('path');
 
 const { planningProject } = require('./legacy-layout-fixtures.cjs');
+const { RUNTIME_STATE_CONTENT } = require('./upgrade-fixtures.cjs');
 const { LEGACY } = require('../legacy-names.cjs');
 
 const STATES = Object.freeze(['clean', 'dirty', 'merge', 'nogit']);
+const DUP_DETECT_LOGS = Object.freeze(['tracked', 'tracked-modified', 'untracked']);
 
 const LEGACY_DIR = '.planning';
 if (LEGACY.planningDir !== LEGACY_DIR) {
@@ -169,6 +180,36 @@ const STATE_JSON = `${JSON.stringify({
 
 const STACK_MD = '# Stack\n\nNo commands yet.\n';
 
+// What dup-detect.cjs recordResolution appends (two literal lines), and the one more an uncommitted edit adds.
+const DUP_DETECT_LOG_FILE = '.dup-detect-log.jsonl';
+const DUP_DETECT_LOG_BODY = RUNTIME_STATE_CONTENT[DUP_DETECT_LOG_FILE];
+const DUP_DETECT_LOG_EXTRA =
+  '{"timestamp":"2026-01-03T00:00:00.000Z","objective_id":"03-gamma","mode":"plan","blocking":false,"top_match":null,"resolution":"defer"}\n';
+
+/** A minimal legacy plan file (the v1 `job:` key), hand-typed; `rel` is its path under the planning dir. */
+function jobBody(rel) {
+  const dir = rel.split('/').slice(-2, -1)[0] || 'objective';
+  const num = (path.posix.basename(rel).match(/^(\d+)/) || [null, '01'])[1];
+  return [
+    '---',
+    `objective: ${dir}`,
+    `job: "${num}"`,
+    'type: standard',
+    'wave: 1',
+    '---',
+    '',
+    `# JOB ${num}: ${dir}`,
+    '',
+    '<tasks>',
+    '<task type="auto">',
+    '  <name>Task 1: write x.txt</name>',
+    '  <verify>test -f x.txt</verify>',
+    '</task>',
+    '</tasks>',
+    '',
+  ].join('\n');
+}
+
 /**
  * A legacy project in `state`.
  *
@@ -176,15 +217,23 @@ const STACK_MD = '# Stack\n\nNo commands yet.\n';
  * @param {'clean'|'dirty'|'merge'|'nogit'} [opts.state='clean']
  * @param {boolean} [opts.store=false]  GitHub store mode with the legacy 0010 block (git states only)
  * @param {string|null} [opts.stamp='2.15.0']  the legacy stamp's version; null writes no stamp key
+ * @param {string[]} [opts.jobFiles=[]]  tracked legacy JOB.md plan files, relative to the legacy planning dir
+ * @param {null|'tracked'|'tracked-modified'|'untracked'} [opts.dupDetectLog=null]  the dup-detect log's git state
  * @returns {{ root: string, home: string, tmp: string, dir: string, env: object, state: string, store: boolean,
  *             git: function(string[]): string, run: function, cleanup: function(): void }}
  *   `dir` is the absolute legacy planning directory.
  */
-function legacyProject({ state = 'clean', store = false, stamp = '2.15.0' } = {}) {
+function legacyProject({ state = 'clean', store = false, stamp = '2.15.0', jobFiles = [], dupDetectLog = null } = {}) {
   if (!STATES.includes(state)) {
     throw new Error(`legacyProject: unknown state ${JSON.stringify(state)} (expected one of ${STATES.join(', ')})`);
   }
   if (store && state === 'nogit') throw new Error('legacyProject: store mode needs a git repository');
+  if (dupDetectLog !== null && !DUP_DETECT_LOGS.includes(dupDetectLog)) {
+    throw new Error(
+      `legacyProject: unknown dupDetectLog ${JSON.stringify(dupDetectLog)} (expected one of ${DUP_DETECT_LOGS.join(', ')})`,
+    );
+  }
+  if (dupDetectLog !== null && state === 'nogit') throw new Error('legacyProject: the dup-detect log states need a git repository');
 
   const p = planningProject({
     layout: 'legacy',
@@ -193,6 +242,8 @@ function legacyProject({ state = 'clean', store = false, stamp = '2.15.0' } = {}
       'config.json': legacyConfig({ stamp, store }),
       'state.json': STATE_JSON,
       'STACK.md': STACK_MD,
+      ...Object.fromEntries(jobFiles.map((rel) => [rel, jobBody(rel)])),
+      ...(dupDetectLog === 'tracked' || dupDetectLog === 'tracked-modified' ? { [DUP_DETECT_LOG_FILE]: DUP_DETECT_LOG_BODY } : {}),
     },
   });
   try {
@@ -225,6 +276,9 @@ function legacyProject({ state = 'clean', store = false, stamp = '2.15.0' } = {}
         p.git(['add', '--', '.gitignore']);
         p.git(['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'chore: gitignore the planning cache (store mode)']);
       }
+
+      if (dupDetectLog === 'tracked-modified') fs.appendFileSync(path.join(dir, DUP_DETECT_LOG_FILE), DUP_DETECT_LOG_EXTRA);
+      if (dupDetectLog === 'untracked') fs.writeFileSync(path.join(dir, DUP_DETECT_LOG_FILE), DUP_DETECT_LOG_BODY);
 
       if (state === 'dirty') {
         fs.appendFileSync(path.join(dir, 'STATE.md'), '\nAn edit the user has not committed.\n');

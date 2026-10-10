@@ -2,11 +2,13 @@
 
 // Migration 0008 — runtime-state-untrack (TRD 44-06, AUT-05).
 //
-// AOForge hooks write two runtime-state files inside `.aoforge/`: guard-no-progress.js rewrites
-// the progress-guard file on EVERY tool call, and awareness-cache-populate.js refreshes the
-// awareness cache at session start. Several repos committed them before they were ignored, so they
-// show as modified in nearly every session and trip dirty-tree refusals (44-EVIDENCE DF-10). This
-// migration makes the project's own `.gitignore` cover both files and removes any tracked copy
+// AOForge writes runtime-state files inside `.aoforge/` (RUNTIME_STATE_BASENAMES): guard-no-progress.js rewrites
+// the progress-guard file on EVERY tool call, awareness-cache-populate.js refreshes the
+// awareness cache at session start, and dup-detect.cjs appends a record to `.dup-detect-log.jsonl` for every
+// duplicate-work resolution (TRD 75-02; in the 72-25 fleet sweep it was the only thing that made 0012 defer in two
+// repositories, and an upgrade commit swept an untracked copy in). Several repos committed them before they were
+// ignored, so they show as modified in nearly every session and trip dirty-tree refusals (44-EVIDENCE DF-10). This
+// migration makes the project's own `.gitignore` cover all of the files and removes any tracked copy
 // from the INDEX ONLY (`git rm --cached`). The working files are live state for running hooks and
 // are never deleted, moved or rewritten.
 //
@@ -41,7 +43,21 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { planningRel, PLANNING_DIR_NAMES, isPlanningDirName } = require('../compat.cjs');
 
-const RUNTIME_STATE_BASENAMES = ['.progress-guard.json', '.awareness-cache.json'];
+// Runtime state, appended or rewritten on every machine and never meant to be shared. Every other list below derives
+// from this one. TRD 75-02 added dup-detect.cjs's resolution log (the file the 72-25 fleet sweep tripped on) and, after
+// auditing every dotfile the runtime writes under the planning directory, check-todos.cjs's cache, skill-route.cjs's
+// deprecation log and override.cjs's override log. Left out on purpose: `.gh-mapping.json` and `.gh-sync-state.json`
+// (committed by design), `.micro-description` and `.adopt-inferences.json` (transient or one-shot), and the skill and
+// edit markers, the notices store and the autonomous markers (each has its own owner: validate health E006/W064,
+// doctor checks 20 and 23).
+const RUNTIME_STATE_BASENAMES = [
+  '.progress-guard.json',
+  '.awareness-cache.json',
+  '.dup-detect-log.jsonl',
+  '.check-todos-cache.json',
+  '.deprecation-log.jsonl',
+  '.override-log.jsonl',
+];
 // The default-layout root paths (exported for callers that name them). The migration itself covers the root copies
 // under the project's resolved planning directory (rootRuntimeFiles), and finds nested copies under either name.
 const RUNTIME_STATE_FILES = RUNTIME_STATE_BASENAMES.map((b) => `.aoforge/${b}`);

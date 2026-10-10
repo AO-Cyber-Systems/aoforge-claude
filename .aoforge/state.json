@@ -1680,6 +1680,16 @@
       "objective": "75",
       "summary": "EST-11 not met under rule 4: scored set 68-71 (4 of 5, 72 unscored); the four scored objectives pass the EST-08 rule",
       "rationale": null
+    },
+    {
+      "objective": "75",
+      "summary": "0012 stages only the run's own removals (inside ctx.changedSoFar) before git mv; 0002 keeps fs.renameSync; a user-deleted tracked file still defers as dirty",
+      "rationale": null
+    },
+    {
+      "objective": "75",
+      "summary": "Migration 0008 covers .dup-detect-log.jsonl, .check-todos-cache.json, .deprecation-log.jsonl and .override-log.jsonl; notices, skill/edit markers, autonomous markers, .gh-mapping.json and .gh-sync-state.json stay out (audit table in 75-02-SUMMARY)",
+      "rationale": null
     }
   ],
   "blockers": [

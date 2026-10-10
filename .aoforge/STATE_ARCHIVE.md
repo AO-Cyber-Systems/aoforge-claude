@@ -323,6 +323,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 74]: 74-09: OPS-01 marked complete on read-only evidence (no CI judge or ANTHROPIC reference on the branch or main; no repo, Dependabot or environment secret; no ANTHROPIC org secret; local --judge live wired). OPS-03 stays Pending with its todo; the Pages todo is not completed.
 - [Objective 74]: 74-09: ROADMAP criterion 1 and the objective 74 list line were not reworded: doc put refuses ROADMAP.md (generated file) and the user forbade a direct edit; the prepared text waits for the user.
 - [Objective 75]: EST-11 not met under rule 4: scored set 68-71 (4 of 5, 72 unscored); the four scored objectives pass the EST-08 rule
+- [Objective 75]: 0012 stages only the run's own removals (inside ctx.changedSoFar) before git mv; 0002 keeps fs.renameSync; a user-deleted tracked file still defers as dirty
+- [Objective 75]: Migration 0008 covers .dup-detect-log.jsonl, .check-todos-cache.json, .deprecation-log.jsonl and .override-log.jsonl; notices, skill/edit markers, autonomous markers, .gh-mapping.json and .gh-sync-state.json stay out (audit table in 75-02-SUMMARY)
 
 ## Performance Metrics
 
@@ -533,4 +535,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 74 P08 | 4min | 3 tasks | 0 files |
 | Objective 74 P09 | 8min | 4 tasks | 7 files |
 | Objective 75 P01 | 60min | 2 tasks | 3 files |
+| Objective 75 P02 | 88min | 3 tasks | 6 files |
 

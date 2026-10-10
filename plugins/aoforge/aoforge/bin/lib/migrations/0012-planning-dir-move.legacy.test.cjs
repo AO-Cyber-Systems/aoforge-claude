@@ -20,6 +20,15 @@
 //  9. store mode: the cache is under `.aoforge/` and still ignored; config.json and STACK.md move as tracked renames;
 //     the 0010 block has AOForge markers and both directory names; exactly one 0010 block; nothing shows untracked.
 //     9b. 0010 recognises the legacy-marker block before the move: detect does not offer a second block.
+// 10. (TRD 75-02) 0012 after 0002 in one run: 0002 renames tracked JOB.md files with fs.renameSync and stages nothing,
+//     so `git mv` met tracked sources missing from disk and failed with "bad source" (72-25, trades).
+//     10a. runner, 0002 + 0012 pending: both apply, no failure, no deferral, the TRD.md files exist under `.aoforge/`.
+//     10b. runner, then a commit of the reported changed paths: `git status --porcelain` is empty, both TRD.md files
+//          are tracked under `.aoforge/`, nothing is tracked under the legacy directory.
+//     10c. a tracked file the USER deleted (not in changedSoFar) still defers as `dirty`, with nothing staged.
+//     10d. a tracked file missing from disk AND in changedSoFar gets its removal staged, and the move succeeds.
+//     10e. (75-02 case 9) a tracked, MODIFIED dup-detect log with 0008 + 0012 pending: 0008 untracks it and 0012 moves
+//          the directory instead of deferring `dirty`.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -28,6 +37,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { NAMES, LEGACY } = require('../legacy-names.cjs');
+const upgrade = require('../upgrade.cjs');
 const { legacyProject, INFO_EXCLUDE_LINE } = require('../__fixtures__/legacy-migration-fixtures.cjs');
 const { planningProject } = require('../__fixtures__/legacy-layout-fixtures.cjs');
 
@@ -340,6 +350,107 @@ describe('9. store mode', () => {
       const found = m0010.discover(ctxFor(p));
       assert.equal(found.block.present, true);
       assert.equal(found.block.error, null);
+    });
+  });
+});
+
+// ─── 10. 0012 after 0002 in one run (TRD 75-02) ─────────────────────────────────
+
+const JOB_A = 'objectives/055-x/055-JOB.md';
+const JOB_B = 'objectives/057-y/057-JOB.md';
+
+function runner(p, only) {
+  return upgrade.apply({ projectRoot: p.root, userHome: p.home, pluginVersion: '3.0.0', only });
+}
+
+describe('10. 0012 after 0002 in one run', () => {
+  test('10a. runner, 0002 + 0012 pending: both apply, nothing fails or defers, the TRD files land under .aoforge/', () => {
+    withLegacy({ state: 'clean', jobFiles: [JOB_A, JOB_B] }, (p) => {
+      assert.equal(p.git(['status', '--porcelain']).trim(), '', 'precondition: clean tree');
+
+      const report = runner(p, ['0002', '0012']);
+
+      assert.deepEqual(report.failed, [], JSON.stringify(report.failed));
+      assert.deepEqual(report.deferred, [], JSON.stringify(report.deferred));
+      assert.deepEqual(report.applied.map((a) => a.id), ['0002', '0012']);
+      assert.ok(fs.existsSync(path.join(p.root, NEW, 'objectives', '055-x', '055-TRD.md')), '055-TRD.md under .aoforge/');
+      assert.ok(fs.existsSync(path.join(p.root, NEW, 'objectives', '057-y', '057-TRD.md')), '057-TRD.md under .aoforge/');
+      assert.equal(fs.existsSync(p.dir), false, 'the legacy directory is gone');
+    });
+  });
+
+  test('10b. committing the reported changed paths leaves a clean tree with every TRD tracked under .aoforge/', () => {
+    withLegacy({ state: 'clean', jobFiles: [JOB_A, JOB_B] }, (p) => {
+      const report = runner(p, ['0002', '0012']);
+      assert.deepEqual(report.failed, [], JSON.stringify(report.failed));
+
+      // What the hook's commit child does: record the reported paths, then assert the final tree. The legacy
+      // directory is gone from disk and its removals are already staged (git mv, and the run's own removals), and a
+      // plain `git add` refuses a pathspec that matches nothing, so only the paths that still exist are added.
+      const existing = report.changed_files.filter((f) => fs.existsSync(path.join(p.root, f)));
+      assert.ok(existing.includes(NEW), `the reported paths name ${NEW}: ${report.changed_files.join('|')}`);
+      p.git(['add', '-A', '--', ...existing]);
+      p.git(['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'chore: move to AOForge (3.0.0 upgrade)']);
+
+      assert.equal(p.git(['status', '--porcelain']).trim(), '', 'nothing left uncommitted or untracked');
+      const tracked = p.git(['ls-files']).trim().split('\n');
+      assert.ok(tracked.includes('.aoforge/objectives/055-x/055-TRD.md'), tracked.join('|'));
+      assert.ok(tracked.includes('.aoforge/objectives/057-y/057-TRD.md'), tracked.join('|'));
+      assert.deepEqual(tracked.filter((f) => f.startsWith(`${OLD}/`)), [], 'nothing tracked under the legacy directory');
+      assert.deepEqual(tracked.filter((f) => /-JOB\.md$/.test(f)), [], 'no JOB.md left tracked');
+    });
+  });
+
+  test('10c. a tracked file the user deleted (not changed by this run) still defers as "dirty", with nothing staged', () => {
+    withLegacy({ state: 'clean', jobFiles: [JOB_A] }, (p) => {
+      fs.rmSync(path.join(p.dir, ...JOB_A.split('/')));
+
+      const res = m0012().apply(ctxFor(p));
+
+      assert.equal(res.deferred, 'dirty', JSON.stringify(res));
+      assert.deepEqual(res.changed, []);
+      assert.match(String(res.notes), /055-JOB\.md/, 'the notes name the deleted file');
+      assert.equal(p.git(['diff', '--cached', '--name-only']).trim(), '', 'nothing staged');
+      assert.ok(fs.existsSync(p.dir), 'not moved');
+      assert.equal(fs.existsSync(path.join(p.root, NEW)), false);
+    });
+  });
+
+  test('10d. a tracked file missing from disk AND changed earlier in this run: its removal is staged and git mv succeeds', () => {
+    withLegacy({ state: 'clean', jobFiles: [JOB_A] }, (p) => {
+      const gone = `${OLD}/${JOB_A}`;
+      fs.rmSync(path.join(p.root, ...gone.split('/')));
+
+      const res = m0012().apply(ctxFor(p, { changedSoFar: [gone] }));
+
+      assert.equal(res.deferred, undefined, JSON.stringify(res));
+      assert.equal(fs.existsSync(p.dir), false, 'the legacy directory moved');
+      assert.equal(fs.existsSync(path.join(p.root, NEW, ...JOB_A.split('/'))), false, 'the removed file did not come back');
+      const ns = p.git(['diff', '--cached', '--name-status', '-M', 'HEAD']).trim().split('\n');
+      assert.ok(ns.includes(`D\t${gone}`), `the run's own removal is staged: ${ns.join('|')}`);
+      assert.deepEqual(
+        ns.filter((l) => !l.startsWith('R') && l !== `D\t${gone}`), [],
+        `everything else is an exact rename: ${ns.join('|')}`,
+      );
+      assert.match(String(res.notes), /055-JOB\.md/, 'the notes name the staged removal');
+    });
+  });
+
+  test('10e. a tracked, modified dup-detect log: 0008 untracks it and 0012 moves the directory instead of deferring', () => {
+    withLegacy({ state: 'clean', dupDetectLog: 'tracked-modified' }, (p) => {
+      const log = `${OLD}/.dup-detect-log.jsonl`;
+      assert.equal(p.git(['status', '--porcelain']).trim(), `M ${log}`, 'precondition: an uncommitted edit to the log');
+      const bytes = fs.readFileSync(path.join(p.root, ...log.split('/')), 'utf-8');
+
+      const report = runner(p, ['0008', '0012']);
+
+      assert.deepEqual(report.failed, [], JSON.stringify(report.failed));
+      assert.deepEqual(report.deferred, [], `0012 is not deferred: ${JSON.stringify(report.deferred)}`);
+      assert.deepEqual(report.applied.map((a) => a.id), ['0008', '0012']);
+      assert.equal(fs.existsSync(p.dir), false, 'the legacy directory moved');
+      assert.equal(read(p, `${NEW}/.dup-detect-log.jsonl`), bytes, 'the log moved with its bytes intact');
+      assert.equal(p.git(['ls-files', '--', `${NEW}/.dup-detect-log.jsonl`, log]).trim(), '', 'the log is tracked nowhere');
+      assert.equal(gitRaw(p, ['check-ignore', '-q', `${NEW}/.dup-detect-log.jsonl`]).status, 0, 'and it is ignored');
     });
   });
 });
