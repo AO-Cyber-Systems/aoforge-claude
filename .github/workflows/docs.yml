@@ -16,11 +16,13 @@ on:
       - 'plugins/aoforge/aoforge/**'
       - '.claude-plugin/marketplace.json'
       - 'package.json'
+      - 'scripts/ci-cloudflare-target.cjs'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'site/**'
       - 'scripts/gen-docs-data.cjs'
+      - 'scripts/ci-cloudflare-target.cjs'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
 
@@ -34,6 +36,8 @@ permissions:
 
 env:
   HUGO_VERSION: '0.165.0'
+  # The one place the Cloudflare Pages project is named: the diagnostic and the deploy read it.
+  PAGES_PROJECT: 'aoforge-docs'
 
 jobs:
   build:
@@ -60,7 +64,20 @@ jobs:
       - name: Build
         run: hugo --source site --minify --baseURL "https://devflow.cloud/"
 
-      # Deploys run only from main in this repo — a fork's PR has no secrets.
+      # Names the Cloudflare account and Pages projects this deploy targets, by name only:
+      # no account id and no token reach the (public) log (objective 74, OPS-03). Read-only,
+      # and it never fails the job; the deploy step below is the gate.
+      - name: Show the Cloudflare deploy target
+        if: github.repository == 'AO-Cyber-Systems/aoforge-claude' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node scripts/ci-cloudflare-target.cjs --project "$PAGES_PROJECT"
+
+      # Deploys run from pushes to main (production) and from manual dispatches: a dispatch
+      # on main is production, a dispatch on any other branch is a preview deployment, so
+      # a pre-merge check cannot overwrite production. A pull request only builds, and a
+      # fork's PR has no secrets.
       # Accepts either a scoped API token (preferred) or the account's Global
       # API Key; wrangler picks whichever pair of variables is populated.
       - name: Deploy to Cloudflare Pages
@@ -70,6 +87,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_API_KEY }}
           CLOUDFLARE_EMAIL: ${{ secrets.CLOUDFLARE_EMAIL }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
         run: |
           npx --yes wrangler@4 pages deploy site/public \
-            --project-name=aoforge-docs --branch=main --commit-dirty=true
+            --project-name="$PAGES_PROJECT" --branch="$DEPLOY_BRANCH" --commit-dirty=true

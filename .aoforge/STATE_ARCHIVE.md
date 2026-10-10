@@ -312,6 +312,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug
 - [Objective 74]: 74-01: ci-visual-judge.cjs redacts the ANTHROPIC credential values out of everything it prints, because a failed curl in anthropicMessagesCall echoes its own command line (x-api-key header, base64 body) into the rollup's state errors
 - [Objective 74]: 74-01: OPS-01 stays Pending after 74-01; it completes only once the user sets the secret (74-05) and the job runs on main (74-08)
+- [Objective 74]: 74-02: OPS-03 stays Pending after the diagnostic and preview-safe deploy land; only 74-08 evidence on main ticks it (74-09 closes it)
+- [Objective 74]: 74-02: the deploy-target diagnostic prints account and project names only (ids compared in-process, other accounts counted); the docs.yml deploy branch comes from github.ref_name through env so a dispatch off main is a preview
 
 ## Performance Metrics
 
@@ -514,4 +516,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73-handoff-gaps-and-result-injection P13 | 12min | 3 tasks | 8 files |
 | Objective 73 P14 | 10min | 3 tasks | 13 files |
 | Objective 74 P01 | 15min | 3 tasks | 9 files |
+| Objective 74 P02 | 8min | 3 tasks | 4 files |
 
