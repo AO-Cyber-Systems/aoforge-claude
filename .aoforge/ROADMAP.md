@@ -315,7 +315,7 @@ TRDs:
   1. Each of the three PTY gaps (dispatch-wrapper isatty, wrapper stdin race, detector late match) has a regression test that fails on the old behavior and passes now.
   2. `inject-handoff-results.js` is registered in `hooks.json`, delivers a completed handoff result into the session, and appears in the hook coexistence suite.
   3. With the `aoforge-watch` daemon running, a TTY-required command (auth login, token paste or sudo prompt) is detected, handed off, run by the user, and its result appears in context. The live run is a user checkpoint and AOForge never types or reads a secret.
-**TRDs**: 8 plans
+**TRDs**: 14 plans (8 + 6 gap closure)
 
 TRDs:
 - [x] 73-01-pty-dispatch-script-TRD.md — (W1) bash/zsh PTY dispatch through a private script file and one input line: output stays on the terminal (gap 1), no queued wrapper lines for `read` (gap 2), INT trap so Ctrl+C still ends in END:130; history guard
@@ -326,6 +326,12 @@ TRDs:
 - [x] 73-06-hook-registration-and-coexistence-TRD.md — (W3) hooks.json PostToolUse `*` + Stop (timeout 150); coexistence RUNS entries; cited PostToolUse schema model; CLAUDE.md bullet out of Draft
 - [x] 73-07-live-tty-demonstration-TRD.md — (W4, checkpoint) live run: ssh-keygen passphrase prompt answered by the user in the aoforge-watch terminal, result in context with no paste; evidence and cleanup
 - [x] 73-08-docs-and-close-out-TRD.md — (W5) CHANGELOG [Unreleased], USER-GUIDE, site handoff guide, handoff skill, CLAUDE.md, HOOK_DOCS + docs data; todo complete; full suite
+- [ ] 73-09-home-is-never-a-project-TRD.md — (gap W1, G5a) `compat.findProjectRoot` and planning-mode stop at $HOME; spawned-hook regression under a temp HOME holding a watcher's `.aoforge/`
+- [ ] 73-10-gate-interactive-reads-invocations-TRD.md — (gap W1, G3/G1/G2) detection on `shell-words.parseCommand` segments: quoted text and heredoc bodies are data, flags and reasons per call, read-only key forms pass; daemon read through watcher-state
+- [ ] 73-11-user-files-in-runtime-home-TRD.md — (gap W2, G5b) `userDotFile` reads `~/.claude/aoforge/` first, `~/.aoforge/` and the pre-rename dir for one release; `watchStateDir`, `resolveUserFile`
+- [ ] 73-12-watch-daemon-state-dir-TRD.md — (gap W3, G5b) the daemon's pid and log in `~/.claude/aoforge/state/watch/`; a 3.0.0 pid file read and cleared for one release; tests and fixtures follow
+- [ ] 73-13-service-logs-and-doctor-check-TRD.md — (gap W3, G5) service logs in the watch dir; doctor check 17 `user-dot-dir` moves a leftover `~/.aoforge/` safely
+- [ ] 73-14-gap-closure-docs-TRD.md — (gap W4) CHANGELOG, USER-GUIDE known limitations and file locations, site guides, settings workflow, migration pages, CLAUDE.md, HOOK_DOCS + docs data
 
 ### Objective 74: Operations decisions
 
