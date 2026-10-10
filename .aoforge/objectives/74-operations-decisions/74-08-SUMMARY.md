@@ -12,8 +12,8 @@ Checkpoint in progress. Re-scoped by the user: no merge, no domain move; read-on
 
 ## Progress
 - [x] Task 1: Approval gate: merge the ops pull request into main — DEFERRED with OPS-03, not executed — 66f91cf8
-- [x] Task 2: Verify the success criteria on main (ruleset verified read-only; judge not applicable; deploy deferred) — (this commit)
-- [ ] Task 3: The user decides on moving the docs domain to aoforge-docs — next step: record the domain move as deferred with OPS-03 in this draft (no Cloudflare read or write; no prompt to the user), then `summary checkpoint` and commit
+- [x] Task 2: Verify the success criteria on main (ruleset verified read-only; judge not applicable; deploy deferred) — 847e863b
+- [x] Task 3: The user decides on moving the docs domain to aoforge-docs — DEFERRED with OPS-03, not executed (this commit)
 
 ## Task 1: merge gate, deferred with OPS-03
 
@@ -95,3 +95,11 @@ Success criteria as re-scoped:
 | SC1 visual judge on main | judge workflow green on the merge push | NOT APPLICABLE: OPS-01 re-scoped to local-only (74-05); no `visual-judge.yml` on main, confirmed |
 | SC2 ruleset holds | compare exit 0, four rules on main | VERIFIED: compare exit 0, four rules under 24829006, enforcement active |
 | SC3 docs deploy | Docs site deploy green, aoforge-docs.pages.dev 200 | DEFERRED with OPS-03: no merge, so no push-to-main deploy; aoforge-docs.pages.dev not probed (the project was never created, 74-06) |
+
+## Task 3: domain move, deferred with OPS-03
+
+Not executed and not asked. The TRD's own skip condition holds (Task 2 shows no green production deploy), and the user
+deferred the `devflow.cloud` / `www.devflow.cloud` move to `aoforge-docs` together with OPS-03: the aoforge-docs Pages
+project does not exist (74-06 deferred). No Cloudflare call of any kind was made and no curl to either domain was run.
+The decision is recorded as deferred; it resumes with OPS-03 (todo
+`2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main`).
