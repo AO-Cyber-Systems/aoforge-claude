@@ -541,4 +541,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 75 P02 | 88min | 3 tasks | 6 files |
 | Objective 75 P03 | 90 min | 3 tasks | 8 files |
 | Objective 75 P04 | 10min | 2 tasks | 15 files |
+| Objective 75 P05 | 8min | 3 tasks | 9 files |
 

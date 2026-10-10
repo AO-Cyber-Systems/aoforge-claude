@@ -126,7 +126,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 72: Rename to AOForge and naming cleanup** - DevFlow becomes AOForge with one-release shims and in-place migrations, ships as 3.0.0, the user's setup and fleet move over, and no legacy `df-*` remains (completed 2026-10-09)
 - [x] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration (completed 2026-10-10)
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
-- [ ] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped
+- [x] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped (completed 2026-10-10)
 
 ### Objective 65: Release v1.5
 
@@ -372,7 +372,7 @@ TRDs:
 - [x] 75-02-upgrade-migration-fixes-TRD.md — (W1, TDD) 0012 stages the run's own removals so it survives 0002 in one run; 0008 gitignores and untracks `.dup-detect-log.jsonl`
 - [x] 75-03-progress-only-summary-in-progress-TRD.md — (W1, TDD) a SUMMARY with an unticked Progress task and no Self-Check is not complete, for reconcile and every `completedSummaryFiles` consumer
 - [x] 75-04-todo-sweep-TRD.md — (W2) every pending todo completed with evidence or re-scoped with disposition fields; 75-TODO-SWEEP.md; SC-4 check
-- [ ] 75-05-coverage-and-close-out-TRD.md — (W3) EST-09 coverage over v1.6 beside the verdict; REQUIREMENTS/STATE from evidence; CHANGELOG, CLAUDE.md, USER-GUIDE; full suite
+- [x] 75-05-coverage-and-close-out-TRD.md — (W3) EST-09 coverage over v1.6 beside the verdict; REQUIREMENTS/STATE from evidence; CHANGELOG, CLAUDE.md, USER-GUIDE; full suite
 
 ## Progress
 
@@ -394,4 +394,4 @@ TRDs:
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
-| 75. Prospective estimate retest and todo sweep | v1.6 | 4/5 | In Progress | - |
+| 75. Prospective estimate retest and todo sweep | v1.6 | 5/5 | Complete | 2026-10-10 |
