@@ -53,9 +53,9 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Operations (OPS): decisions carried since v1.3
 
-- [ ] **OPS-01**: The live visual judge runs locally only (`/aoforge:ui-eval --judge live`), on the user's own credential; no Anthropic credential is stored in GitHub and no CI judge runs on `main`. Re-scoped by the user on 2026-10-09 (was: the CI `ANTHROPIC` secret configured by the user and the live visual judge running in CI on `main`, objectives 32/33).
+- [x] **OPS-01**: The live visual judge runs locally only (`/aoforge:ui-eval --judge live`), on the user's own credential; no Anthropic credential is stored in GitHub and no CI judge runs on `main`. Re-scoped by the user on 2026-10-09 (was: the CI `ANTHROPIC` secret configured by the user and the live visual judge running in CI on `main`, objectives 32/33).
 - [x] **OPS-02**: Branch protection on `main` is set (required checks, no force-push), applied only after the user approves the exact ruleset.
-- [ ] **OPS-03**: The docs site deploys from `main`. The Cloudflare Pages project `aoforge-docs` exists, or the workflow's account and token are corrected, and a push to `main` deploys green.
+- [ ] **OPS-03**: The docs site deploys from `main`. The Cloudflare Pages project `aoforge-docs` exists, or the workflow's account and token are corrected, and a push to `main` deploys green. Deferred by the user on 2026-10-10 (TRD 74-06): the deploy credentials reach an account other than AOCyber Systems, and todo `2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main` holds what resuming needs.
 
 ### Todo hygiene (TODO)
 
@@ -102,7 +102,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | HND-01 | Objective 73 | Complete |
 | HND-02 | Objective 73 | Complete |
 | HND-03 | Objective 73 | Complete |
-| OPS-01 | Objective 74 | Pending |
+| OPS-01 | Objective 74 | Complete |
 | OPS-02 | Objective 74 | Complete |
 | OPS-03 | Objective 74 | Pending |
 | EST-11 | Objective 75 | Pending |

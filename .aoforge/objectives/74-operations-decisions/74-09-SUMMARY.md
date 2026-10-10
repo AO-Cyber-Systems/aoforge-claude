@@ -10,6 +10,6 @@ status: checkpoint
 
 ## Progress
 - [x] Task 1: CHANGELOG, releases guide and workflow comments — fdbf22bf
-- [x] Task 2: CLAUDE.md "Where we left off" for objective 74 and the reconcile fix — (this commit)
-- [ ] Task 3: PROJECT/ROADMAP wording and REQUIREMENTS through the verbs — next step: reword PROJECT.md lines 28 and 170-172 to the local-only judge through `planning draft PROJECT.md` + `doc put PROJECT.md`, try `doc put ROADMAP.md` (expected refusal: generated file), then `requirements mark-complete OPS-01` with the recorded evidence.
-- [ ] Task 4: Full suite (`npm test` once)
+- [x] Task 2: CLAUDE.md "Where we left off" for objective 74 and the reconcile fix — 3a2e5b98
+- [x] Task 3: PROJECT/ROADMAP wording and REQUIREMENTS through the verbs — 854748d5 (PROJECT.md), (this commit) (REQUIREMENTS); ROADMAP refused by `doc put` (generated file), not edited
+- [ ] Task 4: Full suite — next step: run `npm test` once from /Users/justin/dev/aoforge-claude with a 600000 ms timeout in the background and record the `ℹ tests/pass/fail/skipped` lines verbatim.
