@@ -2,7 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { output, error, findPlanFiles, localDate } = require('./helpers.cjs');
+const { output, error, findPlanFiles, localDate, trdKey } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 const { planningRoot, planningRel, planningDirLabel } = require('./compat.cjs');
@@ -345,7 +345,8 @@ function bareObjectiveNumber(n) {
 // result does not depend on any counter carried between calls, so it is idempotent and
 // a rerun after a wave merge reports the merged truth.
 function advanceFromDisk(cwd, objective, raw) {
-  const info = require('./objective.cjs').findObjectiveInternal(cwd, objective);
+  const { findObjectiveInternal, completedSummaryFiles } = require('./objective.cjs');
+  const info = findObjectiveInternal(cwd, objective);
   if (!info) error(`objective ${objective} not found under ${planningRel(cwd, 'objectives')}`);
 
   const total = info.jobs.length;
@@ -353,7 +354,12 @@ function advanceFromDisk(cwd, objective, raw) {
     output({ advanced: false, reason: 'no_trds', objective: info.objective_number }, raw, 'false');
     return;
   }
-  const done = total - info.incomplete_jobs.length;
+  // A TRD counts once it has a SUMMARY that is completion evidence: one whose frontmatter
+  // status is deferred or checkpoint is not (objective 74). Same NN-MM pairing as
+  // incomplete_jobs, which stays the dispatch inventory and keeps every SUMMARY.
+  const completedKeys = new Set(
+    completedSummaryFiles(path.join(cwd, info.directory), info.summaries).map(trdKey));
+  const done = info.jobs.filter(p => completedKeys.has(trdKey(p))).length;
   const num = bareObjectiveNumber(info.objective_number);
   const ready = done >= total;
   const statusText = ready
@@ -517,12 +523,15 @@ function cmdStateUpdateProgress(cwd, raw) {
   let totalSummaries = 0;
 
   if (fs.existsSync(objectivesDir)) {
+    // Completed SUMMARYs only: a deferred or checkpoint one is not a completed TRD (objective 74).
+    const { completedSummaryFiles } = require('./objective.cjs');
     const objectiveDirs = fs.readdirSync(objectivesDir, { withFileTypes: true })
       .filter(e => e.isDirectory()).map(e => e.name);
     for (const dir of objectiveDirs) {
       const files = fs.readdirSync(path.join(objectivesDir, dir));
       totalJobs += findPlanFiles(files).length;
-      totalSummaries += files.filter(f => f.match(/-SUMMARY\.md$/i)).length;
+      totalSummaries += completedSummaryFiles(
+        path.join(objectivesDir, dir), files.filter(f => f.match(/-SUMMARY\.md$/i))).length;
     }
   }
 
