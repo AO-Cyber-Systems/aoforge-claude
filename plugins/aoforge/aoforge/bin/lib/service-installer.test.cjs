@@ -7,8 +7,13 @@
  * Coverage groups:
  *   P: launchd plist rendering (8)
  *   U: systemd unit rendering (5)
- *   I: installService / uninstallService (12)
+ *   I: installService / uninstallService (14)
+ *   SP: servicePaths(home) (2)
  *   EX: export surface lock (1)
+ *
+ * TRD 73-13 (gap G5): an installed watch service logs into the watch state directory
+ * (compat.watchStateDir, <home>/.claude/aoforge/state/watch), never into the user's dot
+ * directory, whose name is the planning directory's. P-8, U-5, I-13, I-14 and SP-1/SP-2 pin that.
  *
  * Group C (CLI integration) lives in aoforge-watch.test.cjs.
  * Group D (documentation) verified via grep.
@@ -22,6 +27,8 @@ const os = require('os');
 
 const installer = require('./service-installer.cjs');
 const fx = require('./__fixtures__/daemon-polish-fixtures.cjs');
+const { watchStateDir } = require('./compat.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 
 const LABEL = 'com.aocyber.aoforge-watch';
 
@@ -111,7 +118,7 @@ describe('service-installer — Group P: launchd plist rendering', () => {
     assert.ok(!/[^&]&[^a-zA-Z]/.test(xml.replace(/&[a-zA-Z]+;/g, '')), 'no raw &');
   });
 
-  test('P-8 StandardOutPath / StandardErrorPath point to ~/.aoforge/launchd-{stdout,stderr}.log', () => {
+  test('P-8 StandardOutPath / StandardErrorPath are <HOME>/.claude/aoforge/state/watch/launchd-{stdout,stderr}.log', () => {
     const tmp = mkTmp();
     const prevHOME = process.env.HOME;
     process.env.HOME = tmp;
@@ -120,8 +127,13 @@ describe('service-installer — Group P: launchd plist rendering', () => {
         projectRoot: '/p',
         aoforgeWatchPath: '/abs/aoforge-watch.cjs',
       });
-      assert.match(xml, /<key>StandardOutPath<\/key>\s*<string>[^<]*\.aoforge\/launchd-stdout\.log<\/string>/);
-      assert.match(xml, /<key>StandardErrorPath<\/key>\s*<string>[^<]*\.aoforge\/launchd-stderr\.log<\/string>/);
+      const dir = watchStateDir(tmp);
+      const out = xml.match(/<key>StandardOutPath<\/key>\s*<string>([^<]*)<\/string>/);
+      const err = xml.match(/<key>StandardErrorPath<\/key>\s*<string>([^<]*)<\/string>/);
+      assert.ok(out && err, xml);
+      assert.equal(out[1], path.join(dir, 'launchd-stdout.log'));
+      assert.equal(err[1], path.join(dir, 'launchd-stderr.log'));
+      assert.equal(xml.includes(`/${NAMES.userDotDir}/`), false, 'no path into the user dot directory');
     } finally {
       if (prevHOME === undefined) delete process.env.HOME;
       else process.env.HOME = prevHOME;
@@ -172,13 +184,14 @@ describe('service-installer — Group U: systemd unit rendering', () => {
     assert.match(u, /\[Install\][\s\S]*WantedBy=default\.target/);
   });
 
-  test('U-5 StandardOutput/StandardError use append:%h/.aoforge/systemd-{stdout,stderr}.log', () => {
+  test('U-5 StandardOutput/StandardError use append:%h/.claude/aoforge/state/watch/systemd-{stdout,stderr}.log', () => {
     const u = installer.renderSystemdUnit({
       projectRoot: '/p',
       aoforgeWatchPath: '/abs/aoforge-watch.cjs',
     });
-    assert.match(u, /StandardOutput=append:%h\/\.aoforge\/systemd-stdout\.log/);
-    assert.match(u, /StandardError=append:%h\/\.aoforge\/systemd-stderr\.log/);
+    assert.match(u, /^StandardOutput=append:%h\/\.claude\/aoforge\/state\/watch\/systemd-stdout\.log$/m);
+    assert.match(u, /^StandardError=append:%h\/\.claude\/aoforge\/state\/watch\/systemd-stderr\.log$/m);
+    assert.equal(u.includes(`%h/${NAMES.userDotDir}/`), false, 'no path into the user dot directory');
   });
 });
 
@@ -332,6 +345,57 @@ describe('service-installer — Group I: install/uninstall', () => {
     const tmpPlist = path.join(homeFx.launchAgentsDir, `${LABEL}.plist.tmp`);
     assert.ok(!fs.existsSync(tmpPlist), 'tmp file cleaned up after rename');
   });
+
+  test('I-13 darwin install creates the watch state directory and no <HOME>/.aoforge (G5)', async () => {
+    const dotDir = path.join(homeFx.home, NAMES.userDotDir);
+    assert.ok(!fs.existsSync(watchStateDir(homeFx.home)), 'watch state dir does not yet exist');
+    await installer.installService({
+      platform: 'darwin', projectRoot: '/p', aoforgeWatchPath: '/abs/d.cjs',
+    });
+    assert.ok(fs.statSync(watchStateDir(homeFx.home)).isDirectory(), 'watch state dir created for the service logs');
+    assert.ok(!fs.existsSync(dotDir), `${dotDir} must not be created`);
+  });
+
+  test('I-14 linux install creates the watch state directory and no <HOME>/.aoforge (G5)', async () => {
+    const dotDir = path.join(homeFx.home, NAMES.userDotDir);
+    await installer.installService({
+      platform: 'linux', projectRoot: '/p', aoforgeWatchPath: '/abs/d.cjs',
+    });
+    assert.ok(fs.statSync(watchStateDir(homeFx.home)).isDirectory(), 'watch state dir created for the service logs');
+    assert.ok(!fs.existsSync(dotDir), `${dotDir} must not be created`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Group SP — servicePaths(home)
+// ---------------------------------------------------------------------------
+
+describe('service-installer — Group SP: servicePaths', () => {
+  test('SP-1 servicePaths(home) names the launchd plist and the systemd unit under that home', () => {
+    const home = path.join(os.tmpdir(), 'svc-paths-home');
+    assert.deepStrictEqual(installer.servicePaths(home), {
+      launchd: path.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`),
+      systemd: path.join(home, '.config', 'systemd', 'user', 'aoforge-watch.service'),
+    });
+  });
+
+  test('SP-2 install writes its service file at the path servicePaths(HOME) names', async () => {
+    const tmp = mkTmp();
+    const homeFx = fx.buildServiceInstallerTmpHome(tmp);
+    const mockExec = fx.buildMockExecFile();
+    installer._setRunExec(mockExec.fn);
+    try {
+      const darwin = await installer.installService({ platform: 'darwin', projectRoot: '/p', aoforgeWatchPath: '/abs/d.cjs' });
+      const linux = await installer.installService({ platform: 'linux', projectRoot: '/p', aoforgeWatchPath: '/abs/d.cjs' });
+      const paths = installer.servicePaths(homeFx.home);
+      assert.equal(darwin.servicePath, paths.launchd);
+      assert.equal(linux.servicePath, paths.systemd);
+    } finally {
+      installer._resetMocks();
+      homeFx.restoreHome();
+      rmTmp(tmp);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -343,7 +407,7 @@ describe('service-installer — Group EX: export surface', () => {
     const keys = Object.keys(installer).sort();
     assert.deepStrictEqual(
       keys,
-      ['_resetMocks', '_setRunExec', 'installService', 'renderLaunchdPlist', 'renderSystemdUnit', 'uninstallService']
+      ['_resetMocks', '_setRunExec', 'installService', 'renderLaunchdPlist', 'renderSystemdUnit', 'servicePaths', 'uninstallService']
     );
   });
 });
