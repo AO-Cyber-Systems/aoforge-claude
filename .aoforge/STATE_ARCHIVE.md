@@ -318,6 +318,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 74]: 74-04: the ops/74-ci-operations branch had its origin/main upstream unset at creation so a bare git push can never target main; only the nine 74-01/74-02 code commits were picked, not the 5049eb4b merge.
 - [Objective 74]: OPS-01 re-scoped by the user on 2026-10-09: the live visual judge runs locally only (/aoforge:ui-eval --judge live), no CI secret and no CI judge on main; the 74-01 judge commits are reverted on the ops branch and on feat/stack-profile-loader; OPS-01 stays Pending until verified on main
 - [Objective 74]: main ruleset 'aoforge: default branch' (id 24829006) applied exactly as the 74-03 file after the user's literal approved; default variant (admin bypass in pull_request mode only); read-back compare matches
+- [Objective 74]: 74-08 re-scoped by the user: PR #130 not merged (it holds only deferred OPS-03 content); the merge, the push-to-main docs deploy and the devflow.cloud domain move are deferred with OPS-03; the main ruleset 24829006 verified read-only (compare exit 0)
+- [Objective 74]: 74-08 SC1 (CI visual judge on main) not applicable after the OPS-01 local-only re-scope; main confirmed to carry no visual-judge workflow or script
 
 ## Performance Metrics
 
@@ -525,4 +527,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 74 P04 | 3min (continuation only) | 3 tasks | 0 files |
 | Objective 74 P05 | 10min | 2 tasks | 7 files |
 | Objective 74 P07 | 12min | 3 tasks | 0 files |
+| Objective 74 P08 | 4min | 3 tasks | 0 files |
 

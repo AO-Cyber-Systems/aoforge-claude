@@ -1,10 +1,10 @@
 {
   "current_objective": "74",
-  "current_job": 7,
+  "current_job": 8,
   "total_jobs": 9,
   "progress_pct": 100,
   "status": "executing",
-  "last_activity": "2026-10-09",
+  "last_activity": "2026-10-10",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -1654,6 +1654,16 @@
     {
       "objective": "74",
       "summary": "main ruleset 'aoforge: default branch' (id 24829006) applied exactly as the 74-03 file after the user's literal approved; default variant (admin bypass in pull_request mode only); read-back compare matches",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-08 re-scoped by the user: PR #130 not merged (it holds only deferred OPS-03 content); the merge, the push-to-main docs deploy and the devflow.cloud domain move are deferred with OPS-03; the main ruleset 24829006 verified read-only (compare exit 0)",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-08 SC1 (CI visual judge on main) not applicable after the OPS-01 local-only re-scope; main confirmed to carry no visual-judge workflow or script",
       "rationale": null
     }
   ],
