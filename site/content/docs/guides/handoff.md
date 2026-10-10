@@ -31,7 +31,9 @@ latest on your next prompt.
 or prompt flow: DigitalOcean, GitHub, Google Cloud, AWS (including SSO),
 1Password, npm, Vault.
 
-**Password and passphrase prompts** — `passwd`, `ssh-keygen` without `-N ""`.
+**Password and passphrase prompts** — `passwd`, `ssh-keygen` making a key without
+`-N ""`, and `ssh-keygen -y` reading a key without `-P`. Its read-only forms
+(`-l` fingerprints, `-F` and `-R` on known hosts) run directly.
 
 **Shell-flow tools** that depend on aliases, sourced rc files or shimmed shell
 sessions — `nvm use`, `nvm install`, `pyenv shell`, `pyenv install`,
@@ -126,6 +128,13 @@ shell, so what it will accept is a security boundary, not a convenience setting.
 Extend it with your own patterns via `AOFORGE_WATCH_ALLOW_FILE`. A deny list takes
 precedence over the allowlist.
 
+The built-in entries are the hook's own matcher, so the daemon runs exactly the
+commands `gate-interactive` hands off and nothing it lets through: a quoted
+mention, heredoc data or a read-only key form is refused, and a command the hook
+gated is never rejected. Entries you add through `AOFORGE_WATCH_ALLOW_FILE` (by
+default `~/.claude/aoforge/aoforge-watch-allow.json`) are regular expressions
+tested on the whole command.
+
 ### Auto-launch
 
 The daemon can install itself as a launchd (macOS) or systemd (Linux) unit so it
@@ -164,18 +173,22 @@ done counts.
   empty passphrase, and the command never prompts. Ask for the command exactly as
   written when you want to answer it yourself.
 
-{{< callout title="A known gap" type="warn" >}}
-`gate-interactive` matches against the raw command string, so a Bash call whose
-*payload* mentions a gated command — a heredoc writing documentation about
-`aws sso login`, say — can be intercepted even though nothing interactive would
-run.
+## What gate-interactive matches
 
-`gate-commits` solved this class of problem with invocation-aware detection that
-strips heredoc bodies and quoted arguments before matching.
-`gate-interactive` does not yet do the same: `rg "a|ssh-keygen" file` reads as a
-pipe into `ssh-keygen`. It also gates `ssh-keygen -lf key.pub`, which only prints
-a fingerprint and never prompts. A false positive is queued like a real one; with
-no daemon serving the project, delete its record from
-`.aoforge-handoff/pending/`. If you hit it, the escape hatch is
+Each simple command is matched on its own words. Quoted arguments and heredoc
+bodies are data, so a grep, an echo, a commit message or a heredoc writing
+documentation about `aws sso login` is not intercepted; a heredoc fed to `bash`,
+`sh` or `zsh` is read as commands, one level deep. Flags count only in their own
+call, and in a compound command the reason names the call that needs your shell.
+`ssh-keygen -lf key.pub` runs directly, and so does a new key made with `-N`; a
+key read with `-y` and no `-P` is handed off, even when the command passes `-N`.
+
+{{< callout title="What it does not match" type="warn" >}}
+These run in Claude's Bash as before, unintercepted: a command name inside quotes
+(`"npm" login`) or with a path (`/usr/bin/ssh-keygen`); a command behind a prefix
+such as `env`, `FOO=1`, `time`, `command`, `exec` or `sudo`, or after a shell
+keyword (`then`, `do`, `{`, `!`); a `$( )` inside double quotes; a backtick
+substitution; and the string body of `bash -c '...'`. If one of them hangs on a
+prompt, run it yourself with `! cmd`. To turn interception off, set
 `AOFORGE_SKIP_INTERACTIVE_GATE=1`.
 {{< /callout >}}

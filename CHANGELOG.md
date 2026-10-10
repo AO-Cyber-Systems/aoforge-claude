@@ -20,6 +20,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with the result, waiting up to 120 s (`AOFORGE_HANDOFF_STOP_WAIT_MS`, `0` disables) for a command the user is still
   answering. A result goes only to the session and agent that queued it, and `route-results.js` stays the catch-all on
   the next prompt. Escapes: `AOFORGE_SKIP_HANDOFF_INJECT=1`, `AOFORGE_SKIP_HANDOFF_RESULTS=1`.
+- **Doctor check 17 `user-dot-dir`** (objective 73 gap closure, HND-03, TRD 73-13). `aof-tools doctor --global` reports
+  a leftover `~/.aoforge/`, and `--fix` moves what AOForge 3.0.0 wrote there to `~/.claude/aoforge/` (the watch daemon's
+  files to `state/watch/`), or into `backups/aoforge-dot-dir-<timestamp>/` when a newer copy exists or the pid file is
+  stale. It never deletes or overwrites a file, and it only reports while a daemon there is live, an installed service
+  still logs there or the directory holds planning files. Files it does not know, such as a `.DS_Store`, are listed and
+  left in place, so the directory stays.
 
 ### Changed
 
@@ -31,6 +37,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   daemon live, the deny reason tells Claude to say in one line that the command waits in the user's aoforge-watch
   terminal, and that the result returns after the next tool call or at the end of the turn. The wording without a
   daemon (`! cmd`) is unchanged.
+- **The watch daemon's files and the user's files live in the runtime home** (objective 73 gap closure, HND-03, TRDs
+  73-11 to 73-13). `defaults.json`, the Brave API key and the watch allowlist are read from `~/.claude/aoforge/` first,
+  and the daemon's pid file and log and the launchd and systemd service logs are in `~/.claude/aoforge/state/watch/`.
+  Nothing creates `~/.aoforge/` any more. For one release `~/.aoforge/` is still read: the user files after the runtime
+  home, a daemon started by 3.0.0 is found, updated and stopped, and `aoforge-watch logs` falls back to its log. A
+  service installed by 3.0.0 keeps logging there until it is reinstalled; doctor check 17 names the command.
+- **The watch daemon's built-in allowlist is gate-interactive's per-invocation matcher** (objective 73 gap closure,
+  HND-03, TRD 73-12). It accepts exactly what the hook hands off and now refuses quoted mentions, heredoc data and
+  read-only key forms it used to accept. User allowlist entries still match the whole command.
+- **A key read with `-y` and no `-P` is handed off even when the command passes `-N`** (objective 73 gap closure, HND-02,
+  TRD 73-10). A `-N` anywhere in the command used to exempt it.
 
 ### Fixed
 
@@ -48,6 +65,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   it (an O_EXCL claim file decides), a record written by `aof-tools handoff complete` shows its output instead of `(no
   output captured)`, and the result block stays under 9,000 characters, a record cut to share the space ending with a
   `handoff get <id>` pointer.
+- **Repositories under $HOME are no longer AOForge projects after a watcher run** (objective 73 gap closure, HND-03,
+  TRD 73-09). AOForge 3.0.0's aoforge-watch created `~/.aoforge/`, and project detection read it as a planning
+  directory, so the hooks and the CLI treated every repository below the home directory as an AOForge project.
+  `findProjectRoot` and the planning-mode lookups now never return `$HOME` and never search above it.
+- **gate-interactive gates invocations, not mentions** (objective 73 gap closure, HND-02, TRD 73-10). Each simple
+  command is matched on its own words: quoted arguments and heredoc bodies are data, so a grep, an echo or a commit
+  message that mentions a gated command is no longer intercepted, while a heredoc fed to a shell is read as commands.
+  Flags are read per call, the reason names the call of a compound command that matched, and `ssh-keygen`'s read-only
+  forms (`-l`, `-F`, `-R`) run directly.
+- **The watch daemon no longer rejects a command gate-interactive handed off** (objective 73 gap closure, HND-03, TRD
+  73-12), such as a compound command whose skip flag sits in another call, or a key read with `-y` and `-N` but no
+  `-P`.
 - **`gh rebrand` reads large repositories** (objective 72, INST-04). Every `gh` call now gets a 256 MiB output buffer
   (Node's default is 1 MiB) and a paginated read gets 5 minutes instead of 30 seconds, so a dry run no longer fails
   with `spawnSync gh ENOBUFS` on a repository whose issue list is larger than 1 MiB. A read that still overflows or

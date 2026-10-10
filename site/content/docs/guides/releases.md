@@ -48,12 +48,11 @@ The version-sync half exists because three-file drift is silent — the marketpl
 advertises one version, the plugin manifest another, and users get whichever the
 resolver happens to pick.
 
-{{< callout title="Both this gate and gate-interactive match on the raw command string" type="warn" >}}
-`gate-commits` was made invocation-aware so that heredoc bodies and quoted
-arguments are stripped before matching — text that merely *mentions* a command is
-not gated. `changelog-on-tag` and `gate-interactive` do not yet do the same, so
-writing documentation that contains a tag command or an auth command in a heredoc
-can trip them. Use the documented escape hatch when it happens.
+{{< callout title="A mention is not an invocation" type="ok" >}}
+`gate-commits` and this gate strip heredoc bodies and quoted arguments before
+matching, and `gate-interactive` matches each call of a command on its own words
+(objective 73), so text that merely *mentions* a tag command or an auth command,
+such as a heredoc writing documentation, is not gated.
 {{< /callout >}}
 
 ## Release notes on GitHub
