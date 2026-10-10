@@ -21,9 +21,9 @@ gap_closure: true
 requirements: [HND-02, HND-03]
 must_haves:
   truths:
-    - "CHANGELOG.md `## [Unreleased]` records the gap closure: Fixed (repositories under $HOME are no longer detected as AOForge projects after a watcher run; gate-interactive gates only real invocations, reads flags per call and lets read-only key fingerprint forms through), Changed (the watch daemon's pid, log and service logs and the user's defaults, Brave key and allowlist live in `~/.claude/aoforge/`, `~/.aoforge/` read for one release), Added (doctor check 17 `user-dot-dir`)"
-    - "docs/USER-GUIDE.md no longer lists the gate-interactive false positives as a known limitation; it states the remaining detection limits from 73-10's SUMMARY, the new file locations (shim paragraph, attended-terminal paragraph), that $HOME itself is never an AOForge project, and check 17 in the doctor table"
-    - "The site handoff guide's 'A known gap' callout is replaced by the shipped behaviour and the remaining limits"
+    - "CHANGELOG.md `## [Unreleased]` records the gap closure: Fixed (repositories under $HOME are no longer detected as AOForge projects after a watcher run; gate-interactive gates only real invocations, reads flags per call and lets read-only key fingerprint forms through; the watch daemon no longer rejects a command the hook handed off, such as a compound command whose skip flag sits in another call), Changed (the watch daemon's pid, log and service logs and the user's defaults, Brave key and allowlist live in `~/.claude/aoforge/`, `~/.aoforge/` read for one release; the daemon's built-in allowlist uses the hook's own per-invocation matcher, so it accepts exactly what the hook hands off and now refuses quoted mentions, heredoc data and read-only key forms it used to accept, while user allowlist entries still match the whole command; ssh-keygen `-y` without `-P` is now always handed off, where a `-N` anywhere in the command used to exempt it), Added (doctor check 17 `user-dot-dir`)"
+    - "docs/USER-GUIDE.md no longer lists the gate-interactive false positives as a known limitation (neither in Known limitations nor as 'Has known false positives' in the hook table row); it states the remaining detection limits from 73-10's SUMMARY, that ssh-keygen `-y` without `-P` is handed off, that the daemon's built-in allowlist accepts exactly what the hook hands off (and refuses the quoted mentions and read-only key forms it used to accept), the new file locations (shim paragraph, attended-terminal paragraph), that $HOME itself is never an AOForge project, and check 17 in the doctor table"
+    - "The site handoff guide's 'A known gap' callout is replaced by the shipped behaviour and the remaining limits, including `-y` without `-P` being handed off; its 'Allowlist and deny list' section says the built-in allowlist is the hook's own matcher, so the daemon runs exactly what the hook hands off (quoted mentions and read-only key forms are refused), and that user entries from `AOFORGE_WATCH_ALLOW_FILE` still match the whole command"
     - "Every page that told the user to write or read `~/.aoforge/<file>` (settings workflow, handoff skill, built-in sweep inventory, migration guide and its site page) names `~/.claude/aoforge/<file>` and, where it is about migration, says 3.0.0 used `~/.aoforge/` and that `doctor --global --fix` moves it"
     - "CLAUDE.md's Doctor, Rename shims and gate-interactive bullets, `scripts/gen-docs-data.cjs` HOOK_DOCS and the regenerated `site/data/aoforge.json` agree with the shipped behaviour"
     - "The doc guards (doc-refs, rename guard, built-in sweep, hook inventory, planning writes, rg-flag guard) and the full suite pass"
@@ -61,15 +61,18 @@ Purpose: keep docs true (STACK principle 13) for the gap closure. Output: update
 Project kind `plugin`, work `feature` (gap closure). Docs only: no TDD tasks; the doc guard tests are the checks.
 
 Read the five SUMMARYs first, narrowly (frontmatter `provides` and `key-decisions`, plus the "remaining limits"
-section of 73-10 and the check branches of 73-13): `73-09-SUMMARY.md` to `73-13-SUMMARY.md`.
+section of 73-10, the agreement result of 73-12 (which rows the old allowlist got wrong) and the check branches of
+73-13): `73-09-SUMMARY.md` to `73-13-SUMMARY.md`.
 
 Read narrowly (locate with `rg -n`, read with offset/limit):
 - `CHANGELOG.md` 7-56 (`[Unreleased]`, objective 73 entries).
 - `docs/USER-GUIDE.md`: 30-48 (the shim list: `userDotFile`, `findProjectRoot`), 100-110 (doctor table for the
   rename), 116-121 (the watch daemon started before the rename), ~1099 (attended terminal, `aoforge-watch logs`),
   ~1116-1131 (Known limitations: the "gate-interactive false positives" bullet and the "Claude may answer the prompt
-  with a flag" bullet).
-- `site/content/docs/guides/handoff.md` ~30-36 (gated command list) and 165-181 (the "A known gap" callout).
+  with a flag" bullet), ~960 (the hook table's `gate-interactive.js` row: "`ssh-keygen` without `-N`" and "Has known
+  false positives").
+- `site/content/docs/guides/handoff.md` ~30-36 (gated command list), 122-127 ("Allowlist and deny list") and 165-181
+  (the "A known gap" callout).
 - `plugins/aoforge/skills/handoff/SKILL.md` ~140-146 and `docs/built-in-sweep.md` row BS-101 (~121).
 - `plugins/aoforge/aoforge/workflows/settings.md` lines 5, 140-160, 210 (`~/.aoforge/defaults.json`).
 - `docs/MIGRATING-TO-AOFORGE.md` 30-40 and 66-74; `site/content/docs/getting-started/migrating-to-aoforge.md` 35-45 and
@@ -94,7 +97,18 @@ gated command is not intercepted, while a heredoc fed to `bash`/`sh`/`zsh` is re
 their own call, and in a compound command the reason names the call that needs your shell. Read-only key forms
 (`-l`, `-F`, `-R`) and a new key with `-N` run directly; `-y` without `-P` is handed off. Not matched: a command name
 inside quotes (`"npm" login`), behind a prefix such as `env`, `time` or `sudo`, or inside a double-quoted `$( )`.
+The watch daemon's built-in allowlist is the same matcher, so it runs exactly what the hook hands off: it no longer
+rejects a command the hook gated (for example `-y` with `-N` but no `-P`), and it refuses a quoted mention, heredoc data
+or a read-only key form it used to accept. Your own allowlist entries still match the whole command.
 Escape: `AOFORGE_SKIP_INTERACTIVE_GATE=1`."
+
+USER-GUIDE hook table row (~960), in substance: "... auth logins, `passwd`, `ssh-keygen` without `-N` (or with `-y`
+but no `-P`), `nvm use`, `direnv allow`, ..." and drop "Has known false positives."
+
+Site handoff guide, "Allowlist and deny list" (append to the existing paragraph), in substance: "The built-in entries
+are the hook's own matcher, so the daemon runs exactly the commands `gate-interactive` hands off and nothing it lets
+through: a quoted mention, heredoc data or a read-only key form is refused. Entries you add through
+`AOFORGE_WATCH_ALLOW_FILE` are regular expressions tested on the whole command."
 
 New USER-GUIDE text for the shim list (replacing the `userDotFile` bullet at ~41) and a $HOME line, in substance:
 "`userDotFile` reads `defaults.json`, the Brave API key and the watch allowlist from `~/.claude/aoforge/` first, then
@@ -112,6 +126,12 @@ there, or the directory holds planning files |"
 
 CHANGELOG entries (Keep a Changelog sections already present under [Unreleased]; one bullet each, objective 73 gap
 closure, plain past-tense statements, no gated command names needed beyond what the existing entries already use).
+Beyond the $HOME, detection and file-location bullets, two come from 73-12 and 73-10: Fixed, "The watch daemon no
+longer rejects a command gate-interactive handed off (a compound command whose skip flag sits in another call, or a
+key read with `-y` and `-N` but no `-P`) (TRD 73-12)"; Changed, "The daemon's built-in allowlist uses gate-interactive's
+per-invocation matcher: it accepts exactly what the hook hands off and now refuses quoted mentions, heredoc data and
+read-only key forms it used to accept; user allowlist entries still match the whole command (TRD 73-12)", and "Key
+reads with `-y` and no `-P` are handed off even when the command passes `-N` (TRD 73-10)".
 </codebase_examples>
 
 <anti_patterns>
@@ -177,14 +197,17 @@ USER-GUIDE: replace the `userDotFile` shim bullet and add the $HOME rule and fil
 the check 17 row to the rename doctor table; in the attended-terminal paragraph say the log is in
 `~/.claude/aoforge/state/watch/aoforge-watch.log`; in the "watch daemon started before the rename" paragraph add that a
 daemon started by 3.0.0 keeps working until restarted; replace the "gate-interactive false positives" known
-limitation with "What gate-interactive matches" (codebase_examples, adjusted to 73-10's SUMMARY). Site handoff guide:
-replace the "A known gap" callout with the shipped behaviour and the remaining limits, and update the gated-list line
-for key generation (read-only forms pass). CHANGELOG `[Unreleased]`: add the Fixed, Changed and Added bullets named in
-must_haves, each tagged "objective 73 gap closure" and citing the TRD. Commit
+limitation with "What gate-interactive matches" (codebase_examples, adjusted to 73-10's and 73-12's SUMMARYs: it
+includes the daemon-agreement sentences and `-y` without `-P`); update the hook table's `gate-interactive.js` row
+(~960) the same way and drop "Has known false positives". Site handoff guide: replace the "A known gap" callout with
+the shipped behaviour and the remaining limits, update the gated-list line for key generation (read-only forms pass,
+`-y` without `-P` is handed off), and extend "Allowlist and deny list" with the built-in-matcher paragraph
+(codebase_examples). CHANGELOG `[Unreleased]`: add the Fixed, Changed and Added bullets named in must_haves (including
+the daemon allowlist and `-y` bullets), each tagged "objective 73 gap closure" and citing the TRD. Commit
 `docs(73-14): document the gap closure in the guide and changelog`.
   </action>
   <verify>node --test plugins/aoforge/aoforge/bin/lib/doc-refs.repo.test.cjs plugins/aoforge/aoforge/bin/lib/rename-guard.repo.test.cjs plugins/aoforge/aoforge/bin/lib/rg-flag-guard.test.cjs exits 0; node ~/.claude/aoforge/bin/aof-tools.cjs changelog check Unreleased prints `"ok": true`</verify>
-  <done>The guide and the site guide describe the shipped detection and locations; no known-limitation bullet describes a fixed bug; the changelog records the gap closure.</done>
+  <done>The guide and the site guide describe the shipped detection and locations, that the daemon runs exactly what the hook hands off, and that `-y` without `-P` is handed off; no known-limitation bullet or hook-table row describes a fixed bug; the changelog records the gap closure, the daemon allowlist change and the `-y` change.</done>
   <recovery>If doc-refs flags a command in the new text, copy the exact form from the SUMMARYs (`aof-tools doctor --global --fix`, `aoforge-watch stop`).</recovery>
 </task>
 
@@ -196,7 +219,8 @@ CLAUDE.md: add check 17 (`user-dot-dir`) to the Doctor bullet (line 66); in the 
 `findProjectRoot` never returns $HOME, `userDotFile` reads the runtime home first, and name `watchStateDir` /
 `resolveUserFile`; rewrite the gate-interactive bullet (line 134): invocation-aware on `shell-words.parseCommand`
 (quoted text and heredoc bodies are data, a heredoc fed to a shell is read), flags and reasons per call, read-only key
-forms pass, daemon read through watcher-state; drop the "known false positives" sentence. Update HOOK_DOCS
+forms pass and `-y` without `-P` is handed off, the matcher lives in `interactive-commands.cjs` and the daemon's
+built-in allowlist uses it too, daemon read through watcher-state; drop the "known false positives" sentence. Update HOOK_DOCS
 `'gate-interactive.js'` the same way (drop "It matches the raw command text ..."), run `npm run docs:data`, then the
 docs guards and the full suite. Commit `docs(73-14): align CLAUDE.md and docs data with the gap closure`.
   </action>
@@ -214,7 +238,8 @@ docs guards and the full suite. Commit `docs(73-14): align CLAUDE.md and docs da
 </validation_gates>
 
 <verification>
-- `rg -n "gate-interactive false positives" docs/USER-GUIDE.md` finds nothing; `rg -n "user-dot-dir" docs/USER-GUIDE.md CLAUDE.md` finds the doctor rows.
+- `rg -n "gate-interactive false positives|Has known false positives" docs/USER-GUIDE.md` finds nothing; `rg -n "user-dot-dir" docs/USER-GUIDE.md CLAUDE.md` finds the doctor rows.
+- `rg -n -i "allowlist" CHANGELOG.md site/content/docs/guides/handoff.md` finds the new daemon-allowlist bullet and the "Allowlist and deny list" paragraph saying the daemon runs exactly what the hook hands off.
 - `rg -n -F '~/.aoforge/defaults.json' plugins/aoforge/aoforge/workflows/settings.md` finds nothing.
 - `rg -n "A known gap" site/content/docs/guides/handoff.md` finds nothing.
 - `git diff --stat` for this TRD touches only the files in `files_modified`.

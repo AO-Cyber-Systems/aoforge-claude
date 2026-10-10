@@ -20,7 +20,7 @@ must_haves:
     - "A real invocation is still gated at every command position: start of line, after `;`, `&&`, `||`, `|`, `&`, `(` and a newline, and inside an unquoted `$( ... )`"
     - "A heredoc fed to a shell (`bash <<'EOF'` / `sh` / `zsh` with a body line `npm login`) is still gated: its body is read as commands"
     - "`ssh-keygen -lf key.pub`, `ssh-keygen -l -f key.pub`, `ssh-keygen -F host`, `ssh-keygen -R host` and `ssh-keygen -t ed25519 -f k -N \"\"` are not gated; `ssh-keygen -t ed25519 -f k` and `ssh-keygen -y -f k` (no -P) are gated; `ssh-keygen -y -f k -P \"\"` is not"
-    - "Flags are read per call: in `ssh-keygen -t ed25519 -f a -N \"\"; ssh-keygen -t ed25519 -f b` the second call is gated and the deny reason names that call (`ssh-keygen -t ed25519 -f b`); `-N` in one call never exempts another, and a skip flag in another segment (`gh auth login; echo --with-token`) never exempts a gated call"
+    - "Flags are read per call: in `ssh-keygen -t ed25519 -f a -N \"\"; ssh-keygen -t ed25519 -f b` the second call is gated and the deny reason's parenthesis names that call (`` (`ssh-keygen -t ed25519 -f b`: ``) and never the first (the whole command still appears in the `` `${cmd}` `` / `` `! ${cmd}` `` instruction, unchanged); `-N` in one call never exempts another, and a skip flag in another segment (`gh auth login; echo --with-token`) never exempts a gated call"
     - "For a single-call command the deny reason is unchanged from today, so the existing daemon-live and daemon-absent wording tests pass as they are"
     - "gate-interactive reads the daemon through watcher-state.cjs (pid file location, override variable, liveness); a record read from the pre-rename daemon's file counts as no daemon, as today; if watcher-state cannot load, the hook behaves as daemon-absent"
     - "The per-invocation matcher lives in the shared module `aoforge/bin/lib/interactive-commands.cjs` (patterns with a `label` each, `sshKeygenFlags`, `matchInvocations`, `detectInteractive`); the hook requires it and re-exports `detectInteractive`, `INTERACTIVE_PATTERNS`, `CMD_POS` and `sshKeygenFlags` under the same names, so 73-12's daemon allowlist can reuse the same matcher"
@@ -139,8 +139,11 @@ directly.
 1. A Bash payload whose command is `rg -n "a|ssh-keygen" notes.md` -> no stdout, exit 0, and no file under
    `<cwd>/.aoforge-handoff/pending/` (the stray-record symptom).
 2. A payload `ssh-keygen -t ed25519 -f k` -> deny, and a pending record is written (unchanged behaviour).
-3. A payload `ssh-keygen -t ed25519 -f a -N ""; ssh-keygen -t ed25519 -f b` -> deny whose reason contains
-   `` `ssh-keygen -t ed25519 -f b` `` and does not contain `-f a`.
+3. A payload `ssh-keygen -t ed25519 -f a -N ""; ssh-keygen -t ed25519 -f b` -> deny whose reason contains the
+   parenthesis naming the matched call, `` (`ssh-keygen -t ed25519 -f b`: ``, and does NOT match
+   ``/\(`[^`]*-f a/`` (no parenthesis names the exempt call). Assert on the parenthesis only: both wordings also embed
+   the whole command (`` `${cmd}` `` / `` `! ${cmd}` ``), so `-f a` legitimately appears elsewhere in the reason, and
+   that instruction must not change.
 4. Daemon via watcher-state: with `AOFORGE_HANDOFF_PID_FILE` unset and `HOME` = temp home, a pid file written where
    `watcher-state.pidFilePath()` says (computed in the test by requiring watcher-state with that HOME) holding
    `{ pid: process.pid, watching: [cwd] }` -> the daemon-live reason (`aoforge-watch terminal`).
