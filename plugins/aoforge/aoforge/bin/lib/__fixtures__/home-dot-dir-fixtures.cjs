@@ -9,7 +9,8 @@
  * under a temp HOME so a test can prove $HOME is never read as a project root.
  *
  * Consumers: TRD 73-09 ($HOME is never a project root), 73-11 (the watcher's files leave
- * the dot directory) and 73-13 (the doctor check for what is left in it).
+ * the dot directory) and 73-13 (the doctor check for what is left in it: withDotDirFiles,
+ * watchPidText, serviceFilePath, writeServiceFile).
  *
  * Hand-built, never generated: every tree is written file by file, nothing spawns git,
  * and nothing here reads or writes the real $HOME. Every home lives under os.tmpdir().
@@ -146,6 +147,67 @@ function writeUserFile(home, where, name, content = '{}') {
   return file;
 }
 
+/**
+ * Write `files` into `<home>/<userDotDir>/` and return the dot directory. Unlike mkHome's
+ * `dotDir`, the directory is created even when `files` is empty (an empty leftover dot
+ * directory is a case of its own, TRD 73-13). A name ending in '/' is created as a
+ * directory (`'objectives/'`); a name holding '/' is written below its parent directories.
+ *
+ * @param {string} home
+ * @param {Object<string,string>} [files={}]
+ * @returns {string} the dot directory's path
+ */
+function withDotDirFiles(home, files = {}) {
+  const dir = path.join(home, USER_DOT_DIR);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, content] of Object.entries(files)) {
+    const target = path.join(dir, ...name.split('/').filter(Boolean));
+    if (name.endsWith('/')) {
+      fs.mkdirSync(target, { recursive: true });
+      continue;
+    }
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, String(content));
+  }
+  return dir;
+}
+
+/** The pid file text the watch daemon writes (watcher-state.writePidFile's shape) for `pid`. */
+function watchPidText(pid) {
+  return `${JSON.stringify({ pid, version: '3.0.0', shell: null, watching: [], started_at: '2026-10-09T03:00:00.000Z' }, null, 2)}\n`;
+}
+
+/**
+ * Where an installed watch service's file lives under `home`: the launchd plist or the
+ * systemd user unit. Built from NAMES here, not from service-installer, so the fixture does
+ * not lean on the code under test.
+ *
+ * @param {string} home
+ * @param {'launchd'|'systemd'} kind
+ * @returns {string}
+ */
+function serviceFilePath(home, kind) {
+  if (kind === 'launchd') return path.join(home, 'Library', 'LaunchAgents', `com.aocyber.${NAMES.watch}.plist`);
+  if (kind === 'systemd') return path.join(home, '.config', 'systemd', 'user', `${NAMES.watch}.service`);
+  throw new Error(`serviceFilePath: unknown service kind ${JSON.stringify(kind)}`);
+}
+
+/**
+ * Write an installed watch service's file (see serviceFilePath) holding `text`, creating its
+ * directory. Nothing is loaded: no launchctl or systemctl runs.
+ *
+ * @param {string} home
+ * @param {'launchd'|'systemd'} kind
+ * @param {string} text
+ * @returns {string} the file's path
+ */
+function writeServiceFile(home, kind, text) {
+  const file = serviceFilePath(home, kind);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, String(text));
+  return file;
+}
+
 /** Remove each directory tree; falsy entries are skipped. */
 function rmHome(...dirs) {
   for (const d of dirs) {
@@ -161,5 +223,9 @@ module.exports = {
   linkHome,
   userFileDir,
   writeUserFile,
+  withDotDirFiles,
+  watchPidText,
+  serviceFilePath,
+  writeServiceFile,
   rmHome,
 };

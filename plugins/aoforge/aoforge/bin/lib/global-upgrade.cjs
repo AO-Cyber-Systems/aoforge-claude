@@ -534,6 +534,8 @@ function runGlobalUpgrade({
 module.exports = {
   findLegacy,
   moveLegacy,
+  // The one verified mover (rename, or an EXDEV copy-verify-remove); doctor check 17 reuses it (TRD 73-13).
+  moveEntry,
   findRoutingSection,
   loadGlobalTemplate,
   planBlock,

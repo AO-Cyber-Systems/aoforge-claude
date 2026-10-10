@@ -1,6 +1,6 @@
 {
   "current_objective": "73",
-  "current_job": 12,
+  "current_job": 13,
   "total_jobs": 14,
   "progress_pct": 100,
   "status": "executing",
@@ -1599,6 +1599,11 @@
     {
       "objective": "73",
       "summary": "73-12: the daemon's built-in allowlist entries are gate-interactive's own matcher (interactive-commands.matchInvocations); user entries stay whole-command regexes and the deny list runs first",
+      "rationale": null
+    },
+    {
+      "objective": "73-handoff-gaps-and-result-injection",
+      "summary": "73-13: a leftover ~/.aoforge/ is cleared only by the global doctor check user-dot-dir on --fix; it moves AOForge 3.0.0 files to the runtime home or backups/aoforge-dot-dir-<ts>/, never deletes or overwrites, and waits while a live daemon or an installed service still uses the directory",
       "rationale": null
     }
   ],

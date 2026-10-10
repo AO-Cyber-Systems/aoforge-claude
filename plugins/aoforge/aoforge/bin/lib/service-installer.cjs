@@ -12,6 +12,10 @@
  * then-load on darwin; daemon-reload+enable+start on linux). Uninstall
  * tolerates missing files / not-loaded service (silent-success).
  *
+ * The service's stdout/stderr logs go to the watch state directory
+ * (compat.watchStateDir: ~/.claude/aoforge/state/watch), never to the user's
+ * dot directory, whose name is the planning directory's (TRD 73-13, gap G5).
+ *
  * Test seam: `_setRunExec(fn)` swaps the realRunExec backing for an
  * in-memory mock so tests never invoke real launchctl/systemctl.
  */
@@ -20,8 +24,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execFile } = require('child_process');
+const { watchStateDir } = require('./compat.cjs');
 
 const LABEL = 'com.aocyber.aoforge-watch';
+const SYSTEMD_UNIT = 'aoforge-watch.service';
 
 const realRunExec = (cmd, args, opts = {}) => new Promise((resolve, reject) => {
   execFile(cmd, args, { timeout: 10000, ...opts }, (err, stdout, stderr) => {
@@ -50,11 +56,34 @@ function _xmlEscape(s) {
 }
 
 function _userHome() { return process.env.HOME || os.homedir(); }
-function _launchAgentsDir() { return path.join(_userHome(), 'Library', 'LaunchAgents'); }
-function _launchAgentsPath() { return path.join(_launchAgentsDir(), `${LABEL}.plist`); }
-function _systemdUserDir() { return path.join(_userHome(), '.config', 'systemd', 'user'); }
-function _systemdUnitPath() { return path.join(_systemdUserDir(), 'aoforge-watch.service'); }
-function _aoforgeLogDir() { return path.join(_userHome(), '.aoforge'); }
+
+/**
+ * Where the watch service's file lives under `home`, per platform. Read by the installer
+ * (with HOME read per call) and by doctor check 17 (with a fake or the real home).
+ *
+ * @param {string} home
+ * @returns {{launchd: string, systemd: string}}
+ */
+function servicePaths(home) {
+  return {
+    launchd: path.join(home, 'Library', 'LaunchAgents', `${LABEL}.plist`),
+    systemd: path.join(home, '.config', 'systemd', 'user', SYSTEMD_UNIT),
+  };
+}
+
+function _launchAgentsPath() { return servicePaths(_userHome()).launchd; }
+function _systemdUnitPath() { return servicePaths(_userHome()).systemd; }
+/** The service logs' directory: the watch state directory, read per call so HOME can change between calls. */
+function _watchLogDir() { return watchStateDir(_userHome()); }
+
+/**
+ * The watch log directory as systemd spells it: `%h/<path below home>`, posix separators.
+ * Derived from compat.watchStateDir so it cannot drift; systemd expands %h, not $HOME.
+ */
+function _systemdLogDir() {
+  const anyHome = path.join(path.sep, 'home');
+  return `%h/${path.relative(anyHome, watchStateDir(anyHome)).split(path.sep).join('/')}`;
+}
 
 /**
  * Render a launchd LaunchAgent plist for the daemon. ProgramArguments uses
@@ -72,8 +101,8 @@ function renderLaunchdPlist({ projectRoot, aoforgeWatchPath }) {
     projectRoot,
   ];
   const argsXml = args.map((a) => `        <string>${_xmlEscape(a)}</string>`).join('\n');
-  const stdoutPath = path.join(_aoforgeLogDir(), 'launchd-stdout.log');
-  const stderrPath = path.join(_aoforgeLogDir(), 'launchd-stderr.log');
+  const stdoutPath = path.join(_watchLogDir(), 'launchd-stdout.log');
+  const stderrPath = path.join(_watchLogDir(), 'launchd-stderr.log');
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -105,6 +134,7 @@ ${argsXml}
  * semantics for normal characters — plain string concat is safe.
  */
 function renderSystemdUnit({ projectRoot, aoforgeWatchPath }) {
+  const logDir = _systemdLogDir();
   return `[Unit]
 Description=AOForge Watch — handoff daemon
 After=default.target
@@ -114,8 +144,8 @@ Type=simple
 ExecStart=/usr/bin/env node ${aoforgeWatchPath} start --foreground --project ${projectRoot}
 Restart=on-failure
 RestartSec=5
-StandardOutput=append:%h/.aoforge/systemd-stdout.log
-StandardError=append:%h/.aoforge/systemd-stderr.log
+StandardOutput=append:${logDir}/systemd-stdout.log
+StandardError=append:${logDir}/systemd-stderr.log
 
 [Install]
 WantedBy=default.target
@@ -140,7 +170,7 @@ function _atomicWrite(filePath, contents) {
  * @returns {{servicePath: string}} the path of the written service file
  */
 async function installService({ platform, projectRoot, aoforgeWatchPath }) {
-  fs.mkdirSync(_aoforgeLogDir(), { recursive: true });
+  fs.mkdirSync(_watchLogDir(), { recursive: true });
   if (platform === 'darwin') {
     const plistPath = _launchAgentsPath();
     const plist = renderLaunchdPlist({ projectRoot, aoforgeWatchPath });
@@ -196,6 +226,7 @@ module.exports = {
   uninstallService,
   renderLaunchdPlist,
   renderSystemdUnit,
+  servicePaths,
   _setRunExec,
   _resetMocks,
 };
