@@ -308,6 +308,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-12: a 3.0.0 pid file at ~/.aoforge/ is the same AOForge daemon for one release (read, rewritten by add/remove, cleared by stop/start); the pre-rename one stays legacy and is never written or removed
 - [Objective 73]: 73-12: the daemon's built-in allowlist entries are gate-interactive's own matcher (interactive-commands.matchInvocations); user entries stay whole-command regexes and the deny list runs first
 - [Objective 73-handoff-gaps-and-result-injection]: 73-13: a leftover ~/.aoforge/ is cleared only by the global doctor check user-dot-dir on --fix; it moves AOForge 3.0.0 files to the runtime home or backups/aoforge-dot-dir-<ts>/, never deletes or overwrites, and waits while a live daemon or an installed service still uses the directory
+- [Objective 73]: 73-14: the remaining gate-interactive limits are documented as fail-open (not matched, runs in Claude's Bash as before), each probed against the shipped matcher before it was written
+- [Objective 73]: 73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug
 
 ## Performance Metrics
 
@@ -508,4 +510,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P11 | 7min | 2 tasks | 8 files |
 | Objective 73 P12 | 26min | 3 tasks | 12 files |
 | Objective 73-handoff-gaps-and-result-injection P13 | 12min | 3 tasks | 8 files |
+| Objective 73 P14 | 10min | 3 tasks | 13 files |
 

@@ -1,9 +1,9 @@
 {
   "current_objective": "73",
-  "current_job": 13,
+  "current_job": 14,
   "total_jobs": 14,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1604,6 +1604,16 @@
     {
       "objective": "73-handoff-gaps-and-result-injection",
       "summary": "73-13: a leftover ~/.aoforge/ is cleared only by the global doctor check user-dot-dir on --fix; it moves AOForge 3.0.0 files to the runtime home or backups/aoforge-dot-dir-<ts>/, never deletes or overwrites, and waits while a live daemon or an installed service still uses the directory",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-14: the remaining gate-interactive limits are documented as fail-open (not matched, runs in Claude's Bash as before), each probed against the shipped matcher before it was written",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug",
       "rationale": null
     }
   ],

@@ -57,12 +57,18 @@ requirements-completed: [HND-02, HND-03]
 verification:
   gates_defined: 3
   gates_passed: 1
-  auto_fix_cycles: 0
+  auto_fix_cycles: 1
   tdd_evidence: false
   test_pairing: false
 
-duration: FILL
+duration: 10min
 completed: 2026-10-10
+tokens_input: 13720782
+tokens_output: 55984
+tokens_cache_read: 13536226
+tokens_cache_write: 184372
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 73 TRD 14: Docs for the gap closure Summary
@@ -72,7 +78,13 @@ completed: 2026-10-10
 ## Progress
 - [x] Task 1: File locations in user-facing pages — 6090a928
 - [x] Task 2: USER-GUIDE, site handoff guide and CHANGELOG — e38512e7
-- [x] Task 3: CLAUDE.md, HOOK_DOCS and the generated data; final suite — (this commit)
+- [x] Task 3: CLAUDE.md, HOOK_DOCS and the generated data; final suite — 28f014da
+
+## Performance
+
+- Started: 2026-10-10T02:10:34Z (preflight claim), finished 2026-10-10T02:20:51Z
+- Tasks: 3, each committed individually
+- Files: 13 changed (12 docs and data files plus this SUMMARY); one outside files_modified (site/content/docs/guides/releases.md, see Deviations)
 
 ## What changed
 
@@ -103,13 +115,13 @@ A scratch probe (`require` of `interactive-commands.cjs` and `watcher-allowlist.
 | 1: File locations | `node --test` rename-guard, builtin-sweep, doc-refs, planning-writes repo tests | 0 (66/66) | PASS |
 | 2: Guide, site, changelog | `node --test` doc-refs, rename-guard, rg-flag-guard; `aof-tools changelog check Unreleased` | 0 (54/54); `"ok": true` | PASS |
 | 3: CLAUDE.md, HOOK_DOCS, data | `npm run docs:data`; `node --test` hook-inventory + all six doc guards | 0; 0 (87/87) | PASS |
-| 3: full suite | `npm test` | FILL | FILL |
+| 3: full suite | `npm test` (repo root, after the roadmap tick) | 0 | PASS: 12,506 tests, 12,474 pass, 0 fail, 32 skipped |
 
 ## Validation Gate Results
 
 | Gate | Command | Exit Code | Status |
 |---|---|---|---|
-| test | `npm test` | FILL | FILL |
+| test | `npm test` | 1 on the first run, 0 on the final run | PASS. First run (before the roadmap tick): 12,506 tests, 12,471 pass, 3 fail, 32 skipped. dispatch-completeness 5 was this TRD's CLAUDE.md wording (fixed, Deviation 2). merge-driver-cli 16 failed in its fixture cleanup with `ENOTEMPTY` on a temp directory, and passed on a re-run of its file (25/25); no file of this TRD is involved. E2E1 was ROADMAP drift from this TRD's checkpoint SUMMARY, cleared by `roadmap update-job-progress 73`. Final run: 12,506 tests, 12,474 pass, 0 fail, 32 skipped |
 | lint | none | - | not_available |
 | build | none (docs:build needs Hugo, not part of this gate) | - | not_available |
 
@@ -124,6 +136,13 @@ A scratch probe (`require` of `interactive-commands.cjs` and `watcher-allowlist.
 - **Files modified:** site/content/docs/guides/releases.md (not in the TRD's files_modified)
 - **Commit:** e38512e7
 
+**2. [Rule 1 - Bug] A backtick span in CLAUDE.md read as an undispatched command**
+- **Found during:** Task 3 (full suite)
+- **Issue:** `dispatch-completeness.test.cjs` item 5 takes the first word of every backtick span in the Core Tool bullets and requires it to be an `aof-tools` command. The new Rename shims text spelled the daemon's log command in backticks, so `aoforge-watch` was reported as "not a COMMANDS key".
+- **Fix:** the same sentence without backticks ("the aoforge-watch status, stop and logs commands"); the test file passes (7/7).
+- **Files modified:** CLAUDE.md
+- **Commit:** 28f014da
+
 ### Process notes
 
 - **Stray pending record:** one early `rg` call put a gated command name inside a quoted pattern; the installed 3.0.0 gate denied it and wrote `plugins/aoforge/.aoforge-handoff/pending/h-92da0c76.json` (the session's working directory). The record and its two empty directories were deleted at once; every later search read its pattern from a scratchpad file (`rg -f`) or put the cases in a scratch script. The repo root's `.aoforge-handoff/pending/` was already present and empty, and was left alone.
@@ -131,7 +150,14 @@ A scratch probe (`require` of `interactive-commands.cjs` and `watcher-allowlist.
 
 ## Post-TRD Verification
 
-- Auto-fix cycles used: 0
+- Auto-fix cycles used: 1 (the dispatch-completeness wording)
 - Must-haves verified: 6/6 truths (CHANGELOG entries, USER-GUIDE limitations/locations/$HOME/check 17, site handoff guide, file-location pages, CLAUDE.md + HOOK_DOCS + data, doc guards and full suite)
 - Verification greps: no "gate-interactive false positives", "Has known false positives" or "A known gap" left; `user-dot-dir` is in USER-GUIDE and CLAUDE.md; no `~/.aoforge/defaults.json` in the settings workflow; every remaining `~/.aoforge` in docs, site, CLAUDE.md and plugin markdown is about the 3.0.0 location
-- Gate failures: FILL
+- Gate failures: None in the final run (the three first-run failures are explained under Validation Gate Results)
+
+## Self-Check: PASSED
+
+- FOUND: CHANGELOG.md, docs/USER-GUIDE.md, site/content/docs/guides/handoff.md, site/data/aoforge.json, 73-14-SUMMARY.md
+- FOUND commits: 6090a928 (Task 1), e38512e7 (Task 2), 28f014da (Task 3) on feat/stack-profile-loader, based on dcb59f05
+- `user-dot-dir` found in docs/USER-GUIDE.md and CLAUDE.md
+- No `.aoforge-handoff/pending/*.json` record left in the repository
