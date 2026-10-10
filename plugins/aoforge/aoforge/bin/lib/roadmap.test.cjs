@@ -787,6 +787,36 @@ describe('roadmap update-job-progress — nested TRD checkboxes', () => {
     assert.equal(second.json.trd_checkboxes_ticked, 0);
     assert.deepEqual(second.json.trd_checkboxes, []);
   });
+
+  // Objective 74: a SUMMARY whose frontmatter `status:` is `deferred` or
+  // `checkpoint` is not completion evidence. A wrongly ticked line is
+  // un-ticked; an unticked one stays as it is.
+  test('12: deferred SUMMARY un-ticks a [x] line; checkpoint SUMMARY leaves [ ] alone; idempotent', () => {
+    const project = writeNestedFixture({ '01': 'PASSED' });
+    const dir40 = path.join(project, '.aoforge', 'objectives', '40-fixture');
+    const fmSummary = (id, status) =>
+      `---\nobjective: 40\ntrd: 40-${id}\nstatus: ${status}\n---\n\n# Summary 40-${id}\n\n## Self-Check: PASSED\n`;
+    fs.writeFileSync(path.join(dir40, '40-02-SUMMARY.md'), fmSummary('02', 'deferred'), 'utf-8');
+    fs.writeFileSync(path.join(dir40, '40-03-SUMMARY.md'), fmSummary('03', 'checkpoint'), 'utf-8');
+    const roadmapPath = path.join(project, '.aoforge', 'ROADMAP.md');
+    fs.writeFileSync(roadmapPath,
+      NESTED_ROADMAP.replace('- [ ] 40-02-TRD.md — b', '- [x] 40-02-TRD.md — b'), 'utf-8');
+
+    const result = run(['roadmap', 'update-job-progress', '40'], project);
+    assert.equal(result.status, 0, result.stderr);
+
+    const lines40 = sectionLines(readRoadmap(project), 40);
+    assert.ok(lines40.includes('- [x] 40-01-TRD.md — a'), `40-01 not ticked:\n${lines40.join('\n')}`);
+    assert.ok(lines40.includes('- [ ] 40-02-TRD.md — b'), `deferred 40-02 not unticked:\n${lines40.join('\n')}`);
+    assert.ok(lines40.includes('- [ ] 40-03-TRD.md — c'), `checkpoint 40-03 changed:\n${lines40.join('\n')}`);
+    assert.deepEqual(result.json.trd_checkboxes, ['40-01', '40-02']);
+
+    const first = readRoadmap(project);
+    const second = run(['roadmap', 'update-job-progress', '40'], project);
+    assert.equal(second.status, 0, second.stderr);
+    assert.equal(readRoadmap(project), first, 'second run must be byte-identical to the first');
+    assert.deepEqual(second.json.trd_checkboxes, []);
+  });
 });
 
 // ─── TRD 48-13: update-job-progress — local characterization + store mode ────

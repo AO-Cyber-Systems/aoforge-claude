@@ -1032,7 +1032,8 @@ function buildAdversarialInitiative({
  * Per TDD Playbook habit 4: hand-built, deterministic, no LLM-generated test data.
  *
  * @param {object}   opts
- * @param {object[]} [opts.objectives]         - array of { num, slug, title, status, trds: [{ id, desc, slug, summary, initial_checkbox, initial_annotation, no_trd_file }] }
+ * @param {object[]} [opts.objectives]         - array of { num, slug, title, status, trds: [{ id, desc, slug, summary, summary_status, initial_checkbox, initial_annotation, no_trd_file }] }
+ *                                               summary_status: frontmatter `status:` written into the SUMMARY (e.g. 'deferred', 'checkpoint', 'complete')
  * @param {string}   [opts.milestone_status]   - "in flight" | "complete" (default: "in flight")
  * @param {boolean}  [opts.progress_table]     - TRD 09-02: if true, append a '## Progress' section with one row per objective. Default: false (back-compat).
  * @returns {{ projectRoot: string, cleanup: () => void }}
@@ -1054,14 +1055,18 @@ function buildReconcileFixtures({ objectives = [], milestone_status = 'in flight
         const trdPath = path.join(objDir, `${trd.id}-${trdSlug}-TRD.md`);
         fs.writeFileSync(trdPath, `---\nobjective: ${obj.num}\ntrd: ${trd.id}\n---\n# TRD ${trd.id}\n`, 'utf-8');
       }
-      // Write SUMMARY file per requested state
+      // Write SUMMARY file per requested state. `trd.summary_status` (objective 74)
+      // prepends a frontmatter block `status: <value>` to the body.
       const summaryPath = path.join(objDir, `${trd.id}-${trdSlug}-SUMMARY.md`);
+      const fm = trd.summary_status
+        ? `---\nobjective: ${obj.num}\ntrd: ${trd.id}\nstatus: ${trd.summary_status}\n---\n\n`
+        : '';
       if (trd.summary === 'present') {
-        fs.writeFileSync(summaryPath, `# Summary ${trd.id}\n\n## Self-Check: PASSED\n`, 'utf-8');
+        fs.writeFileSync(summaryPath, `${fm}# Summary ${trd.id}\n\n## Self-Check: PASSED\n`, 'utf-8');
       } else if (trd.summary === 'failed') {
-        fs.writeFileSync(summaryPath, `# Summary ${trd.id}\n\n## Self-Check: FAILED\n\n- foo: missing\n`, 'utf-8');
+        fs.writeFileSync(summaryPath, `${fm}# Summary ${trd.id}\n\n## Self-Check: FAILED\n\n- foo: missing\n`, 'utf-8');
       } else if (trd.summary === 'failed-section') {
-        fs.writeFileSync(summaryPath, `# Summary ${trd.id}\n\n## Self-Check\n\n- foo: FAILED\n- bar: PASSED\n`, 'utf-8');
+        fs.writeFileSync(summaryPath, `${fm}# Summary ${trd.id}\n\n## Self-Check\n\n- foo: FAILED\n- bar: PASSED\n`, 'utf-8');
       }
       // else 'missing' or undefined → no SUMMARY file written
     }

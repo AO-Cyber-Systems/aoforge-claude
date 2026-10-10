@@ -996,18 +996,160 @@ test('RUI5: today parameter forwarded from reconcile to _rollupObjectiveStatus',
   cleanup();
 });
 
+// ─── Group NC — SUMMARY frontmatter status says the TRD did not complete ─────
+// Objective 74: a SUMMARY with `status: deferred` (the user deferred the TRD) or
+// `status: checkpoint` (the TRD stopped at an approval gate) is on disk but is
+// NOT completion evidence. `[ ]` stays `[ ]`; a `[x]` is wrong and is un-ticked
+// with kind `trd_summary_not_complete`.
+
+test('NC-H1: INCOMPLETE_SUMMARY_STATUSES is exactly [deferred, checkpoint]', () => {
+  assert.deepStrictEqual(reconcile.INCOMPLETE_SUMMARY_STATUSES, ['deferred', 'checkpoint']);
+});
+
+test('NC-H2: _summaryNotComplete reads the frontmatter status', () => {
+  const fm = (s) => `---\nobjective: 74\ntrd: 74-06\nstatus: ${s}\n---\n\n# Summary\n\n## Self-Check: PASSED\n`;
+  assert.strictEqual(reconcile._summaryNotComplete(fm('deferred')), true, 'deferred');
+  assert.strictEqual(reconcile._summaryNotComplete(fm('checkpoint')), true, 'checkpoint');
+  assert.strictEqual(reconcile._summaryNotComplete(fm('"Deferred"')), true, 'quoted, mixed case');
+  assert.strictEqual(reconcile._summaryNotComplete(fm('complete')), false, 'complete');
+  // A free-text status that merely mentions a checkpoint is not the token.
+  assert.strictEqual(
+    reconcile._summaryNotComplete(fm('tasks-1-and-2-complete; task-3 (tag) OUTSTANDING — checkpoint:human-action')),
+    false, 'free text is not an exact status token');
+  assert.strictEqual(reconcile._summaryNotComplete('# Summary\n\n## Self-Check: PASSED\n'), false, 'no frontmatter');
+  assert.strictEqual(reconcile._summaryNotComplete('---\nobjective: 74\n---\n# S\n'), false, 'no status key');
+  assert.strictEqual(reconcile._summaryNotComplete('# Summary\n\nstatus: deferred\n'), false, 'status: in the body is not frontmatter');
+  assert.strictEqual(reconcile._summaryNotComplete(''), false, 'empty');
+  assert.strictEqual(reconcile._summaryNotComplete(null), false, 'non-string');
+});
+
+test('NC1: [ ] + status: deferred SUMMARY → zero changes (no drift)', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: ' ', summary: 'present', summary_status: 'deferred' }],
+    }],
+  });
+  const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  assert.deepStrictEqual(result.changes, [], 'a deferred SUMMARY does not tick the line');
+  assert.deepStrictEqual(result.warnings, [], 'no warnings either (TRD file exists)');
+  cleanup();
+});
+
+test('NC2: [ ] + status: checkpoint SUMMARY → zero changes (no drift)', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: ' ', summary: 'present', summary_status: 'checkpoint' }],
+    }],
+  });
+  const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  assert.deepStrictEqual(result.changes, [], 'a checkpoint SUMMARY does not tick the line');
+  cleanup();
+});
+
+test('NC3: [x] + status: deferred SUMMARY → one trd_summary_not_complete change back to [ ]', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: 'x', summary: 'present', summary_status: 'deferred' }],
+    }],
+  });
+  const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  assert.strictEqual(result.changes.length, 1, JSON.stringify(result.changes, null, 2));
+  const c = result.changes[0];
+  assert.strictEqual(c.kind, 'trd_summary_not_complete');
+  assert.strictEqual(c.trd_id, '01-01');
+  assert.strictEqual(c.objective_num, '01');
+  assert.strictEqual(c.before, '- [x] 01-01-alpha-TRD.md — Alpha task');
+  assert.strictEqual(c.after, '- [ ] 01-01-alpha-TRD.md — Alpha task', 'unticked, no (failed) annotation');
+  assert.strictEqual(typeof c.line_index, 'number', 'line_index carried for interactive apply');
+  cleanup();
+});
+
+test('NC3b: [x] + status: checkpoint SUMMARY → trd_summary_not_complete too', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: 'x', summary: 'present', summary_status: 'checkpoint' }],
+    }],
+  });
+  const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  assert.deepStrictEqual(result.changes.map(c => c.kind), ['trd_summary_not_complete']);
+  cleanup();
+});
+
+test('NC4: status: complete SUMMARY still ticks [ ] → [x] (trd_summary_exists)', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [
+        { id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: ' ', summary: 'present', summary_status: 'complete' },
+        { id: '01-02', slug: 'beta', desc: 'Beta task', initial_checkbox: ' ' },
+      ],
+    }],
+  });
+  const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  assert.strictEqual(result.changes.length, 1, JSON.stringify(result.changes, null, 2));
+  assert.strictEqual(result.changes[0].kind, 'trd_summary_exists');
+  assert.strictEqual(result.changes[0].after, '- [x] 01-01-alpha-TRD.md — Alpha task');
+  cleanup();
+});
+
+test('NC5: Self-Check FAILED wins over status: deferred (FAILED handling unchanged)', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: 'x', summary: 'failed', summary_status: 'deferred' }],
+    }],
+  });
+  const result = reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  assert.deepStrictEqual(result.changes.map(c => c.kind), ['trd_summary_failed']);
+  assert.ok(result.changes[0].after.endsWith('(failed)'));
+  cleanup();
+});
+
+test('NC6: write mode un-ticks the deferred line on disk, then a re-run is clean (idempotent)', () => {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [
+        { id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: 'x', summary: 'present', summary_status: 'deferred' },
+        { id: '01-02', slug: 'beta', desc: 'Beta task', initial_checkbox: 'x', summary: 'present', summary_status: 'complete' },
+      ],
+    }],
+  });
+  const roadmapPath = path.join(projectRoot, '.aoforge', 'ROADMAP.md');
+  const first = reconcile.reconcile({ projectRoot, mode: 'write' });
+  assert.deepStrictEqual(first.changes.map(c => c.kind), ['trd_summary_not_complete']);
+  const onDisk = fs.readFileSync(roadmapPath, 'utf-8');
+  assert.ok(onDisk.includes('- [ ] 01-01-alpha-TRD.md — Alpha task'), 'deferred line unticked on disk');
+  assert.ok(onDisk.includes('- [x] 01-02-beta-TRD.md — Beta task'), 'complete line still ticked');
+  assert.ok(onDisk.includes('**Status:** in flight'), 'no rollup: the objective is not all [x]');
+
+  const second = reconcile.reconcile({ projectRoot, mode: 'write' });
+  assert.deepStrictEqual(second.changes, [], 'second run is idempotent');
+  assert.strictEqual(fs.readFileSync(roadmapPath, 'utf-8'), onDisk, 'byte-identical after re-run');
+  cleanup();
+});
+
 // ─── Group EX — export-surface lock ──────────────────────────────────────────
 
 test('EX1: module.exports surface is locked (deepStrictEqual on Object.keys)', () => {
-  // TRD 09-03 locks the surface to exactly 8 entries.
+  // TRD 09-03 locked the surface to exactly 8 entries. Objective 74 deliberately
+  // extended it to 10: INCOMPLETE_SUMMARY_STATUSES + _summaryNotComplete, the
+  // frontmatter-status rule that keeps a deferred/checkpoint SUMMARY from
+  // counting as completion (the NC group below).
   // If this test fails: either a new export was added (update EX1 + CONTEXT.md §Module surface)
   // or a helper was accidentally removed (check roadmap-reconcile.cjs module.exports).
   const expected = [
+    'INCOMPLETE_SUMMARY_STATUSES',
     '_checkSummaryExists',
     '_checkSummaryFailed',
     '_resetMocks',
     '_rollupObjectiveStatus',
     '_setRunFs',
+    '_summaryNotComplete',
     '_walkTrdLines',
     '_writeReconciledRoadmap',
     'reconcile',
