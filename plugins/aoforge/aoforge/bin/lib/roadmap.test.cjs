@@ -811,11 +811,87 @@ describe('roadmap update-job-progress — nested TRD checkboxes', () => {
     assert.ok(lines40.includes('- [ ] 40-03-TRD.md — c'), `checkpoint 40-03 changed:\n${lines40.join('\n')}`);
     assert.deepEqual(result.json.trd_checkboxes, ['40-01', '40-02']);
 
+    // The Progress count is completion evidence too: three SUMMARY files, but
+    // only 40-01 is complete, so 1/3 In Progress, never `3/3 jobs complete`.
+    assert.equal(result.json.summary_count, 1);
+    assert.equal(result.json.job_count, 3);
+    assert.equal(result.json.status, 'In Progress');
+    assert.equal(result.json.complete, false);
+    const after = readRoadmap(project);
+    assert.equal(jobsLine(after, 40), '**Jobs:** 1/3 jobs executed — 3 TRDs in 1 wave');
+    assert.doesNotMatch(after, /3\/3 jobs complete/);
+    assert.equal(progressRow(after, 40), '| 40. Objective under test | v1.3 | 1/3 | In Progress | — |');
+
     const first = readRoadmap(project);
     const second = run(['roadmap', 'update-job-progress', '40'], project);
     assert.equal(second.status, 0, second.stderr);
     assert.equal(readRoadmap(project), first, 'second run must be byte-identical to the first');
     assert.deepEqual(second.json.trd_checkboxes, []);
+  });
+});
+
+// Objective 74: `roadmap analyze` decides disk_status (complete / partial /
+// planned) from the SUMMARY count, so a deferred or checkpoint SUMMARY must not
+// count toward it, the same rule update-job-progress applies.
+describe('roadmap analyze — deferred and checkpoint SUMMARYs are not completion', () => {
+  test('13: disk_status, summary_count and the totals count only completed SUMMARYs', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), [
+      '# Roadmap: Test Project',
+      '',
+      '## Objectives',
+      '',
+      '### Objective 1: Deferred sibling',
+      '',
+      '**Goal:** one complete TRD and one deferred TRD.',
+      '',
+      '### Objective 2: Stopped at a gate',
+      '',
+      '**Goal:** its only SUMMARY is a checkpoint.',
+      '',
+      '### Objective 3: Done',
+      '',
+      '**Goal:** its only SUMMARY says complete.',
+      '',
+    ].join('\n'), 'utf-8');
+    const fmSummary = (id, status) =>
+      `---\ntrd: ${id}\nstatus: ${status}\n---\n\n# Summary ${id}\n\n## Self-Check: PASSED\n`;
+    const objDir = (name) => {
+      const d = path.join(project, '.aoforge', 'objectives', name);
+      fs.mkdirSync(d, { recursive: true });
+      return d;
+    };
+    const d1 = objDir('01-deferred-sibling');
+    fs.writeFileSync(path.join(d1, '01-01-TRD.md'), '# TRD 01-01\n', 'utf-8');
+    fs.writeFileSync(path.join(d1, '01-02-TRD.md'), '# TRD 01-02\n', 'utf-8');
+    fs.writeFileSync(path.join(d1, '01-01-SUMMARY.md'), '# Summary 01-01\n\n## Self-Check: PASSED\n', 'utf-8');
+    fs.writeFileSync(path.join(d1, '01-02-SUMMARY.md'), fmSummary('01-02', 'deferred'), 'utf-8');
+    const d2 = objDir('02-stopped-at-a-gate');
+    fs.writeFileSync(path.join(d2, '02-01-TRD.md'), '# TRD 02-01\n', 'utf-8');
+    fs.writeFileSync(path.join(d2, '02-01-SUMMARY.md'), fmSummary('02-01', 'checkpoint'), 'utf-8');
+    const d3 = objDir('03-done');
+    fs.writeFileSync(path.join(d3, '03-01-TRD.md'), '# TRD 03-01\n', 'utf-8');
+    fs.writeFileSync(path.join(d3, '03-01-SUMMARY.md'), fmSummary('03-01', 'complete'), 'utf-8');
+
+    const r = run(['roadmap', 'analyze'], project);
+    assert.equal(r.status, 0, r.stderr);
+    const byNum = Object.fromEntries(r.json.objectives.map(o => [o.number, o]));
+
+    assert.equal(byNum['1'].job_count, 2);
+    assert.equal(byNum['1'].summary_count, 1, 'the deferred 01-02 SUMMARY is not counted');
+    assert.equal(byNum['1'].disk_status, 'partial', 'not complete while 01-02 is deferred');
+
+    assert.equal(byNum['2'].summary_count, 0, 'the checkpoint SUMMARY is not counted');
+    assert.equal(byNum['2'].disk_status, 'planned');
+
+    assert.equal(byNum['3'].summary_count, 1);
+    assert.equal(byNum['3'].disk_status, 'complete');
+
+    assert.equal(r.json.completed_objectives, 1);
+    assert.equal(r.json.total_jobs, 4);
+    assert.equal(r.json.total_summaries, 2);
+    assert.equal(r.json.progress_percent, 50);
+    assert.equal(r.json.current_objective, '1');
   });
 });
 

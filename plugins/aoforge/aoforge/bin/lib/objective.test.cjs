@@ -276,6 +276,30 @@ describe('objective complete — ROADMAP.md 5-column table (Milestone column pre
     assert.match(roadmap, /- \[x\] Objective 1: Foundation \(3\/3 plans\)/);
     assert.match(roadmap, /- \[x\] Objective 1: Duplicate marker from parallel session \(2\/2 plans\) <!-- duplicate number, parallel session -->/);
   });
+
+  // Objective 74: the "N/M jobs complete" count `objective complete` writes is
+  // the same machine-owned Jobs prefix `roadmap update-job-progress` writes, so
+  // it uses the same rule: a deferred or checkpoint SUMMARY is not a completed
+  // TRD. Otherwise the two writers would flap the line between 9/10 and 10/10.
+  test('deferred and checkpoint SUMMARYs are not counted in the Jobs line or jobs_executed', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    const dir = writeObjective12Dir(project, 10);
+    fs.writeFileSync(path.join(dir, '12-07-SUMMARY.md'),
+      '---\nobjective: 12\ntrd: 12-07\nstatus: deferred\n---\n\n# Summary 07\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, '12-08-SUMMARY.md'),
+      '---\nobjective: 12\ntrd: 12-08\nstatus: checkpoint\n---\n\n# Summary 08\n', 'utf-8');
+    writeObjective13Dir(project);
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.jobs_executed, '8/10');
+
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
+    assert.match(jobsLine(roadmap, 12), /^\*\*Jobs:\*\*\s*8\/10 jobs complete/);
+    assert.doesNotMatch(roadmap, /10\/10 jobs complete/);
+  });
 });
 
 describe('objective complete — STATE.md narrative schema (no **Current Objective:** field)', () => {
