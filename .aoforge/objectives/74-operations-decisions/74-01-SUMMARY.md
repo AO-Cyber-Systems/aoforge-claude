@@ -7,5 +7,5 @@ trd: "01"
 
 ## Progress
 - [x] Task 1: Capture the real docs screenshots and write the fixture builders — 7a2a07ee
-- [ ] Task 2: scripts/ci-visual-judge.cjs, the assertion that the live model really looked — next step: write test case 1 (no credential, exitCode 1, spawn never called) in scripts/ci-visual-judge.test.cjs, run `node --test scripts/ci-visual-judge.test.cjs` to see it fail, commit RED with only the test file
-- [ ] Task 3: .github/workflows/visual-judge.yml, held to the read-only permissions guard
+- [x] Task 2: scripts/ci-visual-judge.cjs, the assertion that the live model really looked — edccaca6 (RED), bb00d077 (GREEN)
+- [ ] Task 3: .github/workflows/visual-judge.yml, held to the read-only permissions guard — next step: add 'visual-judge.yml' to READ_ONLY_WORKFLOWS in scripts/workflow-permissions.test.cjs, run `node --test scripts/workflow-permissions.test.cjs` to see it fail (ENOENT), commit RED with only that file
