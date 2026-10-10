@@ -4,6 +4,8 @@ type: retest-report
 requirement: EST-11
 verdict: not met
 verdict_on_scored: met
+est09_coverage: "90/92 = 0.97826"
+est09_target: met
 eligibility_commit: eb3538af
 rule: pre-registered in OBJECTIVE.md and 75-01-TRD.md
 candidates: [68, 69, 70, 71, 72]
@@ -51,7 +53,33 @@ table was committed (`eb3538af`) before the scoring run existed.
 
 ## Forward-stamp coverage (EST-09)
 
-Measured in TRD 75-05, after the objective's other TRDs ran.
+Measured by TRD 75-05 on 2026-10-10, after 75-01..75-04 had published their SUMMARYs, from the installed 3.0.0 runtime
+(`tokens coverage --milestone v1.6 --raw`). Output verbatim:
+
+```
+v1.6 forward-stamped 90/92 = 0.97826 (target 95%: met) · live 90 · backfill 0 · unlabeled 0 · missing 2 · in progress 0 (not counted)
+  65-02 missing (no_transcript)
+  65-03 missing (no_transcript)
+```
+
+It covers every executor SUMMARY of objectives 65-75 present at measurement time: 92 SUMMARYs, 90 stamped live by an
+executor (`tokens stamp`), none backfilled and none unlabeled. The unrounded ratio in the verb's JSON is
+0.9782608695652174; the verb prints it floored to five places. 75-05's own SUMMARY did not exist yet (this TRD was still
+running), so it is not counted; its stamp is checked in the 75-05 SUMMARY. `tokens coverage` with no scope printed the
+same headline (the current milestone is v1.6), and `tokens coverage --objective 75` printed `objective 75
+forward-stamped 4/4 = 1 (target 95%: met)` for 75-01..75-04.
+
+**EST-09: met.** The verb's own integer check printed `target 95%: met` at 90/92 = 0.97826. Nothing was backfilled to
+reach it, and `tokens backfill --write` was not run.
+
+The two misses, as printed:
+
+- `65-02` missing (`no_transcript`)
+- `65-03` missing (`no_transcript`)
+
+Both were run inline by the orchestrator in objective 65, before the executor stamp existed, so no executor transcript
+exists for them. Objective 66 recorded that they can never be forward stamped. They are the only misses, and they do not
+move.
 
 ## The rule
 
