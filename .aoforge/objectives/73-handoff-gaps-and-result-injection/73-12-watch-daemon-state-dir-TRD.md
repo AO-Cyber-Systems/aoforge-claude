@@ -10,6 +10,8 @@ files_modified:
   - plugins/aoforge/aoforge/bin/aoforge-watch.cjs
   - plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs
   - plugins/aoforge/aoforge/bin/lib/watcher-daemon.cjs
+  - plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs
+  - plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs
   - plugins/aoforge/aoforge/bin/handoff-e2e.test.cjs
   - plugins/aoforge/aoforge/bin/lib/__fixtures__/daemon-polish-fixtures.cjs
   - plugins/aoforge/aoforge/bin/lib/flutter-ui-setup.test.cjs
@@ -27,13 +29,28 @@ must_haves:
     - "The pre-rename daemon's pid file is read last and still carries `legacy: true` (add/remove still refuse it with ELEGACYDAEMON; gate-interactive still treats it as no daemon)"
     - "`aoforge-watch logs` prints the new log, or for one release the 3.0.0 log at `<home>/.aoforge/aoforge-watch.log` when the new one does not exist"
     - "watcher-state's spelled watch directory equals compat.watchStateDir(home) (a test pins it)"
+    - "The daemon accepts exactly what gate-interactive hands off: watcher-allowlist.validateCommand checks its built-in entries with 73-10's shared matcher (interactive-commands.matchInvocations), so every GATED_CASES row of interactive-command-cases.cjs that the hook gates (including `ssh-keygen -y -N \"\" -f k`, `gh auth login; echo --with-token` and the compound ssh-keygen form) is accepted with the hit's label, and every NOT_GATED_CASES row (quoted mentions, heredoc data, read-only key forms) is refused"
+    - "watcher-allowlist keeps its contract: the empty, length and deny checks run first and unchanged; a skipped built-in form (`gh auth login --with-token < f.txt`) is refused with the non-interactive reason; user entries from the allowlist file are still regexes tested on the whole command; no copy of the old CMD_POS-prefixed built-in regexes, whole-command skipIf or ssh-keygen lookahead remains"
   artifacts:
     - path: plugins/aoforge/aoforge/bin/lib/watcher-state.cjs
       provides: "pid file in the watch state directory; one-release read and clear of the 3.0.0 location"
       exports: ["pidFilePath", "readPidFile", "removePidFile", "addWatchedProject", "removeWatchedProject", "WATCH_DIR_SEGMENTS"]
     - path: plugins/aoforge/aoforge/bin/aoforge-watch.cjs
       provides: "log in the watch state directory; logs reads the 3.0.0 log for one release"
+    - path: plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs
+      provides: "built-in entries derived from interactive-commands.cjs and validated per invocation; user entries unchanged"
+      exports: ["defaultAllowlist", "loadAllowlist", "validateCommand", "CMD_POS", "MAX_CMD_LEN", "DENY_PATTERNS"]
+    - path: plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs
+      provides: "hook/daemon agreement over the shared case table"
   key_links:
+    - from: "watcher-allowlist.cjs validateCommand"
+      to: "interactive-commands.cjs matchInvocations (73-10)"
+      via: "require('./interactive-commands.cjs'); built-in entries are never regex-tested on the whole command"
+      pattern: "matchInvocations"
+    - from: "watcher-allowlist.test.cjs"
+      to: "hooks/gate-interactive.js detectInteractive + __fixtures__/interactive-command-cases.cjs"
+      via: "every row the hook gates is accepted by validateCommand; every row it does not gate is refused"
+      pattern: "interactive-command-cases"
     - from: "watcher-state.cjs readablePidFile"
       to: "compat.resolveUserFile"
       via: "{ currentDir: <watch dir>, legacyName: `${LEGACY.watch}.pid` } (compat loaded fail-open)"
@@ -58,8 +75,16 @@ for its `watching` list. For one release that file is read as the same AOForge d
 start, add-project, remove-project, gate-interactive (through 73-10's watcher-state read) and the delivery hooks keep
 working with it, and `stop`/`start` clear it. The pre-rename daemon's file is still read last, as `legacy`.
 
-Purpose: G5 (b). Output: watcher-state and aoforge-watch on the new directory, the one-release read, and every test
-and fixture that waited for or pre-wrote the old paths.
+The daemon also has to accept what the hook now hands off. `watcher-allowlist.cjs` says it mirrors gate-interactive
+but keeps the old regexes: a `CMD_POS` prefix, `skipIf` tested on the whole command and the ssh-keygen
+`(?!.*\s-N\s)` lookahead. After 73-10, forms the hook newly gates (`ssh-keygen -y -N "" -f k`; `gh auth login; echo
+--with-token`) would be handed off and then rejected by the daemon, and quoted mentions the hook no longer gates would
+still be accepted. `validateCommand` switches its built-in entries to 73-10's shared matcher
+(`interactive-commands.cjs`), and a test runs every row of 73-10's case table through both the hook and the daemon.
+
+Purpose: G5 (b), plus hook/daemon agreement after 73-10. Output: watcher-state and aoforge-watch on the new directory,
+the one-release read, every test and fixture that waited for or pre-wrote the old paths, and the allowlist on the
+shared matcher.
 </objective>
 
 <execution_context>
@@ -72,8 +97,11 @@ Project kind `plugin`, work `feature` (gap closure): TDD strict, test list first
 homes; `compat.watchStateDir(home)` builds every expected path), no property-based libraries, no `.feature` files.
 User playbook: failing test first, one at a time.
 
-Read 73-11's SUMMARY (`watchStateDir`, `resolveUserFile` as built) and 73-10's (gate-interactive reads the daemon
-through `watcher-state.readPidFile` and ignores `legacy` records).
+Read 73-11's SUMMARY (`watchStateDir`, `resolveUserFile` as built; it also rewrote `watcher-allowlist.cjs`'s header
+line 7, the `userAllowFilePath` JSDoc and the allowlist test's default-path expectations) and 73-10's (gate-interactive
+reads the daemon through `watcher-state.readPidFile` and ignores `legacy` records; the shared matcher
+`interactive-commands.cjs` with `matchInvocations` and labelled patterns; the case table
+`__fixtures__/interactive-command-cases.cjs`).
 
 Read narrowly:
 - `plugins/aoforge/aoforge/bin/lib/watcher-state.cjs` 1-110 (header, `homeDir`, `pidFilePath`, `readablePidFile`,
@@ -81,7 +109,13 @@ Read narrowly:
   `removeWatchedProject`, exports).
 - `plugins/aoforge/aoforge/bin/aoforge-watch.cjs`: header 30-35, constants 55-67, `cmdLogs` 149-167, `cmdStop` 169-215
   (loops until `readPidFile()` is null), `cmdStart` 217-254, `runForeground` 290-300 (log open).
-- `plugins/aoforge/aoforge/bin/lib/watcher-daemon.cjs` 299 (a comment naming the old log path).
+- `plugins/aoforge/aoforge/bin/lib/watcher-daemon.cjs` 299 (a comment naming the old log path) and 222-233
+  (`processOnce` calls `validateCommand(pending.cmd, allow)`; a rejection becomes a `rejected` done record).
+- `plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs`: header NOTE 12-16 (the "mirrors gate-interactive" claim),
+  `CMD_POS`/`rx` 26-32, `DEFAULT_PATTERNS` 40-67, `DENY_PATTERNS` 72-81, `validateCommand` 100-124, `loadAllowlist`
+  (user entries) 144-170.
+- `plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs` 50-145 (defaultAllowlist shape, allowed and rejected
+  lists, the skipIf reason regex `/not.*needed|non-interactive|skipped/i`).
 - Tests and fixtures that spell the old pid or log path (the waiting ones fail after the move; the pre-writing ones
   keep passing through the one-release read but must describe the current layout):
   - `aoforge-watch.test.cjs` 56 (`spawnForegroundDaemon` waits for the pid), 89-128, 193-196 (stale pid), 228
@@ -96,7 +130,7 @@ Read narrowly:
 
 ## Test list
 
-Outermost first: the CLI, then watcher-state.
+Outermost first: the CLI, then watcher-state, then the neighbours; the allowlist agreement last.
 
 **aoforge-watch CLI (`aoforge-watch.test.cjs`, temp HOME):**
 1. `start --foreground` then SIGTERM: while running, the pid file is at `compat.watchStateDir(home)/aoforge-watch.pid`
@@ -124,6 +158,22 @@ Outermost first: the CLI, then watcher-state.
     reason; a live 3.0.0 pid file only -> daemon-live reason; a pre-rename file only -> daemon-absent reason.
 15. `handoff-e2e.test.cjs`, `flutter-ui-setup.test.cjs`, `daemon-polish` consumers and `file-identities` 6b pass with
     the current layout (pre-writers write the watch directory; 6b says writes land in the watch directory).
+
+**watcher-allowlist (`watcher-allowlist.test.cjs`, rows from 73-10's `interactive-command-cases.cjs`, hook required as
+`../../../hooks/gate-interactive.js`):**
+16. Hook -> daemon: for every `GATED_CASES` row, the hook's `detectInteractive(cmd)` is non-null and
+    `validateCommand(cmd, defaultAllowlist())` is `{ ok: true, matched: <that hit's label> }`. This covers the forms the
+    old regexes refused: `ssh-keygen -y -N "" -f k` (lookahead) and `gh auth login; echo --with-token` (whole-command
+    skipIf).
+17. Not gated -> not run: for every `NOT_GATED_CASES` row, the hook returns null and `validateCommand(...).ok` is false
+    (the old regexes accepted `rg "a|ssh-keygen" file`, the heredoc-data rows and `ssh-keygen -lf key.pub`).
+18. The skip form `gh auth login --with-token < f.txt` is still refused with a reason matching
+    `/not.*needed|non-interactive|skipped/i` (the existing test, unchanged), now from `matchInvocations().skipped`.
+19. Built-ins are never regex-tested on the whole command: `rg "a|npm login" f` with `defaultAllowlist()` is refused;
+    a user entry `{ pattern: '^echo\\b' }` loaded through the override file still accepts `echo hi` (regex on the whole
+    command, as today).
+20. Existing defaultAllowlist, allowed, rejected (deny list, empty, too long) and user-file tests pass unchanged; every
+    `defaultAllowlist()` entry still has a `label` and a RegExp `match`.
 
 <embedded_context>
 
@@ -178,6 +228,39 @@ function readableLogFile() {                                                    
 ```
 (the pre-rename log, if any, is resolved too; pass `legacyName: \`${LEGACY.watch}.log\`` only if `LEGACY` is already
 imported there; otherwise the default name simply never exists under the pre-rename directory, which is fine).
+
+watcher-allowlist on 73-10's shared matcher (the module ships beside it in `bin/lib`, so a plain require; no
+fail-open here, the daemon cannot validate without it):
+```js
+const interactive = require('./interactive-commands.cjs');
+// The deny list still matches at command position on the WHOLE text: it can only refuse more, never run more.
+const { CMD_POS } = interactive;
+
+// Built-in entries come from the matcher gate-interactive uses, marked `builtin` so validateCommand never regex-tests
+// them on the whole command (their `match` is anchored at the start of ONE simple command).
+const DEFAULT_PATTERNS = Object.freeze(interactive.INTERACTIVE_PATTERNS.map((p) =>
+  Object.freeze({ label: p.label, match: p.match, builtin: true })));
+
+function validateCommand(cmd, allowlist) {
+  // empty / too long / deny / empty allowlist: unchanged, in this order
+  const builtins = new Set(allowlist.filter((p) => p.builtin).map((p) => p.label));
+  const { hit, skipped } = interactive.matchInvocations(cmd);
+  if (hit && builtins.has(hit.label)) return { ok: true, matched: hit.label };
+  if (skipped && builtins.has(skipped.label)) {
+    // curated entries are checked before user entries, as today
+    return { ok: false, reason: `non-interactive form not needed for handoff (matched skipIf for "${skipped.label}")` };
+  }
+  for (const p of allowlist) {
+    if (p.builtin) continue;                     // user entries: regex + skipIf on the whole command, unchanged
+    ...today's loop body
+  }
+  return { ok: false, reason: 'command does not match the daemon allowlist' };
+}
+```
+Header NOTE (replaces lines 12-16, which claimed a regex mirror): built-in entries are the same per-invocation matcher
+gate-interactive uses (`interactive-commands.cjs`: shell-words segments, flags read per call, quoted text and heredoc
+data never match), so the daemon accepts exactly the commands the hook hands off (`watcher-allowlist.test.cjs` pins
+it over the shared case table); user entries from the allowlist file are regexes tested on the whole command.
 </codebase_examples>
 
 <anti_patterns>
@@ -189,6 +272,12 @@ imported there; otherwise the default name simply never exists under the pre-ren
   belongs to the user.
 - No generated test data; build every expected path with `compat.watchStateDir(home)`, never by hand-joining
   `.claude/aoforge/state/watch` in each test.
+- Do not keep, rebuild or patch the old built-in regexes in watcher-allowlist (`rx(...)` entries, whole-command
+  `skipIf`, the ssh-keygen lookahead): one matcher, `interactive-commands.cjs`, decides for both the hook and the
+  daemon. Do not edit `interactive-commands.cjs` or the case table here either (73-10's files): if an agreement row
+  fails, the allowlist is wrong, or report the row in the SUMMARY.
+- Do not change the deny list, `MAX_CMD_LEN`, the user-file format or the rejection reasons the daemon logs; do not
+  widen what the daemon runs beyond what the hook hands off plus the user's own entries.
 </anti_patterns>
 
 <error_recovery>
@@ -200,6 +289,11 @@ imported there; otherwise the default name simply never exists under the pre-ren
   watcher-state; check `require('./gate-interactive.js').pidFilePath()` against watcher-state's.
 - handoff-e2e PTY tests skip or fail for environment reasons (no zsh/bash PTY): compare with the 73-VERIFICATION
   baseline (2 skipped: fish and pwsh) before treating a failure as yours.
+- An agreement row (item 16) fails with `denied by guard`: a GATED row trips the whole-text deny list. That is a row
+  73-10 should not have written (its anti-patterns forbid a `sudo` prefix); report it, do not loosen the deny list.
+- handoff-e2e or watcher-daemon tests now see `rejected` for a command they expected to run: read the command. A
+  built-in form the hook does not gate (a quoted mention, a skip form) is now refused by design; if the test needs it
+  to run, it belongs in that test's user allowlist file (`writeAllowFile`), as handoff-e2e already does for `echo`.
 </error_recovery>
 
 </embedded_context>
@@ -215,28 +309,35 @@ imported there; otherwise the default name simply never exists under the pre-ren
   `.aoforge-handoff/pending/<id>.json` a denied call leaves.
 - Do not touch `service-installer.cjs` or its test (73-13 runs in the same wave and owns them) or
   `home-dot-dir-fixtures.cjs` (73-13 may extend it in this wave).
+- `watcher-allowlist.cjs` and its test were last edited by 73-11 (wave 2: header line 7, `userAllowFilePath` JSDoc,
+  default-path tests). Build on that; do not revert its comments or its runtime-home path expectations.
+- The agreement test requires the hook from `bin/lib` as `../../../hooks/gate-interactive.js`; requiring it does not
+  run it (`require.main` guard). Load the case table from `./__fixtures__/interactive-command-cases.cjs`.
 </gotchas>
 
 <tasks>
 
 <task type="auto" tdd="true">
-  <name>Task 1: RED, the daemon's files in the watch directory and the 3.0.0 read</name>
-  <files>plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs, plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs</files>
+  <name>Task 1: RED, the daemon's files in the watch directory, the 3.0.0 read, and hook/daemon agreement</name>
+  <files>plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs, plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs, plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs</files>
   <action>
-Write test list items 7-13 in `watcher-state.test.cjs` (rewrite the two old path assertions) and items 1-6 in
+Write test list items 7-13 in `watcher-state.test.cjs` (rewrite the two old path assertions), items 1-6 in
 `aoforge-watch.test.cjs` (move `spawnForegroundDaemon`'s and the other waits' pid path, and the log test's path, to
-`watchStateDir(home)`), one at a time. Run both files: the new-location items, item 1's "no `<home>/.aoforge`", 2's
-3.0.0 log read, 4 (stale 3.0.0 cleared), 5, 11 and 13 fail; the waits time out against the old code. Commit the tests
-alone: `test(73-12): pin the watch daemon's files in the runtime home`.
+`watchStateDir(home)`) and items 16-19 in `watcher-allowlist.test.cjs` (a new describe `hook and daemon agree (TRD
+73-12)`; update the file's behaviour-list header), one at a time. Run the three files: the new-location items, item
+1's "no `<home>/.aoforge`", 2's 3.0.0 log read, 4 (stale 3.0.0 cleared), 5, 11 and 13 fail; the waits time out
+against the old code; 16 fails on the `-y -N` and other-call-skip rows, 17 on the quoted `|` mentions, the heredoc data
+and the read-only key rows, 19 on `rg "a|npm login" f`; 18 and 20 pass. Commit the tests alone:
+`test(73-12): pin the watch daemon's files in the runtime home and its agreement with the hook`.
   </action>
-  <verify>node --test plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs exits non-zero, failing on the new locations and the 3.0.0 clear</verify>
-  <done>The move and the one-release read are specified by failing tests; RED output captured.</done>
+  <verify>node --test plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs exits non-zero, failing on the new locations, the 3.0.0 clear and the agreement rows the old regexes get wrong</verify>
+  <done>The move, the one-release read and hook/daemon agreement are specified by failing tests; RED output captured.</done>
   <recovery>If a CLI test hangs rather than fails, lower its wait in the test (keep the assertion) so the RED run finishes; restore the original timeout in Task 2.</recovery>
 </task>
 
 <task type="auto" tdd="true">
-  <name>Task 2: GREEN, watcher-state and aoforge-watch on the watch directory</name>
-  <files>plugins/aoforge/aoforge/bin/lib/watcher-state.cjs, plugins/aoforge/aoforge/bin/aoforge-watch.cjs, plugins/aoforge/aoforge/bin/lib/watcher-daemon.cjs</files>
+  <name>Task 2: GREEN, watcher-state and aoforge-watch on the watch directory; the allowlist on the shared matcher</name>
+  <files>plugins/aoforge/aoforge/bin/lib/watcher-state.cjs, plugins/aoforge/aoforge/bin/aoforge-watch.cjs, plugins/aoforge/aoforge/bin/lib/watcher-daemon.cjs, plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs</files>
   <action>
 Implement per codebase_examples: `WATCH_DIR_SEGMENTS` (exported) and `INTERIM_DOT_DIR` replace `PID_DIR_NAME`;
 rewrite `pidFilePath`, `readablePidFile`, `removePidFile`; add/remove write the file they read. In aoforge-watch,
@@ -244,9 +345,14 @@ replace `LOG_DIR_NAME` with `watchStateDir`, add `readableLogFile` for `cmdLogs`
 Rewrite watcher-state's header (where the pid file lives, the 3.0.0 read and clear, the pre-rename read) and the
 `watcher-daemon.cjs` 299 comment. Make items 1-13 pass one at a time. Commit
 `fix(73-12): keep the watch daemon's pid file and log in the runtime home`.
+Then, as its own commit, switch `watcher-allowlist.cjs` per codebase_examples: built-in entries from
+`interactive-commands.INTERACTIVE_PATTERNS` marked `builtin`, `validateCommand` on `matchInvocations` for them and
+today's loop for user entries only, `CMD_POS` taken from the shared module for the deny list, the old `rx()` built-ins
+deleted, and the header NOTE rewritten (it no longer claims a regex mirror). Make items 16-20 pass one at a time.
+Commit `fix(73-12): the watch daemon accepts exactly what gate-interactive hands off`.
   </action>
-  <verify>node --test plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs plugins/aoforge/aoforge/bin/lib/handoff-results.test.cjs plugins/aoforge/hooks/statusline.test.js exits 0</verify>
-  <done>Nothing in the watcher writes `~/.aoforge/`; a 3.0.0 daemon is still found, updated and cleared; the pre-rename daemon is still read as legacy.</done>
+  <verify>node --test plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs plugins/aoforge/aoforge/bin/lib/watcher-daemon.test.cjs plugins/aoforge/aoforge/bin/lib/handoff-results.test.cjs plugins/aoforge/hooks/statusline.test.js exits 0</verify>
+  <done>Nothing in the watcher writes `~/.aoforge/`; a 3.0.0 daemon is still found, updated and cleared; the pre-rename daemon is still read as legacy; the daemon accepts every command the hook gates and refuses every command it does not, with no second copy of the built-in patterns.</done>
   <recovery>If statusline tests fail, they build a pid path by hand: read the failure; if it only needs the new path, update that line and list `hooks/statusline.test.js` in the SUMMARY as an extra file touched.</recovery>
 </task>
 
@@ -270,7 +376,7 @@ unchanged). Run the full suite. Commit `test(73-12): move watcher fixtures and w
 </tasks>
 
 <validation_gates>
-<test>node --test plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs plugins/aoforge/aoforge/bin/handoff-e2e.test.cjs   (scoped)</test>
+<test>node --test plugins/aoforge/aoforge/bin/lib/watcher-state.test.cjs plugins/aoforge/aoforge/bin/aoforge-watch.test.cjs plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs plugins/aoforge/aoforge/bin/handoff-e2e.test.cjs   (scoped)</test>
 <test>npm test   (full suite before the last commit; if micro.test.cjs hangs on commit signing, use node --test 'plugins/aoforge/**/!(micro).test.cjs' 'plugins/aoforge/**/*.test.js' 'plugins/devflow/**/*.test.js' 'scripts/**/*.test.cjs')</test>
 <lint>not_available</lint>
 <build>not_available</build>
@@ -280,6 +386,9 @@ unchanged). Run the full suite. Commit `test(73-12): move watcher fixtures and w
 - `rg -n "PID_DIR_NAME|LOG_DIR_NAME" plugins/aoforge/aoforge/bin` finds nothing.
 - `rg -n "WATCH_DIR_SEGMENTS|INTERIM_DOT_DIR" plugins/aoforge/aoforge/bin/lib/watcher-state.cjs` finds both.
 - `rg -n "watchStateDir" plugins/aoforge/aoforge/bin/aoforge-watch.cjs` finds the log path.
+- `rg -n "matchInvocations|interactive-commands" plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs` finds the shared
+  matcher; `rg -n "rx\(" plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs` finds only the `rx` helper and the
+  deny-list entries (no built-in regex is left).
 - Full suite: no new failures; RED commit precedes GREEN.
 </verification>
 
@@ -287,10 +396,13 @@ unchanged). Run the full suite. Commit `test(73-12): move watcher fixtures and w
 - Starting aoforge-watch no longer creates `~/.aoforge/`, so the directory that turned $HOME into a project is never
   recreated.
 - A daemon already running from 3.0.0 keeps working until it is restarted, and `stop`/`start` clean up after it.
+- Every command gate-interactive hands off is one the daemon will run, and nothing the hook lets through is run by
+  the daemon's built-in entries.
 </success_criteria>
 
 <output>
 After completion, create `.aoforge/objectives/73-handoff-gaps-and-result-injection/73-12-SUMMARY.md` (through
 `aof-tools summary post`) with the TDD evidence table, the pid and log resolution order as built, and the list of
-tests that still pin the 3.0.0 read (they go with the shims in the release after 3.0.0).
+tests that still pin the 3.0.0 read (they go with the shims in the release after 3.0.0), and the agreement result
+(rows the old allowlist got wrong, from the RED run).
 </output>

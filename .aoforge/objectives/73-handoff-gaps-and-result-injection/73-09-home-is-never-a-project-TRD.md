@@ -19,7 +19,7 @@ must_haves:
   truths:
     - "compat.findProjectRoot never returns $HOME: with HOME=<tmp> holding `.aoforge/aoforge-watch.log`, a start path anywhere below <tmp> that has no planning directory of its own resolves to null, and a start path equal to <tmp> resolves to null"
     - "A real project below $HOME is still found: <tmp>/proj/.aoforge/ plus <tmp>/.aoforge/ -> findProjectRoot(<tmp>/proj/sub) is <tmp>/proj"
-    - "The $HOME comparison holds across symlinked forms: HOME given as a symlink to the real directory (and macOS /var vs /private/var temp paths) is still recognised"
+    - "The $HOME comparison holds across symlinked forms: HOME given as a symlink to the real directory under a different name (`<base>/link -> <base>/real`, in both directions) and macOS /var vs /private/var temp paths are still recognised; a found planning directory is realpath-compared with $HOME before it is returned (one realpath per candidate, never one per directory walked)"
     - "A start path outside $HOME walks exactly as before (to the filesystem root), and with HOME unset or empty there is no $HOME stop at all"
     - "planning-mode.resolveMainRoot and resolveCheckoutRoot never return $HOME: neither through the nearest-planning-dir walk nor when $HOME itself is a git checkout holding `.aoforge/`"
     - "Spawned with HOME=<tmp> holding `.aoforge/aoforge-watch.log`, classify-session, gate-edits, gate-commits and route-intent treat a git repo at <tmp>/repo exactly as they treat the same repo under a HOME with no `.aoforge/` (byte-identical stdout); gate-edits does not deny an ambient Write there"
@@ -42,9 +42,9 @@ must_haves:
       via: "delegation (one walker, one $HOME rule)"
       pattern: "findProjectRoot\\("
     - from: "compat.findProjectRoot"
-      to: "compat.isUserHome"
-      via: "checked before each directory is inspected"
-      pattern: "isUserHome"
+      to: "compat.homeMatcher (shared with isUserHome)"
+      via: "cheap stop check before each directory is inspected; full realpath check on a found candidate"
+      pattern: "homeMatcher\\("
 ---
 
 # TRD 73-09: $HOME is never an AOForge project root
@@ -98,7 +98,11 @@ through planning-mode (`resolveMainRoot`/`resolveCheckoutRoot`: gh-flush, todo-s
 walk-up loops look for `.git` (findRepoRoot / findGitDir / findGitHolder / gate-commits' git dir), for
 `.aoforge-handoff/` (handoff-results.findHandoffDir), or are realpath helpers; none of them decides whether a
 directory is a project. gate-edits/skill-active `sharedPlanningDir` only reads a skill marker to ALLOW an edit after a
-project was already detected, so it cannot make $HOME a project. Record this survey in the SUMMARY.
+project was already detected, so it cannot make $HOME a project. `session-audit.findPlanningRoot` (transcript
+telemetry, `session-audit.cjs` 406-420) runs its own upward loop and calls `findProjectRoot(dir, { maxUp: 0 })` once
+per directory: after this change $HOME reads as not-a-project there, but that loop continues above $HOME (`/Users`,
+`/`). That is harmless (offline telemetry over recorded cwds, never a gate, and nothing above $HOME holds a planning
+directory in practice), so it is left as is. Record this survey, including that note, in the SUMMARY.
 </context>
 
 ## Test list
@@ -122,8 +126,12 @@ Outermost first. Every home is a hand-built temp tree from `home-dot-dir-fixture
 8. `findProjectRoot(<tmp>, { home: <tmp> })` -> null.
 9. `<tmp>/proj/.aoforge/` and `<tmp>/.aoforge/` -> `findProjectRoot(<tmp>/proj/sub, { home: <tmp> })` is `<tmp>/proj`.
 10. The legacy planning directory at $HOME (name from `LEGACY.planningDir`, never spelled) -> null too.
-11. Symlink: `linkHome` makes `<tmp>/link -> <tmp>/real`; HOME=`<tmp>/link`, start `<tmp>/real/repo` -> null; and the
-    reverse (HOME real, start through the link) -> null.
+11. Symlink with a different name: `linkHome` makes `<base>/link -> <base>/real`, with `<base>/real/.aoforge/` holding
+    the watcher's log. HOME=`<base>/link`, start `<base>/real/repo` -> null; and the reverse (HOME=`<base>/real`, start
+    `<base>/link/repo`) -> null. The basenames differ, so the cheap stop check never fires on this walk: only the
+    candidate check (the planning directory is found at `<base>/real` or `<base>/link`, whose realpath is $HOME's) refuses
+    it. No over-refusal: HOME=`<base>/real` and a project at `<base>/real/proj/.aoforge/` -> start `<base>/link/proj/sub`
+    resolves to `<base>/link/proj`.
 12. Outside home: home `<a>`, project `<b>/proj/.aoforge/` -> `findProjectRoot(<b>/proj/x, { home: <a> })` is `<b>/proj`.
 13. Default home: with `process.env.HOME` set to <tmp> (restored after) and no `home` option -> null for `<tmp>/repo`.
 14. `home: ''` (and HOME unset with `os.homedir` stubbed to `''` if needed) -> no stop: `<tmp>/.aoforge/` is found as
@@ -169,24 +177,29 @@ function realOr(p, fsImpl) {
   try { return fsImpl.realpathSync(p); } catch { return p; }
 }
 
-// One matcher per walk: the resolved home, and its realpath computed lazily. realpath is only taken for a
-// directory whose basename equals home's basename, so a walk normally costs no extra syscalls.
+// One matcher per walk. Two checks with different costs:
+//   stopsAt(dir)  runs on EVERY directory of the walk and terminates it: exact path, or (only when the basename
+//                 equals home's) a realpath comparison. A normal walk costs no extra syscalls.
+//   isHome(dir)   runs only on a CANDIDATE (a directory that holds a planning directory), right before it would be
+//                 returned: exact path, else realpath(dir) === realpath(home). One realpath per candidate, so a home
+//                 reached under another name (<base>/link -> <base>/real, test 11) is still refused.
+// home's own realpath is computed lazily, at most once per walk, and shared by both checks.
 function homeMatcher(home, fsImpl) {
-  if (typeof home !== 'string' || home === '') return () => false;
+  if (typeof home !== 'string' || home === '') return { stopsAt: () => false, isHome: () => false };
   const resolved = path.resolve(home);
   const base = path.basename(resolved);
   let real;
-  return (dir) => {
-    if (dir === resolved) return true;
-    if (path.basename(dir) !== base) return false;
-    if (real === undefined) real = realOr(resolved, fsImpl);
-    return dir === real || realOr(dir, fsImpl) === real;
+  const homeReal = () => (real === undefined ? (real = realOr(resolved, fsImpl)) : real);
+  return {
+    stopsAt: (dir) => dir === resolved
+      || (path.basename(dir) === base && realOr(dir, fsImpl) === homeReal()),
+    isHome: (dir) => dir === resolved || realOr(dir, fsImpl) === homeReal(),
   };
 }
 
-/** True when `dir` is the user's home directory (any symlinked form). */
+/** True when `dir` is the user's home directory (any symlinked form, any name). One realpath of `dir`. */
 function isUserHome(dir, { home = userHomeDir(), fsImpl = fs } = {}) {
-  return homeMatcher(home, fsImpl)(path.resolve(dir));
+  return homeMatcher(home, fsImpl).isHome(path.resolve(dir));
 }
 
 function findProjectRoot(start, { fsImpl = fs, maxUp = 64, home = userHomeDir() } = {}) {
@@ -194,8 +207,12 @@ function findProjectRoot(start, { fsImpl = fs, maxUp = 64, home = userHomeDir() 
   let dir = path.resolve(start);
   for (let i = 0; i <= maxUp; i++) {
     // CRITICAL: $HOME is never a project root, and nothing above it is searched (G5, objective 73).
-    if (atHome(dir)) return null;
-    if (hasNewPlanDir(dir, fsImpl) || hasOldPlanDir(dir, fsImpl)) return dir;
+    if (atHome.stopsAt(dir)) return null;
+    if (hasNewPlanDir(dir, fsImpl) || hasOldPlanDir(dir, fsImpl)) {
+      // GOTCHA: the stop check misses a home whose symlinked name differs; the candidate check catches it. A
+      // candidate that IS $HOME ends the walk (null): the walk never continues above $HOME.
+      return atHome.isHome(dir) ? null : dir;
+    }
     ...unchanged
   }
 }
@@ -213,11 +230,15 @@ and the git-holder candidate in `resolveMainRoot` / `resolveCheckoutRoot` is ref
 <anti_patterns>
 - Do not special-case the watcher's file names ("skip $HOME unless it holds STATE.md") here. The decision is locked:
   $HOME is never a project, whatever `~/.aoforge/` holds. 73-13's doctor check deals with what is left in it.
-- Do not realpath every directory on the walk; hooks run on every tool call. Compare resolved forms first.
+- Do not realpath every directory on the walk; hooks run on every tool call. Compare resolved forms first. The one
+  required exception is the candidate check: when a planning directory is found at `dir`, compare `realOr(dir)` with
+  home's realpath (computed once per walk, lazily) before returning `dir`. That is one realpath per candidate, not per
+  directory, and test 11 needs it; this rule does not forbid it.
 - Do not cache $HOME at module load (`const HOME = os.homedir()`): tests and spawned hooks change HOME per process and
   per call, and compat's header says nothing here caches.
-- Do not touch the `.git` walkers, `findHandoffDir` or `sharedPlanningDir` (see the survey); widening this TRD into
-  them changes behaviour nothing asked for.
+- Do not touch the `.git` walkers, `findHandoffDir`, `sharedPlanningDir` or `session-audit.findPlanningRoot` (see the
+  survey); widening this TRD into them changes behaviour nothing asked for. Do not touch gate-interactive or
+  `bin/lib/interactive-commands.cjs` and its test and case table: 73-10 owns them in this wave.
 - Do not edit the existing hook test files beyond the HOME fixture fix; the regression lives in one new file.
 - Do not use LLM-generated data or property-based libraries; every case above is a hand-built tree.
 </anti_patterns>
@@ -228,6 +249,9 @@ and the git-holder candidate in `resolveMainRoot` / `resolveCheckoutRoot` is ref
 - macOS: `fs.mkdtempSync(os.tmpdir())` returns `/var/folders/...` while a spawned process's `process.cwd()` is
   `/private/var/folders/...`. Test 11 and the hook tests exist to catch exactly this; if one fails only on the
   `/private` form, the basename+realpath comparison is not being reached.
+- Test 11 fails in one direction or both while the other $HOME tests pass: the candidate check (`isHome` on the found
+  directory) is missing or compares basenames. The stop check alone cannot see `<base>/link` and `<base>/real` as the
+  same directory, by design.
 - A previously green test now fails because its project root IS its HOME: give it a separate temp home (gotchas).
 </error_recovery>
 
@@ -264,7 +288,8 @@ Create hand-built builders (no generated data) used by this TRD and by 73-11 and
   `hooks/__fixtures__/gate-fixtures.js` `makeGitDir`, no git spawn) and `src/a.txt`.
 - `mkProjectBelow(home, name = 'proj')` -> path: a repo as above plus `.aoforge/ROADMAP.md` and `.aoforge/objectives/`
   (the `makeAoforgeProject` shape).
-- `linkHome()` -> `{ base, real, link }`: `<base>/real` and a symlink `<base>/link -> <base>/real`.
+- `linkHome({ dotDir = {} } = {})` -> `{ base, real, link }`: `<base>/real` and a symlink `<base>/link -> <base>/real`
+  (different basenames on purpose: test 11); `dotDir` is written into `<base>/real/<NAMES.userDotDir>/` as in `mkHome`.
 - `rmHome(...dirs)`: `fs.rmSync(d, { recursive: true, force: true })` for each.
 Build every name from `NAMES` in `legacy-names.cjs`; spell no legacy name. Header comment: purpose, consumers
 (73-09, 73-11, 73-13), "hand-built, never generated".
@@ -288,8 +313,9 @@ Write test list items 1-19 in that order of priority (hooks first), one at a tim
 - `compat.home.test.cjs`: items 7-16, passing `home` explicitly except item 13.
 - `planning-mode.test.cjs`: a new `describe('$HOME is never the main root (TRD 73-09)')` with items 17-18; set
   `process.env.HOME` in a try/finally.
-Run them against the current code: items 1-4 (at least gate-edits and classify-session), 6, 7, 8, 10, 11, 13, 16
-(`isUserHome` is missing), 17 and 18 must fail; 5, 9, 12, 14, 15 and 19 pass. Record which fail and why. Commit
+Run them against the current code: items 1-4 (at least gate-edits and classify-session), 6, 7, 8, 10, 11 (both
+directions; its no-over-refusal case passes), 13, 16 (`isUserHome` is missing), 17 and 18 must fail; 5, 9, 12, 14, 15
+and 19 pass. Record which fail and why. Commit
 the tests alone: `test(73-09): pin that $HOME is never an AOForge project root`.
   </action>
   <verify>node --test plugins/aoforge/hooks/home-project-detection.test.js plugins/aoforge/aoforge/bin/lib/compat.home.test.cjs plugins/aoforge/aoforge/bin/lib/planning-mode.test.cjs exits non-zero, and the failures are the $HOME cases (gate-edits denies the repo below the temp home; findProjectRoot returns the temp home)</verify>
@@ -301,8 +327,9 @@ the tests alone: `test(73-09): pin that $HOME is never an AOForge project root`.
   <name>Task 3: GREEN, the $HOME stop in compat and planning-mode</name>
   <files>plugins/aoforge/aoforge/bin/lib/compat.cjs, plugins/aoforge/aoforge/bin/lib/planning-mode.cjs, plugins/aoforge/hooks/gate-edits.test.js</files>
   <action>
-Implement per codebase_examples: `userHomeDir`, `isUserHome` (exported), the `home` option and the $HOME check in
-`findProjectRoot`; update compat's header list ("findProjectRoot: a project root is a directory holding either planning
+Implement per codebase_examples: `userHomeDir`, `homeMatcher` (internal: the cheap `stopsAt` on every directory and
+the candidate `isHome` before a found directory is returned), `isUserHome` (exported), the `home` option and both
+$HOME checks in `findProjectRoot`; update compat's header list ("findProjectRoot: a project root is a directory holding either planning
 directory, never $HOME") and the JSDoc. In planning-mode, make `nearestPlanningRoot` delegate to
 `compat.findProjectRoot(start, { maxUp: Infinity })` and refuse an `isUserHome` git-holder candidate in
 `resolveMainRoot` and `resolveCheckoutRoot`. Make items 1-19 pass one at a time. Then run the full suite; fix
