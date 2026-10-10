@@ -25,8 +25,13 @@
 //      legacy directory. Outside git the ignore files are left alone.
 //
 // `changed` lists the two directories plus `.gitignore` when it changed (info/exclude is not a project file). The
-// migration never stages anything beyond what `git mv` stages and never commits: the hook's commit child commits
-// `changed` through `aof-tools commit`.
+// migration never commits: the hook's commit child commits `changed` through `aof-tools commit`. It stages nothing
+// beyond what `git mv` stages, with one exception (TRD 75-02): a tracked file under the legacy directory that is missing
+// from disk AND was removed by an earlier migration of this run (ctx.changedSoFar) has its removal staged first
+// (`git rm --cached`), because `git mv` refuses a tracked source that is not on disk. Migration 0002 renames tracked
+// `NN-JOB.md` files with fs.renameSync and stages nothing, so any project with 0002 and 0012 both pending hit
+// "fatal: bad source" and was left half-applied (72-25, trades). A file the user deleted is not in changedSoFar: it
+// defers the move as `dirty` and is never staged. `staged` in the result and the notes name what was staged.
 //
 // One-release scope: this migration, the fallback it ends and the both-names 0010 block go in SHIM_REMOVAL (the release
 // after 3.0.0). Every legacy name comes from legacy-names.cjs.
@@ -250,6 +255,28 @@ function moveLeftovers(from, to) {
   if (fs.readdirSync(from).length === 0) fs.rmdirSync(from);
 }
 
+/**
+ * Stages the removal of tracked files under the legacy directory that are missing from disk AND that an earlier
+ * migration of this run removed (ctx.changedSoFar). `git mv` refuses a tracked source that is not on disk ("bad
+ * source"), and 0002 renames tracked `NN-JOB.md` files with fs.renameSync, which stages nothing (72-25, trades).
+ * Anything else missing from disk is the user's own deletion: deferral() already returned `dirty` for it, so it never
+ * reaches here, and it is not staged here either. -> the project-relative paths staged, sorted.
+ */
+function stageOwnRemovals(ctx) {
+  const missing = git(ctx, ['ls-files', '-z', '--deleted', '--', OLD_DIR]);
+  if (missing.status !== 0) throw new Error(`git ls-files --deleted failed: ${missing.err || missing.status}`);
+  const prefix = git(ctx, ['rev-parse', '--show-prefix']).out.trim();
+  const isOwn = changedSoFarPredicate(ctx);
+  const own = [...new Set(missing.out.split('\0').filter(Boolean))].filter((p) => isOwn(`${prefix}${p}`)).sort();
+  if (own.length === 0) return [];
+  // --literal-pathspecs: these are exact paths git itself listed, so a name with glob characters is not re-read as a
+  // pattern. --cached: the index only; the files are already gone from disk.
+  const r = git(ctx, ['--literal-pathspecs', 'rm', '--cached', '--quiet', '--', ...own]);
+  if (r.status !== 0) throw new Error(`git rm --cached failed: ${r.err || r.status}`);
+  return own;
+}
+
+/** -> `{ via, staged }`: how the directory moved, and the run's own removals staged before a `git mv`. */
 function moveDirectory(ctx, inGit) {
   const from = path.join(ctx.projectRoot, OLD_DIR);
   const to = path.join(ctx.projectRoot, NEW_DIR);
@@ -257,14 +284,22 @@ function moveDirectory(ctx, inGit) {
     const tracked = git(ctx, ['ls-files', '-z', '--', OLD_DIR]);
     if (tracked.status !== 0) throw new Error(`git ls-files failed: ${tracked.err || tracked.status}`);
     if (tracked.out.length > 0) {
-      const r = git(ctx, ['mv', '--', OLD_DIR, NEW_DIR]);
-      if (r.status !== 0) throw new Error(`git mv ${OLD_DIR} ${NEW_DIR} failed: ${r.err || r.status}`);
-      moveLeftovers(from, to);
-      return 'git mv';
+      const staged = stageOwnRemovals(ctx);
+      // Staging can leave git tracking nothing in the directory (every tracked file was one this run removed): git
+      // cannot `git mv` such a directory, so it falls through to the fs rename like an untracked one.
+      const stillTracked = staged.length === 0 ? tracked : git(ctx, ['ls-files', '-z', '--', OLD_DIR]);
+      if (stillTracked.out.length > 0) {
+        const r = git(ctx, ['mv', '--', OLD_DIR, NEW_DIR]);
+        if (r.status !== 0) throw new Error(`git mv ${OLD_DIR} ${NEW_DIR} failed: ${r.err || r.status}`);
+        moveLeftovers(from, to);
+        return { via: 'git mv', staged };
+      }
+      fs.renameSync(from, to);
+      return { via: 'rename', staged };
     }
   }
   fs.renameSync(from, to);
-  return 'rename';
+  return { via: 'rename', staged: [] };
 }
 
 // ─── apply ──────────────────────────────────────────────────────────────────────
@@ -288,8 +323,9 @@ function apply(ctx) {
 
   const gitignoreChanged = gi.text !== null && gi.text !== gitignoreBefore;
   const changed = [NEW_DIR, OLD_DIR, ...(gitignoreChanged ? [GITIGNORE_REL] : [])].sort();
-  const noteParts = (via, backup) => [
+  const noteParts = (via, backup, staged = []) => [
     `moved ${OLD_DIR}/ to ${NEW_DIR}/ (${via})`,
+    staged.length ? `staged this run's own removals first: ${listed(staged)}` : null,
     gi.block ? `rewrote the store .gitignore block (AOForge markers, both directory names)` : null,
     gi.added.length ? `.gitignore: added ${gi.added.join(', ')}` : null,
     ex.added.length ? `info/exclude: added ${ex.added.join(', ')}` : null,
@@ -306,11 +342,11 @@ function apply(ctx) {
 
   // The store block lands before the move, so the moved cache is never unignored.
   if (gi.block) fs.writeFileSync(gitignorePath, lazy0010().upsertBlock(gitignoreBefore));
-  const via = moveDirectory(ctx, inGit);
+  const { via, staged } = moveDirectory(ctx, inGit);
   if (gitignoreChanged) fs.writeFileSync(gitignorePath, gi.text);
   if (ex.added.length) fs.writeFileSync(excludePath, ex.text);
 
-  return { changed, notes: noteParts(via, backup), backup, moved: { from: OLD_DIR, to: NEW_DIR, via } };
+  return { changed, notes: noteParts(via, backup, staged), backup, moved: { from: OLD_DIR, to: NEW_DIR, via }, staged };
 }
 
 module.exports = {

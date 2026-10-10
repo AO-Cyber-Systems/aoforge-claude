@@ -382,8 +382,12 @@ describe('10. 0012 after 0002 in one run', () => {
       const report = runner(p, ['0002', '0012']);
       assert.deepEqual(report.failed, [], JSON.stringify(report.failed));
 
-      // What the hook's commit child does: record the reported paths, then assert the final tree.
-      p.git(['add', '-A', '--', ...report.changed_files]);
+      // What the hook's commit child does: record the reported paths, then assert the final tree. The legacy
+      // directory is gone from disk and its removals are already staged (git mv, and the run's own removals), and a
+      // plain `git add` refuses a pathspec that matches nothing, so only the paths that still exist are added.
+      const existing = report.changed_files.filter((f) => fs.existsSync(path.join(p.root, f)));
+      assert.ok(existing.includes(NEW), `the reported paths name ${NEW}: ${report.changed_files.join('|')}`);
+      p.git(['add', '-A', '--', ...existing]);
       p.git(['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'chore: move to AOForge (3.0.0 upgrade)']);
 
       assert.equal(p.git(['status', '--porcelain']).trim(), '', 'nothing left uncommitted or untracked');
