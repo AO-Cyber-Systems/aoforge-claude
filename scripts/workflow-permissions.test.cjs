@@ -23,9 +23,8 @@ const path = require('node:path');
 
 const WORKFLOWS_DIR = path.resolve(__dirname, '..', '.github', 'workflows');
 
-// The workflows whose token grant is exactly `contents: read` (TRD 54-03; visual-judge.yml,
-// which runs with the Anthropic secret, TRD 74-01).
-const READ_ONLY_WORKFLOWS = ['test.yml', 'agent-shell-harness.yml', 'visual-judge.yml'];
+// The two workflows whose token grant is exactly `contents: read` (TRD 54-03).
+const READ_ONLY_WORKFLOWS = ['test.yml', 'agent-shell-harness.yml'];
 
 function workflowFiles() {
   return fs.readdirSync(WORKFLOWS_DIR).filter((f) => /\.ya?ml$/.test(f)).sort();
