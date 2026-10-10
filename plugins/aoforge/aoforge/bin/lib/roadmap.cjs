@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error, normalizeObjectiveName, findPlanFiles, generateSlugInternal } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
-const { findObjectiveInternal } = require('./objective.cjs');
+const { findObjectiveInternal, completedSummaryFiles } = require('./objective.cjs');
 const { updateProgressTableRow, updateJobsLine } = require('./roadmap-progress.cjs');
 const { reconcile } = require('./roadmap-reconcile.cjs');
 const { isStoreMode } = require('./planning-mode.cjs');
@@ -270,7 +270,11 @@ function cmdRoadmapAnalyze(cwd, raw) {
       if (dirMatch) {
         const objectiveFiles = fs.readdirSync(path.join(objectivesDir, dirMatch));
         jobCount = findPlanFiles(objectiveFiles).length;
-        summaryCount = objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md').length;
+        // Completed TRDs only: a deferred or checkpoint SUMMARY is not one (objective 74).
+        summaryCount = completedSummaryFiles(
+          path.join(objectivesDir, dirMatch),
+          objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md'),
+        ).length;
         hasContext = objectiveFiles.some(f => f.endsWith('-CONTEXT.md') || f === 'CONTEXT.md');
         hasResearch = objectiveFiles.some(f => f.endsWith('-RESEARCH.md') || f === 'RESEARCH.md');
 
@@ -366,7 +370,9 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   }
 
   const jobCount = objectiveInfo.jobs.length;
-  const summaryCount = objectiveInfo.summaries.length;
+  // Completed TRDs only: a SUMMARY whose frontmatter status is deferred or checkpoint is on
+  // disk but is not completion (objective 74), so it never makes the objective Complete.
+  const summaryCount = completedSummaryFiles(path.join(cwd, objectiveInfo.directory), objectiveInfo.summaries).length;
 
   if (jobCount === 0) {
     output({ updated: false, reason: 'No plans found', job_count: 0, summary_count: 0 }, raw, 'no plans');

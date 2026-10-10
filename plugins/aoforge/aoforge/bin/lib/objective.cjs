@@ -9,8 +9,33 @@ const planningMode = require('./planning-mode.cjs');
 const { escapeRegExp, objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
 const { roadmapRequirementIds } = require('./requirement-ids.cjs');
 const { planningRoot, planningDirName } = require('./compat.cjs');
+const { _summaryNotComplete } = require('./roadmap-reconcile.cjs');
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
+
+/**
+ * The SUMMARY files that are completion evidence (objective 74): every file in
+ * `summaryFiles` except those whose frontmatter `status:` is `deferred` or
+ * `checkpoint` (roadmap-reconcile's `_summaryNotComplete`, the one parser).
+ * Used where a SUMMARY count decides or reports completion; plain inventories
+ * (`summaries`, `incomplete_jobs`) keep every file. An unreadable file counts as
+ * complete, the behaviour before this rule.
+ *
+ * @param {string} objectiveDir - absolute objective directory
+ * @param {string[]} summaryFiles - SUMMARY file names inside it
+ * @returns {string[]}
+ */
+function completedSummaryFiles(objectiveDir, summaryFiles) {
+  return summaryFiles.filter(f => {
+    let content;
+    try {
+      content = fs.readFileSync(path.join(objectiveDir, f), 'utf-8');
+    } catch {
+      return true;
+    }
+    return !_summaryNotComplete(content);
+  });
+}
 
 function searchObjectiveInDir(baseDir, relBase, normalized) {
   try {
@@ -447,7 +472,7 @@ function storeObjectiveComplete(root, objectiveNum, raw) {
     completed: r.ok === true,
     completed_objective: objectiveNum,
     objective_name: objectiveInfo.objective_name,
-    jobs_executed: `${objectiveInfo.summaries.length}/${objectiveInfo.jobs.length}`,
+    jobs_executed: `${completedSummaryFiles(path.join(root, objectiveInfo.directory), objectiveInfo.summaries).length}/${objectiveInfo.jobs.length}`,
     next_objective: next ? next.num : null,
     next_objective_name: next ? next.name : null,
     is_last_objective: next === null,
@@ -948,7 +973,9 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
   }
 
   const jobCount = objectiveInfo.jobs.length;
-  const summaryCount = objectiveInfo.summaries.length;
+  // Completed TRDs only: a deferred or checkpoint SUMMARY is not one (objective 74), the
+  // same count `roadmap update-job-progress` writes into the same Jobs prefix.
+  const summaryCount = completedSummaryFiles(path.join(cwd, objectiveInfo.directory), objectiveInfo.summaries).length;
 
   // Update ROADMAP.md: mark objective complete. roadmap_updated follows the same rule as state_updated below: it reports
   // whether ROADMAP.md was actually written (text compared before and after), never merely whether the file exists
@@ -1170,6 +1197,7 @@ function objectiveTitle(roadmapPath, logNum, objectiveName) {
 }
 
 module.exports = {
+  completedSummaryFiles,
   searchObjectiveInDir,
   getArchivedObjectiveDirs,
   findObjectiveInternal,
