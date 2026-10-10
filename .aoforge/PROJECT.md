@@ -25,7 +25,7 @@ AI workflow orchestration for Claude Code sessions — skills, hooks, MCP integr
 - aof-tools correctness: `milestone complete` dry run and idempotence, `objective remove`/`objective complete` fixes, shared objective helpers in `milestone-scope.cjs`, stale `planning draft` protection, the small CLI defects the v1.5 audit listed, `verify-commits.js` output shape, health checks for tracked or stale skill markers
 - Stack drafter: govulncheck self-test and buf lint rules; a `stack verify --run` policy for service-backed tests and build artifacts
 - Handoff and install: the three known PTY handoff gaps and handoff-result injection; consistent slash-command naming with no legacy `df-*` remnants, and the rename to AOForge (3.0.0, Objective 72)
-- Operations: the CI `ANTHROPIC` secret for the live visual judge, branch protection on `main`, and a working docs site deploy
+- Operations: the live visual judge settled as local-only (`/aoforge:ui-eval --judge live` on the user's own credential, no Anthropic credential in GitHub), branch protection on `main`, and a working docs site deploy
 
 ## Requirements
 
@@ -166,10 +166,10 @@ Test suite: 11,071 tests, 11,037 pass, 0 fail, 34 skipped.
 
 The estimation engine works, but its minute estimates run high: 1.24× actual after the recency-window fix, with only 2 of 5 objectives within ±30%. Cost estimates are close (0.80–0.86×). EST-08 is accepted as not met. Run history is now archived per objective, so the next five objectives give a genuinely prospective retest.
 
-Open decisions carried to the next milestone:
-- the CI Anthropic secret for the live visual judge;
-- `main` branch protection;
-- the Docs site deploy (the Cloudflare Pages project `devflow-docs` was never found; the deploy now targets `aoforge-docs`, which Objective 74 OPS-03 creates; TRD 72-24 deferred it there).
+Open decisions carried to the next milestone, and where Objective 74 left them:
+- the live visual judge: re-scoped by the user to local-only (`/aoforge:ui-eval --judge live` on the user's own credential); the CI judge was reverted and no Anthropic credential is stored in GitHub (OPS-01);
+- `main` branch protection: done, ruleset 24829006 `aoforge: default branch` (no force-push or deletion, pull request with the unit suite green), recorded in `.github/rulesets/main.json` (OPS-02);
+- the Docs site deploy (the Cloudflare Pages project `devflow-docs` was never found; the deploy now targets `aoforge-docs`): deferred by the user. The deploy credentials reach the wrong Cloudflare account; todo `2026-10-09-create-the-aoforge-docs-pages-project-and-deploy-the-docs-from-main` holds what resuming needs (OPS-03).
 
 DECISION-001 (edit-gate posture) was resolved in v1.5 (Objective 60, option-a, with a measured `warn` default).
 
