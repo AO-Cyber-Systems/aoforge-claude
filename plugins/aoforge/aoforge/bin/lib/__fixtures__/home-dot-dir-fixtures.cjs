@@ -109,6 +109,43 @@ function linkHome({ dotDir = {} } = {}) {
   return { base, real, link };
 }
 
+/**
+ * The directory a user file lives in for each place the resolver reads (TRD 73-11):
+ *   'current'  <home>/.claude/<runtimeDir>/              the runtime home
+ *   'interim'  <home>/<userDotDir>/                      where AOForge 3.0.0 kept user files
+ *   'watch'    <home>/.claude/<runtimeDir>/state/watch/  the watch daemon's runtime directory
+ * Built from NAMES here, not from compat, so the fixture does not lean on the code under test.
+ * The pre-rename location has no entry: its builder belongs in legacy-identity-fixtures.cjs.
+ *
+ * @param {string} home
+ * @param {'current'|'interim'|'watch'} where
+ * @returns {string}
+ */
+function userFileDir(home, where) {
+  const runtime = path.join(home, '.claude', NAMES.runtimeDir);
+  if (where === 'current') return runtime;
+  if (where === 'interim') return path.join(home, USER_DOT_DIR);
+  if (where === 'watch') return path.join(runtime, 'state', 'watch');
+  throw new Error(`userFileDir: unknown location ${JSON.stringify(where)}`);
+}
+
+/**
+ * Write one user file at `where` (see userFileDir), creating its directory.
+ *
+ * @param {string} home
+ * @param {'current'|'interim'|'watch'} where
+ * @param {string} name
+ * @param {string} [content='{}']
+ * @returns {string} the file's path
+ */
+function writeUserFile(home, where, name, content = '{}') {
+  const dir = userFileDir(home, where);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, name);
+  fs.writeFileSync(file, String(content));
+  return file;
+}
+
 /** Remove each directory tree; falsy entries are skipped. */
 function rmHome(...dirs) {
   for (const d of dirs) {
@@ -116,4 +153,13 @@ function rmHome(...dirs) {
   }
 }
 
-module.exports = { WATCH_FOOTPRINT, mkHome, mkRepoBelow, mkProjectBelow, linkHome, rmHome };
+module.exports = {
+  WATCH_FOOTPRINT,
+  mkHome,
+  mkRepoBelow,
+  mkProjectBelow,
+  linkHome,
+  userFileDir,
+  writeUserFile,
+  rmHome,
+};

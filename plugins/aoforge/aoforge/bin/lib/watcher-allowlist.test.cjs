@@ -7,7 +7,8 @@
  *   4. reject empty / whitespace
  *   5. reject overlong (>4096)
  *   6. reject deny-list (sudo, su -, rm -rf /, etc.)
- *   7-8. user allowlist via env override
+ *   7-8. user allowlist via env override; the default file is in the runtime home
+ *        (~/.claude/aoforge/), ~/.aoforge/ is still read for one release (TRD 73-11)
  *   9. malformed user file -> degraded mode
  *  10. shell-flow patterns pass
  *  11. interactive patterns pass
@@ -21,6 +22,7 @@ const path = require('path');
 const os = require('os');
 
 const lib = require('./watcher-allowlist.cjs');
+const { writeUserFile } = require('./__fixtures__/home-dot-dir-fixtures.cjs');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -171,22 +173,40 @@ describe('watcher-allowlist — user allowlist file', () => {
     assert.equal(v.matched, 'cargo build');
   });
 
-  test('default user file path is ~/.aoforge/aoforge-watch-allow.json', () => {
-    const userFile = path.join(h.dir, '.aoforge', 'aoforge-watch-allow.json');
-    fs.mkdirSync(path.dirname(userFile), { recursive: true });
-    fs.writeFileSync(userFile, JSON.stringify({
+  test('default user file path is the runtime home: ~/.claude/aoforge/aoforge-watch-allow.json (TRD 73-11)', () => {
+    const userFile = writeUserFile(h.dir, 'current', 'aoforge-watch-allow.json', JSON.stringify({
       commands: [{ pattern: '^make build$', label: 'make build' }],
     }));
+    assert.equal(userFile, path.join(h.dir, '.claude', 'aoforge', 'aoforge-watch-allow.json'));
     const r = lib.loadAllowlist();
     assert.equal(r.userPatterns, 1);
     const v = lib.validateCommand('make build', r.allowlist);
     assert.equal(v.ok, true);
   });
 
+  test('a file only at ~/.aoforge/aoforge-watch-allow.json (3.0.0) is still loaded, for one release (TRD 73-11)', () => {
+    writeUserFile(h.dir, 'interim', 'aoforge-watch-allow.json', JSON.stringify({
+      commands: [{ pattern: '^make interim$', label: 'interim-extra' }],
+    }));
+    const r = lib.loadAllowlist();
+    assert.equal(r.userPatterns, 1);
+    assert.ok(r.allowlist.some((p) => p.label === 'interim-extra'), 'the 3.0.0 file is loaded');
+  });
+
+  test('when the runtime home and ~/.aoforge/ both hold the file, the runtime-home file wins (TRD 73-11)', () => {
+    writeUserFile(h.dir, 'interim', 'aoforge-watch-allow.json', JSON.stringify({
+      commands: [{ pattern: '^make interim$', label: 'interim-extra' }],
+    }));
+    writeUserFile(h.dir, 'current', 'aoforge-watch-allow.json', JSON.stringify({
+      commands: [{ pattern: '^make current$', label: 'current-extra' }],
+    }));
+    const r = lib.loadAllowlist();
+    assert.equal(r.userPatterns, 1);
+    assert.deepEqual(r.allowlist.filter((p) => /-extra$/.test(p.label)).map((p) => p.label), ['current-extra']);
+  });
+
   test('malformed user file -> degraded mode, default still works', () => {
-    const userFile = path.join(h.dir, '.aoforge', 'aoforge-watch-allow.json');
-    fs.mkdirSync(path.dirname(userFile), { recursive: true });
-    fs.writeFileSync(userFile, '{not json');
+    writeUserFile(h.dir, 'current', 'aoforge-watch-allow.json', '{not json');
     const r = lib.loadAllowlist();
     assert.equal(r.degraded, true);
     // default still works
@@ -195,9 +215,7 @@ describe('watcher-allowlist — user allowlist file', () => {
   });
 
   test('user pattern that is not a string is rejected (no crash)', () => {
-    const userFile = path.join(h.dir, '.aoforge', 'aoforge-watch-allow.json');
-    fs.mkdirSync(path.dirname(userFile), { recursive: true });
-    fs.writeFileSync(userFile, JSON.stringify({
+    writeUserFile(h.dir, 'current', 'aoforge-watch-allow.json', JSON.stringify({
       commands: [{ pattern: 12345, label: 'bad' }, { pattern: '^cargo$', label: 'cargo' }],
     }));
     const r = lib.loadAllowlist();
