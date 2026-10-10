@@ -350,7 +350,7 @@ TRDs:
 - [x] 74-03-main-ruleset-record-TRD.md — (W1) `.github/rulesets/main.json` (no force-push, PR + unit suite required) and `scripts/ruleset-check.cjs` compare/checks (TDD); live read-only inventory
 - [x] 74-04-ops-branch-and-pr-TRD.md — (W2) `ops/74-ci-operations` off origin/main with only the 74-01/02 commits; checkpoints: push, open PR
 - [x] 74-05-anthropic-secret-and-live-judge-run-TRD.md — (W3) checkpoints: user sets the ANTHROPIC secret (existence checked by name only); approved re-run of the live judge on the PR
-- [x] 74-06-cloudflare-credentials-and-pages-project-TRD.md — (W4) diagnostic read; checkpoints: user corrects credentials if needed and creates `aoforge-docs`; approved preview deploy
+- [ ] 74-06-cloudflare-credentials-and-pages-project-TRD.md — (W4) diagnostic read; checkpoints: user corrects credentials if needed and creates `aoforge-docs`; approved preview deploy
 - [x] 74-07-apply-main-ruleset-TRD.md — (W5) checkpoint: user approves the exact ruleset text, one POST; read-back compare
 - [ ] 74-08-merge-and-verify-on-main-TRD.md — (W6) checkpoint: merge through the ruleset; verify judge, deploy and ruleset on main; checkpoint: devflow.cloud domain move decision
 - [ ] 74-09-docs-and-close-out-TRD.md — (W7) CHANGELOG, site guides, workflow comments, CLAUDE.md, REQUIREMENTS ticks, Pages todo complete
