@@ -1,4 +1,0 @@
-{
-  "docs-home": { "is_broken": false },
-  "docs-home-broken": { "is_broken": true, "type": "overflow", "severity": "high" }
-}
