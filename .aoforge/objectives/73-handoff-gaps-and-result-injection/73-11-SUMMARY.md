@@ -51,8 +51,14 @@ verification:
   tdd_evidence: true
   test_pairing: true
 
-duration: FILL
+duration: 7min
 completed: 2026-10-10
+tokens_input: 8599763
+tokens_output: 43451
+tokens_cache_read: 8460996
+tokens_cache_write: 138627
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 73 TRD 11: User files resolve from the runtime home Summary
@@ -61,12 +67,12 @@ completed: 2026-10-10
 
 ## Progress
 - [x] Task 1: RED, the resolver order and the watch directory — 61a4e031
-- [x] Task 2: GREEN, resolveUserFile, watchStateDir and the comments that named ~/.aoforge — (this commit)
+- [x] Task 2: GREEN, resolveUserFile, watchStateDir and the comments that named ~/.aoforge — 1aa3e399
 
 ## Performance
 
-- Started: 2026-10-10T01:33:59Z (preflight claim), finished FILL
-- Tasks: 2, each committed individually (RED 61a4e031 precedes GREEN)
+- Started: 2026-10-10T01:33:59Z (preflight claim), finished 2026-10-10T01:40:41Z
+- Tasks: 2, each committed individually (RED 61a4e031 precedes GREEN 1aa3e399)
 - Files modified: 8
 
 ## Resolution order as built
@@ -100,7 +106,7 @@ changed order with no change at the call site. `watchStateDir(home)` is `<home>/
 ## Task Commits
 
 1. **Task 1: RED** — `61a4e031` (test)
-2. **Task 2: GREEN** — see Progress (fix)
+2. **Task 2: GREEN** — `1aa3e399` (fix)
 
 ## Task Evidence
 
@@ -123,7 +129,8 @@ changed order with no change at the call site. `watchStateDir(home)` is `<home>/
 | Gate | Command | Exit Code | Status |
 |---|---|---|---|
 | test (scoped) | `node --test plugins/aoforge/aoforge/bin/lib/compat.home.test.cjs plugins/aoforge/aoforge/bin/lib/compat.legacy.test.cjs plugins/aoforge/aoforge/bin/lib/watcher-allowlist.test.cjs` | 0 | PASS (90/90) |
-| test (full) | `npm test` (run as `npm --prefix <checkout> test`) | 1 | PASS (no new failures): 12,404 tests, 12,371 pass, 32 skipped, 1 fail. The one failure is E2E1 in roadmap-reconcile.test.cjs, the known transient drift: this TRD's progress-checkpoint SUMMARY exists while its ROADMAP line is still unticked (73-10 recorded the same). The end-of-TRD `roadmap update-job-progress` clears it; see the re-run below |
+| test (full) | `npm test` (run as `npm --prefix <checkout> test`) | 1 | PASS (no new failures): 12,404 tests, 12,371 pass, 32 skipped, 1 fail. The one failure is E2E1 in roadmap-reconcile.test.cjs, the known transient drift: this TRD's progress-checkpoint SUMMARY exists while its ROADMAP line is still unticked (73-10 recorded the same). The end-of-TRD `roadmap update-job-progress` clears it |
+| test (re-run after the roadmap update) | `node --test plugins/aoforge/aoforge/bin/lib/roadmap-reconcile.test.cjs` | 0 | PASS (63/63, E2E1 included) |
 | rename guard | `node --test plugins/aoforge/aoforge/bin/lib/rename-guard.repo.test.cjs` | 0 | PASS (20/20) |
 | lint | not_available | n/a | not_available |
 | build | not_available | n/a | not_available |
@@ -175,4 +182,15 @@ None in the code: the TRD executed as written.
 - `rg -n "function (resolveUserFile|watchStateDir)" compat.cjs` finds both (lines 293, 314); both in `module.exports`
 - `rg -n -F '~/.aoforge'` over config.cjs, init.cjs and watcher-allowlist.cjs prints four comment lines, each calling it
   the AOForge 3.0.0 location
-- Gate failures: FILL
+- Gate failures: None (E2E1's roadmap drift was transient and cleared by the roadmap update)
+- `requirements mark-complete HND-03` reported `not_found`: HND-03 is already ticked Complete in REQUIREMENTS.md (line 43
+  and the traceability row), so nothing changed
+
+## Self-Check: PASSED
+
+- FOUND: plugins/aoforge/aoforge/bin/lib/compat.cjs, compat.home.test.cjs, compat.legacy.test.cjs,
+  watcher-allowlist.test.cjs, watcher-allowlist.cjs, config.cjs, init.cjs, __fixtures__/home-dot-dir-fixtures.cjs
+- FOUND: 61a4e031 (test, RED) and 1aa3e399 (fix, GREEN) on df/exec-73-11-user-files-in-runtime-home, based on 16691deb
+- No test reads or writes the real `~/.aoforge/` or `~/.claude/aoforge/`: compat tests pass temp homes explicitly, the
+  allowlist tests set HOME to a temp directory per test and restore it
+- No stray `.aoforge-handoff/pending/` record in the checkout
