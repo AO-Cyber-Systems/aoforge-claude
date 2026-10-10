@@ -1,6 +1,6 @@
 {
   "current_objective": "74",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 9,
   "progress_pct": 99,
   "status": "executing",
@@ -1639,6 +1639,11 @@
     {
       "objective": "74",
       "summary": "74-03: the main ruleset keeps the repository admin as a pull_request-mode bypass actor, not gh-setup's always mode, so a force-push is rejected for everyone; only test (npm test, gated) pinned to app 15368 is required because harness and build are path-filtered",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-04: the ops/74-ci-operations branch had its origin/main upstream unset at creation so a bare git push can never target main; only the nine 74-01/74-02 code commits were picked, not the 5049eb4b merge.",
       "rationale": null
     }
   ],
