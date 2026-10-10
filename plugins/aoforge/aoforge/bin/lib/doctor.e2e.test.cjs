@@ -120,6 +120,7 @@ const GLOBAL_IDS = [
   'skill-requires',
   'legacy-df-install',
   'legacy-plugin-runtime',
+  'user-dot-dir',
   'guard-state',
   'awareness-state',
   'backups',
