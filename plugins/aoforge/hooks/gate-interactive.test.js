@@ -81,11 +81,10 @@ describe('detectInteractive — skipIf flags suppress detection', () => {
 });
 
 describe('detectInteractive — quoted-strings fix (1c334b0)', () => {
-  // Note: heredoc bodies (`cat <<EOF\ndoctl auth init\nEOF`) DO trigger the
-  // hook because the regex treats `\n` as a command-position separator. This
-  // is a known limitation — distinguishing heredoc content from real commands
-  // requires multi-line shell parsing. The AOFORGE_SKIP_INTERACTIVE_GATE=1
-  // escape hatch covers this case.
+  // TRD 73-10: heredoc bodies are data too. Detection reads shell-words
+  // parseCommand segments, so `cat <<EOF\ndoctl auth init\nEOF` is not gated;
+  // only a heredoc fed to a shell (`bash <<'EOF'`) is read as commands. The
+  // heredoc rows live in __fixtures__/interactive-command-cases.cjs.
   const quotedCases = [
     'echo "doctl auth init"',
     "echo 'gcloud auth login'",
@@ -143,6 +142,44 @@ describe('detectInteractive — false-position guards', () => {
     const cmd = 'git commit --message="run gh auth login first"';
     assert.equal(detectInteractive(cmd), null);
   });
+});
+
+describe('detectInteractive — reasons and categories are unchanged (TRD 73-10 item 12)', () => {
+  // One plain invocation per pattern, with the reason and category the hook gave before TRD 73-10. The ssh-keygen
+  // reason is the one deliberate change (it now names -y and -P), so it is pinned in interactive-commands.test.cjs.
+  const UNCHANGED = [
+    ['doctl auth init', 'doctl auth init prompts for an access token', 'tty'],
+    ['gcloud auth login', 'gcloud auth login opens a browser flow', 'tty'],
+    ['gh auth login', 'gh auth login is interactive without --with-token', 'tty'],
+    ['aws configure', 'aws configure prompts for credentials', 'tty'],
+    ['aws sso login', 'aws sso login opens a browser flow', 'tty'],
+    ['op signin', '1Password signin prompts for the master password', 'tty'],
+    ['npm login', 'npm login prompts for username/password/OTP', 'tty'],
+    ['vault login', 'vault login is interactive without -method=token', 'tty'],
+    ['passwd', 'passwd prompts for the current and new password', 'tty'],
+    ['nvm use 18', 'nvm is a shell function — needs user shell', 'shell-flow'],
+    ['nvm install 20', 'nvm is a shell function — needs user shell', 'shell-flow'],
+    ['pyenv shell 3.11', 'pyenv shell modifies the active shell session', 'shell-flow'],
+    ['pyenv install 3.12', 'pyenv install needs full shell env', 'shell-flow'],
+    ['conda activate myenv', 'conda activate is a shell function', 'shell-flow'],
+    ['direnv exec . make build', 'direnv exec needs the user shell to source the env', 'shell-flow'],
+    ['direnv allow', 'direnv allow trusts a directory in the user shell', 'shell-flow'],
+    ['mise use node@20', 'mise use modifies the active shell session', 'shell-flow'],
+    ['mise install', 'mise install needs the shimmed shell env', 'shell-flow'],
+    ['mise run test', 'mise run dispatches via the shimmed shell', 'shell-flow'],
+    ['asdf shell ruby 3.2', 'asdf shell modifies the active shell session', 'shell-flow'],
+    ['asdf install', 'asdf install needs the shimmed shell env', 'shell-flow'],
+    ['rbenv shell 3.2', 'rbenv shell modifies the active shell session', 'shell-flow'],
+  ];
+
+  for (const [cmd, reason, category] of UNCHANGED) {
+    test(`${cmd}: reason and category unchanged`, () => {
+      const hit = detectInteractive(cmd);
+      assert.ok(hit, `expected detection for: ${cmd}`);
+      assert.equal(hit.reason, reason);
+      assert.equal(hit.category, category);
+    });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -621,5 +658,227 @@ describe('gate-interactive — handoff address and delivery wording (TRD 73-04)'
       '(handoff id: h-test1234 — record at .aoforge-handoff/pending/h-test1234.json. ' +
       'Tip: run `aoforge-watch start` in another terminal to skip the paste step in future.) ' +
       'Escape hatch: set AOFORGE_SKIP_INTERACTIVE_GATE=1 if this is a false positive.');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TRD 73-10: the hook reads invocations, not mentions (gaps G1, G2, G3)
+// ---------------------------------------------------------------------------
+//
+// Test list items at the hook (the rest are rows of __fixtures__/interactive-command-cases.cjs, asserted in
+// aoforge/bin/lib/interactive-commands.test.cjs):
+//   1.  a quoted `|` mention is not gated and leaves no pending record (G3)
+//   2.  a new key with no -N is still denied with a pending record (G1, unchanged)
+//   3.  in a two-call command the reason's parenthesis names the gated call, never the exempt one (G2)
+//   6.  an unterminated quote fails open
+//   6b. a copy of the hook with no lib directory beside it fails open
+//   19. single-call hits keep both wordings byte-identical
+//   20. multi-call hits name the call in the parenthesis, in both wordings
+//   21. the hook agrees with the shared case table and re-exports the shared module's own objects
+
+/** A temp cwd and HOME, with the daemon pid file pointed into the temp dir (no daemon). */
+function gapSandbox() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-gap-'));
+  const home = path.join(dir, 'home');
+  const work = path.join(dir, 'work');
+  fs.mkdirSync(home);
+  fs.mkdirSync(work);
+  return {
+    dir,
+    work,
+    env: { HOME: home, AOFORGE_HANDOFF_PID_FILE: path.join(dir, 'aoforge-watch.pid') },
+    cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+function pendingRecords(work) {
+  const dir = path.join(work, '.aoforge-handoff', 'pending');
+  return fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+}
+
+describe('G3: quoted text and heredoc bodies are data', () => {
+  test('1. a quoted `|` mention is not gated and leaves no pending record', () => {
+    const sb = gapSandbox();
+    try {
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'rg -n "a|ssh-keygen" notes.md' } },
+        sb.env,
+        sb.work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, '', 'a mention is not gated');
+      assert.deepStrictEqual(pendingRecords(sb.work), [], 'no stray pending record');
+      assert.ok(!fs.existsSync(path.join(sb.work, '.aoforge-handoff')), 'no handoff directory at all');
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test('1. a heredoc body written to a file is not gated', () => {
+    const sb = gapSandbox();
+    try {
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: "cat > notes.md <<'EOF'\nnpm login\nEOF" } },
+        sb.env,
+        sb.work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, '');
+      assert.deepStrictEqual(pendingRecords(sb.work), []);
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test('6. an unterminated quote fails open: no output, exit 0', () => {
+    const sb = gapSandbox();
+    try {
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'echo "npm login' } },
+        sb.env,
+        sb.work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, '');
+      assert.deepStrictEqual(pendingRecords(sb.work), []);
+    } finally {
+      sb.cleanup();
+    }
+  });
+});
+
+describe('G1: read-only key forms', () => {
+  test('2. a new key with no -N is denied and a pending record is written (unchanged)', () => {
+    const sb = gapSandbox();
+    try {
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'ssh-keygen -t ed25519 -f k' } },
+        sb.env,
+        sb.work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      const files = pendingRecords(sb.work);
+      assert.equal(files.length, 1, 'one pending record');
+      const record = JSON.parse(fs.readFileSync(path.join(sb.work, '.aoforge-handoff', 'pending', files[0]), 'utf-8'));
+      assert.equal(record.cmd, 'ssh-keygen -t ed25519 -f k');
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  test('a fingerprint read (-lf) runs directly: no output, no pending record', () => {
+    const sb = gapSandbox();
+    try {
+      const { result } = runHook(
+        { tool_name: 'Bash', tool_input: { command: 'ssh-keygen -lf key.pub' } },
+        sb.env,
+        sb.work,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, '');
+      assert.deepStrictEqual(pendingRecords(sb.work), []);
+    } finally {
+      sb.cleanup();
+    }
+  });
+});
+
+describe('G2: flags and reasons per call', () => {
+  const { buildDenyReason } = require('./gate-interactive.js');
+  const TWO_CALLS = 'ssh-keygen -t ed25519 -f a -N ""; ssh-keygen -t ed25519 -f b';
+
+  test('3. spawned: the deny reason\'s parenthesis names the gated call, never the exempt one', () => {
+    const sb = gapSandbox();
+    try {
+      const { result } = runHook({ tool_name: 'Bash', tool_input: { command: TWO_CALLS } }, sb.env, sb.work);
+      assert.equal(result.status, 0, result.stderr);
+      const reason = JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason;
+      assert.ok(reason.includes('(`ssh-keygen -t ed25519 -f b`: '), reason);
+      assert.doesNotMatch(reason, /\(`[^`]*-f a/, 'no parenthesis names the exempt call');
+      assert.ok(reason.includes(`\`! ${TWO_CALLS}\``), 'the paste instruction still carries the whole command');
+    } finally {
+      sb.cleanup();
+    }
+  });
+
+  const HIT = { reason: 'gh auth login is interactive without --with-token', category: 'tty' };
+  const ARGS = { id: 'h-test1234', cmd: 'gh auth login', watcherInfo: { pid: 12345 } };
+
+  test('19. a single-call hit keeps both wordings byte-identical', () => {
+    for (const watcherLive of [true, false]) {
+      const base = buildDenyReason({ ...ARGS, hit: HIT, watcherLive });
+      const variants = [
+        { segment: 'gh auth login', compound: false },
+        { segment: 'gh auth login' },
+        { segment: 'gh auth login', compound: true },  // segment equal to the trimmed command
+      ];
+      for (const extra of variants) {
+        assert.equal(buildDenyReason({ ...ARGS, hit: { ...HIT, ...extra }, watcherLive }), base,
+          `watcherLive=${watcherLive} ${JSON.stringify(extra)}`);
+      }
+    }
+  });
+
+  test('20. a multi-call hit names the call in the parenthesis, in both wordings', () => {
+    const hit = { reason: 'R', category: 'tty', segment: 'ssh-keygen -t ed25519 -f b', compound: true };
+    const live = buildDenyReason({ id: 'h-1', cmd: TWO_CALLS, hit, watcherLive: true, watcherInfo: { pid: 1 } });
+    const absent = buildDenyReason({ id: 'h-1', cmd: TWO_CALLS, hit, watcherLive: false, watcherInfo: null });
+    assert.ok(live.startsWith('This command needs the user\'s shell (`ssh-keygen -t ed25519 -f b`: R; category: tty).'), live);
+    assert.ok(absent.startsWith('This command requires the user\'s shell (`ssh-keygen -t ed25519 -f b`: R; category: tty).'), absent);
+    assert.ok(live.includes(`\`${TWO_CALLS}\` is waiting`), 'the live instruction still names the whole command');
+    assert.ok(absent.includes(`\`! ${TWO_CALLS}\``), 'the paste instruction still carries the whole command');
+  });
+});
+
+describe('fail open without the libs', () => {
+  test('6b. a copy of the hook with no aoforge/ beside it gates nothing and writes nothing', () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gate-int-nolib-'));
+    try {
+      const hooksDir = path.join(tmp, 'hooks');
+      const work = path.join(tmp, 'work');
+      const home = path.join(tmp, 'home');
+      for (const d of [hooksDir, work, home]) fs.mkdirSync(d);
+      const copy = path.join(hooksDir, 'gate-interactive.js');
+      fs.copyFileSync(HOOK_PATH, copy);
+      const result = spawnSync('node', [copy], {
+        cwd: work,
+        input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'npm login' } }),
+        encoding: 'utf-8',
+        env: { ...process.env, HOME: home, AOFORGE_HANDOFF_PID_FILE: path.join(tmp, 'aoforge-watch.pid') },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.stdout, '', 'no deny without the matcher');
+      assert.ok(!fs.existsSync(path.join(work, '.aoforge-handoff')), 'no handoff directory');
+    } finally {
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('hook agreement: the shared case table and module (TRD 73-10 item 21)', () => {
+  const { GATED_CASES, NOT_GATED_CASES } = require('../aoforge/bin/lib/__fixtures__/interactive-command-cases.cjs');
+
+  for (const row of GATED_CASES) {
+    test(`gated through the hook: ${JSON.stringify(row.cmd)}`, () => {
+      assert.ok(detectInteractive(row.cmd), `expected a hit for ${JSON.stringify(row.cmd)}`);
+    });
+  }
+
+  for (const row of NOT_GATED_CASES) {
+    test(`not gated through the hook: ${JSON.stringify(row.cmd)} (${row.why})`, () => {
+      assert.strictEqual(detectInteractive(row.cmd), null);
+    });
+  }
+
+  test('the hook re-exports the shared module\'s own objects', () => {
+    // Required here, not at the top of the file, so a missing module fails this test only.
+    const shared = require('../aoforge/bin/lib/interactive-commands.cjs');
+    const hook = require('./gate-interactive.js');
+    assert.strictEqual(hook.detectInteractive, shared.detectInteractive);
+    assert.strictEqual(hook.INTERACTIVE_PATTERNS, shared.INTERACTIVE_PATTERNS);
+    assert.strictEqual(hook.sshKeygenFlags, shared.sshKeygenFlags);
+    assert.strictEqual(hook.CMD_POS, shared.CMD_POS);
   });
 });
