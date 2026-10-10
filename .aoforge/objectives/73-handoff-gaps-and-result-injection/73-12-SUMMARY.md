@@ -10,5 +10,5 @@ tags: [watcher, aoforge-watch, runtime-home, watcher-allowlist, gap-closure, G5]
 ## Progress
 
 - [x] Task 1: RED, the daemon's files in the watch directory, the 3.0.0 read, and hook/daemon agreement — c2121c3f
-- [ ] Task 2: GREEN, watcher-state and aoforge-watch on the watch directory; the allowlist on the shared matcher — pid file and log moved (this commit); next step: in plugins/aoforge/aoforge/bin/lib/watcher-allowlist.cjs replace the rx() built-ins with interactive-commands.INTERACTIVE_PATTERNS marked builtin, route validateCommand's built-ins through matchInvocations (user entries keep the whole-command loop), take CMD_POS from the shared module, rewrite the header NOTE, then run node --test watcher-allowlist.test.cjs
-- [ ] Task 3: neighbours follow the layout; gate-interactive pinned on it
+- [x] Task 2: GREEN, watcher-state and aoforge-watch on the watch directory; the allowlist on the shared matcher — 058ba810 (pid file and log), (this commit) (allowlist)
+- [ ] Task 3: neighbours follow the layout; gate-interactive pinned on it — next step: add test list item 14 to plugins/aoforge/hooks/gate-interactive.test.js (new-location, 3.0.0-only and pre-rename-only pid files with the override unset), then move handoff-e2e.test.cjs's pid waits (177, 363, 521), log path (362) and allowlist writers (55, 474) to watchStateDir/runtimeHome, flutter-ui-setup.test.cjs buildFakePidFile to watchStateDir, and rewrite file-identities.legacy.test.cjs test 6b

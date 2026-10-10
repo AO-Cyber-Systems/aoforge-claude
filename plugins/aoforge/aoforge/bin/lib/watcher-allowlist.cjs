@@ -11,10 +11,14 @@
  * runs anything outside the combined allowlist; the deny-list is a
  * belt-and-braces sanity check.
  *
- * NOTE: regex semantics here mirror gate-interactive.js (CMD_POS prefix so
- * we only match at command position). The same skipIf-style guards apply
- * (e.g. `gh auth login --with-token` is rejected because it doesn't need
- * the handoff dance — it's already non-interactive).
+ * NOTE (TRD 73-12): the built-in entries are the same per-invocation matcher
+ * gate-interactive uses (interactive-commands.cjs: shell-words segments, flags
+ * read per call, quoted text and heredoc data never match), so the daemon
+ * accepts exactly the commands the hook hands off; watcher-allowlist.test.cjs
+ * pins that over the shared case table. A call a skip rule exempts (e.g.
+ * `gh auth login --with-token`, already non-interactive) is refused: there is
+ * nothing to hand off. User entries from the allowlist file are regexes tested
+ * on the whole command.
  */
 
 const fs = require('fs');
@@ -22,51 +26,26 @@ const os = require('os');
 
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
 const { userDotFile } = require('./compat.cjs');
+// The matcher gate-interactive uses. It ships beside this file in bin/lib, so a plain require: the daemon cannot
+// validate a command without it.
+const interactive = require('./interactive-commands.cjs');
 
 const MAX_CMD_LEN = 4096;
 
-// CMD_POS: same shape as gate-interactive.js so the allowlist agrees with
-// what the hook detects.
-const CMD_POS = /(?:^\s*|[;&|\n(]\s*|&&\s*|\|\|\s*)/.source;
+// CMD_POS: the command-position prefix, from the shared module. Only the deny list uses it, and it matches on the
+// WHOLE text: it can only refuse more, never run more.
+const { CMD_POS } = interactive;
 
 function rx(body) {
   return new RegExp(`${CMD_POS}${body}`);
 }
 
-// Curated allowlist. Each entry:
-//   - label: human-readable
-//   - match: regex that must match the command
-//   - skipIf?: regex; if matches, the entry does NOT apply (daemon should NOT
-//              run it because there's nothing to handoff). The validator
-//              treats this as "rejected — non-interactive form".
-const DEFAULT_PATTERNS = [
-  // Interactive auth
-  { label: 'doctl auth init', match: rx('doctl\\s+auth\\s+init\\b'), skipIf: /--access-token[\s=]/ },
-  { label: 'gcloud auth login', match: rx('gcloud\\s+auth\\s+login\\b'), skipIf: /--cred-file[\s=]/ },
-  { label: 'gh auth login', match: rx('gh\\s+auth\\s+login\\b'), skipIf: /--with-token\b/ },
-  { label: 'aws configure', match: rx('aws\\s+configure\\b(?!\\s+(get|list|set|import|export|sso))') },
-  { label: 'aws sso login', match: rx('aws\\s+sso\\s+login\\b') },
-  { label: 'op signin', match: rx('op\\s+signin\\b') },
-  { label: 'npm login', match: rx('npm\\s+login\\b') },
-  { label: 'vault login', match: rx('vault\\s+login\\b'), skipIf: /-method=token\b/ },
-  { label: 'passwd', match: rx('passwd\\b(?!\\s*=)') },
-  { label: 'ssh-keygen', match: rx('ssh-keygen\\b(?!.*\\s-N\\s)') },
-
-  // Shell-flow (need user's interactive shell env)
-  { label: 'nvm use', match: rx('nvm\\s+use\\b') },
-  { label: 'nvm install', match: rx('nvm\\s+install\\b') },
-  { label: 'pyenv shell', match: rx('pyenv\\s+shell\\b') },
-  { label: 'pyenv install', match: rx('pyenv\\s+install\\b') },
-  { label: 'conda activate', match: rx('conda\\s+activate\\b') },
-  { label: 'direnv exec', match: rx('direnv\\s+exec\\b') },
-  { label: 'direnv allow', match: rx('direnv\\s+allow\\b') },
-  { label: 'mise use', match: rx('mise\\s+use\\b') },
-  { label: 'mise install', match: rx('mise\\s+install\\b') },
-  { label: 'mise run', match: rx('mise\\s+run\\b') },
-  { label: 'asdf shell', match: rx('asdf\\s+shell\\b') },
-  { label: 'asdf install', match: rx('asdf\\s+install\\b') },
-  { label: 'rbenv shell', match: rx('rbenv\\s+shell\\b') },
-];
+// Curated allowlist: the shared matcher's own patterns (label, match), marked
+// `builtin` so validateCommand never regex-tests them on the whole command:
+// their `match` is anchored at the start of ONE simple command, and skip rules
+// (skipIf, skipArgs) are applied per call by interactive.matchInvocations.
+const DEFAULT_PATTERNS = Object.freeze(interactive.INTERACTIVE_PATTERNS.map((p) =>
+  Object.freeze({ label: p.label, match: p.match, builtin: true })));
 
 // Deny list — these are sanity-checked even if a user adds them to a custom
 // allowlist. The combined allowlist is the primary defence; this is a final
@@ -83,7 +62,7 @@ const DENY_PATTERNS = [
 ];
 
 function defaultAllowlist() {
-  // Return a shallow copy so callers can extend without mutating the module.
+  // Return a shallow copy so callers can extend without mutating the module (the entries themselves are frozen).
   return DEFAULT_PATTERNS.slice();
 }
 
@@ -96,6 +75,13 @@ function denyHit(cmd) {
 
 /**
  * Validate a command against an allowlist.
+ *
+ * Built-in entries (`builtin: true`, from defaultAllowlist) are matched per
+ * invocation by the shared matcher: the command is accepted when a call in it
+ * is one the hook gates, and refused as a non-interactive form when a call
+ * matched a built-in but a skip rule exempted it. Curated entries are checked
+ * before user entries, as before. User entries are regexes (with an optional
+ * skipIf) tested on the whole command.
  *
  * @returns {{ ok: true, matched: string } | { ok: false, reason: string }}
  */
@@ -113,8 +99,18 @@ function validateCommand(cmd, allowlist) {
   if (!Array.isArray(allowlist) || allowlist.length === 0) {
     return { ok: false, reason: 'allowlist empty' };
   }
-  // Check curated patterns first — they may have skipIf semantics.
+  // Curated entries first, through the matcher gate-interactive uses.
+  const builtins = new Set(allowlist.filter((p) => p && p.builtin).map((p) => p.label));
+  if (builtins.size > 0) {
+    const { hit, skipped } = interactive.matchInvocations(cmd);
+    if (hit && builtins.has(hit.label)) return { ok: true, matched: hit.label };
+    if (skipped && builtins.has(skipped.label)) {
+      return { ok: false, reason: `non-interactive form not needed for handoff (matched skipIf for "${skipped.label}")` };
+    }
+  }
+  // User entries: a regex and an optional skipIf on the whole command.
   for (const p of allowlist) {
+    if (!p || p.builtin) continue;
     const m = p.match instanceof RegExp ? p.match : new RegExp(p.match);
     if (!m.test(cmd)) continue;
     if (p.skipIf && p.skipIf.test(cmd)) {
