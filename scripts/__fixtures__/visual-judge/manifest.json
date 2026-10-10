@@ -1,0 +1,26 @@
+{
+  "objective": "OPS-01-LIVE-JUDGE",
+  "note": "Hand-built; no generated data. Two real captures of this repository's Hugo docs home page, taken 2026-10-10 at commit 37381120 for TRD 74-01. Build: `hugo --source site --minify --baseURL http://127.0.0.1:8091/ --destination <scratch>/site-8091` (hugo v0.167.0). Server: `python3 -m http.server 8091 --bind 127.0.0.1 --directory <scratch>/site-8091`. Capture (Google Chrome 155.0.8059.40): `Google Chrome --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=1 --window-size=1280,800 --screenshot=<png> <url>`, url http://127.0.0.1:8091/ for docs-home.png and http://127.0.0.1:8091/broken/ for docs-home-broken.png. The broken page is a copy of the built index.html with one <style> inserted before </head>: it hides the hero microlabel, lede, buttons, install block and mesh, every section.section and the footer (display:none !important), lets the hero overflow (overflow:visible, max-width:none), removes the headline line break and sets the h1 to white-space:nowrap; font-size:160px !important, so the headline runs off the right edge mid-word above a large blank region. docs-home is expected to pass; docs-home-broken carries expect:fail and must be judged broken.",
+  "samples": 3,
+  "flakeBudget": 1,
+  "unjudgedPolicy": "fail",
+  "states": [
+    {
+      "state_id": "docs-home",
+      "route": "/",
+      "data_state": "populated",
+      "viewport": { "width": 1280, "height": 800 },
+      "expected": "The AOForge documentation home page: the site header with the AOForge brand and navigation links, a large headline and introductory text that fit inside the viewport, and readable content sections below. Nothing is cut off at the viewport edge, nothing overlaps, and there are no large blank regions.",
+      "screenshot_path": "./docs-home.png"
+    },
+    {
+      "state_id": "docs-home-broken",
+      "route": "/",
+      "data_state": "populated",
+      "viewport": { "width": 1280, "height": 800 },
+      "expected": "The AOForge documentation home page: the site header with the AOForge brand and navigation links, a large headline and introductory text that fit inside the viewport, and readable content sections below. Nothing is cut off at the viewport edge, nothing overlaps, and there are no large blank regions.",
+      "screenshot_path": "./docs-home-broken.png",
+      "expect": "fail"
+    }
+  ]
+}
