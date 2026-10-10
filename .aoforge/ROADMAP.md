@@ -342,7 +342,18 @@ TRDs:
   1. The user has set the `ANTHROPIC` secret (AOForge never sees the value), and the live visual judge runs in CI on a push to `main`.
   2. After the user approves the exact ruleset text, `main` requires the checks and rejects force-push; `gh` reads the ruleset back and it matches what was approved.
   3. The Cloudflare Pages project `aoforge-docs` exists, or the workflow's account and token are corrected by the user, and a push to `main` deploys green.
-**TRDs**: TBD
+**TRDs**: 9 plans
+
+TRDs:
+- [ ] 74-01-live-visual-judge-ci-TRD.md — (W1) real docs-site screenshot fixtures, `scripts/ci-visual-judge.cjs` (fails unless every state has vision evidence; TDD), `visual-judge.yml` on pushes to main
+- [ ] 74-02-cloudflare-target-and-docs-deploy-TRD.md — (W1) `scripts/ci-cloudflare-target.cjs` names the deploy account and projects without ids (TDD); docs.yml runs it and deploys previews from non-main branches
+- [ ] 74-03-main-ruleset-record-TRD.md — (W1) `.github/rulesets/main.json` (no force-push, PR + unit suite required) and `scripts/ruleset-check.cjs` compare/checks (TDD); live read-only inventory
+- [ ] 74-04-ops-branch-and-pr-TRD.md — (W2) `ops/74-ci-operations` off origin/main with only the 74-01/02 commits; checkpoints: push, open PR
+- [ ] 74-05-anthropic-secret-and-live-judge-run-TRD.md — (W3) checkpoints: user sets the ANTHROPIC secret (existence checked by name only); approved re-run of the live judge on the PR
+- [ ] 74-06-cloudflare-credentials-and-pages-project-TRD.md — (W4) diagnostic read; checkpoints: user corrects credentials if needed and creates `aoforge-docs`; approved preview deploy
+- [ ] 74-07-apply-main-ruleset-TRD.md — (W5) checkpoint: user approves the exact ruleset text, one POST; read-back compare
+- [ ] 74-08-merge-and-verify-on-main-TRD.md — (W6) checkpoint: merge through the ruleset; verify judge, deploy and ruleset on main; checkpoint: devflow.cloud domain move decision
+- [ ] 74-09-docs-and-close-out-TRD.md — (W7) CHANGELOG, site guides, workflow comments, CLAUDE.md, REQUIREMENTS ticks, Pages todo complete
 
 ### Objective 75: Prospective estimate retest and todo sweep
 
@@ -375,5 +386,5 @@ TRDs:
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
-| 74. Operations decisions | v1.6 | 0/? | Not started | - |
+| 74. Operations decisions | v1.6 | 0/9 | Planned | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
