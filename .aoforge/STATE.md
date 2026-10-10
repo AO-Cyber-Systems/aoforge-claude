@@ -64,6 +64,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 71 — Stack drafter and verify policy (completed 2026-10-08, 5/5 TRDs)
 **Objective complete:** 72 — Rename to AOForge and naming cleanup (completed 2026-10-09, 27/27 TRDs)
 **Objective complete:** 73 — Handoff gaps and result injection (completed 2026-10-10, 14/14 TRDs)
+**Objective complete:** 75 — Prospective estimate retest and todo sweep (completed 2026-10-10, 5/5 TRDs)
 **Status:** Objective 75 executed — 5/5 TRDs complete, ready for verification
 **Progress:** [██████████] 100%
 
