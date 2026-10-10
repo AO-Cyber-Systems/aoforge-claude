@@ -47,6 +47,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const { narrativeState, legacyState, positionProject } = require('./__fixtures__/state-position-fixtures.cjs');
+const { PROGRESS_CHECKPOINT, COMPLETE_PASSED } = require('./__fixtures__/summary-completion-fixtures.cjs');
 
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 const STATE_CJS = path.join(__dirname, 'state.cjs');
@@ -249,6 +250,30 @@ describe('state advance-job --objective: position from disk (PLMB-01)', () => {
     assert.equal(p.read('STATE.md'), after, 'a re-run is byte-identical');
     assert.equal(second.json.advanced, false);
     assert.equal(second.json.current_job, 2);
+  });
+
+  // TRD 75-03: a mid-TRD progress checkpoint (an unticked Progress task, no Self-Check)
+  // is not a completed TRD either; the final SUMMARY replacing it is.
+  test('7c. a progress checkpoint does not count; the final SUMMARY replacing it does', () => {
+    const state = narrativeState({});
+    const p = project({ state, objectives: [{ dir: '07-alpha', trds: FOUR_TRDS, summaries: ['01', '02'] }] });
+    const summary03 = path.join(p.root, '.aoforge', 'objectives', '07-alpha', '07-03-SUMMARY.md');
+    fs.writeFileSync(summary03, PROGRESS_CHECKPOINT, 'utf-8');
+
+    const mid = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(mid.status, 0, mid.stderr);
+    assert.equal(mid.json.current_job, 2, 'the checkpoint is not a completed TRD');
+    assert.equal(mid.json.total_jobs, 4);
+    assert.equal(mid.json.status, 'executing');
+    assert.match(p.read('STATE.md'), /\*\*Status:\*\* Executing objective 7 — 2\/4 TRDs complete/);
+
+    fs.writeFileSync(summary03, COMPLETE_PASSED, 'utf-8');
+    const done = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(done.status, 0, done.stderr);
+    assert.equal(done.json.advanced, true);
+    assert.equal(done.json.previous_job, 2);
+    assert.equal(done.json.current_job, 3);
+    assert.match(p.read('STATE.md'), /\*\*Status:\*\* Executing objective 7 — 3\/4 TRDs complete/);
   });
 
   test('7b. a SUMMARY landing between runs advances and reports the previous count', () => {

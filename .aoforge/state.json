@@ -1690,6 +1690,11 @@
       "objective": "75",
       "summary": "Migration 0008 covers .dup-detect-log.jsonl, .check-todos-cache.json, .deprecation-log.jsonl and .override-log.jsonl; notices, skill/edit markers, autonomous markers, .gh-mapping.json and .gh-sync-state.json stay out (audit table in 75-02-SUMMARY)",
       "rationale": null
+    },
+    {
+      "objective": "75",
+      "summary": "A SUMMARY is not completion evidence when its Progress list has an unticked task and it has no Self-Check; all-ticked with no Self-Check (09-03) stays complete. One predicate, _summaryNotComplete, serves reconcile, roadmap counts, objective complete and state advance-job.",
+      "rationale": null
     }
   ],
   "blockers": [

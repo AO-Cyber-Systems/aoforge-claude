@@ -92,6 +92,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const fixtures = require('./__fixtures__/awareness-fixtures.cjs');
+const summaries = require('./__fixtures__/summary-completion-fixtures.cjs');
 
 // MUST require the module under test — will fail (RED) until Task 2 creates it
 const reconcile = require('./roadmap-reconcile.cjs');
@@ -1131,6 +1132,108 @@ test('NC6: write mode un-ticks the deferred line on disk, then a re-run is clean
   assert.deepStrictEqual(second.changes, [], 'second run is idempotent');
   assert.strictEqual(fs.readFileSync(roadmapPath, 'utf-8'), onDisk, 'byte-identical after re-run');
   cleanup();
+});
+
+// ─── Group NC-P — a mid-TRD progress checkpoint is not completion (TRD 75-03) ─
+// `summary checkpoint` writes a SUMMARY with a `## Progress` list, at least one
+// task still unticked and no `## Self-Check`. It carries no frontmatter status,
+// so objective 74's rule missed it and a mid-TRD commit tripped E2E1. The rule:
+// an unticked task inside `## Progress` and no Self-Check heading anywhere means
+// the TRD is not finished. Everything else keeps its meaning: all ticked with no
+// Self-Check (09-03's backfilled shape) is complete, and a Self-Check verdict
+// decides completion whatever the Progress list says.
+
+/** Reconcile one TRD line against `summaryText`, written over the fixture SUMMARY. */
+function reconcileOne(initialCheckbox, summaryText) {
+  const { projectRoot, cleanup } = fixtures.buildReconcileFixtures({
+    objectives: [{
+      num: '01', slug: 'foo',
+      trds: [{ id: '01-01', slug: 'alpha', desc: 'Alpha task', initial_checkbox: initialCheckbox, summary: 'present' }],
+    }],
+  });
+  const summaryPath = path.join(projectRoot, '.aoforge', 'objectives', '01-foo', '01-01-alpha-SUMMARY.md');
+  fs.writeFileSync(summaryPath, summaryText, 'utf-8');
+  try {
+    return reconcile.reconcile({ projectRoot, mode: 'dry-run' });
+  } finally {
+    cleanup();
+  }
+}
+
+test('NC-P1: _summaryNotComplete is true for a progress checkpoint (unticked task, no Self-Check)', () => {
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.PROGRESS_CHECKPOINT), true);
+});
+
+test('NC-P2: _summaryNotComplete stays false for every completed shape', () => {
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.COMPLETE_PASSED), false, 'PASSED');
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.COMPLETE_FAILED), false,
+    'FAILED is annotated by _checkSummaryFailed, not by this predicate');
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.COMPLETE_ALL_TICKED_NO_SELF_CHECK), false,
+    "09-03's backfilled shape: every Progress task ticked, no Self-Check");
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.LEGACY_NO_PROGRESS), false,
+    'a pre-Progress SUMMARY has neither section');
+});
+
+test('NC-P3: a Self-Check verdict wins over an unticked Progress task', () => {
+  const unticked = [{ done: true, name: 'First' }, { done: false, name: 'Second' }];
+  assert.strictEqual(
+    reconcile._summaryNotComplete(summaries.summaryDoc({ progress: unticked, selfCheck: 'PASSED' })), false, 'PASSED');
+  assert.strictEqual(
+    reconcile._summaryNotComplete(summaries.summaryDoc({ progress: unticked, selfCheck: 'FAILED' })), false, 'FAILED');
+});
+
+test('NC-P4: an unticked box outside ## Progress is not an unfinished task', () => {
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.UNTICKED_OUTSIDE_PROGRESS), false);
+  // The Progress section ends at the next ## heading: a ticked list followed by a
+  // checklist under another heading must not be read as one section.
+  const adjacent = '# S\n\n## Progress\n- [x] Task 1: A — abc1234\n\n## Left for the user\n- [ ] Review it\n';
+  assert.strictEqual(reconcile._summaryNotComplete(adjacent), false, 'bounded at the next heading');
+  // The heading match is a heading line, not a word in prose.
+  assert.strictEqual(reconcile._summaryNotComplete('# S\n\nProgress was good.\n- [ ] not a task list\n'), false, 'no Progress heading');
+});
+
+test('NC-P5: frontmatter deferred/checkpoint still say not complete', () => {
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.STATUS_DEFERRED), true, 'deferred, Self-Check PASSED');
+  assert.strictEqual(reconcile._summaryNotComplete(summaries.STATUS_CHECKPOINT), true, 'checkpoint');
+});
+
+test('NC-P6: _summaryNotComplete is false for non-string and empty input', () => {
+  assert.strictEqual(reconcile._summaryNotComplete(''), false, 'empty');
+  assert.strictEqual(reconcile._summaryNotComplete(null), false, 'null');
+  assert.strictEqual(reconcile._summaryNotComplete(undefined), false, 'undefined');
+  assert.strictEqual(reconcile._summaryNotComplete(42), false, 'number');
+});
+
+test('NC-P7: [ ] + progress checkpoint SUMMARY → zero changes (no drift)', () => {
+  const result = reconcileOne(' ', summaries.PROGRESS_CHECKPOINT);
+  assert.deepStrictEqual(result.changes, [], 'a progress checkpoint does not tick the line');
+  assert.deepStrictEqual(result.warnings, [], 'no warnings either (TRD file exists)');
+});
+
+test('NC-P8: [x] + progress checkpoint SUMMARY → one trd_summary_not_complete change back to [ ]', () => {
+  const result = reconcileOne('x', summaries.PROGRESS_CHECKPOINT);
+  assert.strictEqual(result.changes.length, 1, JSON.stringify(result.changes, null, 2));
+  const c = result.changes[0];
+  assert.strictEqual(c.kind, 'trd_summary_not_complete');
+  assert.strictEqual(c.trd_id, '01-01');
+  assert.strictEqual(c.before, '- [x] 01-01-alpha-TRD.md — Alpha task');
+  assert.strictEqual(c.after, '- [ ] 01-01-alpha-TRD.md — Alpha task');
+});
+
+test('NC-P9: a completed SUMMARY still ticks [ ] → [x] (PASSED, and 09-03 all-ticked with no Self-Check)', () => {
+  for (const [label, text] of [['PASSED', summaries.COMPLETE_PASSED], ['all ticked, no Self-Check', summaries.COMPLETE_ALL_TICKED_NO_SELF_CHECK]]) {
+    const result = reconcileOne(' ', text);
+    // A one-TRD objective that becomes all [x] also emits an objective_rollup_status change; look at the TRD line only.
+    const trdChanges = result.changes.filter(c => c.kind.startsWith('trd_'));
+    assert.deepStrictEqual(trdChanges.map(c => c.kind), ['trd_summary_exists'], label);
+    assert.strictEqual(trdChanges[0].after, '- [x] 01-01-alpha-TRD.md — Alpha task', label);
+  }
+});
+
+test('NC-P10: a FAILED SUMMARY is still annotated (trd_summary_failed)', () => {
+  const result = reconcileOne('x', summaries.COMPLETE_FAILED);
+  assert.deepStrictEqual(result.changes.map(c => c.kind), ['trd_summary_failed']);
+  assert.ok(result.changes[0].after.endsWith('(failed)'), result.changes[0].after);
 });
 
 // ─── Group EX — export-surface lock ──────────────────────────────────────────

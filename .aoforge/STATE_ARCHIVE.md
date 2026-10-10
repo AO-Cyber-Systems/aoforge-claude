@@ -325,6 +325,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 75]: EST-11 not met under rule 4: scored set 68-71 (4 of 5, 72 unscored); the four scored objectives pass the EST-08 rule
 - [Objective 75]: 0012 stages only the run's own removals (inside ctx.changedSoFar) before git mv; 0002 keeps fs.renameSync; a user-deleted tracked file still defers as dirty
 - [Objective 75]: Migration 0008 covers .dup-detect-log.jsonl, .check-todos-cache.json, .deprecation-log.jsonl and .override-log.jsonl; notices, skill/edit markers, autonomous markers, .gh-mapping.json and .gh-sync-state.json stay out (audit table in 75-02-SUMMARY)
+- [Objective 75]: A SUMMARY is not completion evidence when its Progress list has an unticked task and it has no Self-Check; all-ticked with no Self-Check (09-03) stays complete. One predicate, _summaryNotComplete, serves reconcile, roadmap counts, objective complete and state advance-job.
 
 ## Performance Metrics
 
@@ -536,4 +537,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 74 P09 | 8min | 4 tasks | 7 files |
 | Objective 75 P01 | 60min | 2 tasks | 3 files |
 | Objective 75 P02 | 88min | 3 tasks | 6 files |
+| Objective 75 P03 | 90 min | 3 tasks | 8 files |
 

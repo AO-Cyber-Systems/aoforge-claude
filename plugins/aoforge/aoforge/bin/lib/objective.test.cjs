@@ -43,6 +43,9 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+const { completedSummaryFiles } = require('./objective.cjs');
+const summaries = require('./__fixtures__/summary-completion-fixtures.cjs');
+
 const DF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 
 const cleanup = [];
@@ -299,6 +302,47 @@ describe('objective complete — ROADMAP.md 5-column table (Milestone column pre
     const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
     assert.match(jobsLine(roadmap, 12), /^\*\*Jobs:\*\*\s*8\/10 jobs complete/);
     assert.doesNotMatch(roadmap, /10\/10 jobs complete/);
+  });
+
+  // TRD 75-03: a mid-TRD `summary checkpoint` (an unticked Progress task, no
+  // Self-Check) is on disk but is not a completed TRD either. A backfilled SUMMARY
+  // with every task ticked and no Self-Check (09-03's shape) still is.
+  test('a progress checkpoint SUMMARY is not counted, an all-ticked one without Self-Check is', () => {
+    const project = tmpProject();
+    fs.writeFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), FIVE_COLUMN_ROADMAP, 'utf-8');
+    const dir = writeObjective12Dir(project, 10);
+    fs.writeFileSync(path.join(dir, '12-07-SUMMARY.md'), summaries.PROGRESS_CHECKPOINT, 'utf-8');
+    fs.writeFileSync(path.join(dir, '12-08-SUMMARY.md'), summaries.COMPLETE_ALL_TICKED_NO_SELF_CHECK, 'utf-8');
+    writeObjective13Dir(project);
+    fs.writeFileSync(path.join(project, '.aoforge', 'STATE.md'), NARRATIVE_STATE, 'utf-8');
+
+    const result = run(['objective', 'complete', '12'], project);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.json.jobs_executed, '9/10');
+
+    const roadmap = fs.readFileSync(path.join(project, '.aoforge', 'ROADMAP.md'), 'utf-8');
+    assert.match(jobsLine(roadmap, 12), /^\*\*Jobs:\*\*\s*9\/10 jobs complete/);
+    assert.doesNotMatch(roadmap, /10\/10 jobs complete/);
+  });
+});
+
+describe('completedSummaryFiles — the one completion filter (TRD 75-03)', () => {
+  test('keeps a PASSED SUMMARY and the 09-03 shape, drops a progress checkpoint', () => {
+    const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-completed-summaries-')));
+    fs.writeFileSync(path.join(dir, '09-01-SUMMARY.md'), summaries.COMPLETE_PASSED, 'utf-8');
+    fs.writeFileSync(path.join(dir, '09-02-SUMMARY.md'), summaries.PROGRESS_CHECKPOINT, 'utf-8');
+    fs.writeFileSync(path.join(dir, '09-03-SUMMARY.md'), summaries.COMPLETE_ALL_TICKED_NO_SELF_CHECK, 'utf-8');
+    const files = ['09-01-SUMMARY.md', '09-02-SUMMARY.md', '09-03-SUMMARY.md'];
+    assert.deepEqual(completedSummaryFiles(dir, files), ['09-01-SUMMARY.md', '09-03-SUMMARY.md']);
+  });
+
+  test('keeps a legacy SUMMARY, an unticked box outside Progress and an unreadable file; drops deferred', () => {
+    const dir = track(fs.mkdtempSync(path.join(os.tmpdir(), 'df-completed-summaries-')));
+    fs.writeFileSync(path.join(dir, '09-01-SUMMARY.md'), summaries.LEGACY_NO_PROGRESS, 'utf-8');
+    fs.writeFileSync(path.join(dir, '09-02-SUMMARY.md'), summaries.UNTICKED_OUTSIDE_PROGRESS, 'utf-8');
+    fs.writeFileSync(path.join(dir, '09-03-SUMMARY.md'), summaries.STATUS_DEFERRED, 'utf-8');
+    const files = ['09-01-SUMMARY.md', '09-02-SUMMARY.md', '09-03-SUMMARY.md', '09-04-SUMMARY.md'];
+    assert.deepEqual(completedSummaryFiles(dir, files), ['09-01-SUMMARY.md', '09-02-SUMMARY.md', '09-04-SUMMARY.md']);
   });
 });
 
