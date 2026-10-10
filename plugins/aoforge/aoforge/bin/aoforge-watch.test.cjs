@@ -327,6 +327,15 @@ describe('aoforge-watch files in the watch state directory (TRD 73-12)', () => {
       assert.equal(JSON.parse(fs.readFileSync(watchPidFile(home), 'utf8')).pid, child.pid);
       assert.ok(fs.existsSync(watchLogFile(home)), 'the log is in the watch state directory');
 
+      // Signal only once the daemon handles SIGTERM: it prints its (un)attended line just before it installs the
+      // handler, and a SIGTERM before that ends it without removing its pid file.
+      let out = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (c) => { out += c; });
+      const readySince = Date.now();
+      while (!/attended:/.test(out) && Date.now() - readySince < 5000) await new Promise((r) => setTimeout(r, 20));
+      assert.match(out, /attended:/, 'the daemon reached its signal handlers');
+
       child.kill('SIGTERM');
       assert.ok(await waitForChildExit(child, 8000), 'the daemon exits on SIGTERM');
       assert.equal(fs.existsSync(watchPidFile(home)), false, 'the daemon removes its pid file on exit');
