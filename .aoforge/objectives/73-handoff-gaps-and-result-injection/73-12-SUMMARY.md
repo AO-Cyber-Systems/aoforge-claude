@@ -56,6 +56,12 @@ verification:
 
 duration: 26min
 completed: 2026-10-10
+tokens_input: 28441627
+tokens_output: 98928
+tokens_cache_read: 27992961
+tokens_cache_write: 448390
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 73 TRD 12: The watch daemon's pid file and log live in the watch state directory Summary
@@ -66,7 +72,7 @@ completed: 2026-10-10
 
 - [x] Task 1: RED, the daemon's files in the watch directory, the 3.0.0 read, and hook/daemon agreement — c2121c3f
 - [x] Task 2: GREEN, watcher-state and aoforge-watch on the watch directory; the allowlist on the shared matcher — 058ba810 (pid file and log), 48412588 (allowlist)
-- [x] Task 3: neighbours follow the layout; gate-interactive pinned on it — (this commit)
+- [x] Task 3: neighbours follow the layout; gate-interactive pinned on it — 61064803
 
 ## Resolution order as built
 
@@ -107,7 +113,7 @@ These go with the shims in the release after 3.0.0:
 1. **Task 1: RED** — `c2121c3f` (test)
 2. **Task 2: GREEN pid file and log** — `058ba810` (fix)
 3. **Task 2: GREEN allowlist on the shared matcher** — `48412588` (fix)
-4. **Task 3: neighbours and gate-interactive item 14** — (this commit) (test)
+4. **Task 3: neighbours and gate-interactive item 14** — `61064803` (test)
 
 ## Accomplishments
 
@@ -184,3 +190,9 @@ These go with the shims in the release after 3.0.0:
 - `rg -n "PID_DIR_NAME|LOG_DIR_NAME" plugins/aoforge/aoforge/bin` finds nothing; `WATCH_DIR_SEGMENTS` and `INTERIM_DOT_DIR` are in watcher-state.cjs; `watchStateDir` is in aoforge-watch.cjs; `matchInvocations` / `interactive-commands` are in watcher-allowlist.cjs and `rx(` appears only in the helper and the two deny entries
 - `rg -n -e "'\.aoforge', 'aoforge-watch" plugins/aoforge -g '*.test.*' -g '__fixtures__/*'` prints one line, gate-interactive item 14's deliberate 3.0.0 pid file
 - Gate failures: None
+
+## Self-Check: PASSED
+
+- Commits c2121c3f, 058ba810, 48412588 and 61064803 are on `df/exec-73-12-watch-daemon-state-dir` (base 2300e640).
+- FOUND: watcher-state.cjs, aoforge-watch.cjs, watcher-allowlist.cjs, watcher-allowlist.test.cjs, 73-12-SUMMARY.md.
+- No test daemon left running from this worktree; no stray `.aoforge-handoff/pending` record; none of 73-13's files touched.
