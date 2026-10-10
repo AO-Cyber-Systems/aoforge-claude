@@ -36,7 +36,7 @@ The rename changes no behaviour. If something works differently after the move, 
 | `config.json` upgrade stamp | `devflow{}` | `aoforge{}` |
 | CLAUDE.md managed block | `<!-- DEVFLOW:START ... -->` | `<!-- AOFORGE:START ... -->` |
 | Banner | `DF ►` | `AOF ►` |
-| User dot directory | `~/.devflow/` | `~/.aoforge/` |
+| User dot directory | `~/.devflow/` | `~/.claude/aoforge/` |
 | Watch daemon | `devflow-watch` | `aoforge-watch` |
 | Adopt branch | `devflow/adopt` | `aoforge/adopt` |
 | GitHub labels and hidden markers | `devflow:<name>` | `aoforge:<name>` |
@@ -45,6 +45,10 @@ The rename changes no behaviour. If something works differently after the move, 
 | Checks App variable and secret | `DEVFLOW_APP_CLIENT_ID`, `DEVFLOW_APP_PRIVATE_KEY` | `AOFORGE_APP_CLIENT_ID`, `AOFORGE_APP_PRIVATE_KEY` |
 | Docs site Pages project | `devflow-docs` | `aoforge-docs` |
 <!-- rename-guard:ignore-end -->
+
+AOForge 3.0.0 itself kept the user files and the watch daemon's pid file and log in `~/.aoforge/`. They now live in
+the runtime home, `~/.claude/aoforge/` (the daemon's in `state/watch/`); what 3.0.0 left in `~/.aoforge/` is still read
+for one release, and `aof-tools doctor --global --fix` moves it.
 
 The docs site keeps its address, https://devflow.cloud, for now. Its CLI reference page moved to
 `/docs/reference/aof-tools/`, and the old URL redirects there.
@@ -71,8 +75,8 @@ The docs site keeps its address, https://devflow.cloud, for now. Its CLI referen
 - **Old GitHub artefacts.** Store and mirror reads accept the `devflow:` labels and hidden markers beside the new ones,
   and the checks post every verdict under both the `aoforge/` and the `devflow/` context, so a required check under
   either name still passes.
-- **Old user files.** `defaults.json`, the Brave API key and the watch allowlist are read from `~/.aoforge/` first and
-  from `~/.devflow/` second.
+- **Old user files.** `defaults.json`, the Brave API key and the watch allowlist are read from `~/.claude/aoforge/`
+  first, then from `~/.aoforge/` (where 3.0.0 kept them), then from `~/.devflow/`.
 - **An adopt started before the rename** resumes on the `devflow/adopt` branch.
 - **Old ignore lines.** Every `.gitignore` line that names `.planning/` gets a `.aoforge/` twin, and the old line stays.
 

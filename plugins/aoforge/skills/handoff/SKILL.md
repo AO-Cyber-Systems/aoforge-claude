@@ -141,7 +141,7 @@ In either case:
        multiSelect: false,
        options: [
          { label: "Run it myself (Recommended)", description: "You paste `! {cmd}` and I continue from its output" },
-         { label: "Extend allowlist", description: "You add it to ~/.aoforge/aoforge-watch-allow.json; I do not retry it" }
+         { label: "Extend allowlist", description: "You add it to ~/.claude/aoforge/aoforge-watch-allow.json; I do not retry it" }
        ]
      }
    ])

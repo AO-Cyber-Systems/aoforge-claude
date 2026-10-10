@@ -2,7 +2,7 @@
 status: active
 ---
 <purpose>
-Interactive configuration of AOForge workflow agents (research, job_check, verifier) and model profile selection via multi-question prompt. Updates .aoforge/config.json with user preferences. Optionally saves settings as global defaults (~/.aoforge/defaults.json) for future projects.
+Interactive configuration of AOForge workflow agents (research, job_check, verifier) and model profile selection via multi-question prompt. Updates .aoforge/config.json with user preferences. Optionally saves settings as global defaults (~/.claude/aoforge/defaults.json) for future projects.
 </purpose>
 
 <required_reading>
@@ -141,20 +141,20 @@ AskUserQuestion([
     header: "Defaults",
     multiSelect: false,
     options: [
-      { label: "Yes", description: "New projects start with these settings (saved to ~/.aoforge/defaults.json)" },
+      { label: "Yes", description: "New projects start with these settings (saved to ~/.claude/aoforge/defaults.json)" },
       { label: "No", description: "Only apply to this project" }
     ]
   }
 ])
 ```
 
-If "Yes": write the same config object (minus project-specific fields like `brave_search`) to `~/.aoforge/defaults.json`:
+If "Yes": write the same config object (minus project-specific fields like `brave_search`) to `~/.claude/aoforge/defaults.json`:
 
 ```bash
-mkdir -p ~/.aoforge
+mkdir -p ~/.claude/aoforge
 ```
 
-Write `~/.aoforge/defaults.json` with:
+Write `~/.claude/aoforge/defaults.json` with:
 ```json
 {
   "mode": <current>,
@@ -207,6 +207,6 @@ Quick commands:
 - [ ] Current config read
 - [ ] User presented with 6 settings (profile + 4 workflow toggles + git branching)
 - [ ] Config updated with model_profile, workflow, and git sections
-- [ ] Save-as-defaults question asked (~/.aoforge/defaults.json)
+- [ ] Save-as-defaults question asked (~/.claude/aoforge/defaults.json)
 - [ ] Changes confirmed to user
 </success_criteria>
