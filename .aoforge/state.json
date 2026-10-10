@@ -1,6 +1,6 @@
 {
   "current_objective": "73",
-  "current_job": 6,
+  "current_job": 7,
   "total_jobs": 8,
   "progress_pct": 100,
   "status": "executing",
@@ -1544,6 +1544,21 @@
     {
       "objective": "73",
       "summary": "73-06: the PostToolUse output model follows the hooks reference, which does not require reason with decision block; the Stop registration timeout (150 s) is pinned by a test above the 120 s bounded wait",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-07: SC-3/HND-03 evidence is run 2 (h-abe054d2): the user answered ssh-keygen's two passphrase prompts in the attended aoforge-watch terminal and inject-handoff-results@Stop delivered the result 33 ms after completion with no paste; run 1 (h-c824c40a, Claude added -N \"\") is kept as delivery evidence for a non-prompting command",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-07: live demo used option B (claude --plugin-dir, aoforge@aocyber disabled at local scope in the demo dir only); the pre-rename homelab watcher was stopped for the demo and restored with the same command (pid 74371)",
+      "rationale": null
+    },
+    {
+      "objective": "73",
+      "summary": "73-07: gate-interactive false positives found in the demo are recorded as gaps G1-G3 for verify-work, not fixed in the demo TRD: the key-generation pattern gates the read-only fingerprint mode and matches inside quoted arguments, gate-interactive.js lines 54 and 108",
       "rationale": null
     }
   ],

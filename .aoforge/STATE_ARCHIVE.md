@@ -296,6 +296,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73]: 73-05: the session facade keeps a registry of attached listeners and re-attaches them to a respawned shell, because processOnce attaches its prompt detector before dispatch
 - [Objective 73]: 73-05: framing lines strip control characters from the handoff id and command (cap 200 chars) so a pending record cannot drive the user's terminal; the command's own output is mirrored verbatim
 - [Objective 73]: 73-06: the PostToolUse output model follows the hooks reference, which does not require reason with decision block; the Stop registration timeout (150 s) is pinned by a test above the 120 s bounded wait
+- [Objective 73]: 73-07: SC-3/HND-03 evidence is run 2 (h-abe054d2): the user answered ssh-keygen's two passphrase prompts in the attended aoforge-watch terminal and inject-handoff-results@Stop delivered the result 33 ms after completion with no paste; run 1 (h-c824c40a, Claude added -N "") is kept as delivery evidence for a non-prompting command
+- [Objective 73]: 73-07: live demo used option B (claude --plugin-dir, aoforge@aocyber disabled at local scope in the demo dir only); the pre-rename homelab watcher was stopped for the demo and restored with the same command (pid 74371)
+- [Objective 73]: 73-07: gate-interactive false positives found in the demo are recorded as gaps G1-G3 for verify-work, not fixed in the demo TRD: the key-generation pattern gates the read-only fingerprint mode and matches inside quoted arguments, gate-interactive.js lines 54 and 108
 
 ## Performance Metrics
 
@@ -489,4 +492,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P04 | 17min | 3 tasks | 4 files |
 | Objective 73 P05 | 14min | 3 tasks | 5 files |
 | Objective 73 P06 | 9min | 3 tasks | 6 files |
+| Objective 73 P07 | 337min | 3 tasks | 0 files |
 
