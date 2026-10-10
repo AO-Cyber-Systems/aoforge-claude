@@ -327,6 +327,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 75]: Migration 0008 covers .dup-detect-log.jsonl, .check-todos-cache.json, .deprecation-log.jsonl and .override-log.jsonl; notices, skill/edit markers, autonomous markers, .gh-mapping.json and .gh-sync-state.json stay out (audit table in 75-02-SUMMARY)
 - [Objective 75]: A SUMMARY is not completion evidence when its Progress list has an unticked task and it has no Self-Check; all-ticked with no Self-Check (09-03) stays complete. One predicate, _summaryNotComplete, serves reconcile, roadmap counts, objective complete and state advance-job.
 - [Objective 75]: 75-04 sweep: 14 todos at start = 4 completed with evidence, 9 re-scoped, 1 follow-up; SC-4 passes (10 of 10 pending carry disposition_reason). The verify-commits todo is re-scoped: no SubagentStop block is recorded in the transcripts, and this repo is mode yolo (warn-only). TODO-01 is ticked by 75-05 after SC-4 is re-run.
+- [Objective 75]: EST-11 not met on 68-71 (72 unscored); EST-09 met at 90/92 = 0.97826; 4 todos completed, 9 re-scoped, 1 follow-up opened — The rule pre-registered before any scoring decided it (a five-objective criterion cannot be met by four scored objectives), and nothing was tuned or backfilled.
 
 ## Performance Metrics
 

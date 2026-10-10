@@ -14,9 +14,9 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Estimation (EST): carries EST-08 forward
 
-- [ ] **EST-09**: Every new executor SUMMARY carries `tokens_input` / `tokens_output`. Forward-stamp coverage is ≥95% over the TRDs executed in v1.6, and the coverage is measured and reported.
+- [x] **EST-09**: Every new executor SUMMARY carries `tokens_input` / `tokens_output`. Forward-stamp coverage is ≥95% over the TRDs executed in v1.6, and the coverage is measured and reported.
 - [x] **EST-10**: Minutes estimates are recalibrated by a method chosen and frozen before it is scored. The choice, its provenance and its validation protocol are recorded, and nothing is fitted to the objectives it is scored on.
-- [ ] **EST-11**: EST-08's criterion is re-tested prospectively. Across the first five objectives executed after EST-10 ships, each with a run-state estimate recorded before execution, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes. The report gives the honest verdict either way.
+- [ ] **EST-11**: EST-08's criterion is re-tested prospectively. Across the first five objectives executed after EST-10 ships, each with a run-state estimate recorded before execution, the median estimate is within ±30% of actual and P90 covers ≥80% of outcomes. The report gives the honest verdict either way. (re-tested prospectively in objective 75 on objectives 68, 69, 70 and 71; 72 unscored: not met, see 75-RETEST-REPORT.md)
 
 ### aof-tools correctness (TOOL)
 
@@ -59,7 +59,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 ### Todo hygiene (TODO)
 
-- [ ] **TODO-01**: Every todo pending at v1.6 start is completed through `todo complete` by the objective that addresses it, or explicitly re-scoped. None is left pending without a reason.
+- [x] **TODO-01**: Every todo pending at v1.6 start is completed through `todo complete` by the objective that addresses it, or explicitly re-scoped. None is left pending without a reason.
 
 ## Future Requirements
 
@@ -79,7 +79,7 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 |---|---|---|
 | REL-01 | Objective 65 | Complete |
 | REL-02 | Objective 65 | Complete |
-| EST-09 | Objective 66 (built; coverage 6/8 = 0.75, re-measured by 75) | Pending |
+| EST-09 | Objective 66 (built); coverage 90/92 = 0.97826 measured by 75-05 | Complete |
 | EST-10 | Objective 67 | Complete |
 | TOOL-01 | Objective 68 | Complete |
 | TOOL-02 | Objective 68 | Complete |
@@ -105,5 +105,5 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | OPS-01 | Objective 74 | Complete |
 | OPS-02 | Objective 74 | Complete |
 | OPS-03 | Objective 74 | Pending |
-| EST-11 | Objective 75 | Pending |
-| TODO-01 | Objective 75 | Pending |
+| EST-11 | Objective 75 | Not met: see objectives/75-prospective-estimate-retest-and-todo-sweep/75-RETEST-REPORT.md; follow-up todo est-11-follow-up-objective-75 |
+| TODO-01 | Objective 75 (sweep table: objectives/75-prospective-estimate-retest-and-todo-sweep/75-TODO-SWEEP.md) | Complete |

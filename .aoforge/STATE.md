@@ -234,7 +234,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 ## Blockers / Concerns
 
 - **`feature/v1.1-coordination` is duplicative** — same content as `feature/v1.1`. Should be deleted to avoid confusion. Its worktree at `/Users/markemerson/Source/devflow-claude-v11` can be removed.
-- EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run aof-tools calibrate until objective 75 has scored 68-72
 - G5 (73-08): the aoforge-watch home ~/.aoforge/ makes HOME resolve as an AOForge project root (compat.findProjectRoot walks up unbounded); every repo under HOME without its own .aoforge/ is treated as ambient AOForge by gate-edits, gate-commits, route-intent, classify-session and others; 4 classify-session tests fail on this machine. Fix before the release (move the daemon home or bound the walk).
 
 ### Quick Tasks Completed

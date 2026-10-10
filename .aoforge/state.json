@@ -1700,10 +1700,14 @@
       "objective": "75",
       "summary": "75-04 sweep: 14 todos at start = 4 completed with evidence, 9 re-scoped, 1 follow-up; SC-4 passes (10 of 10 pending carry disposition_reason). The verify-commits todo is re-scoped: no SubagentStop block is recorded in the transcripts, and this repo is mode yolo (warn-only). TODO-01 is ticked by 75-05 after SC-4 is re-run.",
       "rationale": null
+    },
+    {
+      "objective": "75",
+      "summary": "EST-11 not met on 68-71 (72 unscored); EST-09 met at 90/92 = 0.97826; 4 todos completed, 9 re-scoped, 1 follow-up opened",
+      "rationale": "The rule pre-registered before any scoring decided it (a five-objective criterion cannot be met by four scored objectives), and nothing was tuned or backfilled."
     }
   ],
   "blockers": [
-    "EST-11 calibration frozen (67-FREEZE.md, sha256 f4d1ffa9): do not run df-tools calibrate until objective 75 has scored 68-72",
     "G5 (73-08): the aoforge-watch home ~/.aoforge/ makes HOME resolve as an AOForge project root (compat.findProjectRoot walks up unbounded); every repo under HOME without its own .aoforge/ is treated as ambient AOForge by gate-edits, gate-commits, route-intent, classify-session and others; 4 classify-session tests fail on this machine. Fix before the release (move the daemon home or bound the walk)."
   ],
   "session_log": []
