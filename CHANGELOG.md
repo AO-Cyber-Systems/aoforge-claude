@@ -6,8 +6,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Answer a queued command's prompt in the aoforge-watch terminal** (objective 73, HND-03). `aoforge-watch start
+  --foreground` run in a terminal is now attended: a queued command's live output appears there and the keys typed
+  there go to the command, so you answer a passphrase or token prompt yourself, and the daemon never types, logs or
+  stores them. Each command is framed by a start line with the terminal bell and an end line with its status. Ctrl+C
+  during a command ends it with exit 130 and the daemon keeps serving. `--no-attend`, `AOFORGE_WATCH_UNATTENDED=1` or
+  piped stdio run unattended, as before. Shown live in TRD 73-07: a passphrase prompt answered in the attended terminal
+  and the result in Claude's context with nothing typed in Claude Code.
+- **Handoff results arrive without a prompt** (objective 73, HND-02). `inject-handoff-results.js` is registered on
+  PostToolUse (`*`) and Stop: a finished handoff reaches Claude after its next tool call, or blocks the end of the turn
+  with the result, waiting up to 120 s (`AOFORGE_HANDOFF_STOP_WAIT_MS`, `0` disables) for a command the user is still
+  answering. A result goes only to the session and agent that queued it, and `route-results.js` stays the catch-all on
+  the next prompt. Escapes: `AOFORGE_SKIP_HANDOFF_INJECT=1`, `AOFORGE_SKIP_HANDOFF_RESULTS=1`.
+
+### Changed
+
+- **PTY results carry stderr in stdout** (objective 73, HND-01). On a bash or zsh daemon a queued command runs with the
+  terminal on both stdout and stderr, so its stderr text arrives in the result's stdout and the stderr field is empty.
+  Pipe mode and fish and PowerShell daemons keep separate streams.
+- **gate-interactive records who asked and says where the command waits** (objective 73, HND-02). Each pending record
+  carries the `session_id` and `agent_id` of the Bash call that queued it, and the done record keeps them. With the
+  daemon live, the deny reason tells Claude to say in one line that the command waits in the user's aoforge-watch
+  terminal, and that the result returns after the next tool call or at the end of the turn. The wording without a
+  daemon (`! cmd`) is unchanged.
+
 ### Fixed
 
+- **Three PTY gaps in aoforge-watch are closed** (objective 73, HND-01). On bash and zsh a queued command now sees a
+  terminal on stdout and stderr (`doctl` no longer fails with `unknown terminal`), and a command that reads input can no
+  longer swallow the daemon's wrapper lines, because each dispatch is one line sourcing a 0600 script in a private 0700
+  directory. On every shell the prompt detector reads only the running command's live output, so error text replayed
+  after a command exits is never answered with a secret or a Ctrl+C. Ctrl+C ends a command with exit 130 instead of a
+  10-minute timeout, and the daemon's shell keeps no history. fish and PowerShell daemons keep the old wrapper, so the
+  first two gaps remain there.
+- **A dead daemon shell is replaced** (objective 73, HND-03). When the daemon's shell dies (a command that exits it, or
+  a timeout), the next queued command gets a new shell instead of failing; the log says `respawned shell`, and the
+  prompt detector follows the new shell.
+- **Handoff results are delivered once** (objective 73, HND-02). Two hook processes over one result no longer both emit
+  it (an O_EXCL claim file decides), a record written by `aof-tools handoff complete` shows its output instead of `(no
+  output captured)`, and the result block stays under 9,000 characters, a record cut to share the space ending with a
+  `handoff get <id>` pointer.
 - **`gh rebrand` reads large repositories** (objective 72, INST-04). Every `gh` call now gets a 256 MiB output buffer
   (Node's default is 1 MiB) and a paginated read gets 5 minutes instead of 30 seconds, so a dry run no longer fails
   with `spawnSync gh ENOBUFS` on a repository whose issue list is larger than 1 MiB. A read that still overflows or

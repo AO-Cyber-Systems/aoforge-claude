@@ -47,7 +47,8 @@
  *
  * Never throws and never blocks a tool call: any error exits 0 silently.
  *
- * Not registered in hooks.json yet: TRD 73-06 registers it with its coexistence entry and the PostToolUse schema model.
+ * Registered in hooks.json by TRD 73-06 (PostToolUse matcher `*`, Stop with `"timeout": 150`), with its coexistence
+ * entry and the PostToolUse schema model.
  */
 
 'use strict';

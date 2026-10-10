@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-09T03:35:50.807Z",
+  "generatedAt": "2026-10-10T00:25:22.029Z",
   "version": "3.0.0",
   "packageVersion": "3.0.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
@@ -1359,8 +1359,8 @@
       "file": "gate-interactive.js",
       "name": "gate-interactive",
       "group": "Enforcement",
-      "purpose": "Intercepts TTY-requiring commands and routes them to the handoff watcher rather than letting them hang on a prompt no one can answer.",
-      "escape": null,
+      "purpose": "Intercepts TTY-requiring and shell-environment commands (auth logins, passphrase prompts, `nvm use`, `direnv allow`, ...) and queues them to `aoforge-watch` with the session and agent that asked, rather than letting them hang on a prompt no one can answer. With the daemon running, Claude tells you in one line that the command waits in your aoforge-watch terminal, where you answer its prompt, and the result comes back by itself; without it, Claude asks you to run `! cmd`. It matches the raw command text, so a quoted argument or heredoc that mentions a gated command can be intercepted.",
+      "escape": "AOFORGE_SKIP_INTERACTIVE_GATE=1",
       "events": [
         "PreToolUse (Bash)"
       ],
@@ -1409,10 +1409,13 @@
       "file": "inject-handoff-results.js",
       "name": "inject-handoff-results",
       "group": "Session context",
-      "purpose": "Surfaces completed handoff-watcher results back into the session.",
-      "escape": null,
-      "events": [],
-      "registered": false,
+      "purpose": "Delivers a finished handoff-watcher result to the session and agent that queued it, exactly once, without waiting for your next prompt: after Claude's next tool call (PostToolUse) or when Claude ends its turn (Stop, which blocks the stop with the result). At Stop it waits up to 120 s (`AOFORGE_HANDOFF_STOP_WAIT_MS`, `0` disables) for a command you are still answering in the aoforge-watch terminal. `route-results.js` delivers anything left on the next prompt.",
+      "escape": "AOFORGE_SKIP_HANDOFF_INJECT=1, AOFORGE_SKIP_HANDOFF_RESULTS=1",
+      "events": [
+        "Stop",
+        "PostToolUse (*)"
+      ],
+      "registered": true,
       "note": null
     },
     {
@@ -1441,8 +1444,8 @@
       "file": "route-results.js",
       "name": "route-results",
       "group": "Session context",
-      "purpose": "Injects completed handoff-watcher results into the next turn, so a queued interactive command resumes without you pasting anything.",
-      "escape": null,
+      "purpose": "The catch-all for handoff results: on your next prompt, delivers every finished handoff-watcher result that no other hook delivered yet, whichever session or agent queued it, exactly once (an O_EXCL claim shared with `inject-handoff-results.js`). Also emits queued notices, such as those from `upgrade-project.js` and `coexistence-guard.js`, once each.",
+      "escape": "AOFORGE_SKIP_HANDOFF_RESULTS=1, AOFORGE_SKIP_NOTICES=1",
       "events": [
         "UserPromptSubmit"
       ],
