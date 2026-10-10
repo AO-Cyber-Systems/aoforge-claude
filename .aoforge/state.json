@@ -1,8 +1,8 @@
 {
   "current_objective": "75",
-  "current_job": 3,
+  "current_job": 4,
   "total_jobs": 5,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-10",
   "metrics": {
@@ -1694,6 +1694,11 @@
     {
       "objective": "75",
       "summary": "A SUMMARY is not completion evidence when its Progress list has an unticked task and it has no Self-Check; all-ticked with no Self-Check (09-03) stays complete. One predicate, _summaryNotComplete, serves reconcile, roadmap counts, objective complete and state advance-job.",
+      "rationale": null
+    },
+    {
+      "objective": "75",
+      "summary": "75-04 sweep: 14 todos at start = 4 completed with evidence, 9 re-scoped, 1 follow-up; SC-4 passes (10 of 10 pending carry disposition_reason). The verify-commits todo is re-scoped: no SubagentStop block is recorded in the transcripts, and this repo is mode yolo (warn-only). TODO-01 is ticked by 75-05 after SC-4 is re-run.",
       "rationale": null
     }
   ],
