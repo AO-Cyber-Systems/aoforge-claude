@@ -156,6 +156,13 @@ describe('ci-cloudflare-target main', () => {
       },
       { routes: { ...healthyRoutes(), [PROJECTS_PATH]: fx.errorResponse(10000, 'Authentication error') } },
       {
+        // An id the run was never given (so only the 32-hex rule can catch it).
+        routes: {
+          ...healthyRoutes(),
+          [PROJECTS_PATH]: fx.errorResponse(7003, `No route for /client/v4/accounts/${fx.OTHER_ACCOUNT_ID}/pages/projects`),
+        },
+      },
+      {
         routes: {
           [ACCOUNT_PATH]: new Error(`request to https://api.cloudflare.com${ACCOUNT_PATH} failed, token ${fx.TOKEN}`),
           [ACCOUNTS_PATH]: new Error('socket hang up'),
