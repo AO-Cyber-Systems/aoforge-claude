@@ -314,6 +314,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 74]: 74-01: OPS-01 stays Pending after 74-01; it completes only once the user sets the secret (74-05) and the job runs on main (74-08)
 - [Objective 74]: 74-02: OPS-03 stays Pending after the diagnostic and preview-safe deploy land; only 74-08 evidence on main ticks it (74-09 closes it)
 - [Objective 74]: 74-02: the deploy-target diagnostic prints account and project names only (ids compared in-process, other accounts counted); the docs.yml deploy branch comes from github.ref_name through env so a dispatch off main is a preview
+- [Objective 74]: 74-03: the main ruleset keeps the repository admin as a pull_request-mode bypass actor, not gh-setup's always mode, so a force-push is rejected for everyone; only test (npm test, gated) pinned to app 15368 is required because harness and build are path-filtered
 
 ## Performance Metrics
 
@@ -517,4 +518,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P14 | 10min | 3 tasks | 13 files |
 | Objective 74 P01 | 15min | 3 tasks | 9 files |
 | Objective 74 P02 | 8min | 3 tasks | 4 files |
+| Objective 74 P03 | 9min | 3 tasks | 4 files |
 

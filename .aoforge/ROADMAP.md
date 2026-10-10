@@ -347,7 +347,7 @@ TRDs:
 TRDs:
 - [x] 74-01-live-visual-judge-ci-TRD.md — (W1) real docs-site screenshot fixtures, `scripts/ci-visual-judge.cjs` (fails unless every state has vision evidence; TDD), `visual-judge.yml` on pushes to main
 - [ ] 74-02-cloudflare-target-and-docs-deploy-TRD.md — (W1) `scripts/ci-cloudflare-target.cjs` names the deploy account and projects without ids (TDD); docs.yml runs it and deploys previews from non-main branches
-- [ ] 74-03-main-ruleset-record-TRD.md — (W1) `.github/rulesets/main.json` (no force-push, PR + unit suite required) and `scripts/ruleset-check.cjs` compare/checks (TDD); live read-only inventory
+- [x] 74-03-main-ruleset-record-TRD.md — (W1) `.github/rulesets/main.json` (no force-push, PR + unit suite required) and `scripts/ruleset-check.cjs` compare/checks (TDD); live read-only inventory
 - [ ] 74-04-ops-branch-and-pr-TRD.md — (W2) `ops/74-ci-operations` off origin/main with only the 74-01/02 commits; checkpoints: push, open PR
 - [ ] 74-05-anthropic-secret-and-live-judge-run-TRD.md — (W3) checkpoints: user sets the ANTHROPIC secret (existence checked by name only); approved re-run of the live judge on the PR
 - [ ] 74-06-cloudflare-credentials-and-pages-project-TRD.md — (W4) diagnostic read; checkpoints: user corrects credentials if needed and creates `aoforge-docs`; approved preview deploy
