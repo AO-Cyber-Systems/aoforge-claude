@@ -271,3 +271,35 @@ test('RC-16 assertReadOnly refuses every gh form that could write', () => {
   assert.doesNotThrow(() => assertReadOnly(['api', '--method', 'GET', 'repos/O/R/rulesets']));
   assert.doesNotThrow(() => assertReadOnly(['pr', 'view', '1', '--repo', 'O/R', '--json', 'headRefOid', '--jq', '.headRefOid']));
 });
+
+// ─── the record itself ───────────────────────────────────────────────────────
+
+test('RC-11 .github/rulesets/main.json is the approvable ruleset and keeps its safety properties', () => {
+  const { SETUP_RULESET_NAME, ADMIN_BYPASS } = require('../plugins/aoforge/aoforge/bin/lib/gh-setup.cjs');
+  const ruleset = approvedRuleset();
+
+  assert.strictEqual(ruleset.name, SETUP_RULESET_NAME, 'a later `gh setup --apply` unions into this ruleset');
+  assert.strictEqual(ruleset.name, RULESET_NAME);
+  assert.strictEqual(ruleset.target, 'branch');
+  assert.strictEqual(ruleset.enforcement, 'active');
+  assert.deepStrictEqual(ruleset.conditions.ref_name.include, ['~DEFAULT_BRANCH']);
+
+  const types = ruleset.rules.map((r) => r.type);
+  assert.ok(types.includes('deletion'));
+  assert.ok(types.includes('non_fast_forward'), 'nobody can force-push');
+
+  assert.ok(ruleset.bypass_actors.length >= 1);
+  for (const actor of ruleset.bypass_actors) {
+    assert.strictEqual(actor.actor_type, 'RepositoryRole');
+    assert.strictEqual(actor.actor_id, ADMIN_BYPASS.actor_id, 'only the repository admin role bypasses');
+    assert.strictEqual(actor.bypass_mode, 'pull_request', 'an `always` bypass could force-push');
+  }
+
+  const checks = ruleset.rules.find((r) => r.type === 'required_status_checks').parameters.required_status_checks;
+  assert.ok(checks.length >= 1);
+  for (const check of checks) {
+    assert.strictEqual(check.integration_id, GITHUB_ACTIONS, `${check.context} is pinned to github-actions`);
+    assert.ok(!['harness', 'build'].includes(check.context), `${check.context} is path-filtered and would hang merges`);
+    assert.ok(!check.context.startsWith('aoforge/'), 'no AOForge check runs in this repository');
+  }
+});
