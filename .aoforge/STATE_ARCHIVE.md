@@ -320,6 +320,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 74]: main ruleset 'aoforge: default branch' (id 24829006) applied exactly as the 74-03 file after the user's literal approved; default variant (admin bypass in pull_request mode only); read-back compare matches
 - [Objective 74]: 74-08 re-scoped by the user: PR #130 not merged (it holds only deferred OPS-03 content); the merge, the push-to-main docs deploy and the devflow.cloud domain move are deferred with OPS-03; the main ruleset 24829006 verified read-only (compare exit 0)
 - [Objective 74]: 74-08 SC1 (CI visual judge on main) not applicable after the OPS-01 local-only re-scope; main confirmed to carry no visual-judge workflow or script
+- [Objective 74]: 74-09: OPS-01 marked complete on read-only evidence (no CI judge or ANTHROPIC reference on the branch or main; no repo, Dependabot or environment secret; no ANTHROPIC org secret; local --judge live wired). OPS-03 stays Pending with its todo; the Pages todo is not completed.
+- [Objective 74]: 74-09: ROADMAP criterion 1 and the objective 74 list line were not reworded: doc put refuses ROADMAP.md (generated file) and the user forbade a direct edit; the prepared text waits for the user.
 
 ## Performance Metrics
 
@@ -528,4 +530,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 74 P05 | 10min | 2 tasks | 7 files |
 | Objective 74 P07 | 12min | 3 tasks | 0 files |
 | Objective 74 P08 | 4min | 3 tasks | 0 files |
+| Objective 74 P09 | 8min | 4 tasks | 7 files |
 

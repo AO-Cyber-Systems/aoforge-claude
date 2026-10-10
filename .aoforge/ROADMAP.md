@@ -353,7 +353,7 @@ TRDs:
 - [ ] 74-06-cloudflare-credentials-and-pages-project-TRD.md — (W4) diagnostic read; checkpoints: user corrects credentials if needed and creates `aoforge-docs`; approved preview deploy
 - [x] 74-07-apply-main-ruleset-TRD.md — (W5) checkpoint: user approves the exact ruleset text, one POST; read-back compare
 - [x] 74-08-merge-and-verify-on-main-TRD.md — (W6) checkpoint: merge through the ruleset; verify judge, deploy and ruleset on main; checkpoint: devflow.cloud domain move decision
-- [ ] 74-09-docs-and-close-out-TRD.md — (W7) CHANGELOG, site guides, workflow comments, CLAUDE.md, REQUIREMENTS ticks, Pages todo complete
+- [x] 74-09-docs-and-close-out-TRD.md — (W7) CHANGELOG, site guides, workflow comments, CLAUDE.md, REQUIREMENTS ticks, Pages todo complete
 
 ### Objective 75: Prospective estimate retest and todo sweep
 
@@ -386,5 +386,5 @@ TRDs:
 | 71. Stack drafter and verify policy | v1.6 | 5/5 | Complete | 2026-10-08 |
 | 72. Install and naming cleanup | v1.6 | 27/27 | Complete | 2026-10-09 |
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
-| 74. Operations decisions | v1.6 | 7/9 | In Progress | - |
+| 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
