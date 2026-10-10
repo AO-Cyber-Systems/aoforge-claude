@@ -310,6 +310,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 73-handoff-gaps-and-result-injection]: 73-13: a leftover ~/.aoforge/ is cleared only by the global doctor check user-dot-dir on --fix; it moves AOForge 3.0.0 files to the runtime home or backups/aoforge-dot-dir-<ts>/, never deletes or overwrites, and waits while a live daemon or an installed service still uses the directory
 - [Objective 73]: 73-14: the remaining gate-interactive limits are documented as fail-open (not matched, runs in Claude's Bash as before), each probed against the shipped matcher before it was written
 - [Objective 73]: 73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug
+- [Objective 74]: 74-01: ci-visual-judge.cjs redacts the ANTHROPIC credential values out of everything it prints, because a failed curl in anthropicMessagesCall echoes its own command line (x-api-key header, base64 body) into the rollup's state errors
+- [Objective 74]: 74-01: OPS-01 stays Pending after 74-01; it completes only once the user sets the secret (74-05) and the job runs on main (74-08)
 
 ## Performance Metrics
 
@@ -511,4 +513,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 73 P12 | 26min | 3 tasks | 12 files |
 | Objective 73-handoff-gaps-and-result-injection P13 | 12min | 3 tasks | 8 files |
 | Objective 73 P14 | 10min | 3 tasks | 13 files |
+| Objective 74 P01 | 15min | 3 tasks | 9 files |
 

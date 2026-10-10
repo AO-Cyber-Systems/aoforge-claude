@@ -1,9 +1,9 @@
 {
-  "current_objective": "73",
-  "current_job": 14,
-  "total_jobs": 14,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "74",
+  "current_job": 1,
+  "total_jobs": 9,
+  "progress_pct": 99,
+  "status": "executing",
   "last_activity": "2026-10-09",
   "metrics": {
     "jobs_completed": 0,
@@ -1614,6 +1614,16 @@
     {
       "objective": "73",
       "summary": "73-14: the releases guide's raw-string callout was corrected outside files_modified, so no page still documents a fixed gate bug",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-01: ci-visual-judge.cjs redacts the ANTHROPIC credential values out of everything it prints, because a failed curl in anthropicMessagesCall echoes its own command line (x-api-key header, base64 body) into the rollup's state errors",
+      "rationale": null
+    },
+    {
+      "objective": "74",
+      "summary": "74-01: OPS-01 stays Pending after 74-01; it completes only once the user sets the secret (74-05) and the job runs on main (74-08)",
       "rationale": null
     }
   ],

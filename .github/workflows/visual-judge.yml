@@ -1,0 +1,70 @@
+# The live visual judge (TRD 74-01, OPS-01) judges two real screenshots of this repository's
+# own docs home page with the live Anthropic vision model and fails unless the model genuinely
+# looked at them. The fixture is scripts/__fixtures__/visual-judge/: docs-home.png (the page as
+# built, expected to pass) and docs-home-broken.png (a hand-injected blatant overflow above a
+# large blank region, `expect: fail`), three samples each.
+#
+# WHY A SCRIPT AND NOT THE CLI ALONE. `verify flutter-ui-eval --judge live` reports
+# `gate: "binding"` and exits 0 even with no credential: every vision call throws, each state
+# drops to `review` with an error and no evidence, and the expect-fail state counts as
+# known_failing. scripts/ci-visual-judge.cjs refuses to start without a credential and then
+# asserts on the rollup: a live run, `evidence: vision` and no error on every state, the broken
+# screenshot judged broken, the good one not failed, nothing unjudged, and input tokens spent.
+# A credential-less run therefore FAILS here; it never passes.
+#
+# WHY IT IS NOT A REQUIRED CHECK. On pull requests it is path-filtered to the judge's own files
+# (a known false-green class when required: a PR that skips it would wait forever), and it needs
+# a secret that a fork's pull request never receives, so the `if:` below skips those runs
+# instead of failing them. It runs on every push to main and on demand, which is where its
+# signal is read. Do not add it to a required-check list or a ruleset.
+#
+# COST. 2 states x 3 samples = 6 vision calls per run, about 1.4K input tokens per 1280x800
+# image: cents per push to main.
+#
+# SECRETS. ANTHROPIC_API_KEY (or ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL) is mapped from
+# repository secrets into the one step that needs it. The script checks presence only and
+# redacts the values out of everything it prints.
+name: Live visual judge
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'scripts/ci-visual-judge.cjs'
+      - 'scripts/__fixtures__/visual-judge/**'
+      - 'plugins/aoforge/aoforge/bin/lib/flutter-ui-eval*.cjs'
+      - 'plugins/aoforge/aoforge/references/model-profiles.json'
+      - '.github/workflows/visual-judge.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: visual-judge-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least privilege (CodeQL actions/missing-workflow-permissions): the job checks out the tree and
+# calls the Anthropic API. It writes nothing through GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  judge:
+    name: live visual judge
+    # Secrets never reach a fork's pull request; run only where they exist.
+    if: github.repository == 'AO-Cyber-Systems/aoforge-claude' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      # Nothing swallows this step's exit code: a run the live model did not judge must fail.
+      - name: Judge the fixture screenshots with the live model
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.ANTHROPIC_AUTH_TOKEN }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL || vars.ANTHROPIC_BASE_URL }}
+        run: node scripts/ci-visual-judge.cjs scripts/__fixtures__/visual-judge/manifest.json
