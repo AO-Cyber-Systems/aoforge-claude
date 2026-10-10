@@ -25,9 +25,15 @@ const http = require('http');
 const path = require('path');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
+const { watchStateDir, runtimeHome } = require('./lib/compat.cjs');
 
 const CLI = path.join(__dirname, 'aoforge-watch.cjs');
 const ROUTE_RESULTS_HOOK = path.join(__dirname, '..', '..', 'hooks', 'route-results.js');
+
+// The daemon keeps its pid file and log in the watch state directory (TRD 73-12); the user allowlist lives in the
+// runtime home (TRD 73-11).
+function watchPidFile(home) { return path.join(watchStateDir(home), 'aoforge-watch.pid'); }
+function watchLogFile(home) { return path.join(watchStateDir(home), 'aoforge-watch.log'); }
 
 // A test allowlist that lets the daemon run benign shell builtins
 // so we can validate the pipeline without requiring real interactive auth.
@@ -52,7 +58,7 @@ function rmTmp(d) {
 }
 
 function writeAllowFile(home) {
-  const dir = path.join(home, '.aoforge');
+  const dir = runtimeHome(home);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, 'aoforge-watch-allow.json');
   fs.writeFileSync(file, TEST_ALLOW_JSON);
@@ -174,7 +180,7 @@ async function withDaemon({ home, project, shell }, fn) {
   child.on('error', () => {});
 
   // Wait for PID file with our child's pid
-  const pidFile = path.join(home, '.aoforge', 'aoforge-watch.pid');
+  const pidFile = watchPidFile(home);
   const start = Date.now();
   while (Date.now() - start < 5000) {
     try {
@@ -359,8 +365,8 @@ describe('handoff pipeline — end-to-end', () => {
       child.stderr.resume();
       child.on('error', () => {});
       try {
-        const logFile = path.join(home, '.aoforge', 'aoforge-watch.log');
-        const pidFile = path.join(home, '.aoforge', 'aoforge-watch.pid');
+        const logFile = watchLogFile(home);
+        const pidFile = watchPidFile(home);
         await waitForFileMatch(pidFile, new RegExp(`"pid":\\s*${child.pid}\\b`), 15000,
           'daemon never wrote its PID file');
 
@@ -471,7 +477,7 @@ describe('handoff pipeline — PTY-path mock auth (TRD 19-05)', () => {
   });
 
   function writeMockAllowFile(home) {
-    const dir = path.join(home, '.aoforge');
+    const dir = runtimeHome(home);
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, 'aoforge-watch-allow.json');
     fs.writeFileSync(file, MOCK_AUTH_ALLOW_JSON);
@@ -518,7 +524,7 @@ describe('handoff pipeline — PTY-path mock auth (TRD 19-05)', () => {
     child.on('error', () => {});
 
     // Wait for PID file with our child's pid (mirrors withDaemon)
-    const pidFile = path.join(home, '.aoforge', 'aoforge-watch.pid');
+    const pidFile = watchPidFile(home);
     const start = Date.now();
     while (Date.now() - start < 5000) {
       try {
