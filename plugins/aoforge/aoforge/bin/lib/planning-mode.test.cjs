@@ -375,7 +375,7 @@ describe('module hygiene', () => {
   test('requires only fs, path, os and ./compat.cjs (hook-safe, no child_process)', () => {
     const src = fs.readFileSync(path.join(__dirname, 'planning-mode.cjs'), 'utf8');
     const required = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]).sort();
-    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, path and legacy-names.cjs
+    // compat.cjs (the planning-directory resolver, TRD 72-05) requires only fs, os, path and legacy-names.cjs
     assert.deepStrictEqual([...new Set(required)].filter((r) => !['fs', 'os', 'path', './compat.cjs'].includes(r)), []);
     assert.doesNotMatch(src, /child_process/);
   });

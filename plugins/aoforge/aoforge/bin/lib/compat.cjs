@@ -5,20 +5,25 @@
 // Each primitive keeps one old surface working next to its new name:
 //   - aliasLegacyEnv     the old environment-variable prefix is still honored
 //   - planningDirName    a project's planning directory may be the new one or the legacy one
-//   - findProjectRoot    a project root is a directory holding either planning directory
+//   - findProjectRoot    a project root is a directory holding either planning directory,
+//                        never $HOME (the walk stops there: TRD 73-09, gap G5)
+//   - userHomeDir        $HOME as the hooks see it, read per call
+//   - isUserHome         a directory is $HOME, in any symlinked form
 //   - isOwnAgentType     gates treat both agent-type namespaces as their own (isOwnExecutor: the executor role)
 //   - userDotFile        a file under the user's dot directory is read from the old
 //                        location when the new one has none
 //   - runtimeHome        the runtime mirror under ~/.claude, new and old
 //
 // The new name always wins: when both exist, the new one is used. Nothing here caches a
-// result (a migration can move the planning directory mid-process). The libraries under
-// bin/ resolve their planning paths here (TRD 72-05); hooks and prose follow in 72-06.
+// result (a migration can move the planning directory mid-process, and tests and spawned
+// hooks change HOME per process). The libraries under bin/ resolve their planning paths
+// here (TRD 72-05); hooks and prose follow in 72-06.
 //
 // This module spells no old name. Every one is built from LEGACY in legacy-names.cjs,
 // which is also where SHIM_REMOVAL records when the shims go (the release after 3.0.0).
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
@@ -131,16 +136,102 @@ function bothPlanningDirs(root, fsImpl = fs) {
   return hasNewPlanDir(root, fsImpl) && hasOldPlanDir(root, fsImpl);
 }
 
+// ─── $HOME ────────────────────────────────────────────────────────────────────
+
+/**
+ * $HOME as the hooks see it, read on every call (tests and spawned hooks set HOME per
+ * process): `env.HOME` when it is a non-empty string, else `os.homedir()`, else ''.
+ * '' means "no home": nothing is $HOME and no walk stops.
+ *
+ * @param {object} [env=process.env]
+ * @returns {string}
+ */
+function userHomeDir(env = process.env) {
+  if (env && typeof env.HOME === 'string' && env.HOME !== '') return env.HOME;
+  try {
+    return os.homedir() || '';
+  } catch {
+    return '';
+  }
+}
+
+/** realpath of `p`, or `p` itself when it cannot be resolved (or the injected fs has no realpathSync). */
+function realOr(p, fsImpl) {
+  if (typeof fsImpl.realpathSync !== 'function') return p;
+  try {
+    return fsImpl.realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+/**
+ * One matcher per walk, with two checks of different cost:
+ *   stopsAt(dir)  runs on EVERY directory of a walk: the exact resolved path, or (only when
+ *                 the basename equals home's) a realpath comparison. An ordinary walk costs
+ *                 no extra syscalls.
+ *   isHome(dir)   runs only on a CANDIDATE, a directory found to hold a planning directory,
+ *                 right before it would be returned: the exact path, else realpath(dir) ===
+ *                 realpath(home). One realpath per candidate, so a home reached under another
+ *                 name (`<base>/link -> <base>/real`) is still refused.
+ * home's own realpath is computed lazily, at most once per matcher, and shared by both.
+ * An empty or non-string home matches nothing.
+ */
+function homeMatcher(home, fsImpl) {
+  if (typeof home !== 'string' || home === '') return { stopsAt: () => false, isHome: () => false };
+  const resolved = path.resolve(home);
+  const base = path.basename(resolved);
+  let real;
+  const homeReal = () => (real === undefined ? (real = realOr(resolved, fsImpl)) : real);
+  return {
+    stopsAt: (dir) => dir === resolved || (path.basename(dir) === base && realOr(dir, fsImpl) === homeReal()),
+    isHome: (dir) => dir === resolved || realOr(dir, fsImpl) === homeReal(),
+  };
+}
+
+/**
+ * True when `dir` is the user's home directory, in any symlinked form and under any name.
+ * One realpath of `dir` (plus one of home) when the paths are not already equal.
+ *
+ * @param {string} dir
+ * @param {object} [opts]
+ * @param {string} [opts.home=userHomeDir()] '' means no home: always false
+ * @param {object} [opts.fsImpl=fs]
+ * @returns {boolean}
+ */
+function isUserHome(dir, { home = userHomeDir(), fsImpl = fs } = {}) {
+  if (typeof dir !== 'string' || dir === '') return false;
+  return homeMatcher(home, fsImpl).isHome(path.resolve(dir));
+}
+
 /**
  * The nearest directory, from `start` upward, that holds either planning directory.
  * `maxUp` bounds how many parents are inspected after `start`.
  *
+ * $HOME is never a project root, and nothing above it is searched (TRD 73-09, gap G5): the
+ * user's dot directory has the planning directory's name, so `~/.aoforge/` (the watcher's
+ * log and pid file) would otherwise make every repository below $HOME a project. A walk
+ * that reaches $HOME returns null. A start outside $HOME walks to the filesystem root as
+ * before; `home: ''` (no home) disables the stop.
+ *
+ * @param {string} start
+ * @param {object} [opts]
+ * @param {object} [opts.fsImpl=fs]
+ * @param {number} [opts.maxUp=64]
+ * @param {string} [opts.home=userHomeDir()] read per call, never cached
  * @returns {string|null}
  */
-function findProjectRoot(start, { fsImpl = fs, maxUp = 64 } = {}) {
+function findProjectRoot(start, { fsImpl = fs, maxUp = 64, home = userHomeDir() } = {}) {
+  const atHome = homeMatcher(home, fsImpl);
   let dir = path.resolve(start);
   for (let i = 0; i <= maxUp; i++) {
-    if (hasNewPlanDir(dir, fsImpl) || hasOldPlanDir(dir, fsImpl)) return dir;
+    // CRITICAL: $HOME is never a project root, and nothing above it is searched (G5, objective 73).
+    if (atHome.stopsAt(dir)) return null;
+    if (hasNewPlanDir(dir, fsImpl) || hasOldPlanDir(dir, fsImpl)) {
+      // GOTCHA: the stop check misses a home whose symlinked name differs; the candidate check
+      // catches it. A candidate that IS $HOME ends the walk: it never continues above $HOME.
+      return atHome.isHome(dir) ? null : dir;
+    }
     const parent = path.dirname(dir);
     if (parent === dir) return null;
     dir = parent;
@@ -209,6 +300,8 @@ module.exports = {
   isLegacyPlanning,
   bothPlanningDirs,
   findProjectRoot,
+  userHomeDir,
+  isUserHome,
   isOwnAgentType,
   isOwnExecutor,
   userDotFile,
