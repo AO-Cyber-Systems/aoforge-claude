@@ -270,7 +270,8 @@ function cmdRoadmapAnalyze(cwd, raw) {
       if (dirMatch) {
         const objectiveFiles = fs.readdirSync(path.join(objectivesDir, dirMatch));
         jobCount = findPlanFiles(objectiveFiles).length;
-        // Completed TRDs only: a deferred or checkpoint SUMMARY is not one (objective 74).
+        // Completed TRDs only: a deferred or checkpoint SUMMARY, or a progress checkpoint, is not one
+        // (objective 74, TRD 75-03).
         summaryCount = completedSummaryFiles(
           path.join(objectivesDir, dirMatch),
           objectiveFiles.filter(f => f.endsWith('-SUMMARY.md') || f === 'SUMMARY.md'),
@@ -370,8 +371,9 @@ function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
   }
 
   const jobCount = objectiveInfo.jobs.length;
-  // Completed TRDs only: a SUMMARY whose frontmatter status is deferred or checkpoint is on
-  // disk but is not completion (objective 74), so it never makes the objective Complete.
+  // Completed TRDs only: a SUMMARY whose frontmatter status is deferred or checkpoint, or a progress
+  // checkpoint (unticked Progress task, no Self-Check), is on disk but is not completion
+  // (objective 74, TRD 75-03), so it never makes the objective Complete.
   const summaryCount = completedSummaryFiles(path.join(cwd, objectiveInfo.directory), objectiveInfo.summaries).length;
 
   if (jobCount === 0) {

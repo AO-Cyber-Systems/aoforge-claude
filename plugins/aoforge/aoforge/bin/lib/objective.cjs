@@ -14,9 +14,10 @@ const { _summaryNotComplete } = require('./roadmap-reconcile.cjs');
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
 /**
- * The SUMMARY files that are completion evidence (objective 74): every file in
- * `summaryFiles` except those whose frontmatter `status:` is `deferred` or
- * `checkpoint` (roadmap-reconcile's `_summaryNotComplete`, the one parser).
+ * The SUMMARY files that are completion evidence (objective 74, TRD 75-03): every
+ * file in `summaryFiles` except those whose frontmatter `status:` is `deferred` or
+ * `checkpoint`, and except a progress checkpoint (an unticked `## Progress` task
+ * and no `## Self-Check`) — roadmap-reconcile's `_summaryNotComplete`, the one parser.
  * Used where a SUMMARY count decides or reports completion; plain inventories
  * (`summaries`, `incomplete_jobs`) keep every file. An unreadable file counts as
  * complete, the behaviour before this rule.
@@ -973,8 +974,8 @@ function cmdObjectiveComplete(cwd, objectiveNum, raw) {
   }
 
   const jobCount = objectiveInfo.jobs.length;
-  // Completed TRDs only: a deferred or checkpoint SUMMARY is not one (objective 74), the
-  // same count `roadmap update-job-progress` writes into the same Jobs prefix.
+  // Completed TRDs only: a deferred or checkpoint SUMMARY, or a progress checkpoint, is not one (objective 74,
+  // TRD 75-03), the same count `roadmap update-job-progress` writes into the same Jobs prefix.
   const summaryCount = completedSummaryFiles(path.join(cwd, objectiveInfo.directory), objectiveInfo.summaries).length;
 
   // Update ROADMAP.md: mark objective complete. roadmap_updated follows the same rule as state_updated below: it reports

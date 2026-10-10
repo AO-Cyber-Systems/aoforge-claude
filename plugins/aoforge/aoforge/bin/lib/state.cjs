@@ -355,7 +355,8 @@ function advanceFromDisk(cwd, objective, raw) {
     return;
   }
   // A TRD counts once it has a SUMMARY that is completion evidence: one whose frontmatter
-  // status is deferred or checkpoint is not (objective 74). Same NN-MM pairing as
+  // status is deferred or checkpoint is not, nor is a progress checkpoint (unticked Progress
+  // task, no Self-Check) (objective 74, TRD 75-03). Same NN-MM pairing as
   // incomplete_jobs, which stays the dispatch inventory and keeps every SUMMARY.
   const completedKeys = new Set(
     completedSummaryFiles(path.join(cwd, info.directory), info.summaries).map(trdKey));
@@ -523,7 +524,8 @@ function cmdStateUpdateProgress(cwd, raw) {
   let totalSummaries = 0;
 
   if (fs.existsSync(objectivesDir)) {
-    // Completed SUMMARYs only: a deferred or checkpoint one is not a completed TRD (objective 74).
+    // Completed SUMMARYs only: a deferred or checkpoint one, or a progress checkpoint, is not a completed TRD (objective 74,
+    // TRD 75-03).
     const { completedSummaryFiles } = require('./objective.cjs');
     const objectiveDirs = fs.readdirSync(objectivesDir, { withFileTypes: true })
       .filter(e => e.isDirectory()).map(e => e.name);
