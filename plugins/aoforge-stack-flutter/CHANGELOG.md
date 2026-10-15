@@ -6,4 +6,4 @@ All notable changes to the aoforge-stack-flutter stack pack. Released with tags 
 
 ### Added
 
-- First release: extracted from core AOForge by objective 77 (the stack pack contract). Requires aoforge >= 4.0.0.
+- First release: extracted from core AOForge by objective 77 (the stack pack contract). Requires aoforge >= 3.1.0.

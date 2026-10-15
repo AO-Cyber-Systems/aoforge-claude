@@ -238,7 +238,7 @@ aof-tools stack verify --changed|--all [--task <id>]   # run and merge the activ
 ```
 
 The Flutter pack's own CLI (`node ~/.claude/aoforge/stacks/flutter/bin/aof-flutter.cjs`) holds the
-commands that left core in 4.0: `verify flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval`,
+commands that left core in 3.1: `verify flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval`,
 `flutter-ui setup|eval|bootstrap|design-review`, `detect flutter-ui-scope` and `generate uat`.
 
 ### Compound init

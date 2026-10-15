@@ -576,7 +576,7 @@ evidence proposes (a `pubspec.yaml` proposes the Flutter pack, but never activat
 `aof-tools stack doctor` checks an active pack's tools. Each pack's SessionStart hook mirrors it to
 `~/.claude/aoforge/stacks/<name>/`, where core reads it.
 
-**Upgrading a Flutter or web project to 4.0.** Core no longer has the in-core Flutter and Playwright
+**Upgrading a Flutter or web project to 3.1.** Core no longer has the in-core Flutter and Playwright
 path, and there are no forwarding aliases:
 
 1. Install the pack(s) above.

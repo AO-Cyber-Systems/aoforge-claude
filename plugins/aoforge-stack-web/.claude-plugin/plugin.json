@@ -7,6 +7,6 @@
     "email": "dev@aocodex.ai"
   },
   "dependencies": [
-    { "name": "aoforge", "version": ">=4.0.0" }
+    { "name": "aoforge", "version": ">=3.1.0" }
   ]
 }

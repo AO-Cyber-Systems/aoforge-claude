@@ -457,21 +457,21 @@ describe('changelog-on-tag — parseTagCommand()', () => {
 
 describe('changelog-on-tag — prefixed release tags (objective 77)', () => {
   function packFiles(packVersion, entryVersion = packVersion, changelog = `## [${packVersion}]`) {
-    const m = manifests('4.0.0');
+    const m = manifests('3.1.0');
     m['plugins/aoforge-stack-demo/.claude-plugin/plugin.json'] = JSON.stringify({ name: 'aoforge-stack-demo', version: packVersion });
     m['plugins/aoforge-stack-demo/CHANGELOG.md'] = `# Changelog\n\n${changelog} - 2026-10-15\n`;
     m['.claude-plugin/marketplace.json'] = JSON.stringify({
-      name: 'aocyber', version: '4.0.0',
-      plugins: [{ name: 'aoforge', version: '4.0.0' }, { name: 'aoforge-stack-demo', version: entryVersion }],
+      name: 'aocyber', version: '3.1.0',
+      plugins: [{ name: 'aoforge', version: '3.1.0' }, { name: 'aoforge-stack-demo', version: entryVersion }],
     });
     return m;
   }
 
   test('aoforge--vX.Y.Z is gated exactly like vX.Y.Z', () => {
-    const { root, cleanup } = mkRepo({ commitFiles: manifests('4.0.0') });
+    const { root, cleanup } = mkRepo({ commitFiles: manifests('3.1.0') });
     try {
-      assert.ok(isPassThrough(runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge--v4.0.0 -m x' } }, root).stdout));
-      assert.ok(isDeny(runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge--v4.0.1 -m x' } }, root).stdout));
+      assert.ok(isPassThrough(runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge--v3.1.0 -m x' } }, root).stdout));
+      assert.ok(isDeny(runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge--v3.1.1 -m x' } }, root).stdout));
     } finally { cleanup(); }
   });
 

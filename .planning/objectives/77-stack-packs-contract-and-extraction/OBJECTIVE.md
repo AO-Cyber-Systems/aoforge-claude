@@ -11,7 +11,7 @@ Core AOForge names no stack. Flutter, Dart and web procedure ships in stack pack
 ## Decisions (2026-10-15, with the user)
 
 - Scope: contract and extraction, all in this repo. `dflang` (M1-M4) is a separate effort.
-- No compatibility shim: the in-core Flutter and Playwright path and its commands are removed in the next release, which is therefore 4.0.0. Packs depend on `aoforge >=4.0.0`.
+- No compatibility shim: the in-core Flutter and Playwright path and its commands are removed in 3.1.0, a planned breaking change in a minor release. Packs depend on `aoforge >=3.1.0`.
 - Same branch and PR as Objective 76.
 
 ## Design notes
