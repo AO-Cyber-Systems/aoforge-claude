@@ -360,7 +360,7 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
-| 76. Model efficiency and stack-specific content | v1.6 | 0/8 | In Progress | - |
+| 76. Model efficiency and stack-specific content | v1.6 | 3/8 | In Progress | - |
 
 ### Objective 76: Model efficiency and stack-specific content
 
@@ -376,11 +376,11 @@ TRDs:
   6. The debugger and the UI judge start on a cheaper tier and escalate on a recorded signal; `ESCALATION REQUESTED` re-spawns one rung up instead of FAILED.
   7. Flutter, Go, Dart and web-specific procedure is delivered through the stack profiles (or on-demand references), so a non-Flutter project's executor, verifier and planner prompts carry none of it.
 **TRDs**: 8 planned
-- [ ] 76-01-model-resolution-wiring-TRD.md — (W1) intent profile binds; build/diagnose/audit spawns get their model; UI judge reads config
-- [ ] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
-- [ ] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
+- [x] 76-01-model-resolution-wiring-TRD.md — (W1) intent profile binds; build/diagnose/audit spawns get their model; UI judge reads config
+- [x] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
+- [x] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
 - [ ] 76-04-mechanical-verbs-TRD.md — (W2) `trd finalize`, `verify objective-evidence`, `codebase facts`, `validate roadmap-coverage`, `security sweep`
-- [ ] 76-05-stack-procedures-in-profiles-TRD.md — (W2) stack-specific agent procedure moves into stack profiles / on-demand references
+- [ ] 76-05-stack-procedures-in-profiles-TRD.md — (W2) stack-specific agent procedure moves to on-demand references behind the TRD gate (executor done; verifier, planner, integration-checker, mapper remain: `76-STACK-ASSESSMENT.md`)
 - [ ] 76-06-per-focus-tiers-and-haiku-eval-TRD.md — (W3) per-focus/dimension tiers; haiku 5.5 eval and re-pin; verdicts at Sonnet+
 - [ ] 76-07-escalation-loop-TRD.md — (W3) debugger and UI judge start cheap; orchestrators act on ESCALATION REQUESTED
 - [ ] 76-08-measure-TRD.md — (W4) before/after `aof-tools context` and `tokens trd` comparison
