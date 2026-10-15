@@ -74,7 +74,7 @@ All files → `.aoforge/research/`
 
 Template: read **only** the one your prompt's `Use template:` line names (one of `STACK.md`,
 `FEATURES.md`, `ARCHITECTURE.md`, `PITFALLS.md` under `~/.claude/aoforge/templates/research-project/`).
-Each researcher writes one dimension, and the synthesizer, not you, writes `SUMMARY.md`.
+Each researcher covers one dimension; the project summary comes from the synthesizer, not you.
 
 </output_formats>
 

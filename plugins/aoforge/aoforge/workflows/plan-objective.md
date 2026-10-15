@@ -617,8 +617,24 @@ TaskCreate(
 TaskUpdate(taskId=checker_task_id, status="in_progress")
 ```
 
+**Mechanical pre-check first.** Five of the checker's dimensions are code (`verify trd-pre`). Run it
+before every checker spawn, the first and each revision's:
+
 ```bash
-PLANS_CONTENT=$(cat "${OBJECTIVE_DIR}"/*-TRD.md "${OBJECTIVE_DIR}"/*-JOB.md 2>/dev/null)
+PRECHECK=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify trd-pre "$OBJECTIVE" 2>/dev/null)
+```
+
+If `checks.requirement_coverage.missing`, `checks.task_completeness.incomplete`,
+`checks.dependency_correctness.cycles` or `checks.dependency_correctness.orphan_refs` is non-empty,
+those are blockers no model needs to confirm. **Skip the checker spawn this iteration:** write one
+blocker issue per finding (the job-checker `issue_structure` format: `trd`, `dimension`, `severity:
+blocker`, `description`, `fix_hint`) and go to step 13 with them as the checker issues. The iteration
+counts. Scope and TRD-budget findings are severity calls, so they go to the checker.
+
+Otherwise spawn the checker with the JSON. It reads each TRD itself, so pass paths, not contents:
+
+```bash
+PLAN_PATHS=$(ls "${OBJECTIVE_DIR}"/*-TRD.md "${OBJECTIVE_DIR}"/*-JOB.md 2>/dev/null)
 ```
 
 Checker prompt:
@@ -628,7 +644,8 @@ Checker prompt:
 **Objective:** {objective_number}
 **Objective Goal:** {goal from ROADMAP}
 
-**Plans to verify:** {plans_content}
+**Plans to verify (read each):** {plan_paths}
+**Mechanical pre-check (verify trd-pre):** {precheck}
 **Objective requirement IDs (MUST ALL be covered):** {objective_req_ids}
 **Requirements:** {requirements_content}
 
