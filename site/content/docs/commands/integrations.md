@@ -54,13 +54,13 @@ time.
 The point is grounding: an objective planned with the parent initiative in context
 makes different trade-offs than one planned in isolation.
 
-## /aoforge:ui-eval
+## /aoforge-stack-flutter:ui-eval
 
 Machine-judges the visual correctness of UI states.
 
 ```text
-/aoforge:ui-eval 6
-/aoforge:ui-eval path/to/manifest.json
+/aoforge-stack-flutter:ui-eval 6
+/aoforge-stack-flutter:ui-eval path/to/manifest.json
 ```
 
 The `ui-evaluator` agent captures every declared UI surface, scores each through

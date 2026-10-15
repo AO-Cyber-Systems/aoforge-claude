@@ -34,12 +34,10 @@ Three boundaries make that guarantee exact
 ([#100](https://github.com/AO-Cyber-Systems/aoforge-claude/issues/100)):
 
 - **A handful of commands print their own, richer help** — `awareness`,
-  `org-awareness`, `dup-detect`, `defaults-table init`, `flutter-ui`
-  `bootstrap`/`eval`/`design-review`, `verify flutter-ui-eval`, `gh resolve`.
-  The dispatcher delegates to them, and each honours `--help` or `-h` at **any**
-  argv position and returns before doing any work. `flutter-ui bootstrap ./app
-  --help` used to scaffold five files; `flutter-ui eval -h` used to look for an
-  objective named `-h`.
+  `org-awareness`, `dup-detect`, `defaults-table init`, `gh resolve` (and, in the
+  Flutter pack's CLI, `flutter-ui bootstrap`/`eval`/`design-review` and
+  `verify flutter-ui-eval`). The dispatcher delegates to them, and each honours
+  `--help` or `-h` at **any** argv position and returns before doing any work.
 - **Some argv is carried, not read.** `handoff create <command...>` hands its
   tail to your shell, so `aof-tools handoff create gh auth login --help` is a
   handoff of `gh auth login --help` — aof-tools does not answer for `gh`. A
@@ -205,7 +203,6 @@ aof-tools project-decline [<cwd>] [--duration-days N]
 aof-tools project-accept [<cwd>]
 aof-tools detect novel-domain <objective>
 aof-tools detect brownfield-map [<cwd>]
-aof-tools detect flutter-ui-scope <objective>
 ```
 
 ### Awareness and coordination
@@ -228,10 +225,21 @@ aof-tools template select <type>
 aof-tools template fill <type> --objective N --job YY --name "..." --fields '{"k":"v"}'
 aof-tools frontmatter get|set|merge|validate <file> [--field <f>] [--value <v>]
 aof-tools scaffold <args>
-aof-tools generate uat <objective>
 aof-tools generate-slug "<text>"
 aof-tools current-timestamp
 ```
+
+### Stack packs
+
+```bash
+aof-tools stack discover                      # installed packs, which are active and why, which the repo proposes
+aof-tools stack doctor                        # each active pack's tools
+aof-tools stack verify --changed|--all [--task <id>]   # run and merge the active packs' verify commands
+```
+
+The Flutter pack's own CLI (`node ~/.claude/aoforge/stacks/flutter/bin/aof-flutter.cjs`) holds the
+commands that left core in 4.0: `verify flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval`,
+`flutter-ui setup|eval|bootstrap|design-review`, `detect flutter-ui-scope` and `generate uat`.
 
 ### Compound init
 

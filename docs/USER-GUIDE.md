@@ -554,6 +554,42 @@ AOForge's own prompts use Claude Code's built-ins instead of ad hoc text (object
 - **Limits.** Tasks made inside a subagent are ignored. A session that shares a task list through `CLAUDE_CODE_TASK_LIST_ID` does not see a completion of a task created in another session, because the merge reads one transcript at a time; complete that todo with `/aoforge:todo list` or `aof-tools todo complete`.
 - **Needs an installed plugin carrying objective 63.** An older one has no `todo sync` and no hook. The tests show this behaviour on recorded transcripts; the live run in a real session is on the objective's verify-work list.
 
+### Stack packs (`aof-tools stack discover`)
+
+Stack-specific procedure ships in separate plugins, not in core AOForge. Core knows no stack; a pack
+adds one.
+
+| Pack | Install | What it adds |
+|---|---|---|
+| `aoforge-stack-flutter` | `/plugin install aoforge-stack-flutter@aocyber` | The `flutter` and `dart` stack profiles; the executor's Flutter UI bootstrap, per-task and post-task gates; the planner's Flutter UI scope rules; the verifier's state coverage, Maestro run, visual eval and design review; auto-generated UAT; `/aoforge-stack-flutter:ui-eval` and `/aoforge-stack-flutter:design-review`; the `ui-evaluator` agent; the `aof-flutter` CLI |
+| `aoforge-stack-web` | `/plugin install aoforge-stack-web@aocyber` | The verifier's browser drive for web UIs, run by its `web-ui-verifier` agent through the Playwright plugin |
+
+**A pack only acts in a project that selects it.** Installing it is not enough:
+
+- `extends: flutter` (or `dart`) in `.aoforge/STACK.md` selects the Flutter pack.
+- `verification.runtime: web` in the profile selects the web pack.
+- `"stacks": { "enabled": ["flutter"] }` in `.aoforge/config.json` selects a pack by name, and
+  `"disabled"` turns one off.
+
+`aof-tools stack discover` lists the installed packs, which are active and why, and which the repo
+evidence proposes (a `pubspec.yaml` proposes the Flutter pack, but never activates it).
+`aof-tools stack doctor` checks an active pack's tools. Each pack's SessionStart hook mirrors it to
+`~/.claude/aoforge/stacks/<name>/`, where core reads it.
+
+**Upgrading a Flutter or web project to 4.0.** Core no longer has the in-core Flutter and Playwright
+path, and there are no forwarding aliases:
+
+1. Install the pack(s) above.
+2. Make sure the project selects them: `stack init` drafts `extends: flutter` for a Flutter repo;
+   otherwise add the `stacks.enabled` entry.
+3. Replace the old commands: `aof-tools verify flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval`,
+   `aof-tools flutter-ui …`, `aof-tools detect flutter-ui-scope` and `aof-tools generate uat` are now
+   `node ~/.claude/aoforge/stacks/flutter/bin/aof-flutter.cjs <same arguments>`, and
+   the `ui-eval` and `design-review` skills moved from the `aoforge:` namespace to
+   `/aoforge-stack-flutter:ui-eval` and `/aoforge-stack-flutter:design-review`.
+4. UI metrics (`aof-tools ui metrics baseline`) take their default paths from the active pack, so
+   pass `--paths` when no pack is active.
+
 ### Integration & Release (1.28+)
 
 | Command | Purpose | When to Use |

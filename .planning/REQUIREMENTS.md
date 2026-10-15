@@ -71,6 +71,13 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 - [ ] **MEF-06**: The debugger and the UI judge start cheap and escalate on a recorded signal; orchestrators act on `ESCALATION REQUESTED`.
 - [ ] **STK-01**: Stack-specific agent procedure (Flutter, Dart, Go, web) is delivered through stack profiles or on-demand references, not resident agent prompts.
 
+### Stack packs (PCK)
+
+- [ ] **PCK-01**: A stack pack contract: manifest schema, discovery from the mirror gated on the plugin being enabled, selection by profile/config/runtime, a pack profile tier, and `stack discover|doctor|verify --changed|--all`.
+- [ ] **PCK-02**: Agents reach stack procedure only through `stack context <agent>` (fragments and pack sub-agents).
+- [ ] **PCK-03**: Flutter/Dart and web procedure ships in `aoforge-stack-flutter` and `aoforge-stack-web`, with no core aliases; core CI fails on a pack stack named in core (neutrality guard).
+- [ ] **PCK-04**: Packs release as `<pack>--vX.Y.Z` and the changelog gate checks their CHANGELOG and manifests.
+
 ## Future Requirements
 
 - Node, Rust and Python tier-2 stack profiles.
@@ -123,4 +130,8 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | MEF-04 | Objective 76 | Pending |
 | MEF-05 | Objective 76 | Pending |
 | MEF-06 | Objective 76 | Pending |
-| STK-01 | Objective 76 | Pending |
+| STK-01 | Objective 77 | Pending |
+| PCK-01 | Objective 77 | Pending |
+| PCK-02 | Objective 77 | Pending |
+| PCK-03 | Objective 77 | Pending |
+| PCK-04 | Objective 77 | Pending |

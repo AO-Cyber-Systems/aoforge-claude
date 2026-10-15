@@ -360,7 +360,8 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
-| 76. Model efficiency and stack-specific content | v1.6 | 3/8 | In Progress | - |
+| 76. Model efficiency and stack-specific content | v1.6 | 4/8 | In Progress | - |
+| 77. Stack packs: contract and extraction | v1.6 | 5/5 | In Progress | - |
 
 ### Objective 76: Model efficiency and stack-specific content
 
@@ -380,7 +381,25 @@ TRDs:
 - [x] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
 - [x] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
 - [ ] 76-04-mechanical-verbs-TRD.md — (W2) `trd finalize`, `verify objective-evidence`, `codebase facts`, `validate roadmap-coverage`, `security sweep`
-- [ ] 76-05-stack-procedures-in-profiles-TRD.md — (W2) stack-specific agent procedure moves to on-demand references behind the TRD gate (executor done; verifier, planner, integration-checker, mapper remain: `76-STACK-ASSESSMENT.md`)
+- [x] 76-05-stack-procedures-in-profiles-TRD.md — (W2) superseded by Objective 77 (stack packs): executor, planner and verifier Flutter/web procedure moved into pack fragments; integration-checker and mapper TS recipes remain
 - [ ] 76-06-per-focus-tiers-and-haiku-eval-TRD.md — (W3) per-focus/dimension tiers; haiku 5.5 eval and re-pin; verdicts at Sonnet+
 - [ ] 76-07-escalation-loop-TRD.md — (W3) debugger and UI judge start cheap; orchestrators act on ESCALATION REQUESTED
 - [ ] 76-08-measure-TRD.md — (W4) before/after `aof-tools context` and `tokens trd` comparison
+
+### Objective 77: Stack packs: contract and extraction
+
+**Goal**: Core AOForge names no stack. Flutter, Dart and web procedure ships in stack pack plugins that a project selects through its stack profile, and core reaches them only through the pack contract (`docs/PROPOSAL-stack-packs.md` M0 + M0.5, no compatibility shim).
+**Requirements**: PCK-01, PCK-02, PCK-03, PCK-04, STK-01
+**Depends on**: Objective 76 (spawn-context work it extends)
+**Success Criteria** (what must be TRUE):
+  1. A pack manifest (`schemas/stack-pack.schema.json`) is discovered from its mirror, honoured only while its plugin is enabled, and activated only by the project's selection (extends, config, runtime); detection only proposes.
+  2. `stack context <agent>` points each agent at the active packs' fragments and sub-agents; `stack verify --changed|--all` merges pack results, and `missing` never passes; pack profiles resolve as a tier.
+  3. `aoforge-stack-flutter` and `aoforge-stack-web` ship in the marketplace with the moved modules, agents, skills, profiles and fragments, and their tests pass from the pack.
+  4. `stack-neutrality.repo.test.cjs` passes: no core agent, skill, hook, workflow or lib module names a pack stack outside a data-only allowlist.
+  5. Pack releases tag as `<pack>--vX.Y.Z` and the changelog gate checks them.
+**TRDs**: 5 planned
+- [x] 77-01-pack-contract-TRD.md — (W1) manifest schema, discovery, selection, pack profile tier, `stack discover|doctor|verify --changed`, resolve-model pack tiers
+- [x] 77-02-pack-mirror-TRD.md — (W1) vendored SessionStart mirror, test helper, marketplace entries
+- [x] 77-03-flutter-pack-TRD.md — (W2) Flutter modules, CLI, agent, skills, profiles and executor/planner/verifier fragments move out of core
+- [x] 77-04-web-pack-TRD.md — (W2) the verifier's Playwright drive moves to the web pack's web-ui-verifier agent; core agents lose the Playwright and Maestro grants
+- [x] 77-05-neutrality-and-release-TRD.md — (W3) neutrality guard, `<pack>--vX.Y.Z` tag gate, docs
