@@ -60,6 +60,7 @@ drop-from-human-verify; a `gate: 'advisory'` pass ALWAYS stays on the human-veri
 the SKIPPED fall-through on a missing/invalid manifest (never a hard fail).
 
 For deep judgement (capture + score + evidence write + ≤300-token rollup), spawn the `ui-evaluator`
-agent via the Task tool with the resolved manifest path; otherwise run the workflow steps inline for a
+agent via the Task tool with the resolved manifest path and
+`model` set to `node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model ui-evaluator --raw`; otherwise run the workflow steps inline for a
 quick single-surface dogfood.
 </process>

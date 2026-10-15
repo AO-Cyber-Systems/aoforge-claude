@@ -456,7 +456,8 @@ async function main() {
     }
 
     case 'resolve-model': {
-      cmdResolveModel(cwd, args[1], raw);
+      const objIdx = args.indexOf('--objective');
+      cmdResolveModel(cwd, args[1], raw, objIdx !== -1 ? args[objIdx + 1] : undefined);
       break;
     }
 

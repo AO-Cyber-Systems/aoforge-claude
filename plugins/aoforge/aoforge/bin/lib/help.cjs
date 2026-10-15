@@ -42,8 +42,13 @@ const COMMANDS = {
     ],
   },
   'resolve-model': {
-    usage: 'aof-tools resolve-model <agent-type> [--raw]',
+    usage: 'aof-tools resolve-model <agent-type> [--objective N] [--raw]',
     summary: 'Resolve the model for an agent from the configured profile.',
+    details: [
+      'Profile precedence: an OBJECTIVE.md/TRD model_profile override, then config.json',
+      'model_profile, then the (kind, work) defaults table for --objective, then balanced.',
+      'The result names the source as profile_source (TRD 76-01).',
+    ],
   },
   'find-objective': {
     usage: 'aof-tools find-objective <objective> [--raw]',

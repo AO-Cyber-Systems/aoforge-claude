@@ -65,7 +65,7 @@ function designReviewSchema() {
 function resolveCriticModel() {
   const p = path.join(__dirname, '..', '..', 'references', 'model-profiles.json');
   const profiles = JSON.parse(fs.readFileSync(p, 'utf-8'));
-  const profile = process.env.AOFORGE_MODEL_PROFILE || 'balanced';
+  const profile = require('./flutter-ui-eval.cjs').judgeProfile();
   const tier = (profiles.agents['ui-evaluator'] || profiles.agents['df-ui-evaluator'] || {})[profile] || 'sonnet';
   return profiles.models[tier] || tier;
 }

@@ -506,10 +506,26 @@ function visionPerceptualSchema() {
  * Reads the screenshot file (deterministic given the path) so it's offline-testable with a real PNG.
  * @returns {{model:string, body:object}}
  */
+/**
+ * The profile the vision calls price at: AOFORGE_MODEL_PROFILE when set, else the project's
+ * config.json model_profile (TRD 76-01: the judge used to ignore /aoforge:set-profile), else
+ * balanced — the judge runs hot, so the cost tier is the default.
+ */
+function judgeProfile(cwd = process.cwd()) {
+  if (process.env.AOFORGE_MODEL_PROFILE) return process.env.AOFORGE_MODEL_PROFILE;
+  try {
+    const p = require('./config.cjs').loadConfig(cwd).model_profile;
+    // "auto" picks per objective; the judge has no objective, so it stays on the cost tier.
+    return p && p !== 'auto' ? p : 'balanced';
+  } catch (_) {
+    return 'balanced';
+  }
+}
+
 function buildVisionRequest(request) {
   const profilesPath = path.join(__dirname, '..', '..', 'references', 'model-profiles.json');
   const profiles = JSON.parse(fs.readFileSync(profilesPath, 'utf-8'));
-  const profile = process.env.AOFORGE_MODEL_PROFILE || 'balanced'; // judge runs hot → cost tier by default
+  const profile = judgeProfile();
   const tier = (profiles.agents['ui-evaluator'] || profiles.agents['df-ui-evaluator'] || {})[profile] || 'sonnet';
   const model = profiles.models[tier] || tier;
 
@@ -929,6 +945,7 @@ function cmdVerifyFlutterUIEval(cwd, args, raw) {
 }
 
 module.exports = {
+  judgeProfile,
   loadManifest,
   validateJudgeResult,
   aggregateVotes,

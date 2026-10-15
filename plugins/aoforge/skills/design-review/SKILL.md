@@ -63,7 +63,8 @@ State clearly to the user that the result is ADVISORY — it NEVER gates — and
 items feed the objective-work loop as candidate todos / future UI objectives.
 
 For a deep sweep (capture + critique + report + a ≤300-token rollup), spawn the `ui-evaluator` agent via
-the Task tool with the resolved manifest path; otherwise run the workflow steps inline for a quick
+the Task tool with the resolved manifest path and
+`model` set to `node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model ui-evaluator --raw`; otherwise run the workflow steps inline for a quick
 single-surface design pass.
 
 Preserve the SKIPPED fall-through on a missing/invalid manifest (never a hard fail), and never present the

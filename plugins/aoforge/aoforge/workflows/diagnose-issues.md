@@ -88,6 +88,12 @@ TaskCreate(
 TaskUpdate(taskId=gap_task_id, status="in_progress")
 ```
 
+**Resolve the debugger model** (once, before spawning; without it every debugger inherits the session model whatever the profile says):
+
+```bash
+DEBUGGER_MODEL=$(node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model debugger --raw)
+```
+
 **Spawn debug agents in parallel:**
 
 For each gap, fill the debug-subagent-prompt template and spawn:
@@ -96,6 +102,7 @@ For each gap, fill the debug-subagent-prompt template and spawn:
 Task(
   prompt=filled_debug_subagent_prompt,
   subagent_type="debugger",
+  model="{DEBUGGER_MODEL}",
   description="Debug: {truth_short}"
 )
 ```
