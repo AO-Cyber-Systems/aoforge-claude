@@ -360,3 +360,27 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 0/? | Not started | - |
 | 74. Operations decisions | v1.6 | 0/? | Not started | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 0/? | Not started | - |
+| 76. Model efficiency and stack-specific content | v1.6 | 0/8 | In Progress | - |
+
+### Objective 76: Model efficiency and stack-specific content
+
+**Goal**: Each agent spends top-model tokens only on judgment. The configured tier is the tier that runs, mechanical work runs as aof-tools code, each spawn loads only the instructions it needs, and stack-specific procedure lives in the stack profiles rather than in agent prompts.
+**Requirements**: MEF-01, MEF-02, MEF-03, MEF-04, MEF-05, MEF-06, STK-01
+**Depends on**: Objective 72 (renamed tree). Independent of 73-75.
+**Success Criteria** (what must be TRUE):
+  1. `resolve-model` and every `init` model field honour the objective's resolved `model_profile`; no agent spawn in a workflow or skill omits `model=` or names a placeholder its init does not emit; the UI judge reads the project profile.
+  2. No agent spawn carries `@` references that do not cross the Task boundary; codebase-mapper and project-researcher spawns load only their own templates.
+  3. The orchestrator runs `verify trd-pre` before spawning the job-checker, sends mechanical failures straight to revision, and the checker covers only the judgment dimensions.
+  4. Self-check and state bookkeeping after a TRD, verifier evidence collection, codebase facts, roadmap coverage and the security grep sweep are aof-tools commands the agents call once.
+  5. Tiers are set per focus or dimension where the work differs; the haiku tier is re-pinned after a recorded eval; pass/fail verdicts run at Sonnet or above on every profile.
+  6. The debugger and the UI judge start on a cheaper tier and escalate on a recorded signal; `ESCALATION REQUESTED` re-spawns one rung up instead of FAILED.
+  7. Flutter, Go, Dart and web-specific procedure is delivered through the stack profiles (or on-demand references), so a non-Flutter project's executor, verifier and planner prompts carry none of it.
+**TRDs**: 8 planned
+- [ ] 76-01-model-resolution-wiring-TRD.md — (W1) intent profile binds; build/diagnose/audit spawns get their model; UI judge reads config
+- [ ] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
+- [ ] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
+- [ ] 76-04-mechanical-verbs-TRD.md — (W2) `trd finalize`, `verify objective-evidence`, `codebase facts`, `validate roadmap-coverage`, `security sweep`
+- [ ] 76-05-stack-procedures-in-profiles-TRD.md — (W2) stack-specific agent procedure moves into stack profiles / on-demand references
+- [ ] 76-06-per-focus-tiers-and-haiku-eval-TRD.md — (W3) per-focus/dimension tiers; haiku 5.5 eval and re-pin; verdicts at Sonnet+
+- [ ] 76-07-escalation-loop-TRD.md — (W3) debugger and UI judge start cheap; orchestrators act on ESCALATION REQUESTED
+- [ ] 76-08-measure-TRD.md — (W4) before/after `aof-tools context` and `tokens trd` comparison
