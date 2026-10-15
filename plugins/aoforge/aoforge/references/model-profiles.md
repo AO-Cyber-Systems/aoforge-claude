@@ -80,11 +80,15 @@ fails. Only these six never reach haiku and can carry it: `planner`,
 Orchestrators resolve model before spawning:
 
 ```
-1. Read .aoforge/config.json
-2. Check model_overrides for agent-specific override
-3. If no override, look up agent in profile table
-4. Pass model parameter to Task call
+1. aof-tools resolve-model <agent> [--objective N] --raw   (the compound init commands do this)
+2. model_overrides for the agent wins outright
+3. Otherwise the profile: OBJECTIVE.md/TRD override > config model_profile >
+   "auto" → the (kind, work) defaults-table cell > balanced
+4. Look the agent up in the profile table; pass the result as the Task model
 ```
+
+`"auto"` is opt-in on purpose: neither adopt nor the config template writes `model_profile`, and the
+table puts every feature and port objective on `quality` (TRD 76-01).
 
 ## Per-Agent Overrides
 

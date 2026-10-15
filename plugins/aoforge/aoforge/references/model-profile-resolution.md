@@ -4,11 +4,20 @@ Resolve model profile once at the start of orchestration, then use it for all Ta
 
 ## Resolution Pattern
 
+Ask aof-tools, once per agent type. Never parse `config.json` yourself: the profile also comes from
+an OBJECTIVE.md override or, under `"auto"`, the (kind, work) defaults table (TRD 76-01).
+
 ```bash
-MODEL_PROFILE=$(cat .aoforge/config.json 2>/dev/null | grep -o '"model_profile"[[:space:]]*:[[:space:]]*"[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || echo "balanced")
+node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model <agent> --objective <N> --raw
 ```
 
-Default: `balanced` if not set or config missing.
+It prints the Task `model` value (`inherit`, `sonnet` or `haiku`). Without `--raw` it prints JSON
+with `profile`, `profile_source` (`objective_override`, `trd_override`, `config`, `defaults_table`,
+`default`), `tier` and the concrete `model_id`. Leave `--objective` off when there is no objective.
+
+Profile precedence, highest first: an OBJECTIVE.md or TRD `model_profile` override; `config.json`
+`model_profile` set to `quality`, `balanced` or `budget`; `"auto"`, which takes the objective's
+defaults-table cell; `balanced`.
 
 ## Lookup Table
 
@@ -28,7 +37,5 @@ Task(
 
 ## Usage
 
-1. Resolve once at orchestration start
-2. Store the profile value
-3. Look up each agent's model from the table when spawning
-4. Pass model parameter to each Task call (values: `"inherit"`, `"sonnet"`, `"haiku"`)
+1. Resolve each agent type once at orchestration start with `resolve-model`
+2. Pass the printed value as the `model` parameter of each Task call (values: `"inherit"`, `"sonnet"`, `"haiku"`)
