@@ -866,7 +866,10 @@ test.describe('agent-shell-harness — the `# harness:` annotation vocabulary (A
 // lag-check defect reproduced inside the tool built to prevent it.
 // ══════════════════════════════════════════════════════════════════════════════════════
 
-const EXECUTOR_MD = path.resolve(__dirname, '..', '..', '..', 'agents', 'executor.md');
+// TRD 76-05 moved the three Flutter sections out of agents/executor.md into an on-demand
+// reference the executor reads only for a `type: ui` + `stack: flutter` TRD. The prose under
+// test is unchanged; only its file moved.
+const EXECUTOR_MD = path.resolve(__dirname, '..', '..', 'references', 'flutter-executor.md');
 const SECTIONS = [
   '## Flutter UI bootstrap detector (REQ-10-07)',
   '## Flutter UI per-task verification (REQ-10-04)',
@@ -979,6 +982,7 @@ test.describe('agent-shell-harness — the CI gate (C)', () => {
     for (const p of [
       "'plugins/aoforge/agents/**'",
       "'plugins/aoforge/aoforge/workflows/**'",
+      "'plugins/aoforge/aoforge/references/flutter-executor.md'",
       "'plugins/aoforge/aoforge/bin/lib/agent-shell-harness*'",
       // The gate's OWN path, so a change to the gate re-runs the gate. Without it a PR
       // that weakens this workflow is merged by a check that never ran.
