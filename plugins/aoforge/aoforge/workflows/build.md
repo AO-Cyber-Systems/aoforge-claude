@@ -30,9 +30,13 @@ Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `commit_do
 
 **File contents (from --include):** `state_content`, `roadmap_content`, `requirements_content`, `context_content`, `research_content`.
 
-`init plan-objective` does not emit a verifier model. Resolve it for the step 8 backstop:
+`init plan-objective` emits no `executor_model` or `verifier_model` (TRD 76-01: the step 8 verifier
+used to spawn with an empty model). Resolve both; use them as `{executor_model}` and `{verifier_model}`:
 ```bash
-VERIFIER_MODEL=$(node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model verifier --objective "$OBJECTIVE_NUMBER" --raw)
+node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model executor --objective "$OBJECTIVE_NUMBER" --raw
+```
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model verifier --objective "$OBJECTIVE_NUMBER" --raw
 ```
 
 **If `planning_exists` is false:** Error — run `/aoforge:new-project` first.
@@ -272,7 +276,7 @@ Check must_haves against actual codebase.
 Cross-reference requirement IDs from TRD/JOB frontmatter against REQUIREMENTS.md — every ID MUST be accounted for.
 Draft VERIFICATION.md from `planning draft` and publish it with `node ~/.claude/aoforge/bin/aof-tools.cjs verification post ${OBJECTIVE_NUMBER} --from <draft path>`.",
   subagent_type="verifier",
-  model="{VERIFIER_MODEL}"
+  model="{verifier_model}"
 )
 ```
 
