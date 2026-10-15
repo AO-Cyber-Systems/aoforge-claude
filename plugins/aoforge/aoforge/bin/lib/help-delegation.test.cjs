@@ -124,7 +124,9 @@ describe('commands that own their --help still honour the #87 contract', () => {
   }
 
   test('ownsHelp only matches the declared pairs', () => {
-    assert.strictEqual(ownsHelp(['verify', 'flutter-ui-eval', '--help']), true);
+    assert.strictEqual(ownsHelp(['gh', 'resolve', '--help']), true);
+    // verify flutter-ui-eval moved to the Flutter stack pack's CLI (objective 77).
+    assert.strictEqual(ownsHelp(['verify', 'flutter-ui-eval', '--help']), false);
     // A sibling subcommand of an owning command must NOT be delegated — it has
     // no handler of its own, so the dispatcher must answer for it.
     assert.strictEqual(ownsHelp(['verify', 'job-structure', '--help']), false);

@@ -240,7 +240,7 @@ function ensureExcluded(root) {
  * TRD 44-06: runtime-state paths untracked by migration 0008. Hooks rewrite them constantly, so
  * they are dirty in almost every session; the upgrade commits them as DELETIONS only (aof-tools
  * commit's staged-removal path), never as content, so a pre-upgrade edit cannot be swept in.
- * TRD 45-02: the same holds for a nested `.aoforge/` (aodex tracks `flutter/.aoforge/…`), so the
+ * TRD 45-02: the same holds for a nested `.aoforge/` (aodex tracks `<component>/.aoforge/…`), so the
  * exemption is a predicate — the migration's own `isRuntimeStatePath` — not a fixed list of root
  * paths. Loaded lazily from the bundled migration so the fast path requires nothing. An older
  * bundle without that export falls back to membership in RUNTIME_STATE_FILES (root paths only);

@@ -1,4 +1,5 @@
 'use strict';
+const { shippedProfile } = require('./__fixtures__/stack-pack-env.cjs');
 
 // Test list (TDD Playbook habit #2 — reviewable artifact, written before implementation):
 //
@@ -270,13 +271,13 @@ describe('positive control — shipped stack profiles', () => {
 
   for (const name of ['go', 'dart', 'flutter']) {
     test(`18b. stack-profiles/${name}.md frontmatter validates with []`, () => {
-      const fm = readFrontmatter(path.join(STACK_PROFILES_DIR, `${name}.md`));
+      const fm = readFrontmatter(shippedProfile(`${name}.md`));
       assert.deepStrictEqual(validate(fm, schema), []);
     });
   }
 
   test('19. a broken copy of the go profile yields exactly two errors (minLength, format)', () => {
-    const fm = readFrontmatter(path.join(STACK_PROFILES_DIR, 'go.md'));
+    const fm = readFrontmatter(shippedProfile('go.md'));
     const broken = JSON.parse(JSON.stringify(fm));
     broken.commands.test.run = '';
     broken.provenance.reviewed = 'soon';

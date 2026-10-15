@@ -20,7 +20,6 @@ Model profiles control which Claude model each AOForge agent uses. This allows b
 | `job-checker` | sonnet | sonnet | haiku | — |
 | `integration-checker` | sonnet | sonnet | haiku | — |
 | `security-auditor` | opus | sonnet | sonnet | xhigh |
-| `ui-evaluator` | opus | sonnet | sonnet | high |
 
 Agent keys are canonical **without** a `df-` prefix. `aof-tools resolve-model`
 normalises either spelling (TRD 28-02) — before that fix, un-prefixed callers
@@ -53,8 +52,9 @@ own frontmatter, so it cannot vary by profile.
 
 **Haiku 4.5 rejects the `effort` parameter.** Any agent that can resolve to the
 `haiku` tier in *any* profile therefore must not declare `effort`, or that run
-fails. Only these six never reach haiku and can carry it: `planner`,
-`roadmapper`, `executor`, `debugger`, `security-auditor`, `ui-evaluator`.
+fails. Only these five never reach haiku and can carry it: `planner`,
+`roadmapper`, `executor`, `debugger`, `security-auditor`. Stack pack agents (the Flutter pack's
+`ui-evaluator`) take their tiers from the pack manifest's `models`, not this table.
 `model-profiles.test.cjs` enforces this.
 
 ## Profile Philosophy

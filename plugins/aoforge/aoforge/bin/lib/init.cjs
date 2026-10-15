@@ -285,9 +285,18 @@ function normalizeAgentKey(agentType) {
  */
 function agentTierMap(config, agentType) {
   const key = normalizeAgentKey(agentType);
+  // A stack pack's own agent (`<plugin>:<agent>` or bare) takes its tiers from the pack manifest
+  // `models` field (objective 77); core's table names only core agents.
+  let base = MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || null;
+  if (!base) {
+    try {
+      const hit = require('./stack-packs.cjs').packAgentTiers(key);
+      if (hit) base = hit.tiers;
+    } catch (_) { /* no pack mirror: fall through */ }
+  }
   const merged = Object.assign(
     {},
-    MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || {},
+    base || {},
     config.agent_models?.[key] || config.agent_models?.[`df-${key}`] || {}
   );
   return Object.keys(merged).length ? merged : null;

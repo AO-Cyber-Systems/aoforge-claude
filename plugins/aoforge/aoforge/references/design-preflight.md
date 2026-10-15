@@ -145,7 +145,7 @@ Run the block for the stack you are shipping. Detail in `design-stack-web.md` /
 
 ## Evidence
 
-- [ ] Screenshots captured, or `/aoforge:ui-eval` run, for anything the verifier
+- [ ] Screenshots captured, or `/aoforge-stack-flutter:ui-eval` run, for anything the verifier
       will judge
 - [ ] Design read and dial values recorded in `SUMMARY.md`
 

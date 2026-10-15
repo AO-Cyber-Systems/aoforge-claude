@@ -17,7 +17,7 @@
  *     never `process.exit()`, which can truncate a buffered write, and never
  *     `helpers.cjs`'s `output()`, which calls `process.exit(0)` UNCONDITIONALLY and would
  *     make this gate structurally incapable of failing. Same decision, same reasoning as
- *     `flutter-ui-eval.cjs`'s `outputRollup()`; `output()` itself is not touched, because a
+ *     a stack pack UI eval engine's `outputRollup()`; `output()` itself is not touched, because a
  *     dozen callers depend on its exit-0 behaviour.
  *   * `exitCodeFor(verdict)` — not the presence of error records — drives the code, and it is
  *     the ONLY thing that does. An arm with its own `ok ? 0 : 1` is a second definition of what

@@ -1,4 +1,6 @@
 'use strict';
+const { shippedProfile } = require('./__fixtures__/stack-pack-env.cjs');
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-drafter-e2e.test.cjs — ROADMAP criterion 1, end to end (TRD 42-07 tests 1-10).
 //
@@ -61,7 +63,7 @@ function stackInit(repo, { tools = fx.DEFAULT_TOOLCHAIN, write = false, raw = fa
     if (write) args.push('--write');
     if (raw) args.push('--raw');
     const PATH = gitDir ? `${bin}${path.delimiter}${gitDir}` : bin;
-    const r = spawnSync(process.execPath, args, { encoding: 'utf-8', env: { PATH, HOME: home }, timeout: 60000 });
+    const r = spawnSync(process.execPath, args, { encoding: 'utf-8', env: { PATH, HOME: home, AOFORGE_STACKS_DIR: process.env.AOFORGE_STACKS_DIR }, timeout: 60000 });
     let json = null;
     let text = r.stdout;
     if (!raw) {
@@ -198,7 +200,7 @@ describe('stack init over the fleet failure shapes (TRD 42-07 e2e)', () => {
     assert.deepStrictEqual(fm.commands.e2e, { run: 'maestro test .maestro' });
 
     const resolved = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'resolve'], {
-      encoding: 'utf-8', env: { PATH: path.dirname(process.execPath), HOME: home }, timeout: 60000,
+      encoding: 'utf-8', env: { PATH: path.dirname(process.execPath), HOME: home, AOFORGE_STACKS_DIR: process.env.AOFORGE_STACKS_DIR }, timeout: 60000,
     });
     assert.equal(resolved.status, 0, resolved.stderr);
     const rj = JSON.parse(resolved.stdout);
@@ -430,7 +432,7 @@ describe('stack init closes the runner-reader defects end to end (TRD 43-01)', (
     assert.ok(!json.notes.some((n) => hidden.test(String(n.candidate || ''))), `notes: ${JSON.stringify(json.notes)}`);
     // With no override, `tidy` is whatever the bundled go profile says.
     assert.equal('tidy' in fm.commands, false, `tidy inherits the go tier, not ${JSON.stringify(fm.commands.tidy)}`);
-    const goTier = parseProfile(fs.readFileSync(path.join(__dirname, '..', '..', 'stack-profiles', 'go.md'), 'utf-8')).frontmatter;
+    const goTier = parseProfile(fs.readFileSync(shippedProfile('go'), 'utf-8')).frontmatter;
     assert.equal(goTier.commands.tidy.run, 'go mod tidy -diff');
     assert.equal(goTier.commands.tidy.apply, 'go mod tidy');
     assert.equal(json.validation.ok, true, JSON.stringify(json.validation.errors));

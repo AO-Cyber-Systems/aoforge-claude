@@ -540,7 +540,7 @@ test.describe('agent-shell-harness — the scratch monorepo and the stubs (F)', 
 
   test('Case F2 — the REAL bootstrap detector resolves packageDir to <root>/flutter, absolute', () => {
     const root = makeScratchRepo();
-    const dfTools = path.join(__dirname, '..', 'aof-tools.cjs');
+    const dfTools = path.join(__dirname, '..', '..', '..', '..', 'aoforge-stack-flutter', 'bin', 'aof-flutter.cjs');
     const out = execFileSync('node', [dfTools, 'verify', 'flutter-ui-bootstrap', '.', '--raw'],
       { cwd: root, encoding: 'utf-8' });
     const j = JSON.parse(out);
@@ -626,7 +626,7 @@ test.describe('agent-shell-harness — the scratch monorepo and the stubs (F)', 
 
     // aof-tools is a SHIM, not a stub: it execs this worktree's real aof-tools.cjs.
     // Substitute the BINARY, keep the ARGUMENTS (verifier-ui-eval-invocation.test.cjs:38-42).
-    const out = execFileSync(path.join(bin, 'aof-tools'),
+    const out = execFileSync(path.join(bin, 'aof-flutter'),
       ['verify', 'flutter-ui-bootstrap', '.', '--raw'], { cwd: root, env, encoding: 'utf-8' });
     assert.strictEqual(JSON.parse(out).action, 'skip');
   });
@@ -866,10 +866,10 @@ test.describe('agent-shell-harness — the `# harness:` annotation vocabulary (A
 // lag-check defect reproduced inside the tool built to prevent it.
 // ══════════════════════════════════════════════════════════════════════════════════════
 
-// TRD 76-05 moved the three Flutter sections out of agents/executor.md into an on-demand
-// reference the executor reads only for a `type: ui` + `stack: flutter` TRD. The prose under
-// test is unchanged; only its file moved.
-const EXECUTOR_MD = path.resolve(__dirname, '..', '..', 'references', 'flutter-executor.md');
+// TRD 76-05 moved the three Flutter sections out of agents/executor.md; objective 77 made them
+// the Flutter stack pack's executor fragment. The prose under test is unchanged; only its file
+// moved.
+const EXECUTOR_MD = path.resolve(__dirname, '..', '..', '..', '..', 'aoforge-stack-flutter', 'fragments', 'executor.md');
 const SECTIONS = [
   '## Flutter UI bootstrap detector (REQ-10-07)',
   '## Flutter UI per-task verification (REQ-10-04)',
@@ -982,7 +982,7 @@ test.describe('agent-shell-harness — the CI gate (C)', () => {
     for (const p of [
       "'plugins/aoforge/agents/**'",
       "'plugins/aoforge/aoforge/workflows/**'",
-      "'plugins/aoforge/aoforge/references/flutter-executor.md'",
+      "'plugins/aoforge-stack-flutter/fragments/**'",
       "'plugins/aoforge/aoforge/bin/lib/agent-shell-harness*'",
       // The gate's OWN path, so a change to the gate re-runs the gate. Without it a PR
       // that weakens this workflow is merged by a check that never ran.

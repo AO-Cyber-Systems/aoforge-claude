@@ -88,13 +88,8 @@ const COMMANDS = {
     mutates: true,
   },
   'verify': {
-    usage: 'aof-tools verify <job-structure|objective-completeness|references|commits|artifacts|key-links|trd-pre|api-contract|flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval> <arg> [--raw]',
-    summary: 'Verification suite — structure, references, commits, artifacts, UI states.',
-  },
-  'flutter-ui': {
-    usage: 'aof-tools flutter-ui <setup|eval|bootstrap|design-review> [args] [--raw]',
-    summary: 'Flutter UI evaluation setup and runs.',
-    mutates: true,
+    usage: 'aof-tools verify <job-structure|objective-completeness|references|commits|artifacts|key-links|trd-pre|api-contract> <arg> [--raw]',
+    summary: 'Verification suite — structure, references, commits, artifacts, API contracts.',
   },
   'ui': {
     usage: 'aof-tools ui <metrics|spec|sheet|lock> [args] [--raw]',
@@ -102,13 +97,8 @@ const COMMANDS = {
     mutates: true,
   },
   'detect': {
-    usage: 'aof-tools detect <novel-domain|brownfield-map|flutter-ui-scope> [arg] [--raw]',
-    summary: 'Detectors used by the planner (research boundary, brownfield, Flutter UI scope).',
-  },
-  'generate': {
-    usage: 'aof-tools generate uat <objective> [--raw]',
-    summary: 'Generate a 1-page UAT checklist from TRDs and Maestro flows.',
-    mutates: true,
+    usage: 'aof-tools detect <novel-domain|brownfield-map> [arg] [--raw]',
+    summary: 'Detectors used by the planner (research boundary, brownfield).',
   },
   'generate-slug': {
     usage: 'aof-tools generate-slug <text> [--raw]',
@@ -359,8 +349,16 @@ const COMMANDS = {
     ],
   },
   'stack': {
-    usage: 'aof-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services]> [--raw]',
-    summary: 'Resolve, validate and slice the project stack profile (.aoforge/STACK.md over bundled general).',
+    usage: 'aof-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services] | verify --changed|--all [--task <id>] | discover | doctor> [--raw]',
+    summary: 'Resolve, validate and slice the project stack profile (.aoforge/STACK.md over bundled general); discover, gate and check stack packs.',
+    details: [
+      '  stack discover    mirrored stack packs, which are active for this project and why, and which the repo evidence proposes.',
+      '  stack doctor      for each active pack: its required tools on PATH and its own doctor command. Exit 1 when one is not ready.',
+      '  stack verify --changed|--all [--task <id>]   run every active pack\'s verify command and merge the results',
+      '                    (error > missing > fail > pass; missing never passes). --task writes .aoforge/verify/<id>.json.',
+      '                    Exit 0 pass, 1 fail, 2 missing or error.',
+      '  stack context <agent> also lists the active packs\' fragment for that agent and the pack sub-agents it delegates to.',
+    ],
     mutates: true,
   },
   'awareness': {
@@ -535,8 +533,6 @@ const OWN_HELP = {
   'org-awareness': true,
   'dup-detect': true,
   'defaults-table': new Set(['init']),
-  'flutter-ui': new Set(['bootstrap', 'design-review', 'eval']),
-  'verify': new Set(['flutter-ui-eval']),
   'gh': new Set(['resolve']),
 };
 

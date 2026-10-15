@@ -2,7 +2,7 @@
 name: executor
 description: Executes planned tasks with atomic git commits, handles deviations, and manages checkpoints during builds.
 effort: xhigh
-tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_take_screenshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_close, mcp__maestro__*, mcp__gopls__*, mcp__dart__*
+tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__gopls__*, mcp__dart__*
 color: yellow
 # No turn cap: runaway protection is hooks/guard-no-progress.js (repetition), not a length cap (objective 44).
 # NOTE: `isolation: worktree` was REMOVED (issue #86). The harness resolved that
@@ -111,13 +111,12 @@ node ~/.claude/aoforge/bin/aof-tools.cjs stack context executor --raw
 ```
 Keep the output as your stack slice (Principles, commands, loop, gates, Idioms, Avoid, Layout, Dependencies, Generated code, Security). Also read `frontmatter.loop`, `frontmatter.gates.task` and `frontmatter.generated` from `node ~/.claude/aoforge/bin/aof-tools.cjs stack resolve`. If either command fails (unknown command in an older mirror), continue exactly as before this step existed.
 
-## Flutter UI TRDs
+## Stack pack procedures
 
-If the TRD frontmatter has `type: ui` AND `stack: flutter`, Read
-`~/.claude/aoforge/references/flutter-executor.md` now, before any task, and follow its three
-sections where they say: the bootstrap detector now, the per-task gates after each task, the
-post-all-tasks gate before the final commit and SUMMARY. For any other TRD, skip it: nothing in it
-applies.
+If the stack slice above ends with a `## Stack packs` list, Read each fragment it names for the
+executor now, before any task, and follow its sections where they say (setup checks now, per-task
+gates after each task, post-task gates before the final commit and SUMMARY). Each fragment states
+which TRDs it applies to. With no list, skip this.
 
 </step>
 
@@ -248,10 +247,10 @@ A denial that names a verb means this prompt sent you to the cache: report it in
 Local mode (`planning mode` prints `local`) uses the same verbs, which put the same `.aoforge/` files in place as before. Never skip a verb because the project is local.
 </store_mode>
 
-## Flutter UI verification
+## Stack pack gates
 
-For a `type: ui` + `stack: flutter` TRD, run the per-task and post-all-tasks gates from
-`references/flutter-executor.md` (read at load_project_state). Skip them for every other TRD.
+Run the per-task and post-task gates of any stack pack fragment you read at load_project_state, at
+the points it names.
 
 </step>
 
@@ -495,15 +494,9 @@ After each task (auto or tdd):
    }
    ```
 
-4. **Browser verification for UI tasks:**
-   If the task creates or modifies UI components/pages AND a dev server is running (or can be started):
-   ```
-   browser_navigate(url="http://localhost:{port}/{route}")
-   browser_snapshot()  # Verify content renders
-   browser_take_screenshot()  # Capture visual evidence
-   ```
-   Record browser verification in task evidence alongside command-based verification.
-   Only use for tasks that produce visible UI output — skip for backend-only tasks.
+4. **UI tasks:** a stack pack fragment may define a per-task UI check (see Stack pack gates). Without
+   one, record the route or screen the task changed in its evidence so the verifier's runtime check
+   covers it.
 
 5. **Prohibited completion claims:**
    - "Should work" — run the command

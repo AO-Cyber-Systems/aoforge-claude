@@ -27,7 +27,6 @@
     "verifier":             { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
     "job-checker":          { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
     "integration-checker":  { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
-    "security-auditor":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" },
-    "ui-evaluator":         { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
+    "security-auditor":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
   }
 }

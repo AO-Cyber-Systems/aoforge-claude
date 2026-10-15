@@ -10,7 +10,7 @@ const { execSync } = require('child_process');
 const MODEL_PROFILES_PATH = path.join(__dirname, '../../references/model-profiles.json');
 const _modelProfilesData = JSON.parse(fs.readFileSync(MODEL_PROFILES_PATH, 'utf-8'));
 const MODEL_PROFILES = _modelProfilesData.agents;
-// tier -> concrete API model id (live: flutter-ui-eval sends it to the Messages API)
+// tier -> concrete API model id (live: a stack pack's UI judge sends it to the Messages API)
 const MODEL_IDS = _modelProfilesData.models || {};
 
 // ─── Output / Error ──────────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ function safeReadFile(filePath) {
 }
 
 // Reads the running engine's version so evidence-producing outputs (e.g.
-// flutter-ui-eval's scoreRun) can stamp `engine_version` — a verifier then rejects
+// a stack pack UI judge's scoreRun) can stamp `engine_version` — a verifier then rejects
 // evidence produced by a stale engine (a stale mirror once silently passed unjudged
 // states). Prefers the plugin manifest relative to this file; falls back to the
 // `.plugin-version` marker sync-runtime.js writes into the home mirror; then '0.0.0'.

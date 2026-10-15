@@ -341,7 +341,9 @@ describe('72-12 user files under the legacy dot directory', () => {
       'name: x\nenvironment:\n  sdk: ">=3.2.0 <4.0.0"\n  flutter: ">=3.16.0"\ndependencies:\n  flutter:\n    sdk: flutter\n');
     const emptyPath = scratch('legacy-dot-path-');
 
-    const r = spawnSync(process.execPath, [AOF_TOOLS, 'flutter-ui', 'setup', '--raw'], {
+    // flutter-ui setup moved to the Flutter stack pack's CLI (objective 77).
+    const AOF_FLUTTER = path.join(__dirname, '..', '..', '..', '..', 'aoforge-stack-flutter', 'bin', 'aof-flutter.cjs');
+    const r = spawnSync(process.execPath, [AOF_FLUTTER, 'flutter-ui', 'setup', '--raw'], {
       cwd: project,
       encoding: 'utf-8',
       env: { PATH: emptyPath, HOME: h.home },

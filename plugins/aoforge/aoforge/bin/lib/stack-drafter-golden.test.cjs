@@ -1,4 +1,5 @@
 'use strict';
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-drafter-golden.test.cjs — objective 43's success criterion (TRD 43-06).
 //
@@ -50,7 +51,7 @@ function stackInit(repo, tools) {
   try {
     const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'init'], {
       encoding: 'utf-8',
-      env: { PATH: bin, HOME: home },
+      env: { PATH: bin, HOME: home, AOFORGE_STACKS_DIR: process.env.AOFORGE_STACKS_DIR },
       timeout: 60000,
     });
     let json = null;

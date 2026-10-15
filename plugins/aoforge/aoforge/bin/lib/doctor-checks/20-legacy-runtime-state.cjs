@@ -5,7 +5,7 @@
 // AOForge hook state no longer lives in `.aoforge/` (45-01 moved the awareness cache, quick-25 the
 // progress guard, 45-10 the autonomous retry/resume markers), but projects still carry the old
 // copies — the aodex evidence: a tracked `.aoforge/.progress-guard.json` AND a tracked
-// `flutter/.aoforge/.progress-guard.json`, plus an unignored awareness cache. This check finds them
+// `<component>/.aoforge/.progress-guard.json`, plus an unignored awareness cache. This check finds them
 // at any `.aoforge/` depth and cleans them up:
 //
 //   tracked (in the index)              → error

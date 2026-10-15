@@ -34,12 +34,12 @@ const FENCE_RE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 const ATX_RE = /^(#{1,6})\s+(.*)$/;
 
 // AOForge agent prose is markdown INSIDE an XML skeleton: `agents/executor.md`'s
-// `## Flutter UI …` headings all live inside `<step name="…">` elements, and there is no
+// a stack pack fragment's `## …` headings all live inside `<step name="…">` elements, and there is no
 // sibling `##` after the last of them. Bounding a section only by the next heading of the
 // same-or-higher level therefore ran the post-all-tasks section to the end of the file —
 // it swallowed the git commit protocol, the state-advance block and the SUMMARY template,
 // twenty calls of prose that section does not own, and whose verdict says nothing about
-// Flutter verification. A close tag at column 0 is the document's real structural edge.
+// stack verification. A close tag at column 0 is the document's real structural edge.
 const CLOSE_TAG_RE = /^<\/[A-Za-z_][A-Za-z0-9_-]*>\s*$/;
 
 // Section matching rule (documented, because 34-10 names real agents/executor.md headings
@@ -397,7 +397,7 @@ const UNSAFE_ROOT_RE = /['"$`\\\n]/;
 // the directory of the running node (so `#!/usr/bin/env node` shims resolve), and the
 // POSIX system directories — and NOT `process.env.PATH`.
 //
-// This is not tidiness. A developer box here has real `flutter`, `maestro` and `jq` on
+// This is not tidiness. A developer box here has real toolchain binaries and `jq` on
 // PATH and the CI runner has none of them; inheriting the caller's PATH would mean the
 // harness silently exercised a real 40-second toolchain locally and a stub in CI, and a
 // MISSING stub would fall through to the real binary instead of being reported. Same
