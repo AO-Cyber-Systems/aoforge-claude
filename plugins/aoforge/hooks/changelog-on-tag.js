@@ -66,7 +66,10 @@ const VALUE_FLAGS = new Set(['-m', '--message', '-F', '--file', '-u', '--local-u
 const SEPARATORS = new Set(['&&', '||', ';', '|', ')']);
 
 // Today's tag-matching regex, unchanged — applied to the CLEANED command (see parseTagCommand).
-const TAG_RE = /\bgit\s+tag\s+(?:-a\s+)?(?:-m\s+\S+\s+)?(v\d+\.\d+\.\d+)\b/;
+// Objective 77: also `<plugin>--vX.Y.Z`, the form Claude Code resolves plugin dependency ranges
+// from. `aoforge--vX.Y.Z` is core's own release; any other prefix is a stack pack's release.
+const TAG_RE = /\bgit\s+tag\s+(?:-a\s+)?(?:-m\s+\S+\s+)?((?:[a-z][a-z0-9-]*--)?v\d+\.\d+\.\d+)\b/;
+const CORE_PLUGIN = 'aoforge';
 
 function readStdin() {
   try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
@@ -200,6 +203,39 @@ function makeTreeReader(repoRoot, commitish) {
   };
 }
 
+/**
+ * A stack pack's release tag `<pack>--vX.Y.Z` (objective 77): its own CHANGELOG (when it has one)
+ * names the version, and its plugin.json and marketplace entry carry it. package.json is core's.
+ */
+function checkPackTag({ reader, tag, tagPlugin, version, at }) {
+  const dir = `plugins/${tagPlugin}`;
+  const plugin = parseJsonSafe(reader.read(`${dir}/.claude-plugin/plugin.json`));
+  const market = parseJsonSafe(reader.read('.claude-plugin/marketplace.json'));
+  if (!plugin || !market || !Array.isArray(market.plugins)) return; // not a plugin of this marketplace
+  const changelog = reader.read(`${dir}/CHANGELOG.md`);
+  if (changelog !== null && !new RegExp(`^## \\[${escapeRegExp(version)}\\]`, 'm').test(changelog)) {
+    deny([
+      `${dir}/CHANGELOG.md has no entry for ${tag}${at}.`,
+      `Add a \`## [${version}]\` section, commit it, then re-run the tag command.`,
+      `Escape hatch: AOFORGE_SKIP_CHANGELOG_GATE=1`,
+    ].join(' '));
+  }
+  const entry = market.plugins.find((p) => p && p.name === tagPlugin);
+  const mismatches = [];
+  if (plugin.version !== version) mismatches.push(`  ${dir}/.claude-plugin/plugin.json: ${plugin.version} (expected ${version})`);
+  if (!entry) mismatches.push(`  .claude-plugin/marketplace.json: no entry named ${tagPlugin}`);
+  else if (entry.version !== version) mismatches.push(`  .claude-plugin/marketplace.json [${tagPlugin}]: ${entry.version} (expected ${version})`);
+  if (mismatches.length > 0) {
+    deny([
+      `Manifest versions out of sync for tag ${tag}${at}:`,
+      ...mismatches,
+      ``,
+      `Update each file to ${version} and commit before tagging.`,
+      `Escape hatch: AOFORGE_SKIP_CHANGELOG_GATE=1`,
+    ].join('\n'));
+  }
+}
+
 function main() {
   if (process.env.AOFORGE_SKIP_CHANGELOG_GATE === '1') return;
 
@@ -216,13 +252,17 @@ function main() {
   if (!parsed) return;
 
   const { tag } = parsed;
-  const version = tag.replace(/^v/, '');
+  const prefixMatch = tag.match(/^([a-z][a-z0-9-]*)--v/);
+  const tagPlugin = prefixMatch ? prefixMatch[1] : null;
+  const version = tag.replace(/^(?:[a-z][a-z0-9-]*--)?v/, '');
   const repoRoot = findRepoRoot(process.cwd());
   if (!repoRoot) return;
 
   const commitish = parsed.commitish ? resolveCommit(repoRoot, parsed.commitish) : null;
   const reader = makeTreeReader(repoRoot, commitish);
   const at = commitish ? ` (at commit ${commitish})` : '';
+
+  if (tagPlugin && tagPlugin !== CORE_PLUGIN) return checkPackTag({ reader, tag, tagPlugin, version, at });
 
   const content = reader.read('CHANGELOG.md');
   if (content === null) return; // No CHANGELOG at the resolved tree = nothing to gate (skips manifest check too)

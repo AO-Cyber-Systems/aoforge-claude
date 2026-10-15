@@ -450,3 +450,52 @@ describe('changelog-on-tag — parseTagCommand()', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// Objective 77 — `<plugin>--vX.Y.Z` tags (the form plugin dependency ranges resolve from)
+// ---------------------------------------------------------------------------
+
+describe('changelog-on-tag — prefixed release tags (objective 77)', () => {
+  function packFiles(packVersion, entryVersion = packVersion, changelog = `## [${packVersion}]`) {
+    const m = manifests('4.0.0');
+    m['plugins/aoforge-stack-demo/.claude-plugin/plugin.json'] = JSON.stringify({ name: 'aoforge-stack-demo', version: packVersion });
+    m['plugins/aoforge-stack-demo/CHANGELOG.md'] = `# Changelog\n\n${changelog} - 2026-10-15\n`;
+    m['.claude-plugin/marketplace.json'] = JSON.stringify({
+      name: 'aocyber', version: '4.0.0',
+      plugins: [{ name: 'aoforge', version: '4.0.0' }, { name: 'aoforge-stack-demo', version: entryVersion }],
+    });
+    return m;
+  }
+
+  test('aoforge--vX.Y.Z is gated exactly like vX.Y.Z', () => {
+    const { root, cleanup } = mkRepo({ commitFiles: manifests('4.0.0') });
+    try {
+      assert.ok(isPassThrough(runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge--v4.0.0 -m x' } }, root).stdout));
+      assert.ok(isDeny(runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge--v4.0.1 -m x' } }, root).stdout));
+    } finally { cleanup(); }
+  });
+
+  test('a pack tag passes when its CHANGELOG, plugin.json and marketplace entry agree', () => {
+    const { root, cleanup } = mkRepo({ commitFiles: packFiles('1.0.0') });
+    try {
+      const r = runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge-stack-demo--v1.0.0 -m x' } }, root);
+      assert.ok(isPassThrough(r.stdout), r.stdout);
+    } finally { cleanup(); }
+  });
+
+  test('a pack tag is denied on a missing CHANGELOG entry or a version mismatch, and never checks package.json', () => {
+    let repo = mkRepo({ commitFiles: packFiles('1.0.0', '1.0.0', '## [0.9.0]') });
+    try {
+      const r = runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge-stack-demo--v1.0.0 -m x' } }, repo.root);
+      assert.ok(isDeny(r.stdout));
+      assert.match(denyReason(r.stdout), /aoforge-stack-demo\/CHANGELOG\.md has no entry/);
+    } finally { repo.cleanup(); }
+    repo = mkRepo({ commitFiles: packFiles('1.0.0', '0.9.0') });
+    try {
+      const r = runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a aoforge-stack-demo--v1.0.0 -m x' } }, repo.root);
+      assert.ok(isDeny(r.stdout));
+      assert.match(denyReason(r.stdout), /marketplace\.json \[aoforge-stack-demo\]: 0\.9\.0/);
+      assert.doesNotMatch(denyReason(r.stdout), /package\.json/);
+    } finally { repo.cleanup(); }
+  });
+});
