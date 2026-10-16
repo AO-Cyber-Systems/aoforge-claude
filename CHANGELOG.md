@@ -6,6 +6,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [3.1.0] - Unreleased
+
+Flutter, Dart and web procedure moved out of core into the `aoforge-stack-flutter` and `aoforge-stack-web` stack
+packs, with no forwarding shim. A Flutter, Dart or web project installs its pack (`/plugin install
+aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
+
+### Release tooling and security sweep (quick 34)
+
+- **Core is 3.1.0.** package.json, package-lock.json, the aoforge plugin.json and marketplace.json (top level and the
+  `aoforge` entry) say 3.1.0, which satisfies the stack packs' `aoforge >=3.1.0`; at 3.0.0 Claude Code disabled both
+  packs (`dependency-version-unsatisfied`). A repo test in stack-packs.test.cjs keeps the release files, every pack's
+  range and this heading in step. An `extends: flutter` or `extends: dart` that cannot be resolved now names the pack
+  and its install command (`lib/stack-pack-hints.cjs`). The `devflow` pointer stays at 3.0.0, its final release.
+
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 
 - **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and

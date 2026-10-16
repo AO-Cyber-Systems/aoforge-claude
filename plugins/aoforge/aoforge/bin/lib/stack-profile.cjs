@@ -191,8 +191,14 @@ function profileLookup(id, { userHome = null, bundledDir = BUNDLED_STACKS_DIR } 
 }
 
 // The EXTENDS_UNRESOLVED message. With the bundled tier off it is byte-identical to the
-// pre-42-02 single-tier text; with it on it names every place that was looked at.
+// pre-42-02 single-tier text; with it on it names every place that was looked at. A profile id a
+// stack pack ships gets `; <install hint>` appended (quick 34), and every other id keeps its text
+// byte for byte. The hint table is data in stack-pack-hints.cjs, loaded only on this error path.
 function unresolvedMessage(id, { userHome, bundledDir }) {
+  return baseUnresolvedMessage(id, { userHome, bundledDir }) + packHintSuffix(id);
+}
+
+function baseUnresolvedMessage(id, { userHome, bundledDir }) {
   if (!bundledDir) {
     return userHome
       ? `extends '${id}' not found at ${orgProfilePath(userHome, id)}`
@@ -202,6 +208,11 @@ function unresolvedMessage(id, { userHome, bundledDir }) {
   return userHome
     ? `extends '${id}' not found at ${orgProfilePath(userHome, id)} or ${bundledPath}`
     : `extends '${id}' not found at ${bundledPath} (no org home was provided)`;
+}
+
+function packHintSuffix(id) {
+  const hint = require('./stack-pack-hints.cjs').packInstallHint(id);
+  return hint ? `; ${hint}` : '';
 }
 
 // Walks an `extends` chain starting at `startId`, stopping at `general`. Returns hops in

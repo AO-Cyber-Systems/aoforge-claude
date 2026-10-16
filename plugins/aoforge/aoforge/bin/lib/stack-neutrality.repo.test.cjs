@@ -30,6 +30,7 @@ const ALLOW = {
   'aoforge/bin/lib/stack-detect.cjs': 'area markers per manifest (pubspec.yaml beside go.mod); the Flutter-SDK pubspec test',
   'aoforge/bin/lib/stack-draft.cjs': 'drafter command candidates per detected tool',
   'aoforge/bin/lib/stack-mcp.cjs': 'the project .mcp.json writer knows the gopls and dart servers a profile names',
+  'aoforge/bin/lib/stack-pack-hints.cjs': 'install hints keyed by profile id: the pack that ships each pack-owned profile',
   'aoforge/bin/lib/stack-report.cjs': 'recommendation rows per language (DART-*, FLUT-* beside GO-*)',
   'aoforge/workflows/adopt.md': 'kind examples, and the drafted-profile confirm step uses the gopls/dart MCP servers when present',
   'aoforge/workflows/map-codebase.md': 'the drafted-profile confirm step uses the gopls/dart MCP servers when present',

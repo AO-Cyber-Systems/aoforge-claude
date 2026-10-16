@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-10-15T22:56:41.120Z",
-  "version": "3.0.0",
-  "packageVersion": "3.0.0",
+  "generatedAt": "2026-10-16T19:34:18.607Z",
+  "version": "3.1.0",
+  "packageVersion": "3.1.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
   "marketplace": "aoforge@aocyber",
   "counts": {
     "skills": 32,
     "agents": 12,
-    "hooks": 23,
+    "hooks": 24,
     "workflows": 39,
     "references": 36,
     "templates": 31,
-    "dfToolsCommands": 81
+    "dfToolsCommands": 84
   },
   "skills": [
     {
@@ -962,7 +962,7 @@
       "models": {
         "quality": "sonnet",
         "balanced": "sonnet",
-        "budget": "haiku"
+        "budget": "sonnet"
       }
     },
     {
@@ -1118,7 +1118,7 @@
       "models": {
         "quality": "sonnet",
         "balanced": "sonnet",
-        "budget": "haiku"
+        "budget": "sonnet"
       }
     }
   ],
@@ -1154,7 +1154,7 @@
       "purpose": "Blocks `git tag -a vX.Y.Z` unless CHANGELOG.md has a `## [X.Y.Z]` heading and the three release manifests carry matching versions.",
       "escape": "AOFORGE_SKIP_CHANGELOG_GATE=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1190,7 +1190,7 @@
       "purpose": "Denies a Bash write to a tracked source file in ambient mode (redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv`, inline python/node), the same as Edit/Write. Commands that only mention a write (heredoc bodies, quoted arguments) and writes to `.aoforge/`, `*.md`, untracked files, paths outside the project and unresolvable targets are never gated. Same escapes as the Edit gate (live skill marker, `aoforge:<name>` agent, override phrase, which only a write that would be gated consumes). Severity is the least of `gates.editGate` and `gates.bashEditGate` (`strict` deny, `warn` ask, `off`). With no `bashEditGate` key the default is `warn`, measured at 633/17,957 = 0.035251 of ambient Bash calls (an upper bound, above the 0.02 threshold), so `strict` is opt-in; `gates.editGate` `warn` softens it to ask and `off` disables it. The env escape works only in the environment Claude Code was launched from, never as an inline command prefix. Needs an installed plugin carrying objective 60.",
       "escape": "AOFORGE_SKIP_EDIT_GATE=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1202,7 +1202,7 @@
       "purpose": "Blocks raw `git commit` and redirects to `aof-tools commit`, which preserves objective scope and task IDs and updates STATE.md. Detection is invocation-aware: heredoc bodies and quoted arguments are stripped first, so prose that merely mentions the command is not gated. Merge, rebase and cherry-pick completions are allowed automatically (MERGE_HEAD, REBASE_HEAD, rebase-merge/, rebase-apply/ or CHERRY_PICK_HEAD in the target repo's per-worktree git dir). From inside a session, the only in-command escape is an inline `AOFORGE_ALLOW_RAW_COMMIT=1 git commit …` prefix on every commit invocation: the hook decides before the command runs, so an `export` never reaches it. The env escape works only when set before Claude Code is launched.",
       "escape": "AOFORGE_ALLOW_RAW_COMMIT=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1238,7 +1238,7 @@
       "purpose": "Intercepts TTY-requiring commands and routes them to the handoff watcher rather than letting them hang on a prompt no one can answer.",
       "escape": null,
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1276,7 +1276,7 @@
       "purpose": "Detects the same tool being called with identical arguments repeatedly: warns at 3, escalates to `ask` at 5, and resets whenever the agent varies its approach. Step limits cannot catch a stuck loop — they only fire once the whole budget is spent.",
       "escape": "AOFORGE_SKIP_PROGRESS_GUARD=1",
       "events": [
-        "PreToolUse (*)"
+        "PreToolUse (Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|LS|Task|Agent|Skill|WebFetch|WebSearch|TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|AskUserQuestion|ExitPlanMode|EnterPlanMode|mcp__)"
       ],
       "registered": true,
       "note": null
@@ -1299,6 +1299,18 @@
       "escape": null,
       "events": [],
       "registered": false,
+      "note": null
+    },
+    {
+      "file": "pre-bash.js",
+      "name": "pre-bash",
+      "group": "Enforcement",
+      "purpose": "The PreToolUse(Bash) gates in one process: runs gate-commits, changelog-on-tag, gate-interactive, gate-bash-writes and guard-no-progress with the same stdin and merges their decisions (deny over ask, every reason kept), so a Bash call spawns one `node` instead of five. A hook that throws is skipped, never the event.",
+      "escape": null,
+      "events": [
+        "PreToolUse (Bash)"
+      ],
+      "registered": true,
       "note": null
     },
     {
@@ -1422,6 +1434,10 @@
     },
     {
       "command": "check-todos",
+      "subcommands": []
+    },
+    {
+      "command": "codebase",
       "subcommands": []
     },
     {
@@ -1687,11 +1703,16 @@
       "subcommands": [
         "get-objective",
         "analyze",
+        "digest",
         "update-job-progress"
       ]
     },
     {
       "command": "scaffold",
+      "subcommands": []
+    },
+    {
+      "command": "security",
       "subcommands": []
     },
     {
@@ -1719,6 +1740,8 @@
         "advance-job",
         "record-metric",
         "update-progress",
+        "digest",
+        "rotate-decisions",
         "add-decision",
         "add-blocker",
         "resolve-blocker",
@@ -1772,6 +1795,10 @@
       "subcommands": []
     },
     {
+      "command": "trd",
+      "subcommands": []
+    },
+    {
       "command": "trd-tdd",
       "subcommands": [
         "inspect"
@@ -1800,7 +1827,8 @@
         "consistency",
         "health",
         "docs",
-        "requirements"
+        "requirements",
+        "roadmap-coverage"
       ]
     },
     {
@@ -1812,6 +1840,7 @@
       "subcommands": [
         "job-structure",
         "objective-completeness",
+        "objective-evidence",
         "references",
         "commits",
         "artifacts",
@@ -2073,7 +2102,7 @@
   "models": {
     "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5-5",
-    "haiku": "claude-haiku-4-5"
+    "haiku": "claude-haiku-5-5"
   },
   "profiles": [
     "quality",
