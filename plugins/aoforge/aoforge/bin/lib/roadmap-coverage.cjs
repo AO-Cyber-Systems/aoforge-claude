@@ -44,7 +44,8 @@ function roadmapMapping(text) {
     const h = line.match(OBJECTIVE_HEADING);
     if (h) { current = h[1]; continue; }
     if (!current || !/^\*\*Requirements\*\*:/.test(line)) continue;
-    for (const id of line.replace(/<!--.*?-->/g, '').match(ID_RE) || []) {
+    // Ids sit before any trailing note; cut at the first comment opener rather than strip comments.
+    for (const id of line.split('<!--')[0].match(ID_RE) || []) {
       const list = map.get(id) || [];
       if (!list.includes(current)) list.push(current);
       map.set(id, list);
