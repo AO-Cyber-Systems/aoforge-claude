@@ -47,6 +47,26 @@ function makeProject({ stack = null, config = {} } = {}) {
   return root;
 }
 
+/**
+ * A fresh stacks dir holding only the named in-repo packs (`repoStacks('flutter', 'web')`). Never useRepoPacks()
+ * here: it sets AOFORGE_STACKS_DIR for the whole process.
+ */
+function repoStacks(...names) {
+  const dir = tmp('pack-repo-stacks-');
+  for (const root of packRoots()) {
+    if (names.includes(path.basename(root).replace(/^aoforge-stack-/, ''))) mirrorPack({ packRoot: root, stacksDir: dir });
+  }
+  return dir;
+}
+
+/** `<proj>/.aoforge/objectives/<objDir>/<id>-TRD.md` with the given frontmatter text. */
+function writeTrd(proj, objDir, id, fmText) {
+  const file = path.join(proj, '.aoforge', 'objectives', objDir, `${id}-TRD.md`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `---\n${fmText}\n---\n\n# TRD\n`);
+  return file;
+}
+
 function withStacksDir(dir, fn) {
   const prev = process.env.AOFORGE_STACKS_DIR;
   process.env.AOFORGE_STACKS_DIR = dir;
@@ -508,5 +528,193 @@ describe('selected packs that cannot run block stack verify and stack doctor (qu
     mirrorPack({ packRoot: makePack({ name: 'demo', plugin: 'aoforge-stack-demo' }), stacksDir: stacks });
     const fine = makeProject({ config: { stacks: { enabled: ['demo'] } } });
     assert.deepEqual(withStacksDir(stacks, () => packs.unavailableSelectedPacks({ projectRoot: fine })), []);
+  });
+});
+
+// quick 38: a Flutter project (profile runtime mobile) never selected the web pack, so the Flutter verifier fragment's
+// "web pack's Playwright check" never ran and Flutter web coverage fell silently to human verification. A pack now
+// declares `soft_depends: [{ pack, platforms }]`; core reads that manifest data and names no pack.
+describe('soft dependencies: Flutter web selects the web pack (quick 38)', () => {
+  const FLUTTER = 'schema: 1\nextends: flutter';
+  const WEB_TRD = 'objective: 01\ntrd: 01\ntype: ui\nstack: flutter\nplatform: [mobile, web]';
+  const WEB_REASON = 'soft dependency of flutter for platform web';
+
+  test('1. extends: flutter + a TRD with platform [mobile, web]: the verifier gets the web pack and web-ui-verifier', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const proj = makeProject({ stack: FLUTTER });
+    writeTrd(proj, '01-ui', '01-01', WEB_TRD);
+    let r = run(['stack', 'context', 'verifier'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json.packs.active, ['flutter', 'web']);
+    assert.ok(r.json.packs.subagents.some((s) => s.pack === 'web' && s.agent === 'aoforge-stack-web:web-ui-verifier'),
+      JSON.stringify(r.json.packs.subagents));
+    r = run(['stack', 'context', 'verifier', '--raw'], { cwd: proj, stacksDir: stacks });
+    assert.match(r.stdout, /web-ui-verifier/);
+    r = run(['stack', 'discover'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 0, r.stderr);
+    const web = r.json.active.find((a) => a.name === 'web');
+    assert.ok(web, JSON.stringify(r.json.active));
+    assert.equal(web.reason, WEB_REASON);
+    assert.equal(r.json.active.find((a) => a.name === 'flutter').reason, 'profile extends flutter');
+  });
+
+  test('2. a TRD whose only platform is must_haves.platform: web selects the web pack too', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const proj = makeProject({ stack: FLUTTER });
+    writeTrd(proj, '02-ui', '02-01', 'objective: 02\ntrd: 01\nmust_haves:\n  platform: web');
+    const r = run(['stack', 'discover'], { cwd: proj, stacksDir: stacks });
+    assert.deepEqual(r.json.active.map((a) => [a.name, a.reason]), [['flutter', 'profile extends flutter'], ['web', WEB_REASON]]);
+  });
+
+  test('3. extends: flutter with verification.runtime web and no TRDs: pass 1 selects web, reason unchanged', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const proj = makeProject({ stack: `${FLUTTER}\nverification:\n  runtime: web` });
+    const r = run(['stack', 'discover'], { cwd: proj, stacksDir: stacks });
+    assert.deepEqual(r.json.active.map((a) => [a.name, a.reason]), [['flutter', 'profile extends flutter'], ['web', 'verification.runtime web']]);
+  });
+
+  test('4. mobile-only Flutter (platform [mobile], and a TRD with no platform): only flutter is active', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const proj = makeProject({ stack: FLUTTER });
+    writeTrd(proj, '01-ui', '01-01', 'objective: 01\ntrd: 01\ntype: ui\nstack: flutter\nplatform: [mobile]');
+    writeTrd(proj, '01-ui', '01-02', 'objective: 01\ntrd: 02\ntype: ui\nstack: flutter');
+    let r = run(['stack', 'context', 'verifier'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json.packs.active, ['flutter']);
+    assert.deepEqual(r.json.packs.fragments.map((f) => f.pack), ['flutter']);
+    assert.ok(!r.json.packs.subagents.some((s) => /web-ui-verifier/.test(s.agent)), JSON.stringify(r.json.packs.subagents));
+    r = run(['stack', 'context', 'verifier', '--raw'], { cwd: proj, stacksDir: stacks });
+    assert.doesNotMatch(r.stdout, /web-ui-verifier/);
+  });
+
+  test('5. stacks.disabled ["web"] keeps the web pack out, and doctor warns about nothing', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const proj = makeProject({ stack: FLUTTER, config: { stacks: { disabled: ['web'] } } });
+    writeTrd(proj, '01-ui', '01-01', WEB_TRD);
+    const r = run(['stack', 'context', 'verifier'], { cwd: proj, stacksDir: stacks });
+    assert.deepEqual(r.json.packs.active, ['flutter']);
+    const d = run(['stack', 'doctor'], { cwd: proj, stacksDir: stacks });
+    assert.ok(d.json, d.stdout + d.stderr);
+    assert.deepEqual(d.json.warnings, []);
+  });
+
+  test('6. unchanged: extends go with a web TRD; runtime web with no extends; no STACK.md with a web TRD', () => {
+    const stacks = repoStacks('flutter', 'web');
+    // (a) a profile with no pack declaring soft_depends: the TRD platform selects nothing.
+    const go = makeProject({ stack: 'schema: 1\nextends: go' });
+    writeTrd(go, '01-ui', '01-01', WEB_TRD);
+    let r = run(['stack', 'context', 'verifier'], { cwd: go, stacksDir: stacks });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(r.json.packs.active, []);
+    r = run(['stack', 'context', 'verifier', '--raw'], { cwd: go, stacksDir: stacks });
+    assert.doesNotMatch(r.stdout, /## Stack packs/);
+    // (b) select.runtime, no extends.
+    const node = makeProject({ stack: 'schema: 1\nverification:\n  runtime: web' });
+    r = run(['stack', 'context', 'verifier'], { cwd: node, stacksDir: stacks });
+    assert.deepEqual(r.json.packs.active, ['web']);
+    r = run(['stack', 'discover'], { cwd: node, stacksDir: stacks });
+    assert.deepEqual(r.json.active.map((a) => a.reason), ['verification.runtime web']);
+    // (c) no STACK.md at all.
+    const bare = makeProject({});
+    writeTrd(bare, '01-ui', '01-01', WEB_TRD);
+    r = run(['stack', 'context', 'verifier'], { cwd: bare, stacksDir: stacks });
+    assert.deepEqual(r.json.packs.active, []);
+    r = run(['stack', 'context', 'verifier', '--raw'], { cwd: bare, stacksDir: stacks });
+    assert.doesNotMatch(r.stdout, /## Stack packs/);
+  });
+
+  test('7. web pack not installed: doctor carries one warning and a `warn:` line, and lists no web pack', () => {
+    const stacks = repoStacks('flutter');
+    const proj = makeProject({ stack: FLUTTER });
+    writeTrd(proj, '01-ui', '01-01', WEB_TRD);
+    // No exit-code assertion: the real flutter pack's requires_tool makes `ok` depend on flutter being on PATH.
+    const d = run(['stack', 'doctor'], { cwd: proj, stacksDir: stacks });
+    assert.ok(d.json, d.stdout + d.stderr);
+    assert.equal((d.json.warnings || []).length, 1, JSON.stringify(d.json));
+    const [w] = d.json.warnings;
+    assert.deepEqual([w.pack, w.wants, w.platform, w.reason], ['flutter', 'web', 'web', 'not_installed']);
+    assert.match(w.install_hint, /aoforge-stack-web@aocyber/);
+    assert.ok(!d.json.packs.some((p) => p.pack === 'web'), JSON.stringify(d.json.packs));
+    const raw = run(['stack', 'doctor', '--raw'], { cwd: proj, stacksDir: stacks });
+    assert.match(raw.stdout, /^warn: flutter soft-depends on web for platform web/m);
+  });
+
+  test('8. a synthetic host: warnings never change ok or the exit code; selection is one level only', () => {
+    function hostStacks(...extra) {
+      const stacks = tmp('pack-stacks-');
+      mirrorPack({
+        packRoot: makePack(
+          { name: 'h', plugin: 'aoforge-stack-h', profiles: ['profiles/h.md'], soft_depends: [{ pack: 'w', platforms: ['web'] }] },
+          { 'profiles/h.md': '---\nschema: 1\nid: h\n---\n\n## Idioms\n\nH idiom.\n' }),
+        stacksDir: stacks,
+      });
+      for (const m of extra) mirrorPack({ packRoot: makePack(m), stacksDir: stacks });
+      return stacks;
+    }
+    function hostProject(platformLine) {
+      const proj = makeProject({ stack: 'schema: 1\nextends: h' });
+      writeTrd(proj, '01-x', '01-01', `objective: 01\ntrd: 01\n${platformLine}`);
+      return proj;
+    }
+
+    // `w` not mirrored.
+    let d = run(['stack', 'doctor'], { cwd: hostProject('platform: [mobile, web]'), stacksDir: hostStacks() });
+    assert.equal(d.status, 0, d.stdout + d.stderr);
+    assert.equal(d.json.ok, true);
+    assert.deepEqual((d.json.warnings || []).map((w) => [w.pack, w.wants, w.platform, w.reason]), [['h', 'w', 'web', 'not_installed']]);
+
+    // `w` mirrored with a contract core does not support: broken, still exit 0.
+    d = run(['stack', 'doctor'], {
+      cwd: hostProject('platform: [mobile, web]'),
+      stacksDir: hostStacks({ name: 'w', plugin: 'aoforge-stack-w', contract: 2 }),
+    });
+    assert.equal(d.status, 0, d.stdout + d.stderr);
+    assert.equal(d.json.ok, true);
+    assert.deepEqual((d.json.warnings || []).map((w) => w.reason), ['broken']);
+
+    // A TRD with platform [mobile] only: nothing wanted, nothing warned.
+    d = run(['stack', 'doctor'], { cwd: hostProject('platform: [mobile]'), stacksDir: hostStacks() });
+    assert.equal(d.status, 0, d.stdout + d.stderr);
+    assert.deepEqual(d.json.warnings, []);
+
+    // `w` mirrored and valid: selected through h; w's own soft dependency on `x` is not followed, and not warned.
+    const chain = hostStacks(
+      { name: 'w', plugin: 'aoforge-stack-w', soft_depends: [{ pack: 'x', platforms: ['web'] }] },
+      { name: 'x', plugin: 'aoforge-stack-x' });
+    const proj = hostProject('platform: [mobile, web]');
+    const r = run(['stack', 'discover'], { cwd: proj, stacksDir: chain });
+    assert.deepEqual(r.json.active.map((a) => [a.name, a.reason]), [['h', 'profile extends h'], ['w', 'soft dependency of h for platform web']]);
+    d = run(['stack', 'doctor'], { cwd: proj, stacksDir: chain });
+    assert.equal(d.status, 0, d.stdout + d.stderr);
+    assert.deepEqual(d.json.warnings, []);
+  });
+
+  test('9. schema: soft_depends entries need pack and platforms and take no other key; the shipped data is in-repo', () => {
+    const base = { schema: 1, name: 'x', plugin: 'p', contract: 1 };
+    assert.deepEqual(packs.validateManifest({ ...base, soft_depends: [{ pack: 'web', platforms: ['web'] }] }), []);
+    const missing = packs.validateManifest({ ...base, soft_depends: [{ pack: 'web' }] });
+    assert.ok(missing.some((i) => /platforms/.test(i)), missing.join('\n'));
+    assert.ok(packs.validateManifest({ ...base, soft_depends: [{ pack: 'web', platforms: ['web'], extra: 1 }] }).length > 0);
+
+    const roots = packRoots();
+    const inRepo = roots.map((r) => path.basename(r).replace(/^aoforge-stack-/, ''));
+    const manifests = Object.fromEntries(roots.map((r) => [path.basename(r), JSON.parse(fs.readFileSync(path.join(r, 'aoforge-stack.json'), 'utf8'))]));
+    assert.deepEqual(manifests['aoforge-stack-flutter'].soft_depends, [{ pack: 'web', platforms: ['web'] }]);
+    for (const [name, m] of Object.entries(manifests)) {
+      for (const dep of m.soft_depends || []) assert.ok(inRepo.includes(dep.pack), `${name} soft-depends on ${dep.pack}, which is not an in-repo pack`);
+    }
+  });
+
+  test('10. projectPlatforms: the runtime plus every TRD platform and must_haves.platform, sorted and unique', () => {
+    assert.equal(typeof packs.projectPlatforms, 'function');
+    const proj = makeProject({});
+    writeTrd(proj, '01-a', '01-01', 'platform: [mobile, web]');
+    writeTrd(proj, '01-a', '01-02', 'platform: desktop');
+    writeTrd(proj, '02-b', '02-01', 'must_haves:\n  platform: web');
+    fs.writeFileSync(path.join(proj, '.aoforge', 'objectives', '01-a', 'notes.md'), '---\nplatform: tv\n---\n');
+    fs.writeFileSync(path.join(proj, '.aoforge', 'objectives', '02-b', '02-02-TRD.md'), '# A TRD with no frontmatter\n');
+    const resolved = { frontmatter: { verification: { runtime: 'mobile' } } };
+    assert.deepEqual(packs.projectPlatforms({ projectRoot: proj, resolved }), ['desktop', 'mobile', 'web']);
+    assert.deepEqual(packs.projectPlatforms({ projectRoot: makeProject({}), resolved: null }), []);
   });
 });
