@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
-## [3.1.0] - Unreleased
+## [3.1.0] - 2026-10-16
 
 Flutter, Dart and web procedure moved out of core into the `aoforge-stack-flutter` and `aoforge-stack-web` stack
 packs, with no forwarding shim. A Flutter, Dart or web project installs its pack (`/plugin install
@@ -92,6 +92,23 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   draft`): in local mode the checkout holding the caller when it has its own planning directory, else the main
   checkout. Store mode still reads and writes the main checkout (D-14), and drafts stay keyed on the main checkout.
   `todo-sync` keeps passing the main checkout explicitly.
+
+### Pricing and release workflow (quick 37)
+
+- **Sonnet 5.5 cache hits cost $0.10 per million.** model-rates.json had $0.20, the 0.1x rule. The pricing page prices
+  cache hits on Opus 5.5 and Sonnet 5.5 at 0.05x input. Every entry was re-read on 2026-10-16, and a test pins the
+  page's multipliers (cache hits 0.05x for Opus 5.5 and Sonnet 5.5, 0.025x for Fable 5.1 and 0.1x otherwise; writes
+  1.25x and 2x). calibration.json keeps the rates it was built with, so re-run `aof-tools calibrate` to reprice. On the
+  same inputs (objectives 57 to 66, `--minutes trd_level --window 10 --through 66`) the TRD-level cost falls from
+  $3.02 to $2.14 at p50 and from $5.39 to $4.04 at p90.
+- **Release dry run.** release.yml grants `contents: write` at the top level and in its job. A `workflow_dispatch` with
+  `dry_run` pushes `aoforge--v0.0.0-dryrun-<run id>` at HEAD with GITHUB_TOKEN, checks that origin shows it, deletes
+  it and creates no release; a failed delete names the cleanup command. A tag pushed with GITHUB_TOKEN starts no
+  workflow, and no release path relies on one: the alias needs no run, pack tags are pushed by a person, and no other
+  workflow triggers on tags.
+- **`scripts/tag-rules.cjs`** lists the tag rulesets, including inherited ones, that match a tag, read-only. GitHub has
+  no rules-for-a-tag endpoint, so it reads the tag-target rulesets and matches their ref_name patterns locally.
+- **Release dates.** 3.1.0 and the stack packs' 1.0.0 are dated 2026-10-16.
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 

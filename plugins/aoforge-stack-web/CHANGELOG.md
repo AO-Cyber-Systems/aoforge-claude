@@ -2,7 +2,7 @@
 
 All notable changes to the aoforge-stack-web stack pack. Released with tags named `aoforge-stack-web--vX.Y.Z`.
 
-## [1.0.0] - Unreleased
+## [1.0.0] - 2026-10-16
 
 ### Added
 
