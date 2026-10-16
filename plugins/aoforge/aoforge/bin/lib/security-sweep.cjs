@@ -144,6 +144,15 @@ const SECRET_FILES = [
 ];
 const SECRET_DIRS = ['.secrets', 'config/secrets', 'secrets'];
 
+const TOKEN_RE = new RegExp(PATTERNS.find((r) => r.id === 'secret-tokens').re.source, 'g');
+// The quoted value of a secret-looking assignment: `password = "x"`, `apiKey: 'x'`, `token=\`x\``.
+const ASSIGNED_SECRET_RE = /((?:password|passwd|api_?key|apiKey|secret|token)\w*\s*[:=]\s*)(["'`])[^"'`]*\2/gi;
+
+/** A hit line with tokens and assigned secret literals replaced by [REDACTED]. */
+function redactSecrets(text) {
+  return text.replace(TOKEN_RE, '[REDACTED]').replace(ASSIGNED_SECRET_RE, '$1$2[REDACTED]$2');
+}
+
 function globRe(glob) {
   const src = glob.split('*').map((part) => part.split('?').map(escapeRegExp).join('.')).join('.*');
   return new RegExp('^' + src + '$');
@@ -227,7 +236,9 @@ function sweep({ root, focus, limitScale } = {}) {
         if (!s.row.re.test(line)) continue;
         if (s.row.excludeLine && s.row.excludeLine.test(line)) continue;
         if (s.hits.length >= s.limit) { s.truncated = true; continue; }
-        let text = line.trim();
+        // Every hit is redacted, whichever row matched: a token or an assigned secret literal can
+        // match a non-token row too (`apiKey = "AKIA..."`), and the hit text lands in a transcript.
+        let text = redactSecrets(line.trim());
         if (s.row.redact) text = text.replace(new RegExp(s.row.re.source, 'g'), '[REDACTED]');
         if (text.length > TEXT_MAX) text = text.slice(0, TEXT_MAX);
         s.hits.push({ file: f.rel, line: i + 1, text });
@@ -298,4 +309,4 @@ function cmdSecuritySweep(cwd, args, raw) {
   output(result, raw, formatRaw(result));
 }
 
-module.exports = { PATTERNS, FOCI, EXISTENCE, sweep, cmdSecuritySweep };
+module.exports = { PATTERNS, FOCI, EXISTENCE, sweep, redactSecrets, cmdSecuritySweep };

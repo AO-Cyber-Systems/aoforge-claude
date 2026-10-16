@@ -75,6 +75,26 @@ test('planted hits are found with relative POSIX paths and line numbers', () => 
   for (const c of res.checks) for (const h of c.hits) {
     assert.ok(!h.file.includes('\\') && !path.isAbsolute(h.file));
     assert.ok(h.text.length <= 200);
+    assert.ok(!h.text.includes(AWS_KEY), `${c.id} leaks the token: ${h.text}`);
+  }
+});
+
+test('every row redacts tokens and assigned secret literals, not only the token row', () => {
+  const { redactSecrets } = require('./security-sweep.cjs');
+  assert.equal(redactSecrets(`const apiKey = "${AWS_KEY}";`), 'const apiKey = "[REDACTED]";');
+  assert.equal(redactSecrets(`password = 'hunter2'`), `password = '[REDACTED]'`);
+  assert.equal(redactSecrets('db_token: `abc`'), 'db_token: `[REDACTED]`');
+  assert.equal(redactSecrets('if (password == null) return;'), 'if (password == null) return;');
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'security-sweep-redact-'));
+  try {
+    fs.mkdirSync(path.join(r, 'lib'));
+    fs.writeFileSync(path.join(r, 'lib', 'keys.js'), `const apiKey = "${AWS_KEY}";\nconst password = "hunter2";\n`);
+    const res = sweep({ root: r });
+    const out = JSON.stringify(res);
+    assert.ok(!out.includes(AWS_KEY) && !out.includes('hunter2'), out);
+    assert.equal(hitsOf(res, 'hardcoded-secrets').length, 2);
+  } finally {
+    fs.rmSync(r, { recursive: true, force: true });
   }
 });
 

@@ -69,6 +69,13 @@ describe('validate roadmap-coverage', () => {
     assert.deepEqual(r.json.unknown, [{ id: 'ZZZ-09', objectives: ['2'] }]);
   });
 
+  test('the label may carry its colon inside the bold, as objective add writes it', () => {
+    const text = roadmap('[AUTH-01, AUTH-02]', 'DATA-01').replace('**Requirements**: DATA-01', '**Requirements:** DATA-01');
+    const r = run(project({ '.aoforge/REQUIREMENTS.md': REQS, '.aoforge/ROADMAP.md': text }), 'validate', 'roadmap-coverage');
+    assert.equal(r.status, 0, r.stdout);
+    assert.equal(r.json.coverage, '3/3');
+  });
+
   test('a missing file is named, not treated as coverage', () => {
     const r = run(project({ '.aoforge/ROADMAP.md': roadmap('', '') }), 'validate', 'roadmap-coverage');
     assert.equal(r.status, 1);
