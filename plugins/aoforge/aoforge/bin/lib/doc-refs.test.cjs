@@ -3,26 +3,26 @@
 // Test list (TDD Playbook habit #2 — reviewable artifact, written before implementation;
 // TRD 38-01, objective 38-doc-auto-correction):
 //
-// 1. resolveToken('df','plan-objective') -> {kind:'prefix', replacement:'/aoforge:plan-objective'}.
-// 2. resolveToken('df','health') -> {kind:'renamed', replacement:'/aoforge:status check'};
-//    ('aoforge','health') -> the same.
+// 1. (Removed by TRD 78-02: a pre-rename namespace is no longer a command reference; see
+//    doc-refs.legacy.test.cjs.)
+// 2. resolveToken('aoforge','health') -> {kind:'renamed', replacement:'/aoforge:status check'}.
 // 3. resolveToken('aoforge','add-objective') -> renamed /aoforge:objective add;
 //    ('aoforge','check-todos') -> /aoforge:todo list; ('aoforge','progress') -> /aoforge:status.
-// 4. resolveToken('aoforge','update') and ('df','reapply-patches') -> {kind:'removed', replacement:null}.
+// 4. resolveToken('aoforge','update') and ('aoforge','reapply-patches') -> {kind:'removed', replacement:null}.
 // 5. resolveToken('aoforge','status', {liveSkills:new Set(['status'])}) -> ok;
 //    ('aoforge','nope', {liveSkills}) -> unknown; without liveSkills -> ok.
 // 6. scanText on the three prose lines "progress: Present status to user", "Update progress bar",
 //    "status: in_progress" -> [].
 // 7. scanText('see /aoforge:progress-bar') with no liveSkills -> [] (full-token match, not a
 //    prefix of "progress").
-// 8. scanText reports line/col (1-based) for "x /df:health" on line 3.
+// 8. scanText reports line/col (1-based) for "x /aoforge:health" on line 3.
 // 9. Ignore region: tokens between "doc-refs:ignore-start" and "doc-refs:ignore-end" are not
 //    reported; an ignore-start with no end -> throws DocRefsError.
-// 10. rewriteText('Run /df:health --repair') -> text 'Run /aoforge:status check --repair',
-//     one change {from:'/df:health', to:'/aoforge:status check', line:1}.
+// 10. rewriteText('Run /aoforge:health --repair') -> text 'Run /aoforge:status check --repair',
+//     one change {from:'/aoforge:health', to:'/aoforge:status check', line:1}.
 // 11. rewriteText leaves /aoforge:update untouched and lists it under removed.
 // 12. rewriteText preserves CRLF and everything around the token
-//     ("a\r\n/df:quick\r\n" -> "a\r\n/aoforge:quick\r\n").
+//     ("a\r\n/aoforge:progress\r\n" -> "a\r\n/aoforge:status\r\n").
 // 13. Idempotence: for a hand-written 6-line sample mixing all kinds, a second rewriteText pass
 //     has zero changes.
 // 14. liveSkillNames(tmp) where tmp has a/SKILL.md, b/SKILL.md and c/ (no SKILL.md) -> Set{a,b}.
@@ -83,18 +83,7 @@ function makeFileTree(relPaths) {
 // ─── Group RT: resolveToken ─────────────────────────────────────────────────────
 
 describe('resolveToken', () => {
-  test('RT1: df prefix, non-mapped name -> prefix', () => {
-    assert.deepStrictEqual(
-      resolveToken('df', 'plan-objective'),
-      { kind: 'prefix', replacement: '/aoforge:plan-objective' },
-    );
-  });
-
-  test('RT2: renamed command, either prefix -> renamed', () => {
-    assert.deepStrictEqual(
-      resolveToken('df', 'health'),
-      { kind: 'renamed', replacement: '/aoforge:status check' },
-    );
+  test('RT2: renamed command -> renamed', () => {
     assert.deepStrictEqual(
       resolveToken('aoforge', 'health'),
       { kind: 'renamed', replacement: '/aoforge:status check' },
@@ -122,7 +111,7 @@ describe('resolveToken', () => {
       { kind: 'removed', replacement: null },
     );
     assert.deepStrictEqual(
-      resolveToken('df', 'reapply-patches'),
+      resolveToken('aoforge', 'reapply-patches'),
       { kind: 'removed', replacement: null },
     );
   });
@@ -156,7 +145,7 @@ describe('scanText', () => {
   });
 
   test('SC8: line/col are 1-based', () => {
-    const text = 'one\ntwo\nx /df:health';
+    const text = 'one\ntwo\nx /aoforge:health';
     const result = scanText(text);
     assert.deepStrictEqual(result, [
       { line: 3, col: 3, token: 'health', kind: 'renamed', replacement: '/aoforge:status check' },
@@ -165,18 +154,18 @@ describe('scanText', () => {
 
   test('SC9a: tokens inside an ignore region are not reported', () => {
     const text = [
-      'before /df:health',
+      'before /aoforge:health',
       '<!-- doc-refs:ignore-start -->',
-      '/df:health inside ignore',
+      '/aoforge:health inside ignore',
       '<!-- doc-refs:ignore-end -->',
-      'after /df:health',
+      'after /aoforge:health',
     ].join('\n');
     const result = scanText(text);
     assert.deepStrictEqual(result.map((r) => r.line), [1, 5]);
   });
 
   test('SC9b: unclosed ignore-start throws DocRefsError', () => {
-    const text = 'before\n<!-- doc-refs:ignore-start -->\n/df:health\n';
+    const text = 'before\n<!-- doc-refs:ignore-start -->\n/aoforge:health\n';
     assert.throws(() => scanText(text), (err) => err instanceof DocRefsError);
   });
 });
@@ -185,10 +174,10 @@ describe('scanText', () => {
 
 describe('rewriteText', () => {
   test('RW10: renamed token is rewritten with args preserved', () => {
-    const result = rewriteText('Run /df:health --repair');
+    const result = rewriteText('Run /aoforge:health --repair');
     assert.strictEqual(result.text, 'Run /aoforge:status check --repair');
     assert.deepStrictEqual(result.changes, [
-      { from: '/df:health', to: '/aoforge:status check', line: 1 },
+      { from: '/aoforge:health', to: '/aoforge:status check', line: 1 },
     ]);
   });
 
@@ -200,14 +189,14 @@ describe('rewriteText', () => {
   });
 
   test('RW12: CRLF and surrounding bytes are preserved', () => {
-    const result = rewriteText('a\r\n/df:quick\r\n');
-    assert.strictEqual(result.text, 'a\r\n/aoforge:quick\r\n');
+    const result = rewriteText('a\r\n/aoforge:progress\r\n');
+    assert.strictEqual(result.text, 'a\r\n/aoforge:status\r\n');
   });
 
   test('RW13: idempotent across all kinds', () => {
     const text = [
       'See /aoforge:status for details.',
-      'Use /df:plan-objective to start.',
+      'Use /aoforge:health to start.',
       '/aoforge:add-objective X was renamed.',
       '/aoforge:update is gone; no replacement.',
       'prose: progress bar, Update progress bar, in_progress — none of these are tokens.',
@@ -271,11 +260,7 @@ describe('guard', () => {
 describe('TOKEN_RE', () => {
   test('RE1: is exported as a RegExp with the expected source', () => {
     assert.ok(TOKEN_RE instanceof RegExp);
-    // TRD 72-13: the namespaces are the current one plus every NAMESPACE_RENAMES key (built from LEGACY).
-    const { LEGACY } = require('./legacy-names.cjs');
-    assert.strictEqual(
-      TOKEN_RE.source,
-      `(?<![A-Za-z0-9_])\\/(aoforge|${LEGACY.slug}|df):([a-z][a-z0-9-]*)`,
-    );
+    // TRD 78-02: the current namespace only.
+    assert.strictEqual(TOKEN_RE.source, '(?<![A-Za-z0-9_])\\/(aoforge):([a-z][a-z0-9-]*)');
   });
 });

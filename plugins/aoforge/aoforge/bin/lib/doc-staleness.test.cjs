@@ -317,7 +317,7 @@ describe('doc-staleness — W050 removed-command references', () => {
   });
 
   test('17. STATE.md: a renamed (not removed) reference -> no W050', () => {
-    const state = '# Project State\n\n## Current Position\n\nrun /df:health to check.\n\n## Session Log\n';
+    const state = '# Project State\n\n## Current Position\n\nrun /aoforge:health to check.\n\n## Session Log\n';
     root = makeProject({ files: { '.aoforge/STATE.md': state } });
     const r = collect({ projectRoot: root, now: NOW, config: {} });
     assert.deepStrictEqual(issuesFor(r, 'W050'), []);

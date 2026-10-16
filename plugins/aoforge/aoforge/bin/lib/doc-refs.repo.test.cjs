@@ -2,8 +2,10 @@
 
 // Test list (TDD Playbook habit #2 — reviewable artifact, written before implementation;
 // TRD 38-09, objective 38-doc-auto-correction). This is the CI gate: it walks the repo's own
-// live text and fails when a stale or unknown /aoforge: command reference ships, or any legacy
-// command form (every NAMESPACE_RENAMES namespace, and the short namespace's dash form; TRD 72-13).
+// live text and fails when a stale or unknown /aoforge: command reference ships. (TRD 72-13 also
+// read the pre-rename command forms for one release; TRD 78-02 removed that, so they are no
+// longer command references. The rename guard, rename-guard.repo.test.cjs, still fails on any
+// legacy name in the tree.)
 //
 // 1. The scan set (before EXEMPT) is non-empty (> 150 files) and includes README.md,
 //    plugins/aoforge/aoforge/bin/lib/validate.cjs and plugins/aoforge/hooks/statusline.js.
@@ -13,11 +15,13 @@
 // 3. Every EXEMPT entry has a reason of >= 20 chars and matches >= 1 existing path. [Task 1]
 // 4. ignore-start markers appear only in help.md — exactly one region, properly closed. [Task 1]
 // 5. The help.md fenced rename table deep-equals DEPRECATION_MAP. [Task 1]
-// 6. Sensitivity (a): route-intent.test.js and intent-fixtures.cjs each produce >= 1 finding
+// 6. Sensitivity (a): route-intent.test.js and legacy-command-fixtures.cjs (intent-fixtures.cjs
+//    until TRD 78-02: its only findings were pre-rename forms) each produce >= 1 finding
 //    when scanned directly (bypassing EXEMPT) — proves the exemption is doing real work. [Task 1]
 // 7. Sensitivity (b): the sample string
-//    "/df:quick /aoforge:health /aoforge:update /aoforge:nope /aoforge:status" ->
-//    kinds [prefix, renamed, removed, unknown] (status is a live skill -> ok -> filtered). [Task 1]
+//    "/aoforge:health /aoforge:update /aoforge:nope /aoforge:status" ->
+//    kinds [renamed, removed, unknown] (status is a live skill -> ok -> filtered). [Task 1;
+//    TRD 78-02 dropped the leading legacy token, which is no longer a reference]
 // 8. The legacy-workflow exemption is derived from frontmatter: insert-objective.md
 //    (status: legacy) is exempt; add-objective.md (status: active) is scanned. [Task 1]
 // 9. plugins/aoforge/aoforge/references/command-renames.json does not exist. [Task 1]
@@ -39,17 +43,16 @@
 //     status: legacy workflows and the shared EXEMPT patterns (tests, __fixtures__/**) are
 //     excluded exactly as for the command-reference gate.
 //
-// TRD 72-13 (objective 72-install-and-naming-cleanup, INST-01) — the legacy command forms. The
-// resolver reads every NAMESPACE_RENAMES namespace in the colon form and the legacy short
-// namespace's dash form (`/<short>-<known command>`), so test 2 above now fails on any of them in
-// the scan set. These tests spell no legacy name: samples come from the legacy-command fixture and
-// paths are built from LEGACY.
+// TRD 72-13 (objective 72-install-and-naming-cleanup, INST-01) added these for the legacy command
+// forms; TRD 78-02 (objective 78) removed the resolver's reading of them, and reworked 15-18 to
+// match. These tests spell no legacy name: samples come from the legacy-command fixture and paths
+// are built from LEGACY.
 // 15. Sensitivity (c), reworked by TRD 78-02: a legacy form is not a command reference. The legacy
 //     samples (every legacy namespace and the dash form, with live, renamed, removed and unknown
 //     names) yield zero findings; the current-namespace control yields [renamed, removed, unknown].
 // 16. Sibling plugins (plugins/eden-ui-*, monorepo-standards, aosentry-mcp, social-media-generator,
-//     minus EXEMPT): zero prefix/renamed/removed findings. Unknown names there are those plugins'
-//     own commands and are ignored. The sibling scan set is non-empty and covers each sibling.
+//     minus EXEMPT): zero renamed/removed /aoforge: findings. Unknown names are ignored. The
+//     sibling scan set is non-empty and covers each sibling.
 // 17. (Removed by TRD 78-02, with the pointer release of the legacy plugin it named.)
 // 18. The raw scan set holds no path under the current or the legacy planning directory, and the
 //     "Not scanned by design" comment names the current planning directory beside the legacy one.
@@ -117,8 +120,8 @@ const EXEMPT = [
   {
     pattern: 'plugins/aoforge/aoforge/bin/lib/__fixtures__/**',
     reason:
-      'frozen fixtures — intent-fixtures.cjs realCLAUDEMd is a faithful copy of an old ' +
-      'CLAUDE.md kept for the B1 round-trip test',
+      'frozen fixtures — legacy-command-fixtures.cjs feeds renamed and removed /aoforge: commands ' +
+      'as deliberate input, and intent-fixtures.cjs realCLAUDEMd is a faithful copy of an old CLAUDE.md',
   },
   {
     pattern: 'plugins/aoforge/aoforge/bin/lib/skill-route.cjs',
@@ -129,16 +132,11 @@ const EXEMPT = [
   {
     pattern: 'plugins/aoforge/aoforge/bin/lib/doc-refs.cjs',
     reason:
-      'declares the doc-refs:ignore-start/-end marker strings and the legacy namespace and dash-form ' +
-      'rules this very gate depends on',
+      'declares the doc-refs:ignore-start/-end marker strings and the token rule this very gate ' +
+      'depends on',
   },
-  // TRD 72-13.
-  {
-    pattern: '**/legacy-names.cjs',
-    reason:
-      'the one module that spells every legacy name, the legacy command namespaces and the dash ' +
-      'form included; every other module builds them from LEGACY',
-  },
+  // TRD 78-02 removed TRD 72-13's `**/legacy-names.cjs` entry: with the legacy command forms no
+  // longer read, that module holds nothing this gate reports.
 ];
 
 // ─── LEGACY_AGENT_EXEMPT (TRD 44-08, tests 11-14) ──────────────────────────────────
@@ -217,8 +215,8 @@ function formatFailureMessage(findings) {
 
 // ─── sibling plugins (TRD 72-13, test 16) ─────────────────────────────────────────
 // The other plugins this marketplace ships. Their own `/<plugin>:<name>` commands are never
-// matched (the resolver reads only the AOForge namespaces); what must not ship there is a legacy
-// AOForge command form, or a stale reference to an AOForge command.
+// matched (the resolver reads only the AOForge namespace); what must not ship there is a stale
+// reference to an AOForge command.
 
 const SIBLING_PLUGINS = [
   'plugins/eden-ui-*/**',
@@ -358,10 +356,10 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
   });
 
   describe('SENSITIVITY', () => {
-    test('6: (a) route-intent.test.js and intent-fixtures.cjs each produce >= 1 finding scanned directly', () => {
+    test('6: (a) route-intent.test.js and legacy-command-fixtures.cjs each produce >= 1 finding scanned directly', () => {
       const files = [
         'plugins/aoforge/hooks/route-intent.test.js',
-        'plugins/aoforge/aoforge/bin/lib/__fixtures__/intent-fixtures.cjs',
+        'plugins/aoforge/aoforge/bin/lib/__fixtures__/legacy-command-fixtures.cjs',
       ];
       for (const rel of files) {
         const text = fs.readFileSync(path.join(REPO_ROOT, rel), 'utf-8');
@@ -375,9 +373,9 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
 
     test('7: (b) one token of every kind in a hand-built sample string', () => {
       const liveSkills = liveSkillNames(path.join(REPO_ROOT, 'plugins/aoforge/skills'));
-      const sample = '/df:quick /aoforge:health /aoforge:update /aoforge:nope /aoforge:status';
+      const sample = '/aoforge:health /aoforge:update /aoforge:nope /aoforge:status';
       const results = scanText(sample, { liveSkills });
-      assert.deepStrictEqual(results.map((r) => r.kind), ['prefix', 'renamed', 'removed', 'unknown']);
+      assert.deepStrictEqual(results.map((r) => r.kind), ['renamed', 'removed', 'unknown']);
     });
   });
 
@@ -527,7 +525,7 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
       assert.deepStrictEqual(control.map((r) => r.replacement), [`${NAMES.commandNs}status check`, null, null]);
     });
 
-    test('16: the sibling plugins carry no legacy or stale AOForge command form', () => {
+    test('16: the sibling plugins carry no stale AOForge command reference', () => {
       const files = siblingScanSet();
       for (const glob of SIBLING_PLUGINS) {
         const prefix = glob.replace(/\*\*$/, '').replace(/\*\/$/, '');
@@ -540,8 +538,8 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
       assert.deepStrictEqual(
         findings,
         [],
-        'legacy or stale command references in a sibling plugin (an AOForge command: rewrite it to ' +
-          `${NAMES.commandNs}<name>; the plugin's own command: use its own namespace):\n` +
+        'stale AOForge command references in a sibling plugin (rewrite each to its current ' +
+          `${NAMES.commandNs}<name> form, or drop a removed command):\n` +
           findings.map((f) => `  ${f.file}:${f.line}  ${f.token} → ${f.replacement || f.kind}`).join('\n'),
       );
     });

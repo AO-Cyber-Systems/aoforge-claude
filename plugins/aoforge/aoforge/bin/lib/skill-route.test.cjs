@@ -470,7 +470,6 @@ describe('export-lock', () => {
     const expected = [
       'DEPRECATION_MAP',
       'DF_TOOLS_DEPRECATIONS',
-      'NAMESPACE_RENAMES',
       'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
@@ -494,7 +493,7 @@ describe('export-lock', () => {
   test('EX3: module.exports still exactly 9 entries after milestone extension (no new exports added)', () => {
     const mod = require('./skill-route.cjs');
     const keys = Object.keys(mod);
-    assert.strictEqual(keys.length, 11, `Expected exactly 11 exports, got ${keys.length}: ${keys.join(', ')}`);
+    assert.strictEqual(keys.length, 10, `Expected exactly 10 exports, got ${keys.length}: ${keys.join(', ')}`);
   });
 
   test('EX4: module.exports still exactly 9 entries after todo+status extension (_normalizeStatusSubcommand NOT exported)', () => {
@@ -503,7 +502,6 @@ describe('export-lock', () => {
     const expected = [
       'DEPRECATION_MAP',
       'DF_TOOLS_DEPRECATIONS',
-      'NAMESPACE_RENAMES',
       'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',
@@ -793,7 +791,6 @@ describe('export-lock unchanged after workstreams extension', () => {
     const expected = [
       'DEPRECATION_MAP',
       'DF_TOOLS_DEPRECATIONS',
-      'NAMESPACE_RENAMES',
       'REMOVED_COMMANDS',
       'SKILL_ROUTES',
       '_resetMocks',

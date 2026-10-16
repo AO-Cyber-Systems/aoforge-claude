@@ -10,5 +10,7 @@ status: in-progress
 
 ## Progress
 - [x] Task 1: RED — repo contract for the removal — 0842a2db
-- [x] Task 2: GREEN — delete the pointer release and its entries — (this commit)
-- [ ] Task 3: GREEN — doc-refs reads the AOForge namespace only — next step: delete NAMESPACE_RENAMES from skill-route.cjs (definition, export, LEGACY import, EX export-lock lists in skill-route.test.cjs), make doc-refs.cjs NAMESPACES = [NAMES.slug] with no DASH_RE/prefix kind/LEGACY import, drop legacy assertions in doc-refs.test.cjs, drop the legacy-names EXEMPT entry in doc-refs.repo.test.cjs, switch /df: fixtures in 0007-doc-refs-fix.test.cjs and doc-staleness.test.cjs to renamed /aoforge: commands, then run the task 3 verify set.
+- [x] Task 2: GREEN — delete the pointer release and its entries — 4d37a235
+- [x] Task 3: GREEN — doc-refs reads the AOForge namespace only — (this commit)
+
+Next step: finish the SUMMARY sections, self-check, tokens stamp, summary post, then the state and roadmap commands and the final docs commit.
