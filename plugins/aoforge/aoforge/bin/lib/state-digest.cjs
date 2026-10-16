@@ -19,6 +19,8 @@
 // `\r\n`; everything here splits on `\n` and leaves a trailing `\r` on its line, so the rotated text keeps the
 // file's own endings.
 
+const { escapeRegExp } = require('./text-escape.cjs');
+
 const DEFAULT_KEEP = 10;
 const DEFAULT_DIGEST_DECISIONS = 5;
 
@@ -139,7 +141,7 @@ const DIGEST_SECTIONS = ['Project Reference', 'Current Position', 'Blockers / Co
 /** `## <name>` (or `### <name>`) section body of `content`, heading line excluded, or null. */
 function sectionBody(content, name) {
   const lines = content.split('\n');
-  const re = new RegExp(`^#{2,3}\\s+${name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\s*$`, 'i');
+  const re = new RegExp(`^#{2,3}\\s+${escapeRegExp(name)}\\s*$`, 'i');
   const start = lines.findIndex((l) => re.test(l.replace(/\r$/, '')));
   if (start === -1) return null;
   const level = (lines[start].match(/^#+/) || ['##'])[0].length;
