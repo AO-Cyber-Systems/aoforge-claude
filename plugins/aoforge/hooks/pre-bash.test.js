@@ -12,6 +12,9 @@
 //  6. spawned as a process: the deny JSON reaches stdout, exit 0; the fail-open path never exits non-zero
 //  7. every dispatched hook exports main() and carries the DISPATCHED-BY header; hooks.json registers the
 //     dispatcher once on Bash and guard-no-progress on a matcher that excludes Bash
+//  8. (quick 35) the shared matcher model (__fixtures__/claude-matcher.js) follows Claude Code's documented table
+//  9. (quick 35) under that rule the guard-no-progress matcher fires on every tool but exactly Bash, MCP tools and
+//     BashOutput included
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -22,6 +25,7 @@ const { spawnSync } = require('child_process');
 
 const HOOK = path.join(__dirname, 'pre-bash.js');
 const pre = require('./pre-bash.js');
+const { matcherFires } = require('./__fixtures__/claude-matcher.js');
 
 const json = (h) => JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', ...h } });
 const res = (file, over = {}) => ({ file, stdout: '', stderr: '', code: 0, error: null, ...over });
@@ -190,8 +194,30 @@ describe('pre-bash: registration contract', () => {
     }
     const guard = hooks.PreToolUse.find((g) => JSON.stringify(g).includes('guard-no-progress.js'));
     assert.ok(guard, 'guard-no-progress keeps a direct registration for the other tools');
-    assert.ok(!new RegExp(guard.matcher).test('Bash'), 'its matcher does not match Bash (the dispatcher runs it there)');
-    assert.ok(new RegExp(guard.matcher).test('Read'));
-    assert.ok(new RegExp(guard.matcher).test('mcp__gopls__x'));
+    assert.ok(!matcherFires(guard.matcher, 'Bash'), 'its matcher does not match Bash (the dispatcher runs it there)');
+  });
+
+  test('8. the matcher model follows Claude Code\'s documented table', () => {
+    for (const all of ['*', '', undefined]) {
+      assert.ok(matcherFires(all, 'Bash') && matcherFires(all, 'mcp__gopls__x'), `${JSON.stringify(all)} matches every tool`);
+    }
+    assert.ok(matcherFires('Bash', 'Bash'));
+    assert.ok(!matcherFires('Bash', 'BashOutput'), 'an exact name is not a prefix');
+    for (const list of ['Edit|Write', 'Edit, Write']) {
+      assert.ok(matcherFires(list, 'Edit') && matcherFires(list, 'Write'), list);
+      assert.ok(!matcherFires(list, 'MultiEdit') && !matcherFires(list, 'Read'), `${list} names exact tools only`);
+    }
+    assert.ok(!matcherFires('mcp__', 'mcp__gopls__x'), 'mcp__ is an exact name, not a prefix');
+    assert.ok(matcherFires('mcp__.*', 'mcp__gopls__x'));
+    assert.ok(matcherFires('^Notebook', 'NotebookEdit'), 'a regex matcher is unanchored');
+  });
+
+  test('9. guard-no-progress fires on every tool but exactly Bash (the dispatcher counts Bash once)', () => {
+    const hooks = JSON.parse(fs.readFileSync(path.join(__dirname, 'hooks.json'), 'utf8')).hooks;
+    const guard = hooks.PreToolUse.find((g) => JSON.stringify(g).includes('guard-no-progress.js'));
+    assert.ok(!matcherFires(guard.matcher, 'Bash'));
+    const tools = ['Read', 'Edit', 'BashOutput', 'Monitor', 'ToolSearch', 'SendMessage', 'Task', 'mcp__gopls__x', 'mcp__plugin_p_s__t'];
+    const missed = tools.filter((t) => !matcherFires(guard.matcher, t));
+    assert.deepEqual(missed, [], `matcher ${JSON.stringify(guard.matcher)} gives these tools no guard`);
   });
 });
