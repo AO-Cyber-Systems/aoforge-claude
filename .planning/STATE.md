@@ -135,6 +135,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 | 34 | 3.1.0 release blockers (core version, prefixed release tags, changelog hint) and security sweep secret leak + regex cost | 2026-10-16 | f7e68425 | Done | [34-release-blockers-for-3-1-0-and-security-](./quick/34-release-blockers-for-3-1-0-and-security-/) |
 | 35 | Model overrides bind, no-progress guard on every non-Bash tool, advance-job archive committed, stack verify --task path and unavailable packs | 2026-10-16 | 64fbcb11 | Done | [35-model-overrides-no-progress-matcher-adva](./quick/35-model-overrides-no-progress-matcher-adva/) |
 | 36 | Verb correctness: roadmap-coverage on the shared parser, checkpoint SUMMARYs not done, trd finalize safe retry, planning verbs write the running worktree | 2026-10-16 | 98948a16 | Done | [36-verb-correctness-roadmap-coverage-trd-fi](./quick/36-verb-correctness-roadmap-coverage-trd-fi/) |
+| 37 | Sonnet 5.5 cache rate 0.05x, 3.1.0 and pack 1.0.0 dated 2026-10-16, release dry run + explicit permissions + tag-rules inspector | 2026-10-16 | 51c29758 | Done | [37-sonnet-cache-rate-release-dates-release-](./quick/37-sonnet-cache-rate-release-dates-release-/) |
 
 ## Accumulated Context
 
