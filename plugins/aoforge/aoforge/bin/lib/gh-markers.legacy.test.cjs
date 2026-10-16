@@ -1,30 +1,34 @@
 'use strict';
 
-// Test list (TRD 72-11, objective 72, INST-03): a store-mode repository that has not been rebranded keeps its
-// GitHub markers and labels in the old `devflow` namespace. Every reader accepts them; every writer emits `aoforge`.
+// Test list (TRD 78-03, objective 78, SC-2): 3.1.0 reads GitHub markers in the AOForge namespace only. A body, comment,
+// TRD or entity written in the pre-rename `devflow` namespace is plain text to every shared reader; `gh rebrand`
+// (72-16, kept) is the one tool that still reads it, to rewrite it (gh-rebrand.legacy.test.cjs).
 //
-// 1. The legacy issue id line reads like the AOForge one: extractMarker, indexByMarker (a legacy and an AOForge
-//    claim on one id are two claims, never a silent winner), and the TRD / entity body codecs (id + file lines).
-// 2. A legacy comment marker `kind=state` gives the same { id, kind }, isStateComment and findCommentsByMarker find
-//    it; gh-cache materialises a quick task whose body and summary comment are both in the legacy namespace.
-// 3. A legacy multi-part comment (`part=1/2`, `part=2/2`, legacy file line) is reassembled exactly like the new form.
-// 4. A legacy begin/end section: mergeManaged replaces it in place with AOForge markers, the body holds exactly one
-//    section of that name and the text outside it is byte-identical.
-//    4b. Merging the content a legacy section already holds is no change: no write only to rename a marker.
-//    4c. When a merge does change the body, every written legacy section is rewritten in the AOForge form.
-//    4d. extractSection reads a legacy section; section content carrying a legacy marker is refused.
-//    4e. A legacy PR body: its PR marker is recognised (no second marker line, no second section).
-//    4f. gh setup replaces the legacy PR-template block in place instead of appending a second one.
-// 5. A legacy dir marker inside a legacy wiki section is parsed.
-// 6. Writers emit only the AOForge namespace: markerLine, commentMarker, prMarker, buildWikiSection, buildPrBody,
-//    the TRD and entity codecs, partLine and scopeMarker; withCommentMarker restamps a legacy first line.
-// 7. Label union: the AOForge objective label lists #1 and #3, the legacy one #2 and #3 -> the lookup yields #1, #2
-//    and #3 once each (gh-issue scan, gh-cache remote model, the flusher's marker scan); a configured label
-//    (`github.labels.objective: 'custom'`) is the only one queried.
-//    7e. `gh orphans` (gh-hierarchy reportOrphans) lists a legacy-labelled, unlinked TRD issue. Written after the
-//        code with the rest of the GREEN pass; its RED was checked against the pre-change gh-hierarchy.cjs.
-// 8. In-progress label: `summary post` removes it in both forms; `trd start` adds the AOForge form only; a
-//    configured label is the only one removed.
+// 1. The legacy issue id line is not a marker: extractMarker -> null (an AOForge one is `{ id, kind }`, no `legacy`
+//    key); indexByMarker counts a legacy body as unmarked, so a legacy and an AOForge claim on one id are one claim.
+//    1c. gh-trd: the legacy TRD, entity, file, scope and part lines are not parsed; the AOForge ones are.
+// 2. A legacy comment marker `kind=state` is not a marker: no isStateComment, no findCommentsByMarker hit.
+//    2b. gh-cache materialise rejects a quick task whose body and summary comment are legacy (no cache file).
+//    2c. gh-cache materialise of an objective whose body uses legacy markers: no directory, so no cache file from it;
+//        an AOForge objective beside it still materialises.
+// 3. A legacy multi-part comment is not found (decodeFileComment -> notFound).
+// 4. A legacy begin/end section is plain text: mergeManaged keeps it byte for byte, stamps the AOForge id line and
+//    appends the AOForge section; extractSection does not read it; section content may carry a legacy-looking
+//    marker (it is plain content now) while an AOForge marker in content is still refused.
+//    4e. A legacy PR body has no PR marker: a PR merge stamps the AOForge one and appends its sections.
+//    4f. gh setup refuses the PR-template step when the file holds the legacy block (conflict, names
+//        `aof-tools gh rebrand --apply`, file byte-identical after apply); an AOForge block is refreshed in place and a
+//        file with no block gets one appended, as before.
+// 5. A legacy dir marker is not read, inside a legacy or an AOForge wiki section.
+// 6. Writers emit only the AOForge namespace; withCommentMarker adds an AOForge marker line above a legacy first line
+//    for the same id instead of restamping it.
+// 7. Label union (TRD 72-11 behaviour, removed by 78-09): the AOForge objective label lists #1 and #3, the legacy one
+//    #2 and #3 -> the lookup yields #1, #2 and #3 once each (gh-issue scan, gh-cache remote model, the flusher's marker
+//    scan); a configured label is the only one queried. The bodies are AOForge-marked here (an old issue AOForge 3.0
+//    rewrote while its label stayed old): a legacy body is unmarked since 78-03 (case 1).
+//    7e. `gh orphans` (gh-hierarchy reportOrphans) lists a legacy-labelled, unlinked TRD issue.
+// 8. In-progress label (planning-verbs, 78-09's): `summary post` removes it in both forms; `trd start` adds the
+//    AOForge form only; a configured label is the only one removed.
 //
 // Hermetic: the fake GitHub through the gh-client seam, temp projects, hermeticEnv() for HOME and the outbox. No
 // network, no real ~/.claude, no port.
@@ -55,61 +59,81 @@ const OLD = 'devflow';
 /** How many times `needle` occurs in `hay`. */
 const count = (hay, needle) => hay.split(needle).length - 1;
 
+/** An empty remote model with `fields` set, the shape cache.materialize reads. */
+const remoteModel = (fields) => ({
+  ok: true, repo: 'o/r', pages: {}, pages_report: { mode: 'wiki', skipped: false },
+  objectives: [], trds: [], decisions: [], todos: [], debugs: [], quicks: [], ...fields,
+});
+
 // ─── 1. Issue id line ────────────────────────────────────────────────────────
 
-describe('1. the legacy issue id line', () => {
-  test('1a. extractMarker reads it exactly like the AOForge line', () => {
-    const legacy = F.legacyIssueBody({ id: '46' });
-    assert.deepEqual(ghBody.extractMarker(legacy), { id: '46', kind: null });
-    assert.deepEqual(ghBody.extractMarker(legacy), ghBody.extractMarker(`${ghBody.markerLine('46')}\n`));
-    assert.deepEqual(ghBody.extractMarker(F.legacyIssueBody({ id: '046' })), { id: '46', kind: null }, 'canonical id');
+describe('1. the legacy issue id line is not a marker', () => {
+  test('1a. extractMarker: legacy -> null; AOForge -> { id, kind } with no legacy key', () => {
+    assert.equal(ghBody.extractMarker(F.legacyIssueBody({ id: '46' })), null);
+    assert.equal(ghBody.extractMarker(F.legacyIssueBody({ id: '046' })), null);
+    const own = ghBody.extractMarker(`${ghBody.markerLine('46')}\n`);
+    assert.deepEqual(own, { id: '46', kind: null });
+    assert.deepEqual(Object.keys(own).sort(), ['id', 'kind']);
+    const comment = ghBody.extractMarker(`${ghBody.commentMarker('46', 'state')}\nx`);
+    assert.deepEqual(Object.keys(comment).sort(), ['id', 'kind']);
   });
 
-  test('1b. indexByMarker maps legacy and AOForge bodies alike; one id claimed in both namespaces is a duplicate', () => {
+  test('1b. indexByMarker: a legacy body is unmarked, so a legacy and an AOForge claim on one id are one claim', () => {
     const idx = ghBody.indexByMarker([
       { number: 5, body: F.legacyIssueBody({ id: '46' }) },
       { number: 6, body: `${ghBody.markerLine('47')}\n` },
       { number: 7, body: 'no marker' },
     ]);
-    assert.deepEqual(idx, { byId: { 46: 5, 47: 6 }, duplicates: {}, unmarked: [7] });
+    assert.deepEqual(idx, { byId: { 47: 6 }, duplicates: {}, unmarked: [5, 7] });
 
     const both = ghBody.indexByMarker([
       { number: 5, body: F.legacyIssueBody({ id: '46' }) },
       { number: 8, body: `${ghBody.markerLine('46')}\n` },
     ]);
-    assert.deepEqual(both, { byId: {}, duplicates: { 46: [5, 8] }, unmarked: [] });
+    assert.deepEqual(both, { byId: { 46: 8 }, duplicates: {}, unmarked: [5] });
   });
 
-  test('1c. the TRD and entity body codecs read the legacy id and file lines', () => {
+  test('1c. gh-trd: legacy TRD, entity, file, scope and part lines are not parsed; AOForge ones are', () => {
     const text = '# TRD 07-01 alpha\n\nDo the thing.\n';
-    assert.deepEqual(ghTrd.decodeTrdBody(F.legacyTrdBody({ id: '7-01', file: '07-01-alpha-TRD.md', text })), {
+    assert.equal(ghTrd.decodeTrdBody(F.legacyTrdBody({ id: '7-01', file: '07-01-alpha-TRD.md', text })).ok, false);
+    assert.deepEqual(ghTrd.decodeTrdBody(ghTrd.encodeTrdBody({ id: '7-01', file: '07-01-alpha-TRD.md', text })), {
       ok: true, id: '7-01', file: '07-01-alpha-TRD.md', text,
     });
-    assert.deepEqual(
-      ghTrd.decodeTrdBody(F.legacyTrdBody({ id: '7-01', file: '07-01-alpha-TRD.md', text })),
-      ghTrd.decodeTrdBody(ghTrd.encodeTrdBody({ id: '7-01', file: '07-01-alpha-TRD.md', text })),
-    );
-    assert.deepEqual(ghTrd.decodeEntityBody(F.legacyEntityBody({ id: 'todo-2026-07-31-a', file: 'todos/pending/2026-07-31-a.md', text: '# A\n' })), {
-      ok: true, id: 'todo-2026-07-31-a', file: 'todos/pending/2026-07-31-a.md', text: '# A\n',
-    });
-    assert.equal(ghTrd.parseFileLine(`<!-- ${OLD}:file=07-01-alpha-SUMMARY.md -->`), '07-01-alpha-SUMMARY.md');
+
+    const entity = { id: 'todo-2026-07-31-a', file: 'todos/pending/2026-07-31-a.md', text: '# A\n' };
+    assert.equal(ghTrd.decodeEntityBody(F.legacyEntityBody(entity)).ok, false);
+    assert.deepEqual(ghTrd.decodeEntityBody(ghTrd.encodeEntityBody(entity)), { ok: true, ...entity });
+
+    assert.equal(ghTrd.parseFileLine(`<!-- ${OLD}:file=07-01-alpha-SUMMARY.md -->`), null);
+    assert.equal(ghTrd.parseFileLine(ghTrd.fileLine('07-01-alpha-SUMMARY.md')), '07-01-alpha-SUMMARY.md');
+
+    const legacyScope = ghTrd.parseScopeComments([F.legacyScopeComment({ n: 1 })]);
+    assert.deepEqual(legacyScope, { scopes: [], errors: [] });
+    const ownScope = ghTrd.parseScopeComments([{ id: 9301, body: ghTrd.buildScopeComment(1, 'Also cover x.\n') }]);
+    assert.deepEqual(ownScope.scopes.map((s) => [s.n, s.text]), [[1, 'Also cover x.\n']]);
+
+    const legacyParts = ghTrd.joinParts([`<!-- ${OLD}:part=1/2 -->\nA`, `<!-- ${OLD}:part=2/2 -->\nB`]);
+    assert.equal(legacyParts.ok, false);
+    assert.match(legacyParts.error, /no part line/);
+    const ownParts = ghTrd.joinParts([`${ghTrd.partLine(2, 2)}\nB`, `${ghTrd.partLine(1, 2)}\nA`]);
+    assert.deepEqual(ownParts, { ok: true, text: 'AB', missing: [] });
   });
 });
 
 // ─── 2. Comment markers ──────────────────────────────────────────────────────
 
-describe('2. legacy comment markers', () => {
-  test('2a. kind=state: the same { id, kind }; isStateComment and findCommentsByMarker find it', () => {
+describe('2. legacy comment markers are not markers', () => {
+  test('2a. kind=state: no marker, no isStateComment, no findCommentsByMarker hit', () => {
     const [c] = F.legacyComment({ id: '46', kind: 'state', parts: ['**State**'] });
-    assert.deepEqual(ghBody.extractMarker(c.body), { id: '46', kind: 'state' });
-    assert.equal(ghBody.isStateComment(c.body, '46'), true);
-    assert.equal(ghBody.isStateComment(c.body, '47'), false);
-    const found = ghBody.findCommentsByMarker([{ id: 1, body: 'a human comment' }, c], '46', 'state');
-    assert.equal(found.length, 1);
-    assert.equal(found[0].comment.id, c.id);
+    assert.equal(ghBody.extractMarker(c.body), null);
+    assert.equal(ghBody.isStateComment(c.body, '46'), false);
+    assert.deepEqual(ghBody.findCommentsByMarker([{ id: 1, body: 'a human comment' }, c], '46', 'state'), []);
+    const own = { id: 2, body: `${ghBody.commentMarker('46', 'state')}\n**State**` };
+    assert.equal(ghBody.isStateComment(own.body, '46'), true);
+    assert.deepEqual(ghBody.findCommentsByMarker([c, own], '46', 'state').map((f) => f.comment.id), [2]);
   });
 
-  test('2b. gh-cache materialises a quick task whose body and summary comment are legacy', () => {
+  test('2b. gh-cache rejects a quick task whose body and summary comment are legacy: no cache file', () => {
     const job = '# Quick 12: fix x\n\n- [ ] fix x\n';
     const summary = F.legacyComment({ id: 'quick-12', kind: 'summary', parts: [`<!-- ${OLD}:file=12-SUMMARY.md -->\n# Quick 12 summary\n`] });
     const issue = {
@@ -117,127 +141,159 @@ describe('2. legacy comment markers', () => {
       body: F.legacyEntityBody({ id: 'quick-12', file: 'quick/12-fix-x/12-JOB.md', text: job }),
       comments: summary.map((c) => ({ ...c, updated_at: '2026-07-31T00:00:09Z' })),
     };
-    const r = cache.materialize({
-      ok: true, repo: 'o/r', pages: {}, pages_report: { mode: 'wiki', skipped: false },
-      objectives: [], trds: [], decisions: [], todos: [], debugs: [], quicks: [issue],
-    });
+    const r = cache.materialize(remoteModel({ quicks: [issue] }));
+    assert.deepEqual(r.files, {});
+    assert.deepEqual(r.rejected.map((x) => [x.kind, x.number]), [['quick', 80]]);
+  });
+
+  test('2c. gh-cache: a legacy objective body gives no directory and no file; an AOForge one still materialises', () => {
+    const legacyWiki = `<!-- ${OLD}:dir=07-store-demo -->\nDetail: [Objective-7-store-demo](https://github.com/o/r/wiki/Objective-7-store-demo/abc1234) (revision \`abc1234\`)`;
+    const legacy = {
+      id: '7', number: 70, title: '[Objective 7] Store demo', state: 'open',
+      body: F.legacyIssueBody({ id: '7', sections: { summary: 's', wiki: legacyWiki } }),
+      comments: F.legacyComment({ id: '7', kind: 'verification', parts: [`<!-- ${OLD}:file=07-VERIFICATION.md -->\n# V7\n`] }),
+    };
+    const wiki = ghBody.buildWikiSection({ dir: '08-next', page: 'Objective-8-next', url: 'https://github.com/o/r/wiki/x', sha: 'abc1234' });
+    const own = {
+      id: '8', number: 80, title: '[Objective 8] Next', state: 'open',
+      body: ghBody.mergeManaged('', { summary: 's', wiki }, '8').body,
+      comments: [{ id: 9500, body: `${ghBody.commentMarker('8', 'verification')}\n${ghTrd.fileLine('08-VERIFICATION.md')}\n# V8\n` }],
+    };
+    const r = cache.materialize(remoteModel({ objectives: [legacy, own] }));
+    assert.deepEqual(r.files, { 'objectives/08-next/08-VERIFICATION.md': '# V8\n' });
+    assert.deepEqual(r.no_dir, [{ id: '7', number: 70 }]);
     assert.deepEqual(r.rejected, []);
-    assert.deepEqual(r.files, { 'quick/12-fix-x/12-JOB.md': job, 'quick/12-fix-x/12-SUMMARY.md': '# Quick 12 summary\n' });
   });
 });
 
 // ─── 3. Multi-part comments ──────────────────────────────────────────────────
 
 describe('3. a legacy multi-part comment', () => {
-  test('3. is reassembled in part order exactly like the AOForge form of the same comment', () => {
+  test('3. is not found; the AOForge form of the same comment is reassembled', () => {
     const one = 'First paragraph.\n\n';
     const two = 'Second paragraph.\n';
     const legacy = F.legacyComment({ id: '7-01', kind: 'summary', parts: [`<!-- ${OLD}:file=07-01-alpha-SUMMARY.md -->\n${one}`, two] });
-    const shuffled = [legacy[1], { id: 1, body: 'looks good' }, legacy[0]];
-    const got = ghComments.decodeFileComment(shuffled, '7-01', 'summary');
-    assert.equal(got.ok, true, got.error);
-    assert.equal(got.file, '07-01-alpha-SUMMARY.md');
-    assert.equal(got.text, one + two);
+    const got = ghComments.decodeFileComment([legacy[1], { id: 1, body: 'looks good' }, legacy[0]], '7-01', 'summary');
+    assert.equal(got.ok, false);
+    assert.equal(got.notFound, true);
 
     const marker = ghBody.commentMarker('7-01', 'summary');
     const fresh = [
-      { id: 9200, body: `${marker}\n${ghTrd.partLine(1, 2)}\n${ghTrd.fileLine('07-01-alpha-SUMMARY.md')}\n${one}` },
       { id: 9201, body: `${marker}\n${ghTrd.partLine(2, 2)}\n${two}` },
+      { id: 9200, body: `${marker}\n${ghTrd.partLine(1, 2)}\n${ghTrd.fileLine('07-01-alpha-SUMMARY.md')}\n${one}` },
     ];
-    const expected = ghComments.decodeFileComment(fresh, '7-01', 'summary');
-    assert.equal(got.text, expected.text);
-    assert.equal(got.file, expected.file);
+    const own = ghComments.decodeFileComment([...legacy, ...fresh], '7-01', 'summary');
+    assert.equal(own.ok, true, own.error);
+    assert.equal(own.file, '07-01-alpha-SUMMARY.md');
+    assert.equal(own.text, one + two);
   });
 });
 
 // ─── 4. Sections ─────────────────────────────────────────────────────────────
 
-describe('4. legacy begin/end sections', () => {
+describe('4. legacy begin/end sections are plain text', () => {
   const body = F.legacyIssueBody({ id: '46', sections: { summary: 'old summary', footer: 'old footer' } });
 
-  test('4. a changed section is replaced in place with AOForge markers; one section; outside text byte-identical', () => {
+  test('4. mergeManaged keeps the legacy text byte for byte, stamps the AOForge id line, appends the section', () => {
     const r = ghBody.mergeManaged(body, { summary: 'new summary' }, '46');
     assert.equal(r.ok, true, r.error);
     assert.equal(r.changed, true);
-    assert.equal(r.body, [
-      `<!-- ${OLD}:id=46 -->`,
-      '<!-- aoforge:begin summary -->',
-      'new summary',
-      '<!-- aoforge:end summary -->',
-      '',
-      `<!-- ${OLD}:begin footer -->`,
-      'old footer',
-      `<!-- ${OLD}:end footer -->`,
-      '',
-      F.HUMAN_TEXT,
-    ].join('\n'));
-    assert.equal(count(r.body, 'begin summary'), 1);
-    assert.equal(count(r.body, 'end summary'), 1);
+    assert.deepEqual(r.warnings, [], 'a legacy pair is not a malformed AOForge section');
+    assert.equal(r.body, `<!-- aoforge:id=46 -->\n${body}\n<!-- aoforge:begin summary -->\nnew summary\n<!-- aoforge:end summary -->`);
+    assert.equal(count(r.body, 'aoforge:begin summary'), 1);
+    assert.equal(ghBody.extractSection(r.body, 'summary'), 'new summary');
+    assert.equal(ghBody.mergeManaged(r.body, { summary: 'new summary' }, '46').changed, false, 'idempotent');
   });
 
-  test('4b. merging the content the legacy sections already hold is no change (no write to rename a marker)', () => {
+  test('4b. merging the content a legacy section holds still appends the AOForge section', () => {
     const r = ghBody.mergeManaged(body, { summary: 'old summary', footer: 'old footer' }, '46');
     assert.equal(r.ok, true, r.error);
-    assert.equal(r.changed, false);
-    assert.equal(r.body, body);
-  });
-
-  test('4c. a merge that changes the body rewrites every written legacy section in the AOForge form', () => {
-    const r = ghBody.mergeManaged(body, { summary: 'new summary', footer: 'old footer' }, '46');
-    assert.equal(r.ok, true, r.error);
     assert.equal(r.changed, true);
-    assert.ok(r.body.includes('<!-- aoforge:begin footer -->\nold footer\n<!-- aoforge:end footer -->'), r.body);
-    assert.ok(!r.body.includes(`${OLD}:begin`) && !r.body.includes(`${OLD}:end`), r.body);
-    assert.ok(r.body.endsWith(`\n\n${F.HUMAN_TEXT}`));
-    assert.equal(ghBody.mergeManaged(r.body, { summary: 'new summary', footer: 'old footer' }, '46').changed, false, 'idempotent');
+    assert.ok(r.body.includes(body), 'the legacy text is kept whole');
+    assert.ok(r.body.endsWith('<!-- aoforge:begin footer -->\nold footer\n<!-- aoforge:end footer -->'), r.body);
   });
 
-  test('4d. extractSection reads a legacy section; content carrying a legacy section marker is refused', () => {
-    assert.equal(ghBody.extractSection(body, 'summary'), 'old summary');
-    assert.equal(ghBody.extractSection(body, 'footer'), 'old footer');
-    const r = ghBody.mergeManaged(body, { summary: `x\n<!-- ${OLD}:end footer -->` }, '46');
-    assert.equal(r.ok, false);
-    assert.match(r.error, /section marker/);
+  test('4d. extractSection does not read a legacy section; a legacy-looking marker in content is plain content', () => {
+    assert.equal(ghBody.extractSection(body, 'summary'), null);
+    assert.equal(ghBody.extractSection(body, 'footer'), null);
+    const content = `x\n<!-- ${OLD}:end footer -->`;
+    const r = ghBody.mergeManaged(body, { summary: content }, '46');
+    assert.equal(r.ok, true, r.error);
+    assert.equal(ghBody.extractSection(r.body, 'summary'), content);
+    const forged = ghBody.mergeManaged(body, { summary: 'x\n<!-- aoforge:end footer -->' }, '46');
+    assert.equal(forged.ok, false);
+    assert.match(forged.error, /section marker/);
   });
 
-  test('4e. a legacy PR body keeps one PR marker and one closes section when merged', () => {
+  test('4e. a legacy PR body has no PR marker: a PR merge stamps the AOForge one and appends its sections', () => {
     const pr = F.legacyPrBody({ objective: '49', closes: [100] });
-    assert.deepEqual(ghBody.extractPrMarker(pr), { id: '49' });
+    assert.equal(ghBody.extractPrMarker(pr), null);
     const r = ghBody.mergeManaged(pr, { closes: 'Closes #100\nCloses #101' }, '49', { order: ghBody.PR_SECTION_ORDER, marker: 'pr' });
     assert.equal(r.ok, true, r.error);
-    assert.equal(count(r.body, ':pr=49'), 1, r.body);
-    assert.equal(count(r.body, 'begin closes'), 1, r.body);
+    assert.ok(r.body.startsWith('<!-- aoforge:pr=49 -->\n'), r.body);
+    assert.ok(r.body.includes(pr), 'the legacy text is kept whole');
     assert.equal(ghBody.extractSection(r.body, 'closes'), 'Closes #100\nCloses #101');
-    const asIssue = ghBody.mergeManaged(pr, { summary: 's' }, '49');
-    assert.equal(asIssue.ok, false, 'an issue merge never stamps an id marker onto a legacy PR body');
   });
 
-  test('4f. gh setup replaces the legacy PR-template block in place instead of appending a second one', () => {
+  describe('4f. gh setup and the PR template', () => {
     const block = '<!-- aoforge:pr-template:start -->\n## Summary\n\nCloses #\n<!-- aoforge:pr-template:end -->';
-    const state = {
+    const stateWith = (prTemplate) => ({
       repo: 'o/r', owner: 'o', name: 'r', ownerType: 'Organization',
       meta: { has_wiki: false, delete_branch_on_merge: false, default_branch: 'main' },
       github: { enabled: true, repo: 'o/r' },
       rulesets: [], labels: [], types: [], fields: [], wiki: 'disabled',
-      local: { workflow: null, prTemplate: F.legacyPrTemplate(), otherWorkflows: [] },
+      local: { workflow: null, prTemplate, otherWorkflows: [] },
       templates: { workflow: '# aoforge:managed\nname: AOForge checks\n', prTemplate: `${block}\n` },
       record: {},
-    };
-    const action = setup.planSetup(state).find((a) => a.kind === 'pr-template');
-    assert.equal(action.status, 'update');
-    assert.equal(action.file.content, `Team checklist: link the design doc.\n\n${block}\n`);
+    });
+    const prAction = (prTemplate) => setup.planSetup(stateWith(prTemplate)).find((a) => a.kind === 'pr-template');
+
+    for (const [label, template] of [['with a team line', F.legacyPrTemplate()], ['alone', F.legacyPrTemplate({ teamLine: false })]]) {
+      test(`4f. the legacy block ${label}: the step is refused, naming gh rebrand --apply; nothing is written`, () => {
+        const action = prAction(template);
+        assert.equal(action.status, 'conflict');
+        assert.equal(action.reason, 'legacy-pr-template');
+        assert.equal(action.file, undefined, 'no file is planned');
+        assert.ok(action.desc.includes(setup.PR_TEMPLATE_PATH), action.desc);
+        assert.ok(action.desc.includes('aof-tools gh rebrand --apply'), action.desc);
+
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-markers-legacy-setup-'));
+        try {
+          const file = path.join(root, setup.PR_TEMPLATE_PATH);
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, template);
+          const applied = setup.applySetup(root, [action], { repo: 'o/r' });
+          assert.equal(applied.ok, false);
+          assert.deepEqual(applied.outcomes.map((o) => [o.kind, o.status]), [['pr-template', 'conflict']]);
+          assert.equal(fs.readFileSync(file, 'utf-8'), template, 'byte-identical');
+        } finally {
+          fs.rmSync(root, { recursive: true, force: true });
+        }
+      });
+    }
+
+    test('4f. an AOForge block is refreshed in place; a file with no block gets one appended (as before)', () => {
+      const stale = `Team line.\n\n<!-- aoforge:pr-template:start -->\nold\n<!-- aoforge:pr-template:end -->\nTail.\n`;
+      const refreshed = prAction(stale);
+      assert.equal(refreshed.status, 'update');
+      assert.equal(refreshed.file.content, `Team line.\n\n${block}\nTail.\n`);
+
+      const plain = prAction('Our own template.\n');
+      assert.equal(plain.status, 'update');
+      assert.equal(plain.file.content, `Our own template.\n\n${block}\n`);
+    });
   });
 });
 
 // ─── 5. Dir marker ───────────────────────────────────────────────────────────
 
 describe('5. the legacy dir marker', () => {
-  test('5. parseDirMarker reads it inside a legacy wiki section', () => {
+  test('5. parseDirMarker does not read it, in a legacy or an AOForge wiki section', () => {
     const wiki = `<!-- ${OLD}:dir=07-store-demo -->\nDetail: [Objective-7-store-demo](https://github.com/o/r/wiki/Objective-7-store-demo/abc1234) (revision \`abc1234\`)`;
-    const body = F.legacyIssueBody({ id: '7', sections: { summary: 's', wiki } });
-    assert.equal(ghBody.parseDirMarker(body), '07-store-demo');
-    const unsafe = F.legacyIssueBody({ id: '7', sections: { wiki: `<!-- ${OLD}:dir=../escape -->` } });
-    assert.equal(ghBody.parseDirMarker(unsafe), null, 'the safe-segment rule still holds');
+    assert.equal(ghBody.parseDirMarker(F.legacyIssueBody({ id: '7', sections: { summary: 's', wiki } })), null);
+    assert.equal(ghBody.parseDirMarker(ghBody.mergeManaged('', { summary: 's', wiki }, '7').body), null);
+    const own = ghBody.buildWikiSection({ dir: '07-store-demo', page: 'Objective-7-store-demo', url: 'https://github.com/o/r/wiki/x', sha: 'abc1234' });
+    assert.equal(ghBody.parseDirMarker(ghBody.mergeManaged('', { summary: 's', wiki: own }, '7').body), '07-store-demo');
   });
 });
 
@@ -264,9 +320,9 @@ describe('6. writers emit only the AOForge namespace', () => {
     }
   });
 
-  test('6b. withCommentMarker restamps a legacy first line for the same id in the AOForge form, keeping its kind', () => {
+  test('6b. withCommentMarker adds an AOForge marker line above a legacy first line for the same id', () => {
     const [c] = F.legacyComment({ id: '46', kind: 'note', parts: ['hello'] });
-    assert.equal(ghBody.withCommentMarker('46', 'comment', c.body), '<!-- aoforge:id=46 kind=note -->\nhello');
+    assert.equal(ghBody.withCommentMarker('46', 'comment', c.body), `<!-- aoforge:id=46 kind=comment -->\n${c.body}`);
     const fresh = '<!-- aoforge:id=46 kind=note -->\nhello';
     assert.equal(ghBody.withCommentMarker('46', 'comment', fresh), fresh, 'an AOForge-stamped body is unchanged');
   });
@@ -303,7 +359,7 @@ describe('7. label union', () => {
   let envh;
   let root;
   let fake;
-  const pages = F.labelPages({ kind: 'objective', aoforge: [1, 3], legacy: [2, 3] });
+  const pages = F.labelPages({ kind: 'objective', aoforge: [1, 3], legacy: [2, 3], bodies: 'aoforge' });
 
   function seed(f) {
     for (const issue of pages.issues) f.seedIssue({ title: issue.title, body: issue.body, labels: issue.labels });
@@ -384,10 +440,11 @@ describe('7d. the flusher adopts a legacy-labelled TRD issue instead of creating
     project.cleanup();
   });
 
-  test('7d. upsert-issue with no mapping finds the legacy TRD issue by label scan + marker', () => {
+  test('7d. upsert-issue with no mapping finds the legacy-labelled TRD issue by label scan + marker', () => {
     const file = STORE_FIXTURE.trdFiles[0];
     const text = STORE_FIXTURE.trds[file];
-    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body: F.legacyTrdBody({ id: '7-01', file, text }), labels: [`${OLD}:trd`] });
+    const body = ghTrd.encodeTrdBody({ id: '7-01', file, text });
+    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body, labels: [`${OLD}:trd`] });
     const ctx = flushLib.createContext(project.root, {
       modes: { types: 'native', fields: 'native', hierarchy: 'native', pages: 'wiki', writable: true },
       caps: { issue_fields: { available: true, ids: { work: 11, kind: 12 } } },
@@ -395,7 +452,7 @@ describe('7d. the flusher adopts a legacy-labelled TRD issue instead of creating
     assert.ok(!ctx.error, ctx.error);
     const res = flushLib.executeOp(ctx, {
       seq: 1, status: 'pending', kind: 'upsert-issue', target: { id: '7-01', role: 'trd' },
-      payload: { title: `[TRD 07-01] ${file}`, body: ghTrd.encodeTrdBody({ id: '7-01', file, text }), labels: ['aoforge:trd'], type: 'TRD' },
+      payload: { title: `[TRD 07-01] ${file}`, body, labels: ['aoforge:trd'], type: 'TRD' },
     });
     assert.equal(res.ok, true, JSON.stringify(res));
     assert.equal(fake.issues.length, 1, 'no second issue');
@@ -409,7 +466,7 @@ describe('7d. the flusher adopts a legacy-labelled TRD issue instead of creating
     assert.equal(mappingLib.writeMappingV3(project.root, m).ok, true);
     const ghost = fake.seedIssue({
       title: '[TRD 07-09] ghost',
-      body: F.legacyTrdBody({ id: '7-09', file: '07-09-ghost-TRD.md', text: '# ghost\n' }),
+      body: ghTrd.encodeTrdBody({ id: '7-09', file: '07-09-ghost-TRD.md', text: '# ghost\n' }),
       labels: [`${OLD}:trd`],
     });
     const r = require('./gh-hierarchy.cjs').reportOrphans(project.root, '7');

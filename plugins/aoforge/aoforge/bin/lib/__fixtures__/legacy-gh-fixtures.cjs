@@ -14,7 +14,10 @@
  *   legacyEntityBody({ id: 'todo-2026-07-31-a', file: 'todos/pending/2026-07-31-a.md', text })
  *   legacyReconcileComment({ closed: [2, 3] })         // what the old check runner left on a merged PR
  *   legacyPrTemplate()                                 // the old managed block of .github/pull_request_template.md
+ *   legacyPrTemplate({ teamLine: false })              // the old block alone
+ *   legacyScopeComment({ n: 1, text })                 // -> { id, body }, an old TRD scope-change comment
  *   labelPages({ kind: 'objective', aoforge: [1, 3], legacy: [2, 3] })
+ *   labelPages({ ..., bodies: 'aoforge' })             // every body in the AOForge namespace, labels as given
  *
  * Every shape is copied from what the old writers produced (gh-body.cjs, gh-trd.cjs, gh-check-cli.cjs, gh-setup.cjs and
  * templates/github before the rename commit), with only the namespace changed back. Nothing is generated from the new
@@ -92,18 +95,25 @@ function legacyReconcileComment({ closed = [2, 3] } = {}) {
   return `${[`<!-- ${OLD}:reconcile -->`, 'Closed after the merge (they were still open):', '', ...closed.map((n) => `- #${n}`)].join('\n')}\n`;
 }
 
-/** legacyPrTemplate() — `.github/pull_request_template.md` as the old `gh setup` wrote it, with a line a team added. */
-function legacyPrTemplate() {
-  return [
-    'Team checklist: link the design doc.',
-    '',
+/**
+ * legacyPrTemplate({ teamLine }) — `.github/pull_request_template.md` as the old `gh setup` wrote it, with a line a
+ * team added above the block (`teamLine: false` gives the old block alone, as a fresh old setup left the file).
+ */
+function legacyPrTemplate({ teamLine = true } = {}) {
+  const block = [
     `<!-- ${OLD}:pr-template:start -->`,
     '## Summary',
     '',
     'Closes #',
     `<!-- ${OLD}:pr-template:end -->`,
     '',
-  ].join('\n');
+  ];
+  return (teamLine ? ['Team checklist: link the design doc.', '', ...block] : block).join('\n');
+}
+
+/** legacyScopeComment({ n, text }) — a TRD scope-change comment as the old writer posted it: old scope line, then text. */
+function legacyScopeComment({ n = 1, text = 'Also cover the empty case.\n', id = 9300 } = {}) {
+  return { id, body: `<!-- ${OLD}:scope n=${n} -->\n${text}` };
 }
 
 /**
@@ -156,17 +166,19 @@ function aoforgeIssueBody(n) {
 }
 
 /**
- * labelPages({ kind, aoforge, legacy }) — issues listed under the AOForge label (`aoforge`, issue numbers) and the
- * legacy label (`legacy`, issue numbers) of one kind. See the header for the result.
+ * labelPages({ kind, aoforge, legacy, bodies }) — issues listed under the AOForge label (`aoforge`, issue numbers) and
+ * the legacy label (`legacy`, issue numbers) of one kind. See the header for the result. `bodies: 'aoforge'` gives
+ * every issue an AOForge body, the legacy-only ones included (an old issue whose body AOForge 3.0 has rewritten while
+ * its label stayed old); the default gives a legacy-only issue a legacy body.
  */
-function labelPages({ kind = 'objective', aoforge = [], legacy = [] } = {}) {
+function labelPages({ kind = 'objective', aoforge = [], legacy = [], bodies = 'by-label' } = {}) {
   const labels = { aoforge: `${NEW}:${kind}`, legacy: `${OLD}:${kind}` };
   const numbers = [...new Set([...aoforge, ...legacy])].sort((a, b) => a - b);
   const issues = numbers.map((number) => {
     const names = [];
     if (aoforge.includes(number)) names.push(labels.aoforge);
     if (legacy.includes(number)) names.push(labels.legacy);
-    const onlyLegacy = !aoforge.includes(number);
+    const onlyLegacy = bodies !== 'aoforge' && !aoforge.includes(number);
     return {
       number,
       title: `[Objective ${number}] issue ${number}`,
@@ -199,6 +211,7 @@ module.exports = {
   legacyEntityBody,
   legacyReconcileComment,
   legacyPrTemplate,
+  legacyScopeComment,
   legacyCaller,
   labelPages,
 };
