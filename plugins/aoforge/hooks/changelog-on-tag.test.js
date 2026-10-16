@@ -395,18 +395,34 @@ describe('changelog-on-tag — commit-ish-aware tree resolution', () => {
 
   const commit556Present = hasCommit('556f8d3');
 
-  test('case 17: real history — v2.6.0 at 556f8d3 denies on the marketplace entry alone', {
+  // TRD 78-02: the hook reads one plugin manifest. 556f8d3 predates the objective 72 rename, so its tree has no
+  // plugins/aoforge manifest and the version-sync check is skipped (the CHANGELOG check still ran and passed).
+  test('case 17: real history — a pre-rename tree (v2.6.0 at 556f8d3) has no AOForge manifest: pass through', {
     skip: commit556Present ? false : 'commit 556f8d3 not present in this checkout',
   }, () => {
     const r = runHook({ tool_name: 'Bash', tool_input: {
       command: 'git tag -a v2.6.0 556f8d3 -m "release"',
     } }, REPO_ROOT);
-    assert.ok(isDeny(r.stdout), `expected deny, got: ${r.stdout}`);
-    const reason = denyReason(r.stdout);
-    // 556f8d3 predates the objective 72 rename: its plugin and marketplace entry carry the legacy name.
+    assert.ok(isPassThrough(r.stdout), `expected pass-through, got: ${r.stdout}`);
+  });
+
+  // TRD 78-02: no second manifest path. A plugin manifest only under the pre-rename plugin directory is not read,
+  // so mismatched versions there are not gated (the tree has no AOForge manifest).
+  test('case 17b: a manifest only under the pre-rename plugin directory is not read', () => {
     const { LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
-    assert.match(reason, new RegExp(`marketplace\\.json \\[${LEGACY.slug}\\]: 2\\.5\\.0`));
-    assert.doesNotMatch(reason, /package\.json/);
+    const files = manifestsForTag('3.1.0', '3.1.0');
+    delete files['plugins/aoforge/.claude-plugin/plugin.json'];
+    files[`plugins/${LEGACY.slug}/.claude-plugin/plugin.json`] = JSON.stringify({ name: LEGACY.slug, version: '0.0.1' }, null, 2);
+    const { root, cleanup } = mkRepo({ commitFiles: files });
+    try {
+      const r = runHook({ tool_name: 'Bash', tool_input: { command: 'git tag -a v3.1.0 -m "x"' } }, root);
+      assert.ok(isPassThrough(r.stdout), `expected pass-through, got: ${r.stdout}`);
+    } finally { cleanup(); }
+  });
+
+  test('case 17c: the hook names exactly one manifest, the AOForge one', () => {
+    const { PLUGIN_MANIFEST } = require('./changelog-on-tag.js');
+    assert.equal(PLUGIN_MANIFEST, 'plugins/aoforge/.claude-plugin/plugin.json');
   });
 
 });

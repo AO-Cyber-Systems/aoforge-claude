@@ -50,13 +50,9 @@
 // 16. Sibling plugins (plugins/eden-ui-*, monorepo-standards, aosentry-mcp, social-media-generator,
 //     minus EXEMPT): zero prefix/renamed/removed findings. Unknown names there are those plugins'
 //     own commands and are ignored. The sibling scan set is non-empty and covers each sibling.
-// 17. EXEMPT names the pointer release of the legacy plugin explicitly (`plugins/<legacy>/**`) and
-//     the one legacy-name module (`**/legacy-names.cjs`, which is in the raw scan set); the legacy
-//     fixtures need no entry of their own (every one in the raw scan set is already exempt). The
-//     main gate (test 2) is green with them.
-// 18. The raw scan set holds no path under the current or the legacy planning directory or under
-//     the pointer plugin, and the "Not scanned by design" comment names the current planning
-//     directory beside the legacy one.
+// 17. (Removed by TRD 78-02, with the pointer release of the legacy plugin it named.)
+// 18. The raw scan set holds no path under the current or the legacy planning directory, and the
+//     "Not scanned by design" comment names the current planning directory beside the legacy one.
 //
 // Runtime model (binding, TRD 38-09): this test is read-only — it never writes to the repo.
 // Repo root is path.resolve(__dirname, '..', '..', '..', '..', '..'); a mirror install (no
@@ -94,13 +90,12 @@ const SCAN_INCLUDE = [
   'assets/**/*.svg',
 ];
 
-// Not scanned by design (outside SCAN_INCLUDE; test 18 enforces the planning and pointer parts):
+// Not scanned by design (outside SCAN_INCLUDE; test 18 enforces the planning part):
 // CHANGELOG.md, .aoforge/** and the legacy planning directory it replaces (LEGACY.planningDir,
 // the same archive under its pre-3.0.0 name), docs/ other than USER-GUIDE and MIGRATING-TO-AOFORGE (dated PROPOSAL/
-// IMPLEMENTATION-PLAN/CODEX-PORT records), site/public (gitignored build output), and the pointer
-// release of the legacy plugin (plugins/<LEGACY.slug>/, also in EXEMPT). The sibling plugins
+// IMPLEMENTATION-PLAN/CODEX-PORT records) and site/public (gitignored build output). The sibling plugins
 // under plugins/ are not in this gate either: their own /<name>: commands are namespaced by
-// their own plugin. Test 16 scans them separately for legacy or stale AOForge command forms.
+// their own plugin. Test 16 scans them separately for stale AOForge command forms.
 
 // ─── EXEMPT (must_haves truth 2-5) ─────────────────────────────────────────────────
 // Every entry: a reason of >= 20 chars, and a pattern that matches >= 1 real path (test 3) —
@@ -137,13 +132,7 @@ const EXEMPT = [
       'declares the doc-refs:ignore-start/-end marker strings and the legacy namespace and dash-form ' +
       'rules this very gate depends on',
   },
-  // TRD 72-13 (test 17).
-  {
-    pattern: `plugins/${LEGACY.slug}/**`,
-    reason:
-      'the final pointer release of the legacy plugin must spell the legacy namespace to forward it; ' +
-      'removed with that plugin in the release after 3.0.0 (outside SCAN_INCLUDE too: test 18)',
-  },
+  // TRD 72-13.
   {
     pattern: '**/legacy-names.cjs',
     reason:
@@ -557,41 +546,18 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
       );
     });
 
-    test('17: EXEMPT names the pointer plugin and the legacy-name module; legacy fixtures are already exempt', () => {
-      const patterns = EXEMPT.map((e) => e.pattern);
-      const pointer = `plugins/${LEGACY.slug}/**`;
-      assert.ok(patterns.includes(pointer), `EXEMPT must name ${pointer} explicitly`);
-      assert.ok(walkFiles(REPO_ROOT, { include: [pointer] }).length >= 1, `${pointer} must match real files`);
-
-      const raw = rawScanSet();
-      const effective = effectiveScanSet();
-      const namesModule = 'plugins/aoforge/aoforge/bin/lib/legacy-names.cjs';
-      assert.ok(patterns.includes('**/legacy-names.cjs'), 'EXEMPT must name **/legacy-names.cjs');
-      assert.ok(raw.includes(namesModule), `${namesModule} is in the raw scan set (so its entry does real work)`);
-      assert.ok(!effective.includes(namesModule), `${namesModule} must be exempt`);
-
-      // The legacy fixtures in the raw scan set are all exempt already (bin/lib/__fixtures__/**), so
-      // they need no entry of their own.
-      const legacyFixtures = raw.filter((rel) => /(?:^|\/)__fixtures__\/legacy-[^/]*$/.test(rel));
-      assert.ok(legacyFixtures.length >= 1, 'expected legacy fixtures in the raw scan set');
-      for (const rel of legacyFixtures) {
-        assert.ok(!effective.includes(rel), `${rel} must be outside the effective scan set`);
-      }
-    });
-
-    test('18: the raw scan set stays out of both planning directories and the pointer plugin', () => {
-      const banned = [`${NAMES.planningDir}/`, `${LEGACY.planningDir}/`, `plugins/${LEGACY.slug}/`];
+    test('18: the raw scan set stays out of both planning directories', () => {
+      const banned = [`${NAMES.planningDir}/`, `${LEGACY.planningDir}/`];
       const raw = rawScanSet();
       for (const prefix of banned) {
         const hits = raw.filter((rel) => rel.startsWith(prefix));
         assert.deepStrictEqual(hits, [], `the scan set must not include ${prefix}`);
       }
-      // Not vacuous: a planning directory and the pointer plugin exist in this checkout.
+      // Not vacuous: a planning directory exists in this checkout.
       const planningFiles = walkFiles(REPO_ROOT, {
         include: [`${NAMES.planningDir}/**`, `${LEGACY.planningDir}/**`],
       });
       assert.ok(planningFiles.length >= 1, 'expected a planning directory in this checkout');
-      assert.ok(walkFiles(REPO_ROOT, { include: [`plugins/${LEGACY.slug}/**`] }).length >= 1);
 
       // The "Not scanned by design" comment names the current planning directory beside the legacy one.
       const src = fs.readFileSync(__filename, 'utf-8');
