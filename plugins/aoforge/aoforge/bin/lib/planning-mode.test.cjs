@@ -325,6 +325,46 @@ describe('resolveCheckoutRoot: the checkout holding cwd (TRD 53-01)', () => {
   });
 });
 
+// Quick 36 (D4): the one root every planning verb reads and writes. Store mode: MAIN (D-14). Local mode: the checkout
+// holding cwd when it has a planning dir (53-01 generalised), else MAIN. fs-only, same worktree fixture as above.
+describe('resolveVerbRoot: where a planning verb reads and writes (quick 36)', () => {
+  test('6a. local mode, the worktree has its own planning dir -> the worktree', () => {
+    const main = mainCheckout();
+    const wt = linkedWorktree(main);
+    mkdirs(wt, '.aoforge');
+    assert.strictEqual(mode.resolveVerbRoot(wt), real(wt));
+    assert.strictEqual(mode.resolveVerbRoot(mkdirs(wt, 'src', 'x')), real(wt));
+  });
+
+  test('6b. local mode, the worktree has no planning dir -> main', () => {
+    const main = mainCheckout();
+    const wt = linkedWorktree(main);
+    assert.strictEqual(mode.resolveVerbRoot(wt), real(main));
+  });
+
+  test('6c. store config in main -> main, even when the worktree has a planning dir (D-14)', () => {
+    const main = mainCheckout();
+    writeConfig(main, { github: { enabled: true, store: true } });
+    const wt = linkedWorktree(main);
+    writeConfig(wt, { github: { enabled: true, store: false } });
+    assert.strictEqual(mode.resolveVerbRoot(wt), real(main));
+  });
+
+  test('6d. a non-git dir holding .aoforge/ -> that dir; no planning dir anywhere -> null', () => {
+    const root = mkdirs(tmp, 'plain');
+    mkdirs(root, '.aoforge');
+    assert.strictEqual(mode.resolveVerbRoot(root), real(root));
+    assert.strictEqual(mode.resolveVerbRoot(mkdirs(root, 'a', 'b')), real(root));
+    assert.strictEqual(mode.resolveVerbRoot(mkdirs(tmp, 'nothing', 'here')), null);
+  });
+
+  test('6e. from the main checkout -> main', () => {
+    const main = mainCheckout();
+    linkedWorktree(main);
+    assert.strictEqual(mode.resolveVerbRoot(main), real(main));
+  });
+});
+
 describe('module hygiene', () => {
   test('requires only fs, path, os and ./compat.cjs (hook-safe, no child_process)', () => {
     const src = fs.readFileSync(path.join(__dirname, 'planning-mode.cjs'), 'utf8');
