@@ -664,7 +664,8 @@ describe('58-03 agent_overhead in calibration v2', () => {
     assert.equal(verifier.samples, 1);
     assert.equal(verifier.minutes.p50, 4);
     assert.equal(verifier.tokens_input.p50, 20503);
-    assert.equal(verifier.cost_usd.p50, 0.0203);
+    // Sonnet 5.5: 3 x 2 + 500 x 2.5 + 20000 x 0.1 (cache hits are 0.05x input, quick 37) + 1500 x 10 = 18256 per MTok.
+    assert.equal(verifier.cost_usd.p50, 0.0183);
 
     assert.equal(cal.agent_overhead['job-checker'].samples, 0);
     assert.deepEqual(cal.agent_overhead_sources, {
