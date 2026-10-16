@@ -77,7 +77,7 @@ MUST map each integration finding to affected requirement IDs where applicable.
 
 Verify cross-objective wiring and E2E user flows.",
   subagent_type="integration-checker",
-  model="{integration_checker_model}"
+  model="{CHECKER_MODEL}"
 )
 ```
 

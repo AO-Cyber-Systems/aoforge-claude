@@ -1,7 +1,7 @@
 ---
 title: "Agents"
 weight: 10
-lede: "The 13 subagents skills dispatch to, what each is for, and which model tier each runs at."
+lede: "The 12 core subagents skills dispatch to, what each is for, and which model tier each runs at."
 ---
 
 Skills are thin orchestrators. They load state, decide what to dispatch, and spawn
@@ -96,8 +96,10 @@ accumulate at `.claude/agent-memory/verifier/`.
 **`integration-checker`** — verifies separately-built features actually connect and
 end-to-end workflows work. Waves build things in isolation; this checks the seams.
 
-**`ui-evaluator`** — machine-judges visual correctness by capturing each declared
-UI surface and scoring it through the offline visual-eval engine.
+**`aoforge-stack-flutter:ui-evaluator`** — ships in the Flutter stack pack, not core. It
+machine-judges visual correctness by capturing each declared UI surface and scoring it through the
+visual-eval engine. The web pack's `aoforge-stack-web:web-ui-verifier` drives web UIs for the
+verifier.
 
 ### Cross-cutting
 

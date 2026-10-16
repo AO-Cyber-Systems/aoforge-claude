@@ -33,8 +33,8 @@ Distribution is the Claude Code plugin marketplace: `.claude-plugin/marketplace.
 ```
 plugins/aoforge/
 ├── .claude-plugin/plugin.json    # plugin manifest (name, version, statusLine)
-├── skills/<name>/SKILL.md        # 34 user-invocable slash commands
-├── agents/<agent>.md             # 13 subagent prompts
+├── skills/<name>/SKILL.md        # 32 user-invocable slash commands
+├── agents/<agent>.md             # 12 subagent prompts
 ├── hooks/
 │   ├── hooks.json                # event registrations (auto-loaded)
 │   ├── sync-runtime.js           # SessionStart: mirrors aoforge/ → ~/.claude/aoforge/
@@ -45,7 +45,7 @@ plugins/aoforge/
     ├── workflows/<name>.md       # workflow bodies referenced via @~/.claude/aoforge/workflows/...
     ├── references/<name>.md      # static reference docs read during execution
     ├── templates/<name>.md       # files copied into user projects' .aoforge/ dirs
-    └── stack-profiles/<id>.md    # bundled tier-2 profiles (go, dart, flutter)
+    └── stack-profiles/<id>.md    # bundled tier-2 profile (go); flutter/dart ship in their pack
 ```
 
 The `sync-runtime` SessionStart hook mirrors `${CLAUDE_PLUGIN_ROOT}/aoforge/` to `~/.claude/aoforge/` whenever the version or the content digest differs (`.plugin-version`, `.plugin-digest`). Skills and agents reach the runtime at that fixed home path in Bash and in `@` references.
@@ -58,7 +58,7 @@ The CLI every skill and agent calls as `node ~/.claude/aoforge/bin/aof-tools.cjs
 
 - **State** — `state load` (config plus the STATE.md digest), `state digest`, `state get`, `state update`, `state patch`, `state advance-job` (rotates decisions past the newest 10 into STATE_ARCHIVE.md), `state rotate-decisions`, `state update-progress`, `state rekey`, `state-snapshot`. STATE.md is a digest, not an archive: W068 reports an oversized decision log.
 - **Objectives and roadmap** — `objective next-decimal|add|insert|remove|complete|put|set-status`, `milestone complete|put`, `roadmap get-objective|analyze|digest|update-job-progress`. Every writing command refuses an unknown flag (`lib/flag-guard.cjs`, `lib/flag-spec.cjs`).
-- **Init and models** — `init execute-objective|plan-objective|new-project|...`, `resolve-model <agent-type>` from `references/model-profiles.json` (quality / balanced / budget; the pinned ids must stay current, W063 and doctor check 13 flag a superseded one).
+- **Init and models** — `init execute-objective|plan-objective|new-project|...`, `resolve-model <agent-type> [--objective N]` from `references/model-profiles.json`. Precedence: an OBJECTIVE.md/TRD `model_profile` override, then config `model_profile` (quality / balanced / budget; `auto` opts into the (kind, work) defaults table per objective, an unset key stays balanced); a stack pack agent takes its tiers from its pack manifest (objective 76/77). The pinned ids must stay current: W063 and doctor check 13 flag a superseded one.
 - **Validation** — `validate consistency|health [--repair]|requirements|docs`; health checks report E0xx/W0xx codes (W040 behind, W050-W054 docs, W055-W061 store, W062-W068 pins, markers, layout, decision log).
 - **Planning verbs** — every planning write is one verb taking `--from <path|->`: `plan put-trd|push`, `summary post|checkpoint [--tick <n|text>]`, `verification post`, `doc put`, `todo add|complete|sync`, `debug put|resolve`, `quick put|summary`, `decision open|answer`; plus `planning mode|draft|import`. D-01: with `github.store` off a verb writes the `.aoforge/` file byte for byte with zero `gh` calls; in store mode it writes the cache, the ledger and the outbox. `planning-writes.repo.test.cjs` fails CI on a direct planning write in prose.
 - **GitHub** — `gh sync|pull|outbox|trd|pr|orphans|setup|status|rebrand` (opt-in `github.enabled`; store mode `github.store`). Module family `lib/gh*.cjs`; detail in `docs/USER-GUIDE.md`.
@@ -67,7 +67,8 @@ The CLI every skill and agent calls as `node ~/.claude/aoforge/bin/aof-tools.cjs
 - **Upgrade** — `upgrade [--check|--apply] [--only id] [--confirm] [--global] [--prune] [--register]`; detection-based, idempotent migrations (`lib/migrations/NNNN-*.cjs`, `auto` | `confirm`) with backups under `~/.claude/aoforge/backups/`. 0012-0014 are the 3.0.0 rename, 0015 rotates the STATE.md decision log.
 - **Adopt and doctor** — `adopt preflight|begin|scaffold|report`, `doctor [--fix] [--json] [--global]` (checks in `lib/doctor-checks/NN-<id>.cjs`; `--fix` applies only safe, reversible fixes).
 - **Estimation** — `tokens trd|stamp|backfill|coverage`, `calibrate`, `estimate task|trd|objective|milestone|start|wave|finish|backtest`; rates in `references/model-rates.json`.
-- **Stack, merge driver, shims** — `stack resolve|context|validate|init|verify|report|mcp`; `merge-driver install|resolve`; `lib/legacy-names.cjs` and `lib/compat.cjs` hold the one-release rename shims (`rename-guard.repo.test.cjs` fails CI on a pre-rename name outside its ALLOW list and the ignore regions).
+- **Stack packs** (objective 77, `docs/PROPOSAL-stack-packs.md` §5A) — stack-specific procedure lives in pack plugins (`plugins/aoforge-stack-flutter`, `plugins/aoforge-stack-web`), never core: a pack ships `aoforge-stack.json` (schema `schemas/stack-pack.schema.json`) and a SessionStart hook that mirrors it to `~/.claude/aoforge/stacks/<name>/`. A pack is active when its plugin is enabled and the project selects it (`extends:` one of its profiles, config `stacks.enabled`, or a matching `verification.runtime`); `stack discover` only proposes. `stack context <agent>` appends a Read pointer per active fragment; `stack verify --changed|--all [--task id]` merges pack results (error > missing > fail > pass); `stack doctor` checks an active pack's tools. `stack-neutrality.repo.test.cjs` fails CI on a pack-owned stack named in core outside its allowlist.
+- **Stack, merge driver, shims** — `stack resolve|context|validate|init|verify|report|mcp|discover|doctor`; `merge-driver install|resolve`; `lib/legacy-names.cjs` and `lib/compat.cjs` hold the one-release rename shims (`rename-guard.repo.test.cjs` fails CI on a pre-rename name outside its ALLOW list and the ignore regions).
 
 ### Skills (`plugins/aoforge/skills/<name>/SKILL.md`)
 
@@ -75,14 +76,14 @@ YAML frontmatter (`name`, `description`, `argument-hint`, `allowed-tools`) and a
 
 ### Agents (`plugins/aoforge/agents/*.md`)
 
-13 subagent prompts (planner, executor, verifier, debugger, ...) with frontmatter `name`, `description`, `tools`, `color` and an XML body of `<role>`, `<philosophy>`, `<execution_flow>` steps. Spawned by skills with the model the active profile resolves. A reference is named with the moment it is needed (checkpoints.md only before a checkpoint task, tdd.md only for a TDD TRD) because the agent has to Read it.
+12 subagent prompts (planner, executor, verifier, debugger, ...; stack packs ship their own) with frontmatter `name`, `description`, `tools`, `color` and an XML body of `<role>`, `<philosophy>`, `<execution_flow>` steps. Spawned by skills with the model the active profile resolves. A reference is named with the moment it is needed (checkpoints.md only before a checkpoint task, tdd.md only for a TDD TRD) because the agent has to Read it.
 
 ### Templates, References, Hooks, Marketplace
 
 - `aoforge/templates/` — `config.json`, `state.md`, `project.md`, `roadmap.md`, `requirements.md`, `milestone.md`, `job-prompt.md`, `summary*.md`: copied into projects' `.aoforge/`.
 - `aoforge/references/` — model profiles, verification patterns, TDD, git conventions, checkpoints, UI branding, the design set (`design-*.md`, `full-output.md`; taste-skill under MIT, see `NOTICE.md`), `context-discipline.md`.
 - `hooks/hooks.json` — every hook uses `${CLAUDE_PLUGIN_ROOT}`; detail per hook in `docs/HOOKS-REFERENCE.md`.
-- `/.claude-plugin/marketplace.json` — the marketplace and the pointer plugin (final 3.0.0 release of the pre-rename plugin: a SessionStart notice and one forwarding skill per command, generated by `node scripts/gen-pointer-skills.cjs --write`; removed in the release after 3.0.0).
+- `/.claude-plugin/marketplace.json` — the marketplace: core, the stack packs `aoforge-stack-flutter` and `aoforge-stack-web`, and the pointer plugin (final 3.0.0 release of the pre-rename plugin: a SessionStart notice and one forwarding skill per command, generated by `node scripts/gen-pointer-skills.cjs --write`; removed in the release after 3.0.0).
 
 ### Hooks
 

@@ -25,7 +25,7 @@
 // these paths even though they were dirty before the upgrade (they land as deletions only).
 //
 // Nested coverage (TRD 45-02, DOC-02). The root `.aoforge/` is not the only one: aodex also tracks
-// `flutter/.aoforge/.progress-guard.json`, which a root-only migration never saw. Discovery now
+// `<component>/.aoforge/.progress-guard.json`, which a root-only migration never saw. Discovery now
 // covers `**/.aoforge/<name>` at any depth, and it goes through git pathspecs
 // (`:(glob)**/.aoforge/<name>` for tracked files, the same with `--others` for untracked ones)
 // rather than a filesystem walk. Git skips nested repositories and submodules on its own, so a

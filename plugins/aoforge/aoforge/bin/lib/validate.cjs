@@ -315,7 +315,7 @@ function cmdValidateHealth(cwd, options, raw) {
       const rawContent = fs.readFileSync(configPath, 'utf-8');
       const parsed = JSON.parse(rawContent);
       // Validate known fields
-      const validProfiles = ['quality', 'balanced', 'budget'];
+      const validProfiles = ['quality', 'balanced', 'budget', 'auto'];
       if (parsed.model_profile && !validProfiles.includes(parsed.model_profile)) {
         addIssue('warning', 'W004', `config.json: invalid model_profile "${parsed.model_profile}"`, `Valid values: ${validProfiles.join(', ')}`);
       }

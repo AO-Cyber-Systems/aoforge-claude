@@ -167,7 +167,7 @@ function orgProfilePath(userHome, id) {
 }
 
 /**
- * profileLookup(id, { userHome, bundledDir }) -> { path, tier: 'user'|'bundled' } | null
+ * profileLookup(id, { userHome, bundledDir }) -> { path, tier: 'user'|'pack'|'bundled' } | null
  *
  * The user/org tier (`<userHome>/.claude/aoforge/stacks/<id>.md`) first, then the bundled tier
  * (`<bundledDir>/<id>.md`). Either tier is skipped when its root is null, so `bundledDir: null`
@@ -178,6 +178,11 @@ function profileLookup(id, { userHome = null, bundledDir = BUNDLED_STACKS_DIR } 
     const userPath = orgProfilePath(userHome, id);
     if (fs.existsSync(userPath)) return { path: userPath, tier: 'user' };
   }
+  // The pack tier (objective 77): an enabled stack pack mirrored to stacks/<pack>/ that ships a
+  // profile with this id. A user profile with the same id still wins. Needs a home, or an
+  // explicit AOFORGE_STACKS_DIR. `bundledDir: null` turns the shipped tiers off, packs included.
+  const packHit = bundledDir ? require('./stack-packs.cjs').packProfilePath(id, { userHome }) : null;
+  if (packHit) return { path: packHit.path, tier: 'pack' };
   if (bundledDir) {
     const bundledPath = path.join(bundledDir, `${id}.md`);
     if (fs.existsSync(bundledPath)) return { path: bundledPath, tier: 'bundled' };
@@ -723,9 +728,19 @@ function validateProfile({ projectRoot = null, userHome = null, profilePath = nu
  */
 function listOrgProfiles({ userHome = null, bundledDir = BUNDLED_STACKS_DIR } = {}) {
   const user = userHome ? listProfileDir(path.join(userHome, '.claude', 'aoforge', 'stacks'), 'user') : [];
+  // The pack tier (objective 77): profiles shipped by enabled stack packs, between user and bundled.
+  const pack = [];
+  // `bundledDir: null` means "no shipped tiers" (the single-tier test mode); packs are shipped too.
+  if (userHome && bundledDir) {
+    for (const p of require('./stack-packs.cjs').discoverPacks({ userHome })) {
+      if (!p.enabled) continue;
+      for (const file of Object.values(p.profiles)) pack.push(...listProfileFiles([file], 'pack'));
+    }
+  }
   const bundled = bundledDir ? listProfileDir(bundledDir, 'bundled') : [];
-  const userIds = new Set(user.map((p) => p.id));
-  return user.concat(bundled.filter((p) => !userIds.has(p.id)));
+  const seen = new Set(user.map((p) => p.id));
+  const packKept = pack.filter((p) => !seen.has(p.id) && seen.add(p.id));
+  return user.concat(packKept, bundled.filter((p) => !seen.has(p.id)));
 }
 
 // One tier's directory listing for listOrgProfiles. `[]` when the directory can't be read.
@@ -736,9 +751,13 @@ function listProfileDir(dir, tier) {
   } catch (_) {
     return [];
   }
+  return listProfileFiles(entries.filter((e) => e.endsWith('.md')).sort().map((e) => path.join(dir, e)), tier);
+}
+
+function listProfileFiles(files, tier) {
   const results = [];
-  for (const entry of entries.filter((e) => e.endsWith('.md')).sort()) {
-    const full = path.join(dir, entry);
+  for (const full of files) {
+    const entry = path.basename(full);
     let parsed;
     try {
       parsed = parseProfile(fs.readFileSync(full, 'utf-8'), { source: full });
@@ -1212,8 +1231,28 @@ function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
       if (budgetRaw !== null) opts.budget = parseInt(budgetRaw, 10);
       void files; // context slices by section, not by file list; kept for CLI-surface symmetry
       const result = contextFor(resolved, agent, opts);
+      // Stack packs (objective 77): the active packs' fragment pointers and sub-agents for this
+      // agent. One line each, outside the section budget, so a repo with no pack pays nothing.
+      const stackPacks = require('./stack-packs.cjs');
+      const active = stackPacks.activePacks({ projectRoot, userHome, resolved });
+      const extras = stackPacks.agentExtras(active, result.agent);
+      result.packs = { active: active.map((p) => p.name), ...extras };
+      const block = stackPacks.renderExtras(extras);
+      if (block) result.text = result.text ? `${result.text}\n\n${block}` : block;
       output(result, raw, result.text);
       return;
+    }
+
+    if (subcommand === 'discover' || subcommand === 'doctor') {
+      const packCli = require('./stack-packs-cli.cjs');
+      const fn = subcommand === 'discover' ? packCli.discoverCli : packCli.doctorCli;
+      return fn(cwd, args.slice(1), raw, { userHome });
+    }
+
+    // `stack verify --changed|--all` is the stack pack gate; plain `stack verify` checks the
+    // profile's own commands (stack-verify.cjs).
+    if (subcommand === 'verify' && (args.includes('--changed') || args.includes('--all'))) {
+      return require('./stack-packs-cli.cjs').verifyPacksCli(cwd, args.slice(1), raw, { userHome });
     }
 
     if (subcommand === 'validate') {
@@ -1267,7 +1306,7 @@ function cmdStack(cwd, args, raw, { libDir = __dirname } = {}) {
       return mod.cli(cwd, args.slice(1), raw, { userHome });
     }
 
-    error(`Unknown stack subcommand. Available: resolve, context, validate, command, init, ${Object.keys(STACK_EXTENSIONS).join(', ')}`);
+    error(`Unknown stack subcommand. Available: resolve, context, validate, command, init, discover, doctor, ${Object.keys(STACK_EXTENSIONS).join(', ')}`);
   } catch (err) {
     error(err.message);
   }

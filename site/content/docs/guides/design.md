@@ -34,7 +34,7 @@ files, and it is wired into the executor.
 | Skill | Plugin | What it gained |
 |---|---|---|
 | `eden-web:frontend-design` | `eden-ui-web` | Design read, redesign detection, tells audit, pre-flight gate |
-| `eden-flutter:frontend-design` | `eden-ui-flutter` | Same, with `/aoforge:ui-eval` as the evidence step |
+| `eden-flutter:frontend-design` | `eden-ui-flutter` | Same, with `/aoforge-stack-flutter:ui-eval` as the evidence step |
 | `eden-web:brand-builder` | `eden-ui-web` | Records a per-brand design posture the others inherit |
 | `executor` (agent) | `aoforge` | `<output_completeness>`: scope locking and a placeholder ban |
 
@@ -116,7 +116,7 @@ and re-check. Three of its items need actual rendering — both themes, the
 320/768/1280 breakpoints, and evidence capture — because reasoning about markup
 is not checking.
 
-For Flutter, [`/aoforge:ui-eval`](/docs/guides/ui-eval/) is the stronger evidence
+For Flutter, [`/aoforge-stack-flutter:ui-eval`](/docs/guides/ui-eval/) is the stronger evidence
 path: it scores every declared state offline and writes output the verifier
 consumes, which catches the usual gap of a widget test that exercises the happy
 path and ignores loading, empty and error.

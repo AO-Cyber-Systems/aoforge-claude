@@ -1,0 +1,12 @@
+{
+  "name": "aoforge-stack-web",
+  "version": "1.0.0",
+  "description": "AOForge stack pack for web UIs: the verifier's Playwright browser drive, run by a dedicated agent, loaded only in projects whose stack profile declares a web runtime.",
+  "author": {
+    "name": "AO Cyber Systems",
+    "email": "dev@aocodex.ai"
+  },
+  "dependencies": [
+    { "name": "aoforge", "version": ">=3.1.0" }
+  ]
+}

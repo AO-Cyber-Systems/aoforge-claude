@@ -116,6 +116,9 @@ function coexistenceMessage(result) {
 }
 
 module.exports = {
+  installedVersion,
+  explicitEnabled,
+  readJsonOrNull,
   detectLegacyPlugin,
   coexistenceMessage,
   POINTER_MAJOR,

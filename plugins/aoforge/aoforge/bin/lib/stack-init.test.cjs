@@ -1,4 +1,5 @@
 'use strict';
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-init.test.cjs — Test list (TRD 35-04, I group)
 //

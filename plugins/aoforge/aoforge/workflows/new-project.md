@@ -597,7 +597,7 @@ Subsequent: Research what's needed to add [target features] to an existing [doma
 </milestone_context>
 
 <question>
-What's the standard 2025 stack for [domain]?
+What's the current standard stack for [domain]? (Search with the current year, not a remembered one.)
 </question>
 
 <project_context>

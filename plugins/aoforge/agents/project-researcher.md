@@ -72,12 +72,9 @@ Don't find articles supporting your initial guess — find what the ecosystem ac
 
 All files → `.aoforge/research/`
 
-Templates:
-@~/.claude/aoforge/templates/research-project/SUMMARY.md
-@~/.claude/aoforge/templates/research-project/STACK.md
-@~/.claude/aoforge/templates/research-project/FEATURES.md
-@~/.claude/aoforge/templates/research-project/ARCHITECTURE.md
-@~/.claude/aoforge/templates/research-project/PITFALLS.md
+Template: read **only** the one your prompt's `Use template:` line names (one of `STACK.md`,
+`FEATURES.md`, `ARCHITECTURE.md`, `PITFALLS.md` under `~/.claude/aoforge/templates/research-project/`).
+Each researcher covers one dimension; the project summary comes from the synthesizer, not you.
 
 </output_formats>
 

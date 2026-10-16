@@ -26,9 +26,18 @@ else
 fi
 ```
 
-Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `executor_model`, `verifier_model`, `commit_docs`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `padded_objective`, `has_research`, `has_context`, `has_jobs`, `job_count`, `planning_exists`, `roadmap_exists`, `research_enabled`, `job_checker_enabled`.
+Parse JSON for: `researcher_model`, `planner_model`, `checker_model`, `commit_docs`, `objective_found`, `objective_dir`, `objective_number`, `objective_name`, `objective_slug`, `padded_objective`, `has_research`, `has_context`, `has_jobs`, `job_count`, `planning_exists`, `roadmap_exists`, `research_enabled`, `job_checker_enabled`.
 
 **File contents (from --include):** `state_content`, `roadmap_content`, `requirements_content`, `context_content`, `research_content`.
+
+`init plan-objective` emits no `executor_model` or `verifier_model` (TRD 76-01: the step 8 verifier
+used to spawn with an empty model). Resolve both; use them as `{executor_model}` and `{verifier_model}`:
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model executor --objective "$OBJECTIVE_NUMBER" --raw
+```
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model verifier --objective "$OBJECTIVE_NUMBER" --raw
+```
 
 **If `planning_exists` is false:** Error — run `/aoforge:new-project` first.
 
@@ -301,27 +310,17 @@ Estimate: {output of `node ~/.claude/aoforge/bin/aof-tools.cjs estimate finish $
 Verification: Passed ✓
 ```
 
-**Visual-Eval Gate (conditional — UI objectives only):**
+**Stack pack gates (conditional):**
 
-If a visual-eval gate was reported for this objective during planning (i.e.
-`decideUIEvalDefault.emit` was true / a TRD carries a `## Visual-Eval Gate (auto-required)`
-section), then on completion:
+A stack pack's planner fragment can add an auto-required gate to a TRD: a `## <Name> Gate
+(auto-required)` section carrying a `callout` line and a `tasks` list (a UI pack's visual-eval
+gate is one). If any TRD of this objective carries one, then on completion:
 
-1. Surface the gate's `callout` line in the COMPLETE block, e.g.:
+1. Surface each gate's `callout` line in the COMPLETE block.
+2. Create a tracked session task with `TaskCreate` for EACH entry in the gate's `tasks` list, so the
+   step lands on the session task list and is not forgotten.
 
-   > 👁 Visual-eval gate auto-required: run /aoforge:ui-eval to capture + golden-diff + VLM-judge the rendered UI for {X}.
-
-2. Create tracked session tasks via `TaskCreate` for EACH entry in the gate's `tasks` array
-   (author the ui_eval manifest; run the /aoforge:ui-eval visual gate), so the visual-eval
-   step lands on the session task list and is not forgotten, e.g.:
-
-   ```
-   TaskCreate(subject="Author ui_eval state-matrix manifest for {X}", description="...", activeForm="Authoring ui_eval manifest")
-   TaskCreate(subject="Run /aoforge:ui-eval visual gate for {X}", description="...", activeForm="Running /aoforge:ui-eval gate")
-   ```
-
-Non-UI objectives (no visual-eval gate) get NEITHER the callout line NOR the session tasks —
-this is strictly conditional on the gate being on.
+An objective with no such section gets NEITHER the callout NOR the tasks.
 
 **If GAPS FOUND:**
 

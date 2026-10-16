@@ -285,15 +285,83 @@ function normalizeAgentKey(agentType) {
  */
 function agentTierMap(config, agentType) {
   const key = normalizeAgentKey(agentType);
+  // A stack pack's own agent (`<plugin>:<agent>` or bare) takes its tiers from the pack manifest
+  // `models` field (objective 77); core's table names only core agents.
+  let base = MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || null;
+  if (!base) {
+    try {
+      const hit = require('./stack-packs.cjs').packAgentTiers(key);
+      if (hit) base = hit.tiers;
+    } catch (_) { /* no pack mirror: fall through */ }
+  }
   const merged = Object.assign(
     {},
-    MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || {},
+    base || {},
     config.agent_models?.[key] || config.agent_models?.[`df-${key}`] || {}
   );
   return Object.keys(merged).length ? merged : null;
 }
 
-function resolveModelInternal(cwd, agentType) {
+/**
+ * Which profile applies, and who supplied it (TRD 76-01).
+ *
+ * The intent resolver derives a model_profile per objective, but resolve-model
+ * used to read only config.model_profile, so an OBJECTIVE.md `overrides:
+ * model_profile` and the (kind, work) defaults table never reached a spawn.
+ * Precedence, highest first:
+ *   1. TRD / OBJECTIVE.md override (explicit, per objective)
+ *   2. config.json model_profile quality|balanced|budget (/aoforge:set-profile)
+ *   3. config.json model_profile "auto": the (kind, work) defaults-table cell
+ *      for the objective (balanced when no objective or no cell resolves)
+ *   4. 'balanced'
+ * The table applies only on "auto". Neither adopt nor the config template
+ * writes model_profile, and the table puts every feature/port objective on
+ * quality, so applying it to an unset key would silently raise those projects'
+ * tiers (TRD 76-01).
+ */
+const _profileCache = new Map();
+function resolveProfile(cwd, objective) {
+  const cacheKey = `${cwd}\0${objective || ''}`;
+  if (_profileCache.has(cacheKey)) return _profileCache.get(cacheKey);
+
+  let intentProfile = null;
+  let intentProvenance = null;
+  if (objective) {
+    try {
+      const intent = require('./intent.cjs');
+      const r = intent.resolve({ projectRoot: cwd, objectiveId: String(objective) });
+      intentProfile = r.config && r.config.model_profile;
+      intentProvenance = r.provenance && r.provenance.model_profile;
+    } catch (_) {
+      // No PROJECT.md, unknown kind, missing table: fall through to config.
+    }
+  }
+
+  let configured;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(planningRoot(cwd), 'config.json'), 'utf-8'));
+    configured = parsed.model_profile;
+  } catch (_) {
+    configured = undefined;
+  }
+
+  let result;
+  if (intentProfile && (intentProvenance === 'objective_override' || intentProvenance === 'trd_override')) {
+    result = { profile: intentProfile, source: intentProvenance };
+  } else if (configured === 'auto') {
+    result = intentProfile
+      ? { profile: intentProfile, source: 'defaults_table' }
+      : { profile: 'balanced', source: 'default' };
+  } else if (configured) {
+    result = { profile: configured, source: 'config' };
+  } else {
+    result = { profile: 'balanced', source: 'default' };
+  }
+  _profileCache.set(cacheKey, result);
+  return result;
+}
+
+function resolveModelInternal(cwd, agentType, objective) {
   const config = loadConfig(cwd);
   const key = normalizeAgentKey(agentType);
 
@@ -303,7 +371,7 @@ function resolveModelInternal(cwd, agentType) {
     return override === 'opus' ? 'inherit' : override;
   }
 
-  const profile = config.model_profile || 'balanced';
+  const profile = resolveProfile(cwd, objective).profile;
   const agentModels = agentTierMap(config, key);
   if (!agentModels) return 'sonnet';
   const resolved = agentModels[profile] || agentModels['balanced'] || 'sonnet';
@@ -312,13 +380,13 @@ function resolveModelInternal(cwd, agentType) {
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-function cmdResolveModel(cwd, agentType, raw) {
+function cmdResolveModel(cwd, agentType, raw, objective) {
   if (!agentType) {
     error('agent-type required');
   }
 
   const config = loadConfig(cwd);
-  const profile = config.model_profile || 'balanced';
+  const { profile, source: profile_source } = resolveProfile(cwd, objective);
   const key = normalizeAgentKey(agentType);
   const agentModels = agentTierMap(config, key);
 
@@ -330,7 +398,7 @@ function cmdResolveModel(cwd, agentType, raw) {
       `references/model-profiles.json. Falling back to 'sonnet'; the configured ` +
       `profile "${profile}" is NOT being applied.\n`
     );
-    const result = { model: 'sonnet', profile, unknown_agent: true, requested: agentType };
+    const result = { model: 'sonnet', profile, profile_source, unknown_agent: true, requested: agentType };
     output(result, raw, 'sonnet');
     return;
   }
@@ -339,7 +407,7 @@ function cmdResolveModel(cwd, agentType, raw) {
   const model = tier === 'opus' ? 'inherit' : tier;
   // Report the tier and the concrete id alongside the alias so a resolution can
   // actually be audited (TRD 28-02) — "inherit" alone hid which model ran.
-  const result = { model, profile, agent: key, tier, model_id: MODEL_IDS[tier] || null };
+  const result = { model, profile, profile_source, agent: key, tier, model_id: MODEL_IDS[tier] || null };
   output(result, raw, model);
 }
 
@@ -420,8 +488,8 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
 
   const result = {
     // Models
-    executor_model: resolveModelInternal(cwd, 'df-executor'),
-    verifier_model: resolveModelInternal(cwd, 'df-verifier'),
+    executor_model: resolveModelInternal(cwd, 'df-executor', objective),
+    verifier_model: resolveModelInternal(cwd, 'df-verifier', objective),
 
     // Config flags
     commit_docs: config.commit_docs,
@@ -545,9 +613,9 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
 
   const result = {
     // Models
-    researcher_model: resolveModelInternal(cwd, 'df-objective-researcher'),
-    planner_model: resolveModelInternal(cwd, 'df-planner'),
-    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+    researcher_model: resolveModelInternal(cwd, 'df-objective-researcher', objective),
+    planner_model: resolveModelInternal(cwd, 'df-planner', objective),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker', objective),
 
     // Workflow flags
     research_enabled: config.research,
@@ -847,8 +915,8 @@ function cmdInitVerifyWork(cwd, objective, raw, args = []) {
 
   const result = {
     // Models
-    planner_model: resolveModelInternal(cwd, 'df-planner'),
-    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+    planner_model: resolveModelInternal(cwd, 'df-planner', objective),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker', objective),
 
     // Config
     commit_docs: config.commit_docs,

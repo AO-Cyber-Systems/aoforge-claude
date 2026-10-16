@@ -1,4 +1,6 @@
 'use strict';
+const { shippedProfile } = require('./__fixtures__/stack-pack-env.cjs');
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-profile.test.cjs — Test list (TRD 35-02a)
 //
@@ -188,12 +190,12 @@ describe('parseProfile (P group)', () => {
 
     test('go.md, dart.md, flutter.md parse; flutter has exactly two inherit:true sections', () => {
       for (const name of ['go.md', 'dart.md', 'flutter.md']) {
-        const p = path.join(PROFILES_DIR, name);
+        const p = shippedProfile(name);
         const text = fs.readFileSync(p, 'utf-8');
         const result = sp.parseProfile(text, { source: p });
         assert.ok(result.sections.length > 0, `${name} should have sections`);
       }
-      const flutterPath = path.join(PROFILES_DIR, 'flutter.md');
+      const flutterPath = shippedProfile('flutter.md');
       const flutterResult = sp.parseProfile(fs.readFileSync(flutterPath, 'utf-8'), { source: flutterPath });
       const inheritCount = flutterResult.sections.filter((s) => s.inherit).length;
       assert.strictEqual(inheritCount, 2);
@@ -625,11 +627,12 @@ describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
     const withGo = fx.makeHome({ stacks: { go: userGoOverride() } });
     try {
       const listed = sp.listOrgProfiles({ userHome: empty });
-      for (const id of ['go', 'dart', 'flutter']) {
+      // go ships bundled in core; dart and flutter ship in the Flutter stack pack (objective 77).
+      for (const [id, tier] of [['go', 'bundled'], ['dart', 'pack'], ['flutter', 'pack']]) {
         const entry = listed.find((p) => p.id === id);
-        assert.ok(entry, `bundled ${id} should be listed: ${JSON.stringify(listed.map((p) => p.id))}`);
-        assert.strictEqual(entry.tier, 'bundled');
-        assert.strictEqual(entry.path, path.join(sp.BUNDLED_STACKS_DIR, `${id}.md`));
+        assert.ok(entry, `${tier} ${id} should be listed: ${JSON.stringify(listed.map((p) => p.id))}`);
+        assert.strictEqual(entry.tier, tier);
+        if (tier === 'bundled') assert.strictEqual(entry.path, path.join(sp.BUNDLED_STACKS_DIR, `${id}.md`));
       }
 
       const shadowed = sp.listOrgProfiles({ userHome: withGo });
@@ -637,9 +640,9 @@ describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
       assert.strictEqual(goEntries.length, 1, 'the user go.md shadows the bundled one');
       assert.strictEqual(goEntries[0].tier, 'user');
       assert.strictEqual(goEntries[0].path, userPath(withGo, 'go'));
-      assert.strictEqual(shadowed.find((p) => p.id === 'dart').tier, 'bundled');
+      assert.strictEqual(shadowed.find((p) => p.id === 'dart').tier, 'pack');
 
-      assert.deepStrictEqual(sp.listOrgProfiles({ userHome: empty, bundledDir: null }), []);
+      assert.deepStrictEqual(sp.listOrgProfiles({ userHome: null, bundledDir: null }), []);
     } finally {
       fx.cleanup(empty, withGo);
     }
