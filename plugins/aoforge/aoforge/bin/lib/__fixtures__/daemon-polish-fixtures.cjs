@@ -11,12 +11,13 @@
  *                       buildServiceInstallerTmpHome, readShimCalls
  * 20-03 (multi-project): buildMultiProjectFixture, buildPidFileFixture
  * 20-05 (cross-shell): shellAvailable
+ * 78-05 (3.0.0 daemon detector): seedInterimPid
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawnSync } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 const { NAMES } = require('../legacy-names.cjs');
 const { watchStateDir } = require('../compat.cjs');
 
@@ -298,6 +299,44 @@ function buildPidFileFixture(opts = {}) {
   return { pidFile, payload };
 }
 
+/**
+ * TRD 78-05: the pid file a daemon AOForge 3.0.0 started still keeps, <home>/.aoforge/aoforge-watch.pid
+ * (NAMES.userDotDir is AOForge's own 3.0.0 user directory, not a pre-rename name). 3.x no longer reads it as the
+ * daemon record; watcher-state.interimDaemon() only reports it.
+ *
+ * `live: true` spawns a detached sleeper this test owns and records its pid; call the returned `stop()` in `after`
+ * (it SIGKILLs the sleeper; the sleeper also exits by itself after two minutes, so a crashed test cannot leak it).
+ * `live: false` records the pid of a child that has already exited. Never the test runner's own pid: a CLI under
+ * test might signal the pid it reads.
+ *
+ * @param {string} home  a scratch HOME, never the real one
+ * @param {{ live?: boolean, watching?: string[] }} [opts]
+ * @returns {{ file: string, pid: number, stop: () => void }}
+ */
+function seedInterimPid(home, { live = false, watching = [] } = {}) {
+  const file = path.join(home, NAMES.userDotDir, `${NAMES.watch}.pid`);
+  let pid;
+  let stop = () => {};
+  if (live) {
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1e4); setTimeout(() => process.exit(0), 120000);'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    pid = child.pid;
+    stop = () => {
+      try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ }
+    };
+  } else {
+    const r = spawnSync(process.execPath, ['-e', '']);
+    if (r.status !== 0) throw new Error('seedInterimPid: the exited-child helper failed');
+    pid = r.pid; // reaped by the time spawnSync returns
+  }
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ pid, version: '3.0.0', watching }, null, 2) + '\n');
+  return { file, pid, stop };
+}
+
 // ---------------------------------------------------------------------------
 // 20-04: Status-line watcher segment
 // ---------------------------------------------------------------------------
@@ -556,6 +595,8 @@ module.exports = {
   // 20-03
   buildMultiProjectFixture,
   buildPidFileFixture,
+  // 78-05
+  seedInterimPid,
   // 20-04
   buildStatuslineInput,
   buildStatuslineEnv,

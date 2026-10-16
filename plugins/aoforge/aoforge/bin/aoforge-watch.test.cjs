@@ -14,18 +14,29 @@ const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawn, execFileSync } = require('child_process');
+const { spawn, spawnSync, execFileSync } = require('child_process');
 const { watchStateDir, runtimeHome } = require('./lib/compat.cjs');
+const fxDaemon = require('./lib/__fixtures__/daemon-polish-fixtures.cjs');
 
 const CLI = path.join(__dirname, 'aoforge-watch.cjs');
 
-// The daemon keeps its pid file and log in the watch state directory (TRD 73-12).
+// The daemon keeps its pid file and log in the watch state directory (TRD 73-12), and nowhere else (TRD 78-05).
 const PID_NAME = 'aoforge-watch.pid';
 const LOG_NAME = 'aoforge-watch.log';
 function watchPidFile(home) { return path.join(watchStateDir(home), PID_NAME); }
 function watchLogFile(home) { return path.join(watchStateDir(home), LOG_NAME); }
-// Where AOForge 3.0.0 kept them: read (the pid file also cleared) for one release, removed with the shims after 3.0.0.
+// Where AOForge 3.0.0 kept them. Never read as the daemon's files since TRD 78-05: a live 3.0.0 daemon is only named.
 function interimFile(home, name) { return path.join(home, '.aoforge', name); }
+
+/** The CLI with stdout, stderr and the exit code captured whatever the exit code (execFileSync drops stderr on 0). */
+function runCliFull(args, env = {}) {
+  const r = spawnSync(process.execPath, [CLI, ...args], {
+    encoding: 'utf-8',
+    env: { ...process.env, ...env },
+    timeout: 10000,
+  });
+  return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
+}
 
 function writePidRecord(file, record) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -89,21 +100,6 @@ function writeLogLines(file, prefix, count) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, Array.from({ length: count }, (_, i) => `${prefix}-${i + 1}`).join('\n') + '\n');
   return file;
-}
-
-/**
- * A live process the test owns, standing in for a daemon AOForge 3.0.0 started. Never the test runner's own pid:
- * `stop` signals the pid it reads.
- */
-function spawnSleeper() {
-  return spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
-}
-
-async function stopSleeper(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const gone = new Promise((resolve) => child.once('exit', resolve));
-  try { child.kill('SIGKILL'); } catch { /* already gone */ }
-  await gone;
 }
 
 /**
@@ -303,12 +299,14 @@ describe('aoforge-watch logs', () => {
 
 // ===========================================================================
 // TRD 73-12 — the daemon's files live in the watch state directory
+// TRD 78-05 — and only there
 //
-// Test list items 1-5. The daemon writes its pid file and log under
-// compat.watchStateDir(home) and never creates <home>/.aoforge. A daemon AOForge
-// 3.0.0 started keeps its pid file at <home>/.aoforge/aoforge-watch.pid: for one
-// release that record is the same AOForge daemon (not legacy), so status, stop,
-// start and add/remove-project see it, and stop/start clear it.
+// The daemon writes its pid file and log under compat.watchStateDir(home) and
+// never creates <home>/.aoforge (73-12 item 1). A daemon AOForge 3.0.0 started
+// keeps its pid file at <home>/.aoforge/aoforge-watch.pid. Since 78-05 that file
+// is never the daemon record: `start` refuses (exit 2) while its pid is alive and
+// names it, `status` warns about it, and stop/add-project/logs ignore it
+// (78-05 test list 1-3). A stale one changes nothing.
 // ===========================================================================
 
 describe('aoforge-watch files in the watch state directory (TRD 73-12)', () => {
@@ -345,80 +343,106 @@ describe('aoforge-watch files in the watch state directory (TRD 73-12)', () => {
     }
   });
 
-  test('2. logs reads the watch-directory log, or for one release the 3.0.0 log when the new one does not exist', () => {
+  test('2. [78-05 case 3] logs prints only the watch-state log: a 3.0.0 log alone is not read', () => {
     writeLogLines(interimFile(home, LOG_NAME), 'old', 12);
     const onlyOld = runCli(['logs', '--tail', '3'], { HOME: home });
     assert.ok(onlyOld.ok, onlyOld.stderr);
-    assert.deepEqual(onlyOld.stdout.split('\n').filter(Boolean), ['old-10', 'old-11', 'old-12']);
+    assert.match(onlyOld.stdout, /no log file yet/);
+    assert.doesNotMatch(onlyOld.stdout, /old-/, 'nothing from the 3.0.0 log');
 
     writeLogLines(watchLogFile(home), 'new', 8);
     const both = runCli(['logs', '--tail', '3'], { HOME: home });
     assert.ok(both.ok, both.stderr);
-    assert.deepEqual(both.stdout.split('\n').filter(Boolean), ['new-6', 'new-7', 'new-8'], 'the new log wins');
+    assert.deepEqual(both.stdout.split('\n').filter(Boolean), ['new-6', 'new-7', 'new-8'], 'the watch-state log');
   });
 
-  test('3. a live 3.0.0 daemon: status reports it, start refuses, and stop ends it and clears its pid file', async () => {
-    const sleeper = spawnSleeper();
-    try {
-      const interim = writePidRecord(interimFile(home, PID_NAME), { pid: sleeper.pid, version: '3.0.0', watching: [project] });
+  describe('a live daemon AOForge 3.0.0 started (TRD 78-05 cases 1-2)', () => {
+    let seeded;
+    beforeEach(() => { seeded = fxDaemon.seedInterimPid(home, { live: true, watching: [project] }); });
+    afterEach(() => { seeded.stop(); });
 
-      const status = JSON.parse(runCli(['status'], { HOME: home }).stdout);
-      assert.equal(status.running, true);
-      assert.equal(status.pid, sleeper.pid);
-      assert.deepEqual(status.projects, [project]);
-
-      const start = runCli(['start', '--project', project, '--foreground'], { HOME: home });
+    test('1. start refuses with exit 2, names the pid, `kill <pid>` and install-service, and writes no pid file', () => {
+      const before = fs.readFileSync(seeded.file, 'utf8');
+      const start = runCliFull(['start', '--project', project, '--foreground'], { HOME: home });
       assert.equal(start.code, 2, `start should refuse: ${start.stdout}${start.stderr}`);
-      assert.match(start.stderr, /already running/);
+      assert.match(start.stderr, /AOForge 3\.0\.0/);
+      assert.match(start.stderr, new RegExp(`pid ${seeded.pid}\\b`));
+      assert.ok(start.stderr.includes(seeded.file), 'the 3.0.0 pid file is named');
+      assert.ok(start.stderr.includes(`\`kill ${seeded.pid}\``), 'the kill command is named');
+      assert.match(start.stderr, /aoforge-watch install-service --project/);
+      assert.match(start.stderr, /aoforge-watch start/);
+      assert.doesNotMatch(start.stderr, /already running/, 'not the ordinary already-running refusal');
       assert.equal(fs.existsSync(watchPidFile(home)), false, 'the refused start wrote no pid file');
+      assert.equal(fs.existsSync(watchLogFile(home)), false, 'nor a log');
+      assert.equal(fs.readFileSync(seeded.file, 'utf8'), before, 'the 3.0.0 pid file is left as it was');
 
+      const detached = runCliFull(['start', '--project', project], { HOME: home });
+      assert.equal(detached.code, 2, 'the detached start refuses too, before it spawns anything');
+      assert.match(detached.stderr, new RegExp(`\`kill ${seeded.pid}\``));
+      assert.equal(fs.existsSync(watchPidFile(home)), false);
+    });
+
+    test('2. status prints the 3.0.0-daemon warning on stderr; its JSON reports no AOForge daemon running', () => {
+      const status = runCliFull(['status'], { HOME: home });
+      assert.equal(status.code, 0, status.stderr);
+      assert.match(status.stderr, /warning:/);
+      assert.match(status.stderr, /AOForge 3\.0\.0/);
+      assert.ok(status.stderr.includes(`\`kill ${seeded.pid}\``));
+      const json = JSON.parse(status.stdout);
+      assert.equal(json.running, false, 'the 3.0.0 record is not this daemon');
+      assert.equal(json.pid, null);
+      assert.deepEqual(json.projects, []);
+    });
+
+    test('stop, add-project and remove-project do not touch it: no signal, no rewrite', async () => {
+      const before = fs.readFileSync(seeded.file, 'utf8');
       const stop = await runCliAsync(['stop'], { HOME: home });
-      assert.ok(stop.ok, `stop failed: ${stop.stdout}${stop.stderr}`);
-      assert.match(stop.stdout, /stopped/);
-      assert.ok(await waitForChildExit(sleeper, 5000), 'stop signalled the 3.0.0 daemon');
-      assert.equal(fs.existsSync(interim), false, 'stop clears the 3.0.0 pid file');
-    } finally {
-      await stopSleeper(sleeper);
-    }
+      assert.ok(stop.ok, `${stop.stdout}${stop.stderr}`);
+      assert.match(stop.stdout, /not running/);
+      assert.doesNotThrow(() => process.kill(seeded.pid, 0), 'the 3.0.0 daemon was not signalled');
+
+      const other = mkTmp();
+      try {
+        const add = runCliFull(['add-project', other], { HOME: home });
+        assert.equal(add.code, 2, 'no AOForge daemon to add to');
+        assert.match(add.stderr, /not running/);
+        const remove = runCliFull(['remove-project', project], { HOME: home });
+        assert.equal(remove.code, 0);
+        assert.match(remove.stdout, /not running/);
+      } finally {
+        rmTmp(other);
+      }
+      assert.equal(fs.readFileSync(seeded.file, 'utf8'), before, 'never rewritten or removed');
+      assert.equal(fs.existsSync(watchPidFile(home)), false);
+    });
   });
 
-  test('4. a stale 3.0.0 pid file: stop removes it, and start removes it and starts', async () => {
-    const interim = writePidRecord(interimFile(home, PID_NAME), { pid: 999999, version: '3.0.0' });
-    const stop = runCli(['stop'], { HOME: home });
-    assert.ok(stop.ok, stop.stderr);
-    assert.match(stop.stdout, /stale|not running/);
-    assert.equal(fs.existsSync(interim), false, 'stop clears the stale 3.0.0 record');
+  test('1b. [78-05 case 1] a stale 3.0.0 pid file: start proceeds normally and leaves that file alone', async () => {
+    const stale = fxDaemon.seedInterimPid(home, { live: false });
+    const before = fs.readFileSync(stale.file, 'utf8');
 
-    writePidRecord(interim, { pid: 999999, version: '3.0.0' });
+    const status = runCliFull(['status'], { HOME: home });
+    assert.equal(status.code, 0);
+    assert.equal(status.stderr, '', 'a stale 3.0.0 pid file is not warned about');
+
     const { child } = await spawnForegroundDaemon(home, project);
     try {
-      assert.equal(fs.existsSync(interim), false, 'start clears the stale 3.0.0 record');
-      assert.ok(fs.existsSync(watchPidFile(home)), 'and writes its own in the watch state directory');
+      assert.ok(fs.existsSync(watchPidFile(home)), 'start writes its own pid file in the watch state directory');
       assert.equal(JSON.parse(fs.readFileSync(watchPidFile(home), 'utf8')).pid, child.pid);
+      assert.equal(fs.readFileSync(stale.file, 'utf8'), before, 'the 3.0.0 file is left for doctor check 17');
     } finally {
       await endDaemon(child);
     }
   });
 
-  test('5. add-project / remove-project with a live 3.0.0 daemon rewrite its own pid file', async () => {
-    const sleeper = spawnSleeper();
-    const other = mkTmp();
-    try {
-      const interim = writePidRecord(interimFile(home, PID_NAME), { pid: sleeper.pid, version: '3.0.0', watching: [project] });
-
-      const add = runCli(['add-project', other], { HOME: home });
-      assert.ok(add.ok, `add-project failed: ${add.stderr}`);
-      assert.deepEqual(JSON.parse(fs.readFileSync(interim, 'utf8')).watching, [project, other],
-        'the running 3.0.0 daemon rereads its own file, so that file is rewritten');
-
-      const remove = runCli(['remove-project', project], { HOME: home });
-      assert.ok(remove.ok, `remove-project failed: ${remove.stderr}`);
-      assert.deepEqual(JSON.parse(fs.readFileSync(interim, 'utf8')).watching, [other]);
-      assert.equal(fs.existsSync(watchPidFile(home)), false, 'no new-location pid file is created');
-    } finally {
-      await stopSleeper(sleeper);
-      rmTmp(other);
-    }
+  test('2b. [78-05 case 2] status in a clean home: no warning, the JSON unchanged', () => {
+    const status = runCliFull(['status'], { HOME: home });
+    assert.equal(status.code, 0);
+    assert.equal(status.stderr, '');
+    const json = JSON.parse(status.stdout);
+    assert.equal(json.running, false);
+    assert.equal(json.pid, null);
+    assert.equal('stale_pid_file' in json, false);
   });
 });
 

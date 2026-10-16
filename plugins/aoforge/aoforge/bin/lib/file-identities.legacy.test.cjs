@@ -1,12 +1,13 @@
 'use strict';
 
 // file-identities.legacy.test.cjs — legacy identities that live in users' files (objective 72, TRD 72-12, INST-03;
-// objective 78, TRD 78-04).
+// objective 78, TRDs 78-04 and 78-05).
 //
 // 72-12 read both forms for one release (SHIM_REMOVAL). TRD 78-04 removed that for the `.mcp.json` owner key, the
 // session-todo metadata key and the adopt branch/marker: each pre-rename identity is now ignored, and a stale
-// `.mcp.json` entry is reported in one line instead of silently going unrefreshed. The user files under the legacy
-// dot directory (4-7) are still read until 78-05 and 78-11. Fixtures come from
+// `.mcp.json` entry is reported in one line instead of silently going unrefreshed. TRD 78-05 stopped reading the
+// pre-rename daemon's pid file (6b, 6c). The other user files under the legacy dot directory (4, 5, 6, 7) are still
+// read until 78-11. Fixtures come from
 // __fixtures__/legacy-identity-fixtures.cjs; every home and repo is a temp dir, never the real ~/.claude,
 // ~/.aoforge or ~/.devflow (the last also holds the devflowops product's files).
 //
@@ -24,8 +25,9 @@
 //     for the pre-rename key alone and archives the AOForge key as before.
 //  4. config-ensure-section with only ~/.devflow/defaults.json -> its defaults apply; with both -> ~/.aoforge/ wins.
 //  5. Brave key: only the legacy file -> found; `init new-project` reports it present.
-//  6. Watch allowlist and pid: legacy-only files are read; a pid write goes to the watch state directory,
-//     ~/.claude/aoforge/state/watch/ (TRD 73-12).
+//  6. Watch allowlist: a legacy-only file is read. [78-05] 6b: the pre-rename daemon's pid file is not read (no
+//     record carries `legacy`, add says ENOPIDFILE) and a pid write goes to the watch state directory,
+//     ~/.claude/aoforge/state/watch/ (TRD 73-12). 6c: flutter-ui setup has no special case for it.
 //  7. Nothing under the legacy dot dir is moved, renamed or deleted by any of the above (listing before/after).
 //  8. [5] `adopt preflight` (CLI) in a repo on the pre-rename adopt branch with its marker -> a fresh adopt on
 //     aoforge/adopt, no `legacy_branch_exists` in the JSON, nothing written to that branch. [6] `adopt begin` there
@@ -394,7 +396,7 @@ describe('72-12 user files under the legacy dot directory', () => {
     assert.deepEqual(r2.allowlist.filter((p) => /-extra$/.test(p.label)).map((p) => p.label), ['new-extra']);
   });
 
-  test('6b. the daemon pid is read from the legacy file; writes and removals land in the watch state directory (TRD 73-12)', () => {
+  test('6b. [78-05] the pre-rename daemon\'s pid file is not read; writes and removals land in the watch state directory', () => {
     const state = require('./watcher-state.cjs');
     const h = dotHome({ files: { [OLD_PID]: LEGACY_PID_TEXT } });
     const newPid = path.join(watchStateDir(h.home), NEW_PID);
@@ -403,21 +405,19 @@ describe('72-12 user files under the legacy dot directory', () => {
     withHome(h.home, () => {
       assert.equal(state.pidFilePath(), newPid, 'the write target is the watch state directory\'s file');
 
-      const legacy = state.readPidFile();
-      assert.ok(legacy, 'the legacy pid file is read');
-      assert.equal(legacy.version, '2.15.0');
-      assert.equal(legacy.legacy, true, 'a record read from the legacy file says so');
-      assert.equal(state.isWatcherLive(), true, 'the legacy daemon is seen as running');
+      assert.equal(state.readPidFile(), null, 'the pre-rename pid file is not read');
+      assert.equal(state.isWatcherLive(), false, 'its (live) pid does not make a daemon');
+      assert.equal(state.interimDaemon(), null, 'and it is not the 3.0.0 daemon the detector names');
 
-      assert.throws(() => state.addWatchedProject('/tmp/another-project'), (e) => e.code === 'ELEGACYDAEMON',
-        'the legacy daemon watches its own directories: never adopt its pid file');
+      assert.throws(() => state.addWatchedProject('/tmp/another-project'), (e) => e.code === 'ENOPIDFILE',
+        'no AOForge daemon to add to; ELEGACYDAEMON is gone');
       assert.equal(fs.existsSync(newPid), false, 'nothing was written for the refused add');
 
       state.writePidFile({ pid: process.pid, version: '3.1.0', watching: [] });
       assert.ok(fs.existsSync(newPid), 'the write lands in the watch state directory');
       const current = state.readPidFile();
-      assert.equal(current.version, '3.1.0', 'the new file wins once it exists');
-      assert.equal(current.legacy, undefined);
+      assert.equal(current.version, '3.1.0');
+      assert.equal('legacy' in current, false, 'no record carries `legacy`');
 
       state.addWatchedProject('/tmp/another-project');
       assert.deepEqual(JSON.parse(fs.readFileSync(newPid, 'utf-8')).watching, [path.resolve('/tmp/another-project')]);
@@ -429,7 +429,7 @@ describe('72-12 user files under the legacy dot directory', () => {
     assert.equal(fs.readFileSync(oldPid, 'utf-8'), LEGACY_PID_TEXT, 'the legacy pid file is never written or removed');
   });
 
-  test('6c. flutter-ui setup never dispatches installs to a legacy daemon (it does not watch the new handoff dir)', () => {
+  test('6c. [78-05] flutter-ui setup: the pre-rename pid file is not read, so no daemon and no special advisory', () => {
     const h = dotHome({ files: { [OLD_PID]: LEGACY_PID_TEXT } });
     const project = scratch('legacy-dot-flutter-');
     fs.mkdirSync(path.join(project, 'lib'));
@@ -447,6 +447,8 @@ describe('72-12 user files under the legacy dot directory', () => {
     assert.equal(r.status, 1, `${r.stdout}${r.stderr}`);
     assert.equal(JSON.parse(r.stdout).status, 'no-daemon');
     assert.equal(fs.existsSync(path.join(project, `.${NAMES.slug}-handoff`)), false, 'no handoff record written');
+    assert.doesNotMatch(r.stderr, /predates the rename/, 'no pre-rename-daemon advisory: that branch is gone');
+    assert.doesNotMatch(r.stderr, /stale aoforge-watch PID file/, 'and the file is not a stale record either');
   });
 
   test('7. nothing under the legacy dot directory is moved, renamed or deleted', () => {
@@ -470,8 +472,8 @@ describe('72-12 user files under the legacy dot directory', () => {
       require('./watcher-allowlist.cjs').loadAllowlist();
       state.readPidFile();
       state.isWatcherLive();
-      try { state.addWatchedProject('/tmp/x'); } catch { /* refused: the legacy daemon */ }
-      try { state.removeWatchedProject('/tmp/x'); } catch { /* refused: the legacy daemon */ }
+      try { state.addWatchedProject('/tmp/x'); } catch { /* refused: no daemon record (78-05) */ }
+      try { state.removeWatchedProject('/tmp/x'); } catch { /* refused: no daemon record (78-05) */ }
       state.removePidFile();
       state.writePidFile({ pid: process.pid, version: '3.0.0', watching: [] });
       state.removePidFile();

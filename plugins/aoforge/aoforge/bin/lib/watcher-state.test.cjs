@@ -14,16 +14,24 @@
  *  10. markConsumed flips consumed: true
  *  11. listUnconsumed sorts and filters
  *
- * The pid file in the watch state directory (TRD 73-12):
+ * The pid file in the watch state directory (TRD 73-12), its only location (TRD 78-05):
  *   7. pidFilePath() is compat.watchStateDir(home)/aoforge-watch.pid; the override
- *      AOFORGE_HANDOFF_PID_FILE wins and no fallback is read
+ *      AOFORGE_HANDOFF_PID_FILE wins and nothing else is read
  *   8. writePidFile creates the watch directory and never <home>/.aoforge
- *   9. a 3.0.0 pid file (<home>/.aoforge/aoforge-watch.pid) alone is read as the
- *      same AOForge daemon (no `legacy` key); add/remove rewrite that file
- *  10. the new file wins over the 3.0.0 one
- *  11. removePidFile removes the new and the 3.0.0 file, never the pre-rename one
- *  12. a pre-rename pid file alone is `legacy: true`; add/remove refuse it
+ *   9. [78-05 case 4] a 3.0.0 pid file (<home>/.aoforge/aoforge-watch.pid) alone is
+ *      not the daemon record: readPidFile null, not live, add/remove ENOPIDFILE,
+ *      the file untouched
+ *  10. the watch-state file is read, whatever the 3.0.0 file says
+ *  11. [78-05 case 4] removePidFile removes only the watch-state file; the 3.0.0 and
+ *      pre-rename files are left as they were
+ *  12. [78-05 case 4] a pre-rename pid file alone is not read either (no record ever
+ *      carries `legacy`), and add/remove report ENOPIDFILE, never ELEGACYDAEMON
  *  13. WATCH_DIR_SEGMENTS spells compat.watchStateDir
+ *
+ * The 3.0.0-daemon detector (TRD 78-05 case 5):
+ *  14. interimDaemon(): null with no file; { pid, file, live: false } for a stale
+ *      pid; { pid, file, live: true } for a live one; malformed JSON or a non-numeric
+ *      pid -> null; with AOFORGE_HANDOFF_PID_FILE set -> null (nothing else is read)
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -36,6 +44,7 @@ const { spawnSync } = require('child_process');
 const lib = require('./watcher-state.cjs');
 const { watchStateDir } = require('./compat.cjs');
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const fx = require('./__fixtures__/daemon-polish-fixtures.cjs');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -314,12 +323,12 @@ describe('watcher-state — Group W: multi-project mutations (TRD 20-03)', () =>
 
 const PID_NAME = `${NAMES.watch}.pid`;
 
-/** Where AOForge 3.0.0 kept the pid file: read and cleared for one release (removed with the shims after 3.0.0). */
+/** Where AOForge 3.0.0 kept the pid file: never the daemon record since TRD 78-05; interimDaemon() reports it. */
 function interimPidFile(home) {
   return path.join(home, NAMES.userDotDir, PID_NAME);
 }
 
-/** The pre-rename daemon's pid file: read last, as `legacy`, and never written or removed. */
+/** The pre-rename daemon's pid file: never read, written or removed (TRD 78-05). */
 function legacyPidFile(home) {
   return path.join(home, LEGACY.userDotDir, `${LEGACY.watch}.pid`);
 }
@@ -348,7 +357,7 @@ describe('watcher-state — the pid file in the watch state directory (TRD 73-12
     h.cleanup();
   });
 
-  test('7. pidFilePath() is <watchStateDir>/aoforge-watch.pid; the override wins and no fallback is read', () => {
+  test('7. pidFilePath() is <watchStateDir>/aoforge-watch.pid; the override wins and nothing else is read', () => {
     assert.equal(lib.pidFilePath(), path.join(watchStateDir(h.dir), PID_NAME));
 
     writeRecord(interimPidFile(h.dir), pidRecord({ version: '3.0.0-interim' }));
@@ -367,25 +376,21 @@ describe('watcher-state — the pid file in the watch state directory (TRD 73-12
     assert.equal(fs.existsSync(path.join(h.dir, NAMES.userDotDir)), false, 'no <home>/.aoforge is created');
   });
 
-  test('9. a 3.0.0 pid file alone is the same AOForge daemon: no `legacy` key, live, and add/remove rewrite it', () => {
+  test('9. a 3.0.0 pid file alone is not the daemon record: not read, not live, add/remove report no daemon (78-05)', () => {
     const interim = writeRecord(interimPidFile(h.dir), pidRecord({ watching: ['/a'] }));
+    const before = fs.readFileSync(interim, 'utf8');
 
-    const got = lib.readPidFile();
-    assert.ok(got, 'the 3.0.0 pid file is read');
-    assert.equal(got.version, '3.0.0');
-    assert.equal('legacy' in got, false, 'a 3.0.0 record is not marked legacy');
-    assert.equal(lib.isWatcherLive(), true);
+    assert.equal(lib.readPidFile(), null, 'the 3.0.0 pid file is never read as the daemon record');
+    assert.equal(lib.isWatcherLive(), false, 'even though its pid (this test process) is alive');
+    assert.throws(() => lib.addWatchedProject('/b'), (e) => e.code === 'ENOPIDFILE');
+    assert.throws(() => lib.removeWatchedProject('/a'), (e) => e.code === 'ENOPIDFILE');
 
-    lib.addWatchedProject('/b');
-    assert.deepEqual(JSON.parse(fs.readFileSync(interim, 'utf8')).watching, ['/a', '/b'],
-      'the running 3.0.0 daemon rereads its own file, so add rewrites that file');
-    lib.removeWatchedProject('/a');
-    assert.deepEqual(JSON.parse(fs.readFileSync(interim, 'utf8')).watching, ['/b'], 'remove rewrites it too');
-    assert.equal(fs.existsSync(lib.pidFilePath()), false, 'no new-location pid file is created');
-    assert.equal(fs.existsSync(interim + '.tmp'), false, 'no .tmp left beside the 3.0.0 file');
+    assert.equal(fs.readFileSync(interim, 'utf8'), before, 'the 3.0.0 file is never rewritten');
+    assert.equal(fs.existsSync(interim + '.tmp'), false, 'no .tmp beside it');
+    assert.equal(fs.existsSync(lib.pidFilePath()), false, 'no watch-state pid file is created');
   });
 
-  test('10. the new pid file wins over the 3.0.0 one', () => {
+  test('10. the watch-state pid file is read, whatever the 3.0.0 file says', () => {
     writeRecord(interimPidFile(h.dir), pidRecord({ version: '3.0.0' }));
     writeRecord(path.join(watchStateDir(h.dir), PID_NAME), pidRecord({ version: '3.1.0' }));
     const got = lib.readPidFile();
@@ -393,37 +398,37 @@ describe('watcher-state — the pid file in the watch state directory (TRD 73-12
     assert.equal('legacy' in got, false);
   });
 
-  test('11. removePidFile removes the new and the 3.0.0 pid file, never the pre-rename one', () => {
+  test('11. removePidFile removes only the watch-state pid file; the 3.0.0 and pre-rename files are left (78-05)', () => {
     const current = writeRecord(path.join(watchStateDir(h.dir), PID_NAME), pidRecord({ version: '3.1.0' }));
     const interim = writeRecord(interimPidFile(h.dir), pidRecord());
-    lib.removePidFile();
-    assert.equal(fs.existsSync(current), false, 'both present: the new one is removed');
-    assert.equal(fs.existsSync(interim), false, 'both present: the 3.0.0 one is removed');
-
-    writeRecord(interimPidFile(h.dir), pidRecord());
-    lib.removePidFile();
-    assert.equal(fs.existsSync(interim), false, '3.0.0 only: removed');
-    assert.equal(lib.readPidFile(), null);
-
     const legacy = writeRecord(legacyPidFile(h.dir), pidRecord({ version: '2.15.0' }));
-    const before = fs.readFileSync(legacy, 'utf8');
+    const interimBefore = fs.readFileSync(interim, 'utf8');
+    const legacyBefore = fs.readFileSync(legacy, 'utf8');
+
     lib.removePidFile();
-    assert.equal(fs.readFileSync(legacy, 'utf8'), before, 'pre-rename only: nothing is removed');
+    assert.equal(fs.existsSync(current), false, 'the watch-state pid file is removed');
+    assert.equal(fs.readFileSync(interim, 'utf8'), interimBefore, 'the 3.0.0 pid file is left as it was');
+    assert.equal(fs.readFileSync(legacy, 'utf8'), legacyBefore, 'the pre-rename pid file is left as it was');
+
+    lib.removePidFile();
+    assert.equal(fs.readFileSync(interim, 'utf8'), interimBefore, 'nothing else to remove: still idempotent');
   });
 
-  test('12. a pre-rename pid file alone is `legacy: true`, read last, and add/remove refuse it', () => {
+  test('12. a pre-rename pid file alone is not read: no record carries `legacy`, add/remove say ENOPIDFILE (78-05)', () => {
     const legacy = writeRecord(legacyPidFile(h.dir), pidRecord({ version: '2.15.0', watching: ['/old'] }));
-    const got = lib.readPidFile();
-    assert.equal(got.version, '2.15.0');
-    assert.equal(got.legacy, true);
-    assert.throws(() => lib.addWatchedProject('/x'), (e) => e.code === 'ELEGACYDAEMON');
-    assert.throws(() => lib.removeWatchedProject('/old'), (e) => e.code === 'ELEGACYDAEMON');
+    assert.equal(lib.readPidFile(), null, 'the pre-rename pid file is never read');
+    assert.equal(lib.isWatcherLive(), false);
+    assert.throws(() => lib.addWatchedProject('/x'), (e) => e.code === 'ENOPIDFILE', 'never ELEGACYDAEMON');
+    assert.throws(() => lib.removeWatchedProject('/old'), (e) => e.code === 'ENOPIDFILE', 'never ELEGACYDAEMON');
     assert.deepEqual(JSON.parse(fs.readFileSync(legacy, 'utf8')).watching, ['/old'], 'never rewritten');
 
     writeRecord(interimPidFile(h.dir), pidRecord({ version: '3.0.0' }));
-    const second = lib.readPidFile();
-    assert.equal(second.version, '3.0.0', 'the 3.0.0 file is read before the pre-rename one');
-    assert.equal('legacy' in second, false);
+    assert.equal(lib.readPidFile(), null, 'with the 3.0.0 file beside it: still nothing');
+
+    lib.writePidFile({ pid: process.pid, version: '3.1.0', watching: [] });
+    const current = lib.readPidFile();
+    assert.equal(current.version, '3.1.0');
+    assert.equal('legacy' in current, false, 'no record carries a `legacy` key');
   });
 
   test('13. path.join(home, ...WATCH_DIR_SEGMENTS) is compat.watchStateDir(home)', () => {
@@ -434,15 +439,104 @@ describe('watcher-state — the pid file in the watch state directory (TRD 73-12
 });
 
 // ===========================================================================
+// TRD 78-05 case 5 — the 3.0.0-daemon detector
+// ===========================================================================
+
+describe('watcher-state — interimDaemon() reports a daemon AOForge 3.0.0 started (TRD 78-05)', () => {
+  let h;
+  let prevOverride;
+  const sleepers = [];
+  beforeEach(() => {
+    h = tmpHome();
+    prevOverride = process.env.AOFORGE_HANDOFF_PID_FILE;
+    delete process.env.AOFORGE_HANDOFF_PID_FILE;
+  });
+  afterEach(() => {
+    while (sleepers.length) sleepers.pop().stop();
+    if (prevOverride === undefined) delete process.env.AOFORGE_HANDOFF_PID_FILE;
+    else process.env.AOFORGE_HANDOFF_PID_FILE = prevOverride;
+    h.cleanup();
+  });
+
+  test('14a. no 3.0.0 pid file -> null', () => {
+    assert.equal(typeof lib.interimDaemon, 'function');
+    assert.equal(lib.interimDaemon(), null);
+  });
+
+  test('14b. a stale 3.0.0 pid -> { pid, file, live: false }', () => {
+    const seeded = fx.seedInterimPid(h.dir, { live: false });
+    assert.deepEqual(lib.interimDaemon(), { pid: seeded.pid, file: seeded.file, live: false });
+  });
+
+  test('14c. a live 3.0.0 pid -> { pid, file, live: true }, and the record is still not the daemon\'s', () => {
+    const seeded = fx.seedInterimPid(h.dir, { live: true });
+    sleepers.push(seeded);
+    assert.equal(seeded.file, interimPidFile(h.dir));
+    assert.deepEqual(lib.interimDaemon(), { pid: seeded.pid, file: seeded.file, live: true });
+    assert.equal(lib.readPidFile(), null, 'detected, not adopted');
+    assert.equal(lib.isWatcherLive(), false);
+  });
+
+  test('14d. malformed JSON or a non-numeric pid -> null', () => {
+    writeRecord(interimPidFile(h.dir), pidRecord());
+    fs.writeFileSync(interimPidFile(h.dir), '{not valid json');
+    assert.equal(lib.interimDaemon(), null, 'malformed JSON');
+    fs.writeFileSync(interimPidFile(h.dir), JSON.stringify({ pid: 'abc', version: '3.0.0' }));
+    assert.equal(lib.interimDaemon(), null, 'a non-numeric pid');
+    fs.writeFileSync(interimPidFile(h.dir), JSON.stringify(null));
+    assert.equal(lib.interimDaemon(), null, 'JSON null');
+  });
+
+  test('14e. with AOFORGE_HANDOFF_PID_FILE set, nothing in the home is read -> null', () => {
+    const seeded = fx.seedInterimPid(h.dir, { live: true });
+    sleepers.push(seeded);
+    process.env.AOFORGE_HANDOFF_PID_FILE = path.join(h.dir, 'elsewhere', 'daemon.pid');
+    assert.equal(lib.interimDaemon(), null);
+  });
+
+  test('14f. interimDaemon never writes or removes the 3.0.0 file', () => {
+    const seeded = fx.seedInterimPid(h.dir, { live: false });
+    const before = fs.readFileSync(seeded.file, 'utf8');
+    lib.interimDaemon();
+    lib.removePidFile();
+    assert.equal(fs.readFileSync(seeded.file, 'utf8'), before);
+  });
+
+  test('15. a stub runtime that copies watcher-state.cjs alone: it requires only Node built-ins and still works', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'watcher-state.cjs'), 'utf8');
+    const required = [...src.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]).sort();
+    assert.deepEqual(required, ['fs', 'os', 'path'], 'no compat.cjs or legacy-names.cjs: nothing to fail open on');
+
+    const stub = path.join(h.dir, 'stub-runtime');
+    fs.mkdirSync(stub);
+    fs.copyFileSync(path.join(__dirname, 'watcher-state.cjs'), path.join(stub, 'watcher-state.cjs'));
+    const live = fx.seedInterimPid(h.dir, { live: true });
+    sleepers.push(live);
+    writeRecord(path.join(watchStateDir(h.dir), PID_NAME), pidRecord({ version: '3.1.0' }));
+    const env = { ...process.env, HOME: h.dir };
+    delete env.AOFORGE_HANDOFF_PID_FILE;
+    const r = spawnSync(process.execPath, ['-e', `
+      const s = require(${JSON.stringify(path.join(stub, 'watcher-state.cjs'))});
+      process.stdout.write(JSON.stringify({ rec: s.readPidFile(), interim: s.interimDaemon() }));
+    `], { env, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout);
+    assert.equal(out.rec.version, '3.1.0');
+    assert.deepEqual(out.interim, { pid: live.pid, file: live.file, live: true });
+  });
+});
+
+// ===========================================================================
 // TRD 20-03 Group EX — Export surface
 // ===========================================================================
 
 describe('watcher-state — Group EX: export surface (TRD 20-03)', () => {
-  test('EX-1 module.exports: the 10-entry surface plus WATCH_DIR_SEGMENTS (TRD 73-12)', () => {
+  test('EX-1 module.exports: the 10-entry surface plus WATCH_DIR_SEGMENTS (TRD 73-12) and interimDaemon (TRD 78-05)', () => {
     const keys = Object.keys(lib).sort();
     assert.deepStrictEqual(keys, [
       'WATCH_DIR_SEGMENTS',
       'addWatchedProject',
+      'interimDaemon',
       'isWatcherLive',
       'listUnconsumed',
       'makeDoneRecord',
