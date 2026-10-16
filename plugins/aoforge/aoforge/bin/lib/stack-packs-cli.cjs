@@ -75,6 +75,13 @@ function runArgv(argv, { cwd, timeoutMs = 600000 }) {
   return r;
 }
 
+/** What a selected-but-unavailable reason means, for verify summaries and doctor text (quick 35). */
+const UNAVAILABLE_TEXT = Object.freeze({
+  not_installed: 'it has no mirror: its plugin is not installed',
+  plugin_not_enabled: 'its plugin is not enabled',
+  broken: 'its manifest is broken',
+});
+
 function doctor(projectRoot, { userHome }) {
   const resolved = resolveFor(projectRoot, userHome);
   const active = packs.activePacks({ projectRoot, userHome, resolved });
@@ -89,6 +96,10 @@ function doctor(projectRoot, { userHome }) {
     const ok = tools.every((t) => t.found) && (!command || command.status === 0);
     return { pack: p.name, ok, tools, command, install_hint: ok ? null : m.install_hint || null };
   });
+  // A pack the project selects but that cannot run is never "no active stack packs" (quick 35).
+  for (const u of packs.unavailableSelectedPacks({ projectRoot, userHome, active })) {
+    results.push({ pack: u.name, ok: false, reason: u.reason, issues: u.issues, tools: [], command: null, install_hint: u.install_hint });
+  }
   return { ok: results.every((r) => r.ok), packs: results };
 }
 
@@ -128,26 +139,50 @@ function verifyPacks(projectRoot, { scope = 'changed', userHome } = {}) {
     }
     results.push({ pack: p.name, ...result });
   }
+  // A pack selected in config stacks.enabled that cannot run blocks: missing, or error for a broken manifest (quick 35).
+  const unavailable = packs.unavailableSelectedPacks({ projectRoot, userHome, active });
+  for (const u of unavailable) {
+    results.push({
+      pack: u.name,
+      status: u.reason === 'broken' ? 'error' : 'missing',
+      summary: `selected in config stacks.enabled but ${UNAVAILABLE_TEXT[u.reason]}`,
+      install_hint: u.install_hint,
+    });
+  }
   return {
     status: mergeStatus(results.map((r) => r.status)),
     scope,
     packs: results,
     active: active.map((p) => p.name),
+    unavailable: unavailable.map((u) => u.name),
   };
 }
 
 function writeVerifyRecord(projectRoot, taskId, merged) {
   const { planningRoot } = require('./compat.cjs');
   const dir = path.join(planningRoot(projectRoot), 'verify');
-  fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${taskId}.json`);
+  // Defense in depth behind the --task validation (quick 35): a record is a direct child of the verify dir.
+  if (path.dirname(path.resolve(file)) !== path.resolve(dir)) {
+    throw new Error(`refusing to write a verify record outside ${dir}: ${file}`);
+  }
+  fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(file, JSON.stringify(merged, null, 2) + '\n');
   return file;
 }
 
-function flagValue(args, flag) {
-  const i = args.indexOf(flag);
-  return i === -1 ? null : args[i + 1] || null;
+// A --task id names <planning dir>/verify/<id>.json, so it carries no path separator and no `..` (quick 35, D4).
+const TASK_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+/** The --task value, or null when the flag is absent; exits 1 on a missing, flag-like or path-like value. */
+function taskIdArg(args) {
+  const i = args.indexOf('--task');
+  if (i === -1) return null;
+  const v = args[i + 1];
+  if (v === undefined || v.startsWith('-') || !TASK_ID_RE.test(v) || v.includes('..')) {
+    error(`stack verify --task needs a task id (letters, digits, ".", "_", "-"; no path separators or ".."); got "${v === undefined ? '' : v}"`);
+  }
+  return v;
 }
 
 function discoverCli(cwd, args, raw, { userHome }) {
@@ -161,16 +196,20 @@ function doctorCli(cwd, args, raw, { userHome }) {
   const unknown = args.filter((a) => a.startsWith('--') && a !== '--raw');
   if (unknown.length) return error(`stack doctor takes no flags (got ${unknown.join(' ')})`);
   const r = doctor(cwd, { userHome });
-  const text = r.packs.length
-    ? r.packs.map((p) => `${p.pack}: ${p.ok ? 'ok' : `not ready${p.install_hint ? ` (${p.install_hint})` : ''}`}`).join('\n')
-    : 'No active stack packs.';
+  const line = (p) => {
+    if (p.ok) return `${p.pack}: ok`;
+    const why = p.reason ? `: selected in config stacks.enabled but ${UNAVAILABLE_TEXT[p.reason] || p.reason}` : '';
+    return `${p.pack}: not ready${why}${p.install_hint ? ` (${p.install_hint})` : ''}`;
+  };
+  const text = r.packs.length ? r.packs.map(line).join('\n') : 'No active stack packs.';
   output(r, raw, text, r.ok ? 0 : 1);
 }
 
 /** `stack verify --changed|--all [--task <id>]`: the pack gate. Exit 0 pass, 1 fail, 2 missing/error. */
 function verifyPacksCli(cwd, args, raw, { userHome }) {
   const scope = args.includes('--all') ? 'all' : 'changed';
-  const task = flagValue(args, '--task');
+  // Validated before any pack command runs or any file is written.
+  const task = taskIdArg(args);
   const merged = verifyPacks(cwd, { scope, userHome });
   if (task) merged.record = writeVerifyRecord(cwd, task, merged);
   const text = merged.packs.length

@@ -178,6 +178,53 @@ function activePacks({ projectRoot, userHome = require('os').homedir(), resolved
   return out;
 }
 
+/**
+ * unavailableSelectedPacks({ projectRoot, userHome, active }) -> [{ name, reason, plugin, issues, install_hint }]
+ * The packs a project names in config `stacks.enabled` (and not in `stacks.disabled`: disabled wins) that are not
+ * active, so they cannot run (quick 35). Without this they silently dropped out of activePacks and `stack verify`
+ * passed. A pack selected only through an extends chain or `select.runtime` is out of scope: profile resolution
+ * reports those. `active` (activePacks' result) may be passed to skip recomputing it.
+ *   not_installed       no mirror under the stacks dir
+ *   broken              the mirror's manifest has issues
+ *   plugin_not_enabled  the mirror is valid but its plugin is not installed or is disabled
+ */
+function unavailableSelectedPacks({ projectRoot, userHome = require('os').homedir(), active = null } = {}) {
+  const cfg = readStacksConfig(projectRoot);
+  const wanted = [...new Set(cfg.enabled)].filter((name) => !cfg.disabled.includes(name));
+  if (!wanted.length) return [];
+  // A config selection does not depend on the resolved profile, so none is needed to tell whether it is active.
+  const activeNames = new Set((active || activePacks({ projectRoot, userHome })).map((p) => p.name));
+  const discovered = discoverPacks({ userHome });
+  const out = [];
+  for (const name of wanted) {
+    if (activeNames.has(name)) continue;
+    const pack = discovered.find((p) => p.name === name);
+    if (!pack) {
+      out.push({
+        name,
+        reason: 'not_installed',
+        plugin: null,
+        issues: [],
+        install_hint: `no stack pack "${name}" is mirrored under ${stacksDir(userHome)}: install and enable its plugin ` +
+          `(for AOForge's packs: /plugin install aoforge-stack-${name}@${MARKETPLACE}), or remove "${name}" from ` +
+          'config.json stacks.enabled',
+      });
+    } else if (pack.issues.length) {
+      out.push({ name, reason: 'broken', plugin: pack.plugin, issues: pack.issues, install_hint: pack.issues.join('; ') });
+    } else {
+      const extra = pack.manifest && pack.manifest.install_hint ? `; ${pack.manifest.install_hint}` : '';
+      out.push({
+        name,
+        reason: 'plugin_not_enabled',
+        plugin: pack.plugin,
+        issues: [],
+        install_hint: `enable the ${pack.plugin} plugin${extra}`,
+      });
+    }
+  }
+  return out;
+}
+
 /** Packs whose detect files exist in the repo but that the project has not selected. */
 function proposedPacks({ projectRoot, userHome = require('os').homedir(), active = [] } = {}) {
   const activeNames = new Set(active.map((p) => p.name));
@@ -244,6 +291,7 @@ module.exports = {
   packProfilePath,
   readStacksConfig,
   activePacks,
+  unavailableSelectedPacks,
   proposedPacks,
   agentExtras,
   renderExtras,

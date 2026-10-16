@@ -51,6 +51,15 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   execute-trd.md and execute-objective.md now name `.aoforge/STATE_ARCHIVE.md`, so in a worktree the decision and
   metric rows it moved are committed. A repo test (`state-archive-commit.repo.test.cjs`) fails on any prompt that
   commits STATE.md after an archive-writing command without the archive.
+- **`stack verify --task` stays in the verify directory.** `--task ../../escaped` wrote `<project>/escaped.json`, and a
+  bare `--task` was silently treated as no task. A task id is now letters, digits, `.`, `_` and `-` with no `..`; any
+  other value, a missing one or a flag exits 1 before a pack command runs or a file is written, and the record writer
+  refuses any path outside `<planning dir>/verify/`.
+- **A selected pack that cannot run blocks.** A pack named in config `stacks.enabled` (and not in `stacks.disabled`)
+  that is not mirrored, has a broken manifest or has its plugin disabled made `stack verify` print `pass` and
+  `stack doctor` print `No active stack packs.`, both with exit 0. `stack verify` now reports it as `missing` (or
+  `error` for a broken manifest) and exits 2, and `stack doctor` lists it as not ready and exits 1
+  (`unavailableSelectedPacks` in `lib/stack-packs.cjs`).
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 
