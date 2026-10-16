@@ -25,6 +25,14 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   `aoforge--v*` push creates nothing. The changelog gate's hint for `aoforge--vX.Y.Z` now runs `changelog update
   --version vX.Y.Z` (it wrote `## [aoforge--vX.Y.Z]`), and `changelog update` takes the previous release from `v*`
   tags only, so a pack tag between releases no longer shortens the range.
+- **`security sweep` no longer copies secrets into a transcript.** Hit text is redacted fail-closed: a token is
+  replaced whole (prefix and body; `sk_live_…`, `xoxb-…` and others kept their body before), and after a
+  secret-looking key and its operator (`=`, `:=`, `:`, `==`, `||`, `or`, `,`, `(` and more) the rest of the line is
+  replaced, so `f"…"`, `?token=…`, `os.getenv(…) or "…"` and `password == "…"` no longer leak. Go `password :=`,
+  `sk-ant-…` and `github_pat_…` are now leads. Each line is matched in its first 4096 characters (`line_truncated`,
+  `lines_capped`), and the sql-injection and debug-defaults rows no longer backtrack catastrophically: a 200 KB
+  single-line file that stalled the sweep past 30 s now takes milliseconds. A `--root` that is missing or not a
+  directory exits 1 instead of reporting a clean sweep.
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 

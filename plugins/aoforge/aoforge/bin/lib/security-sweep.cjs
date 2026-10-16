@@ -13,7 +13,18 @@
 //
 // Walk: fs only (no grep), sorted entries, symlinks not followed, SKIP_DIRS pruned, files over
 // MAX_FILE_BYTES skipped, files with a NUL byte treated as binary and skipped. Paths are relative
-// POSIX. Output order is deterministic: PATTERNS order, then sorted file, then line.
+// POSIX. Output order is deterministic: PATTERNS order, then sorted file, then line. A root that is
+// missing or not a directory throws: it is an error, never a clean sweep.
+//
+// Hit text lands in the auditor's transcript, so every hit is redacted FAIL-CLOSED (quick 34): a
+// token is replaced whole (prefix and body), and after a secret-looking key and its operator
+// (`=`, `:=`, `:`, `==`, `||`, `??`, `or`, `,`, `(`) the whole rest of the line is replaced, quoted
+// or not. A lead keeps its file:line; the auditor reads the line in context.
+//
+// Regex cost is bounded: each line is tested and redacted in its first MAX_LINE_CHARS characters
+// only (a hit from a longer line says `line_truncated`; the result counts `lines_capped`), and no
+// PATTERNS alternative has two `.*` (the sql-injection and debug-defaults rows are tempered with
+// negated classes, which match exactly the lines the `.*` forms matched).
 
 const fs = require('fs');
 const path = require('path');
@@ -26,6 +37,9 @@ const FOCI = Object.freeze(['secrets-and-code', 'auth-and-access', 'config-and-d
 const SKIP_DIRS = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', ...PLANNING_DIR_NAMES, '.security-audit-tmp']);
 const MAX_FILE_BYTES = 1024 * 1024;
 const TEXT_MAX = 200;
+// Lines are matched and redacted in this many leading characters only (a minified bundle line can
+// be hundreds of KB; every row's cost grows with line length).
+const MAX_LINE_CHARS = 4096;
 // The agent dropped `.test.` / `.spec.` lines with `grep -v`; a row with excludeTests skips those files.
 const TEST_FILE_RE = /\.(test|spec)\./;
 
@@ -43,16 +57,16 @@ function row(id, focus, category, re, exts, excludeTests, limit, extra) {
 const PATTERNS = Object.freeze([
   // secrets-and-code
   row('hardcoded-secrets', 'secrets-and-code', 'Secrets',
-    /password\s*=|api_key\s*=|apiKey\s*=|secret\s*=|token\s*=/,
+    /password\s*:?=|api_key\s*:?=|apiKey\s*:?=|secret\s*:?=|token\s*:?=/,
     [...E.web, 'py', 'go', 'java', 'rb'], true, 50),
   row('secret-tokens', 'secrets-and-code', 'Secrets',
-    /sk-[a-zA-Z0-9]{20,}|sk_live_|sk_test_|ghp_[a-zA-Z0-9]{36}|AKIA[A-Z0-9]{16}|xox[baprs]-/,
+    /sk-ant-[A-Za-z0-9_\-]{20,}|sk-[a-zA-Z0-9]{20,}|sk_live_|sk_test_|ghp_[a-zA-Z0-9]{36}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16}|xox[baprs]-/,
     E.tsjspygo, false, 30, { redact: true }),
   row('private-keys', 'secrets-and-code', 'Secrets',
     /BEGIN.*PRIVATE KEY|BEGIN RSA|BEGIN EC|BEGIN DSA/,
     [...E.tsjspygo, 'java'], false, 20),
   row('sql-injection', 'secrets-and-code', 'Injection',
-    /query.*\+.*"|execute.*\+.*"|raw.*\+.*"/,
+    /query[^+]*\+[^"]*"|execute[^+]*\+[^"]*"|raw[^+]*\+[^"]*"/,
     E.tsjspygo, true, 30),
   row('command-injection', 'secrets-and-code', 'Injection',
     /exec\(|execSync\(|child_process|subprocess|os\.system|os\.popen/,
@@ -116,7 +130,7 @@ const PATTERNS = Object.freeze([
     /res\.status.*error\.|response.*error\.|send.*err\b/,
     E.tsjs, true, 20),
   row('debug-defaults', 'config-and-deps', 'Config',
-    /debug.*true|DEBUG.*=.*1|NODE_ENV.*development/,
+    /debug.*true|DEBUG[^=]*=[^1]*1|NODE_ENV.*development/,
     [...E.tsjspy, 'json'], false, 20),
   row('disabled-security', 'config-and-deps', 'Config',
     /verify.*false|rejectUnauthorized.*false|insecure|allowHttp|TLS.*false|SSL.*false/,
@@ -144,13 +158,18 @@ const SECRET_FILES = [
 ];
 const SECRET_DIRS = ['.secrets', 'config/secrets', 'secrets'];
 
-const TOKEN_RE = new RegExp(PATTERNS.find((r) => r.id === 'secret-tokens').re.source, 'g');
-// The quoted value of a secret-looking assignment: `password = "x"`, `apiKey: 'x'`, `token=\`x\``.
-const ASSIGNED_SECRET_RE = /((?:password|passwd|api_?key|apiKey|secret|token)\w*\s*[:=]\s*)(["'`])[^"'`]*\2/gi;
+// A whole token: its detection prefix and every token character after it. The long prefixes are
+// distinctive anywhere; `sk-`, `AKIA` and `ASIA` count only at a word start, so `task-` or `disk-`
+// is left alone (the secret-tokens row's own replacement still covers a prefixed match).
+const TOKEN_REDACT_RE = /(?:sk-ant-|sk_live_|sk_test_|rk_live_|rk_test_|github_pat_|gh[pousr]_|xox[abprs]-|glpat-|(?<![A-Za-z0-9])(?:sk-|AKIA|ASIA))[A-Za-z0-9_\-]*/g;
+// A secret-looking key, any closing quote/bracket after it, and its operator; everything after the
+// operator is the value and is replaced to the end of the line, quoted or not (`f"..."`,
+// `os.getenv(...) or "x"`, `process.env.X || "x"`, `?token=x`, `password == "x"`).
+const KEY_VALUE_RE = /((?:password|passwd|passphrase|pwd|secret|token|api[_-]?key|apikey|auth|credential|private[_-]?key|access[_-]?key|bearer)[\w-]*["'`\])?]*\s*(?::=|[=!]==?|=|:|\|\||\?\?|\bor\b|,|\())\s*[\s\S]*$/i;
 
-/** A hit line with tokens and assigned secret literals replaced by [REDACTED]. */
+/** A hit line with whole tokens, and everything after a secret-looking key's operator, replaced by [REDACTED]. */
 function redactSecrets(text) {
-  return text.replace(TOKEN_RE, '[REDACTED]').replace(ASSIGNED_SECRET_RE, '$1$2[REDACTED]$2');
+  return text.replace(TOKEN_REDACT_RE, '[REDACTED]').replace(KEY_VALUE_RE, '$1 [REDACTED]');
 }
 
 function globRe(glob) {
@@ -207,6 +226,9 @@ function selectFocus(focus) {
 function sweep({ root, focus, limitScale } = {}) {
   const selected = selectFocus(focus);
   const absRoot = path.resolve(root || process.cwd());
+  let rootStat = null;
+  try { rootStat = fs.statSync(absRoot); } catch { rootStat = null; }
+  if (!rootStat || !rootStat.isDirectory()) throw new Error(`security sweep: root ${absRoot} is not a directory`);
   const scale = typeof limitScale === 'number' && limitScale > 0 ? limitScale : 1;
   const rows = PATTERNS.filter(r => !selected || r.focus === selected);
   const exRows = EXISTENCE.filter(r => !selected || r.focus === selected);
@@ -216,6 +238,7 @@ function sweep({ root, focus, limitScale } = {}) {
   const state = rows.map(r => ({ row: r, limit: Math.max(1, Math.ceil(r.limit * scale)), hits: [], truncated: false }));
 
   let scanned = 0;
+  let linesCapped = 0;
   for (const f of files) {
     const ext = extOf(f.rel);
     if (!wantedExts.has(ext) || isSecretPath(f.rel)) continue;
@@ -231,7 +254,9 @@ function sweep({ root, focus, limitScale } = {}) {
     if (live.length === 0) continue;
     const lines = buf.toString('utf-8').split(/\r?\n/);
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+      const capped = lines[i].length > MAX_LINE_CHARS;
+      if (capped) linesCapped++;
+      const line = capped ? lines[i].slice(0, MAX_LINE_CHARS) : lines[i];
       for (const s of live) {
         if (!s.row.re.test(line)) continue;
         if (s.row.excludeLine && s.row.excludeLine.test(line)) continue;
@@ -241,7 +266,9 @@ function sweep({ root, focus, limitScale } = {}) {
         let text = redactSecrets(line.trim());
         if (s.row.redact) text = text.replace(new RegExp(s.row.re.source, 'g'), '[REDACTED]');
         if (text.length > TEXT_MAX) text = text.slice(0, TEXT_MAX);
-        s.hits.push({ file: f.rel, line: i + 1, text });
+        const hit = { file: f.rel, line: i + 1, text };
+        if (capped) hit.line_truncated = true;
+        s.hits.push(hit);
       }
     }
   }
@@ -264,6 +291,7 @@ function sweep({ root, focus, limitScale } = {}) {
     root: absRoot,
     focus: selected || 'all',
     files_scanned: scanned,
+    lines_capped: linesCapped,
     checks: state.map(s => ({ id: s.row.id, category: s.row.category, hits: s.hits, truncated: s.truncated })),
     existence,
   };
@@ -272,11 +300,17 @@ function sweep({ root, focus, limitScale } = {}) {
 function formatRaw(result) {
   const out = [`security sweep: focus ${result.focus}, ${result.files_scanned} files scanned`];
   for (const c of result.checks) {
-    for (const h of c.hits) out.push(`[${c.category}] ${h.file}:${h.line} ${h.text}`);
+    for (const h of c.hits) out.push(`[${c.category}] ${h.file}:${h.line} ${h.text}${h.line_truncated ? ' (line truncated)' : ''}`);
     if (c.truncated) out.push(`[${c.category}] (${c.id}: more hits than the limit, narrow with Grep)`);
   }
   for (const e of result.existence) {
     for (const f of e.found) out.push(`[${e.category}] exists: ${f} (${e.id}; do not read contents)`);
+  }
+  const n = result.lines_capped || 0;
+  if (n > 0) {
+    out.push(n === 1
+      ? `1 line longer than ${MAX_LINE_CHARS} chars was scanned only in its first ${MAX_LINE_CHARS} chars`
+      : `${n} lines longer than ${MAX_LINE_CHARS} chars were scanned only in their first ${MAX_LINE_CHARS} chars`);
   }
   const total = result.checks.reduce((n, c) => n + c.hits.length, 0);
   out.push(`${total} hits, ${result.existence.reduce((n, e) => n + e.found.length, 0)} existence entries`);
@@ -309,4 +343,4 @@ function cmdSecuritySweep(cwd, args, raw) {
   output(result, raw, formatRaw(result));
 }
 
-module.exports = { PATTERNS, FOCI, EXISTENCE, sweep, redactSecrets, cmdSecuritySweep };
+module.exports = { PATTERNS, FOCI, EXISTENCE, MAX_LINE_CHARS, sweep, redactSecrets, cmdSecuritySweep };
