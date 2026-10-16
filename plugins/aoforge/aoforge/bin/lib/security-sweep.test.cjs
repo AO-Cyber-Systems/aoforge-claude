@@ -81,10 +81,12 @@ test('planted hits are found with relative POSIX paths and line numbers', () => 
 
 test('every row redacts tokens and assigned secret literals, not only the token row', () => {
   const { redactSecrets } = require('./security-sweep.cjs');
-  assert.equal(redactSecrets(`const apiKey = "${AWS_KEY}";`), 'const apiKey = "[REDACTED]";');
-  assert.equal(redactSecrets(`password = 'hunter2'`), `password = '[REDACTED]'`);
-  assert.equal(redactSecrets('db_token: `abc`'), 'db_token: `[REDACTED]`');
-  assert.equal(redactSecrets('if (password == null) return;'), 'if (password == null) return;');
+  // Fail-closed (quick 34): after a secret-looking key and its operator the whole rest of the line
+  // goes, quoted or not. The last case loses `null) return;` on purpose.
+  assert.equal(redactSecrets(`const apiKey = "${AWS_KEY}";`), 'const apiKey = [REDACTED]');
+  assert.equal(redactSecrets(`password = 'hunter2'`), `password = [REDACTED]`);
+  assert.equal(redactSecrets('db_token: `abc`'), 'db_token: [REDACTED]');
+  assert.equal(redactSecrets('if (password == null) return;'), 'if (password == [REDACTED]');
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'security-sweep-redact-'));
   try {
     fs.mkdirSync(path.join(r, 'lib'));
@@ -186,4 +188,158 @@ test('cmdSecuritySweep: JSON, --raw listing, and errors', () => {
   const unk = runCli(['security', 'sweep', '--frobnicate']);
   assert.equal(unk.status, 1);
   assert.match(unk.stderr, /unknown argument/);
+});
+
+// ---------------------------------------------------------------------------
+// Quick 34: hit text leaked secrets, two rows backtracked catastrophically, and a missing --root
+// swept as clean. Every token below is built by concatenation, so no secret-format literal sits in
+// this file (GitHub push protection, CodeQL js/hardcoded-credentials).
+// ---------------------------------------------------------------------------
+
+const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
+
+function tmpRoot(prefix) {
+  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+}
+
+/** Runs the real CLI; returns { status, signal, stdout, stderr, body } where body follows an @file: pointer. */
+function aofSweep(args, opts = {}) {
+  const r = spawnSync(process.execPath, [AOF_TOOLS, 'security', 'sweep', ...args], { encoding: 'utf-8', ...opts });
+  let body = r.stdout || '';
+  if (body.trim().startsWith('@file:')) {
+    const file = body.trim().slice('@file:'.length).trim();
+    body = fs.readFileSync(file, 'utf-8');
+    try { fs.unlinkSync(file); } catch { /* aof-tools' own temp file */ }
+  }
+  return { status: r.status, signal: r.signal, stdout: r.stdout || '', stderr: r.stderr || '', body };
+}
+
+// One line per leak form; each carries a unique marker that must never reach the output.
+const LEAKS = [
+  ['src/leaks.js', 'const stripe = "' + 'sk' + '_live_' + '51Hxyz' + 'LEAKMARK01abc";'],
+  ['src/leaks.js', 'const slack = "' + 'xox' + 'b-1234-' + 'LEAKMARK02";'],
+  ['src/leaks.js', 'const password = "it\'s-a-LEAKMARK03";'],
+  ['src/leaks.py', 'token = "ab\\"cdLEAKMARK04"'],
+  ['src/leaks.py', 'password = f"LEAKMARK05{user}"'],
+  ['src/leaks.js', '// GET /api?token=LEAKMARK06PLAIN'],
+  ['src/leaks.py', 'api_token = os.getenv("API_TOKEN") or "LEAKMARK07"'],
+  ['src/leaks.go', 'password := "LEAKMARK08"'],
+  ['src/leaks.js', 'const a = "' + 'sk' + '-ant-' + 'api03-' + 'LEAKMARK09abcdefghijklmnop";'],
+  ['src/leaks.js', 'const g = "' + 'github' + '_pat_' + '11ABCDEFG0' + 'LEAKMARK10abcdefghij";'],
+  ['src/leaks.js', 'const token = process.env.API_TOKEN || "LEAKMARK11";'],
+  ['src/leaks.js', 'if (password == "LEAKMARK12") {'],
+];
+
+test('CLI: every listed leak form is a reported hit and no marker reaches JSON or --raw output', () => {
+  const r = tmpRoot('security-sweep-leaks-');
+  try {
+    const byFile = {};
+    const expected = [];
+    for (const [rel, line] of LEAKS) {
+      (byFile[rel] = byFile[rel] || []).push(line);
+      expected.push(`${rel}:${byFile[rel].length}`);
+    }
+    for (const [rel, lines] of Object.entries(byFile)) {
+      fs.mkdirSync(path.dirname(path.join(r, rel)), { recursive: true });
+      fs.writeFileSync(path.join(r, rel), lines.join('\n') + '\n');
+    }
+    const markers = LEAKS.map((_, i) => `LEAKMARK${String(i + 1).padStart(2, '0')}`).concat(['51Hxyz']);
+
+    const json = aofSweep(['--root', r]);
+    assert.equal(json.status, 0, json.stderr);
+    const res = JSON.parse(json.body);
+    const hits = new Set(res.checks.flatMap((c) => c.hits.map((h) => `${h.file}:${h.line}`)));
+    for (const loc of expected) assert.ok(hits.has(loc), `${loc} is not reported as a hit`);
+
+    const raw = aofSweep(['--root', r, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    for (const loc of expected) assert.ok(raw.stdout.includes(`${loc} `), `${loc} is not in the --raw listing`);
+
+    for (const out of [json.stdout, json.body, raw.stdout]) {
+      for (const m of markers) assert.ok(!out.includes(m), `${m} leaked:\n${out}`);
+    }
+  } finally {
+    fs.rmSync(r, { recursive: true, force: true });
+  }
+});
+
+test('redactSecrets removes every character of a token body after each detection prefix', () => {
+  const { redactSecrets } = sweepMod;
+  const body = 'Qz7Wm4Rt9Xk2Vb8Np3Ls6Hd1Jf5Gc0Y'.slice(0, 30);
+  assert.equal(body.length, 30);
+  const prefixes = ['sk' + '-', 'sk' + '-ant-', 'sk' + '_live_', 'sk' + '_test_', 'gh' + 'p_', 'github' + '_pat_', 'AK' + 'IA', 'xox' + 'b-'];
+  for (const p of prefixes) {
+    assert.equal(redactSecrets(`const k = "${p}${body}";`), 'const k = "[REDACTED]";', p);
+  }
+});
+
+test('a 200 KB single-line file of adversarial text sweeps in under 5 s (child process, 30 s kill)', (t) => {
+  const r = tmpRoot('security-sweep-slow-');
+  try {
+    const unit = 'query+execute+raw+console.log logger log. role secure verify rejectUnauthorized TLS SSL DEBUG= debug NODE_ENV stack res.status response createHash jwt algorithms plaintext ';
+    const text = unit.repeat(Math.ceil((200 * 1024) / unit.length));
+    for (const banned of ['"', '1', 'true', 'false', 'none', '===', 'password', 'token', 'secret', 'trace', 'error.', 'md5', 'sha1', 'development']) {
+      assert.ok(!text.includes(banned), `the fixture must not contain ${banned}`);
+    }
+    assert.ok(text.length >= 200 * 1024 && !text.includes('\n'));
+    fs.writeFileSync(path.join(r, 'slow.js'), text);
+    const started = Date.now();
+    const run = spawnSync(process.execPath, [AOF_TOOLS, 'security', 'sweep', '--root', r, '--raw'], { encoding: 'utf-8', timeout: 30000 });
+    const elapsed = Date.now() - started;
+    t.diagnostic(`security sweep of a ${text.length}-char line: ${elapsed} ms`);
+    assert.equal(run.signal, null, `killed by ${run.signal} after ${elapsed} ms`);
+    assert.equal(run.status, 0, run.stderr);
+    assert.ok(elapsed < 5000, `took ${elapsed} ms`);
+  } finally {
+    fs.rmSync(r, { recursive: true, force: true });
+  }
+});
+
+test('a line longer than MAX_LINE_CHARS is scanned capped: the hit says line_truncated and the result counts it', () => {
+  const r = tmpRoot('security-sweep-long-');
+  try {
+    fs.mkdirSync(path.join(r, 'src'));
+    fs.writeFileSync(path.join(r, 'src', 'long.js'), 'const password = "' + 'A'.repeat(5000) + 'LEAKMARKEND";\n');
+    const res = sweep({ root: r });
+    const hit = hitsOf(res, 'hardcoded-secrets').find((h) => h.file === 'src/long.js');
+    assert.ok(hit, JSON.stringify(res.checks.filter((c) => c.hits.length)));
+    assert.equal(hit.line_truncated, true);
+    assert.ok(hit.text.length <= 200);
+    assert.ok(!JSON.stringify(res).includes('LEAKMARKEND'));
+    assert.ok(res.lines_capped >= 1, `lines_capped: ${res.lines_capped}`);
+    const raw = aofSweep(['--root', r, '--raw']);
+    assert.equal(raw.status, 0, raw.stderr);
+    assert.match(raw.stdout, /\d+ lines? longer than 4096 chars (were|was) scanned only in (their|its) first 4096 chars/);
+    assert.ok(!raw.stdout.includes('LEAKMARKEND'));
+  } finally {
+    fs.rmSync(r, { recursive: true, force: true });
+  }
+});
+
+test('no PATTERNS alternative has more than one .*', () => {
+  const offenders = [];
+  for (const row of PATTERNS) {
+    for (const alt of row.re.source.split('|')) {
+      const n = (alt.match(/(?<!\\)\.\*/g) || []).length;
+      if (n > 1) offenders.push(`${row.id}: ${alt}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+test('a missing root or a file root is an error, not a clean sweep', () => {
+  const r = tmpRoot('security-sweep-root-');
+  try {
+    const missing = path.join(r, 'nope');
+    const file = path.join(r, 'a.js');
+    fs.writeFileSync(file, 'x\n');
+    assert.throws(() => sweep({ root: missing }), (e) => e.message.includes(missing));
+    assert.throws(() => sweep({ root: file }), (e) => e.message.includes(file));
+    const bogus = `/nonexistent-${process.pid}-${Date.now()}`;
+    const cli = aofSweep(['--root', bogus]);
+    assert.equal(cli.status, 1, cli.stdout);
+    assert.ok(cli.stderr.includes(bogus), cli.stderr);
+  } finally {
+    fs.rmSync(r, { recursive: true, force: true });
+  }
 });
