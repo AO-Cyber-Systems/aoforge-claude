@@ -24,9 +24,19 @@
     "research-synthesizer": { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
     "debugger":             { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" },
     "codebase-mapper":      { "quality": "sonnet", "balanced": "haiku",   "budget": "haiku"  },
-    "verifier":             { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
-    "job-checker":          { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
+    "verifier":             { "quality": "sonnet", "balanced": "sonnet",  "budget": "sonnet" },
+    "job-checker":          { "quality": "sonnet", "balanced": "sonnet",  "budget": "sonnet" },
     "integration-checker":  { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
     "security-auditor":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
-  }
+  },
+  "focus": {
+    "codebase-mapper": {
+      "concerns":     { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  }
+    },
+    "project-researcher": {
+      "pitfalls":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" },
+      "architecture": { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
+    }
+  },
+  "verdict_floor": { "tier": "sonnet", "agents": ["verifier", "job-checker"] }
 }

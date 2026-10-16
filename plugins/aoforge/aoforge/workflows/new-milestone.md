@@ -103,7 +103,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: start milestone v[X.Y] [N
 INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init new-milestone)
 ```
 
-Extract from init JSON: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `research_enabled`, `current_milestone`, `project_exists`, `roadmap_exists`.
+Extract from init JSON: `researcher_models` (one model per dimension: `stack`, `features`, `architecture`, `pitfalls`), `synthesizer_model`, `roadmapper_model`, `commit_docs`, `research_enabled`, `current_milestone`, `project_exists`, `roadmap_exists`.
 
 ## 8. Research Decision
 
@@ -172,7 +172,7 @@ Draft path: `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft research/{F
 Publish: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/{FILE} --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/aoforge/templates/research-project/{FILE}
 </output>
-", subagent_type="project-researcher", model="{researcher_model}", description="{DIMENSION} research")
+", subagent_type="project-researcher", model="{MODEL}", description="{DIMENSION} research")
 ```
 
 **Dimension-specific fields:**
@@ -184,6 +184,7 @@ Use template: ~/.claude/aoforge/templates/research-project/{FILE}
 | CONSUMER | Specific libraries with versions for NEW capabilities, integration points, what NOT to add | Table stakes vs differentiators vs anti-features, complexity noted, dependencies on existing | Integration points, new components, data flow changes, suggested build order | Warning signs, prevention strategy, which objective should address it |
 | GATES | Versions current (verify with Context7), rationale explains WHY, integration considered | Categories clear, complexity noted, dependencies identified | Integration points identified, new vs modified explicit, build order considers deps | Pitfalls specific to adding these features, integration pitfalls covered, prevention actionable |
 | FILE | STACK.md | FEATURES.md | ARCHITECTURE.md | PITFALLS.md |
+| MODEL | `researcher_models.stack` | `researcher_models.features` | `researcher_models.architecture` | `researcher_models.pitfalls` |
 
 After all 4 complete, spawn synthesizer. It returns the SUMMARY.md content as text — the harness
 blocks subagent report files, so the orchestrator (you) writes and commits it:

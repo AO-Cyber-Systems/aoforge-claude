@@ -12,6 +12,10 @@ const _modelProfilesData = JSON.parse(fs.readFileSync(MODEL_PROFILES_PATH, 'utf-
 const MODEL_PROFILES = _modelProfilesData.agents;
 // tier -> concrete API model id (live: a stack pack's UI judge sends it to the Messages API)
 const MODEL_IDS = _modelProfilesData.models || {};
+// agent -> focus -> tier map, overlaid when a spawn names its focus (TRD 76-06)
+const MODEL_FOCUS = _modelProfilesData.focus || {};
+// pass/fail verdict agents never resolve below this tier on any profile (TRD 76-06)
+const VERDICT_FLOOR = _modelProfilesData.verdict_floor || { tier: null, agents: [] };
 
 // ─── Output / Error ──────────────────────────────────────────────────────────
 
@@ -295,6 +299,8 @@ module.exports = {
   MODEL_PROFILES_PATH,
   MODEL_PROFILES,
   MODEL_IDS,
+  MODEL_FOCUS,
+  VERDICT_FLOOR,
   output,
   error,
   parseIncludeFlag,

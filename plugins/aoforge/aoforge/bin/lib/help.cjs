@@ -47,12 +47,15 @@ const COMMANDS = {
     ],
   },
   'resolve-model': {
-    usage: 'aof-tools resolve-model <agent-type> [--objective N] [--raw]',
+    usage: 'aof-tools resolve-model <agent-type> [--objective N] [--focus <focus>] [--raw]',
     summary: 'Resolve the model for an agent from the configured profile.',
     details: [
       'Profile precedence: an OBJECTIVE.md/TRD model_profile override, then config.json',
       'model_profile, then the (kind, work) defaults table for --objective, then balanced.',
       'The result names the source as profile_source (TRD 76-01).',
+      '--focus names a spawn focus (codebase-mapper tech|arch|quality|concerns, project-researcher',
+      'stack|features|architecture|pitfalls) whose tiers in model-profiles.json focus{} apply.',
+      'verifier and job-checker never resolve below the verdict_floor tier (TRD 76-06).',
     ],
   },
   'find-objective': {

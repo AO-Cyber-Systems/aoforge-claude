@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
-const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, MODEL_PROFILES, MODEL_IDS } = require('./helpers.cjs');
+const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, MODEL_PROFILES, MODEL_IDS, MODEL_FOCUS, VERDICT_FLOOR } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { planningMode } = require('./planning-mode.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
@@ -283,7 +283,7 @@ function normalizeAgentKey(agentType) {
  * Returns null when the agent is genuinely unknown (so callers can be loud
  * rather than silently defaulting).
  */
-function agentTierMap(config, agentType) {
+function agentTierMap(config, agentType, focus) {
   const key = normalizeAgentKey(agentType);
   // A stack pack's own agent (`<plugin>:<agent>` or bare) takes its tiers from the pack manifest
   // `models` field (objective 77); core's table names only core agents.
@@ -294,9 +294,13 @@ function agentTierMap(config, agentType) {
       if (hit) base = hit.tiers;
     } catch (_) { /* no pack mirror: fall through */ }
   }
+  // A spawn that names its focus (mapper focus, researcher dimension) takes that focus's tiers
+  // over the agent's own (TRD 76-06); an unknown focus changes nothing.
+  const focusTiers = (focus && MODEL_FOCUS[key] && MODEL_FOCUS[key][focus]) || {};
   const merged = Object.assign(
     {},
     base || {},
+    focusTiers,
     config.agent_models?.[key] || config.agent_models?.[`df-${key}`] || {}
   );
   return Object.keys(merged).length ? merged : null;
@@ -361,7 +365,27 @@ function resolveProfile(cwd, objective) {
   return result;
 }
 
-function resolveModelInternal(cwd, agentType, objective) {
+const TIER_RANK = { haiku: 0, sonnet: 1, opus: 2 };
+
+/** One model per project-research dimension (TRD 76-06), for new-project and new-milestone. */
+function researcherModels(cwd) {
+  return Object.fromEntries(['stack', 'features', 'architecture', 'pitfalls']
+    .map((f) => [f, resolveModelInternal(cwd, 'df-project-researcher', undefined, f)]));
+}
+
+/**
+ * The tier a profile gives an agent, raised to the verdict floor for pass/fail agents (TRD 76-06):
+ * a verifier or job-checker verdict never runs below `verdict_floor.tier` on any profile, a
+ * project's `agent_models` included. `model_overrides` stays the explicit, unfloored escape.
+ */
+function profileTier(agentModels, profile, key) {
+  let tier = agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  const floor = VERDICT_FLOOR.tier;
+  if (floor && (VERDICT_FLOOR.agents || []).includes(key) && (TIER_RANK[tier] ?? 1) < TIER_RANK[floor]) tier = floor;
+  return tier;
+}
+
+function resolveModelInternal(cwd, agentType, objective, focus) {
   const config = loadConfig(cwd);
   const key = normalizeAgentKey(agentType);
 
@@ -372,15 +396,15 @@ function resolveModelInternal(cwd, agentType, objective) {
   }
 
   const profile = resolveProfile(cwd, objective).profile;
-  const agentModels = agentTierMap(config, key);
+  const agentModels = agentTierMap(config, key, focus);
   if (!agentModels) return 'sonnet';
-  const resolved = agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  const resolved = profileTier(agentModels, profile, key);
   return resolved === 'opus' ? 'inherit' : resolved;
 }
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-function cmdResolveModel(cwd, agentType, raw, objective) {
+function cmdResolveModel(cwd, agentType, raw, objective, focus) {
   if (!agentType) {
     error('agent-type required');
   }
@@ -388,7 +412,7 @@ function cmdResolveModel(cwd, agentType, raw, objective) {
   const config = loadConfig(cwd);
   const { profile, source: profile_source } = resolveProfile(cwd, objective);
   const key = normalizeAgentKey(agentType);
-  const agentModels = agentTierMap(config, key);
+  const agentModels = agentTierMap(config, key, focus);
 
   if (!agentModels) {
     // Be LOUD. This used to return 'sonnet' silently, which is how a whole-table
@@ -403,11 +427,12 @@ function cmdResolveModel(cwd, agentType, raw, objective) {
     return;
   }
 
-  const tier = agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  const tier = profileTier(agentModels, profile, key);
   const model = tier === 'opus' ? 'inherit' : tier;
   // Report the tier and the concrete id alongside the alias so a resolution can
   // actually be audited (TRD 28-02) — "inherit" alone hid which model ran.
   const result = { model, profile, profile_source, agent: key, tier, model_id: MODEL_IDS[tier] || null };
+  if (focus) result.focus = focus;
   output(result, raw, model);
 }
 
@@ -764,6 +789,8 @@ function cmdInitNewProject(cwd, raw, args = []) {
   const result = {
     // Models
     researcher_model: resolveModelInternal(cwd, 'df-project-researcher'),
+    // per research dimension (TRD 76-06): the new-project workflow spawns each researcher with its own
+    researcher_models: researcherModels(cwd),
     synthesizer_model: resolveModelInternal(cwd, 'df-research-synthesizer'),
     roadmapper_model: resolveModelInternal(cwd, 'df-roadmapper'),
 
@@ -803,6 +830,7 @@ function cmdInitNewMilestone(cwd, raw, args = []) {
   const result = {
     // Models
     researcher_model: resolveModelInternal(cwd, 'df-project-researcher'),
+    researcher_models: researcherModels(cwd),
     synthesizer_model: resolveModelInternal(cwd, 'df-research-synthesizer'),
     roadmapper_model: resolveModelInternal(cwd, 'df-roadmapper'),
 
@@ -1132,6 +1160,9 @@ function cmdInitMapCodebase(cwd, raw, args = []) {
   const result = {
     // Models
     mapper_model: resolveModelInternal(cwd, 'df-codebase-mapper'),
+    // per focus (TRD 76-06): the map-codebase workflow spawns each mapper with its own
+    mapper_models: Object.fromEntries(['tech', 'arch', 'quality', 'concerns']
+      .map((f) => [f, resolveModelInternal(cwd, 'df-codebase-mapper', undefined, f)])),
 
     // Config
     commit_docs: config.commit_docs,
