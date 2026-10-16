@@ -7,6 +7,6 @@ status: checkpoint
 # Objective 78 TRD 06: Global legacy notices and doctor Summary
 
 ## Progress
-- [ ] Task 1: Fixtures, RED tests and the coexistence detectors — RED (this commit); next step: add legacyEnvVariables, legacyRuntimeHome, LEGACY_STATE_MARKER, legacyRuntimeState, TO_RUNTIME/TO_WATCH, interimUserFiles and legacyNotices to plugins/aoforge/aoforge/bin/lib/coexistence.cjs, then `node --test plugins/aoforge/aoforge/bin/lib/coexistence.legacy.test.cjs`
-- [ ] Task 2: GREEN — one SessionStart notice; retire the runtime-state migration
+- [x] Task 1: Fixtures, RED tests and the coexistence detectors — RED d0206f08, GREEN (this commit)
+- [ ] Task 2: GREEN — one SessionStart notice; retire the runtime-state migration — next step: rewrite run() in plugins/aoforge/hooks/coexistence-guard.js over coexistence.legacyNotices (one/several findings, status 'nothing'), then `node --test plugins/aoforge/hooks/coexistence-guard.legacy.test.js`
 - [ ] Task 3: GREEN — doctor checks 15 and 16 report-only, 17 reworded, doctor ctx path
