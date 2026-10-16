@@ -315,4 +315,10 @@ describe('63-03 todo-sync Stop hook', () => {
     assert.equal(hook.run(null, { env: {}, pluginRoot: PLUGIN_ROOT }), null);
     assert.equal(hook.run({ hook_event_name: 'Stop', transcript_path: '/x' }, { env: { AOFORGE_SKIP_TODO_SYNC: '1' }, pluginRoot: PLUGIN_ROOT }), null);
   });
+
+  test('the prefilter key is the one key todo-session reads (TRD 78-04)', () => {
+    const hook = require(HOOK);
+    const { TODO_META_KEYS } = require(path.join(LIB, 'todo-session.cjs'));
+    assert.deepEqual([hook.TODO_META_KEY], [...TODO_META_KEYS]);
+  });
 });

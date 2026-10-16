@@ -23,6 +23,8 @@
 //  8. No generated entry carries any env key other than AOFORGE_MANAGED (locked Q5).
 //  +  mergeMcpJson / foreign-name clash / idempotent re-write / `stack init --write` never
 //     creates `.mcp.json` (locked Q4).
+//  +  `warnings` is always an array, empty with no entry owned through the pre-rename key (TRD 78-04;
+//     the entries that fill it are file-identities.legacy.test.cjs's).
 
 const { describe, test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -93,6 +95,7 @@ describe('stack mcp (CLI)', () => {
     assert.ok(r.json, `stdout must be JSON: ${r.stdout}`);
     assert.deepEqual(r.json.servers, { gopls: { command: 'gopls', args: ['mcp'], env: { AOFORGE_MANAGED: 'stack' } } });
     assert.deepEqual(r.json.skipped, []);
+    assert.deepEqual(r.json.warnings, []);
     assert.equal(r.json.action, 'preview');
     assert.equal(path.basename(r.json.path), '.mcp.json');
     assert.equal(fs.realpathSync(path.dirname(r.json.path)), fs.realpathSync(repo));
@@ -131,6 +134,7 @@ describe('stack mcp (CLI)', () => {
 
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.json.action, 'written');
+    assert.deepEqual(r.json.warnings, [], 'a foreign and an AOForge-owned entry are not reported');
     const text = fs.readFileSync(mcpPath(repo), 'utf-8');
     const obj = JSON.parse(text);
     assert.deepEqual(Object.keys(obj), ['mcpServers', 'otherTopLevel'], 'top-level key order stable');

@@ -11,8 +11,8 @@
  * Cheap exits first, with no library loaded until it is needed and no gh call anywhere:
  *   - AOFORGE_SKIP_TODO_SYNC=1, stdin that is not a plain object, an event other than Stop, no `transcript_path`
  *   - not an AOForge project (no `.aoforge/` at or above the cwd)
- *   - an unreadable transcript, or one that never mentions a task call AND the todo markers (`Todo: `, `aoforge_todo`
- *     or, for one release, its legacy form)
+ *   - an unreadable transcript, or one that never mentions a task call AND the todo markers (`Todo: ` or
+ *     `aoforge_todo`)
  * Only then is the sync library loaded and called in-process (not `aof-tools todo sync`: no second node start per Stop).
  *
  * It tells the user what it did in ONE `systemMessage` and says nothing when nothing changed. Lines: archived N,
@@ -39,23 +39,15 @@ const path = require('path');
 try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 /**
- * The TaskCreate metadata keys that carry a todo's stem: `aoforge_todo` and, for one release (objective 72,
- * INST-03), the legacy key that transcripts written before the rename carry. Built from the name map, the way
- * todo-session.cjs reads them; a stub plugin tree without the libs keeps the AOForge key only.
+ * The TaskCreate metadata key that carries a todo's stem, `aoforge_todo`: the one key todo-session.cjs's TODO_META_KEYS
+ * reads (TRD 78-04 dropped the pre-rename key from both). Typed here rather than required so this cheap prefilter loads
+ * no library; todo-sync.test.js holds the two equal.
  */
-function todoMetaKeys() {
-  try {
-    const { NAMES, LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
-    return [`${NAMES.slug}_todo`, `${LEGACY.slug}_todo`];
-  } catch (e) {
-    if (e.code !== 'MODULE_NOT_FOUND') throw e;
-    return ['aoforge_todo'];
-  }
-}
+const TODO_META_KEY = 'aoforge_todo';
 
 /** A transcript that has none of these cannot hold a task call; one that has none of the second set holds no todo. */
 const TASK_CALL_MARKERS = ['"TaskCreate"', '"TaskUpdate"', '"TodoWrite"'];
-const TODO_MARKERS = ['Todo: ', ...todoMetaKeys()];
+const TODO_MARKERS = ['Todo: ', TODO_META_KEY];
 
 const MAX_WARNING_CHARS = 200;
 
@@ -169,4 +161,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { run };
+module.exports = { run, TODO_META_KEY };
