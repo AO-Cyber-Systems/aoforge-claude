@@ -74,16 +74,13 @@
     "cross_shell": [],
     "status_line": false
   },
-  "aoforge": {
-    "version": "3.0.0",
+  "devflow": {
+    "version": "2.15.0",
     "migrations_applied": [
       "0001",
       "0004",
-      "0007",
-      "0009",
-      "0012",
-      "0013"
+      "0009"
     ],
-    "upgraded_at": "2026-10-16T01:10:07.511Z"
+    "upgraded_at": "2026-10-08T15:17:10.019Z"
   }
 }
