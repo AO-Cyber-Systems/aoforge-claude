@@ -15,7 +15,7 @@ A file existing does not mean the feature works. Verification must check:
 3. **Wired** - Connected to the rest of the system
 4. **Functional** - Actually works when invoked
 
-Levels 1-3 can be checked via static analysis. Level 4 can be partially automated via browser tools (Playwright MCP) and may require human verification for subjective qualities.
+Levels 1-3 can be checked via static analysis. Level 4 can be partially automated by the UI drive an active stack pack contributes (`stack context verifier` lists it) and may require human verification for subjective qualities.
 </core_principle>
 
 <search_commands>
@@ -123,13 +123,7 @@ grep -E "fetch\(|axios\.|useSWR|useQuery|getServerSideProps|getStaticProps" "$co
 
 **Functional verification (browser automation + human):**
 
-*Automated via Playwright MCP:*
-```
-browser_navigate(url="http://localhost:3000/{route}")
-browser_snapshot()  # Check rendered content in accessibility tree
-browser_take_screenshot()  # Visual evidence
-browser_click(element="button", ref="submit-btn")  # Test interactions
-```
+*Automated by the active stack pack's UI drive* (the verifier delegates to the agent `stack context verifier` lists):
 - Does the component render visible content? (check snapshot for expected text/elements)
 - Do interactive elements respond to clicks? (click and verify state change in snapshot)
 - Does data load and display? (check snapshot for data, not loading spinners)
@@ -594,9 +588,9 @@ Run these checks against each must-have artifact. Aggregate results into VERIFIC
 
 ## When to Require Human Verification
 
-Use browser automation (Playwright MCP) first to reduce the human verification burden. Only flag items for human testing that truly require subjective judgment.
+Use the active stack pack's UI drive first to reduce the human verification burden. Only flag items for human testing that truly require subjective judgment.
 
-**Automate with browser tools first:**
+**Automate with the pack's UI drive first:**
 - Page renders correctly (navigate + snapshot + screenshot)
 - Interactive elements respond to clicks (click + verify snapshot changes)
 - Data loads and displays (check snapshot for real content vs loading/empty states)

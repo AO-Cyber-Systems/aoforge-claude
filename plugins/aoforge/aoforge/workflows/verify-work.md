@@ -234,32 +234,16 @@ Read Current Test section from UAT file.
 TaskUpdate(taskId=test_task_id, status="in_progress")
 ```
 
-**Browser pre-verification (for UI tests):**
+**Stack pre-verification (UI tests):** core drives no UI. Once per session, before the first UI test:
+1. Reuse what the active stack packs already recorded for these surfaces: runtime-check rows in the
+   objective's VERIFICATION.md and any pack self-check section in the TRD SUMMARYs.
+2. If none covers a UI test, run `node ~/.claude/aoforge/bin/aof-tools.cjs stack context verifier --raw`.
+   When `packs.subagents` lists an agent whose `when` fits, spawn it once with the Task tool for every
+   uncovered UI test (objective dir; each test's route and landmark; start command and URL if known;
+   model from `aof-tools resolve-model <name after the colon> --raw`) and keep its rows.
+3. With no pack evidence and no listed agent, present the test without a **Pre-verified** block.
 
-If the test involves a UI feature and a dev server is running (or can be started):
-
-1. Navigate to the relevant page:
-   ```
-   browser_navigate(url="http://localhost:{port}/{route}")
-   ```
-
-2. Take a snapshot to verify content renders:
-   ```
-   browser_snapshot()
-   ```
-
-3. If the test involves interactions, simulate them:
-   ```
-   browser_click(element="{relevant element}")
-   browser_snapshot()  # Verify state changed
-   ```
-
-4. Take a screenshot for evidence:
-   ```
-   browser_take_screenshot()
-   ```
-
-5. Include pre-verification results in the checkpoint:
+Fill the box's Pre-verified lines from the pack's row for this test.
 
 ```
 ╔══════════════════════════════════════════════════════════════╗
@@ -281,7 +265,7 @@ Please verify the visual quality and UX:
 ──────────────────────────────────────────────────────────────
 ```
 
-**For non-UI tests** (API, CLI, backend), skip browser pre-verification and present the standard checkpoint:
+**For non-UI tests** (API, CLI, backend), skip stack pre-verification and present the standard checkpoint:
 
 ```
 ╔══════════════════════════════════════════════════════════════╗

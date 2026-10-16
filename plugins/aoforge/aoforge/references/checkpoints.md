@@ -621,24 +621,11 @@ timeout 30 bash -c 'until curl -s localhost:3000 > /dev/null 2>&1; do sleep 1; d
 | Auth error | Create auth gate checkpoint |
 | Network timeout | Retry with backoff, then checkpoint if persistent |
 
-## Browser Pre-Verification Before Checkpoints
+## Stack Pre-Verification Before Checkpoints
 
-Before presenting a `checkpoint:human-verify` for UI features, use Playwright MCP to pre-verify:
-
-```
-# Navigate to the page being verified
-browser_navigate(url="http://localhost:3000/{route}")
-
-# Get accessibility tree to verify content renders
-browser_snapshot()
-
-# Take screenshot for evidence
-browser_take_screenshot()
-
-# Test key interactions
-browser_click(element="button", ref="{key-element}")
-browser_snapshot()  # Verify state changed
-```
+Before presenting a `checkpoint:human-verify` for a UI feature, run the pre-check an active stack pack's executor
+fragment contributes: `node ~/.claude/aoforge/bin/aof-tools.cjs stack context executor` lists the fragments, and
+each fragment says when it applies. With no such fragment, present the checkpoint as usual.
 
 **If pre-verification fails:** Fix the issue before presenting the checkpoint. The user should only see working features.
 
@@ -693,8 +680,8 @@ This reduces checkpoint friction — the user focuses on subjective quality, not
 | Click email verification link | No | NO |
 | Enter credit card with 3DS | No | NO |
 | Complete OAuth in browser | No | NO |
-| Pre-verify UI renders correctly | Yes (Playwright) | YES |
-| Pre-verify interactive flows work | Yes (Playwright) | YES |
+| Pre-verify UI renders correctly | Yes (stack pack pre-check) | YES |
+| Pre-verify interactive flows work | Yes (stack pack UI drive) | YES |
 | Verify visual design quality | No | NO |
 | Verify animation smoothness | No | NO |
 

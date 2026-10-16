@@ -62,6 +62,18 @@ A FAIL caused by this TRD's change is a deviation Rule 1 bug: fix it within the 
 re-run the check, and keep the final row. A FAIL you cannot attribute to this TRD stays FAIL in the
 record and never blocks the SUMMARY.
 
+## Before a UI checkpoint:human-verify
+
+When a TRD has a `checkpoint:human-verify` for something a browser renders (the same runtime and
+platform condition as "When it runs"), run The check on that checkpoint's routes (at most three)
+before presenting it, with the same preconditions and skips, the port rule included (any server you
+start binds 8091). If a row FAILs, fix it first: the user should only see working
+features. Present the rows as the checkpoint's pre-verified evidence: page loads at {url}, landmark
+"{x}" present, {n} console errors. In autonomous mode the checkpoint auto-approves; still add the
+rows to `## Browser self-check`. You hold no click, fill or screenshot tool, so leave interaction
+steps in the checkpoint's how-to-verify for the user: the verifier's `web-ui-verifier` drive covers
+interactions and screenshots.
+
 ## Record it for the verifier
 
 Add this section to your SUMMARY draft:
