@@ -8,6 +8,10 @@
 //
 // Read-only. Composes the existing verbs as subprocesses (each `output()` exits), so their JSON
 // is reported unchanged.
+//
+// A checkpoint SUMMARY (misc.cjs `isCheckpointOnlySummary`: `## Progress` and no `## Self-Check`,
+// written mid-run) is not a finished TRD (quick 36): it carries `checkpoint: true`, the rollup's
+// `summaries` counts final SUMMARYs only and `checkpoints` names the rest.
 
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +19,7 @@ const { spawnSync } = require('child_process');
 const { output, error, trdKey } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { isCheckpointOnlySummary } = require('./misc.cjs');
 
 const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 
@@ -57,6 +62,7 @@ function evidence(cwd, objective) {
         exists: true,
         path: path.join(obj.directory, summary),
         self_check: self ? self[1] : null,
+        checkpoint: isCheckpointOnlySummary(text),
         key_files: kf.map((f) => ({ path: f, exists: fs.existsSync(path.join(cwd, f)) })),
       };
     }
@@ -78,7 +84,9 @@ function evidence(cwd, objective) {
     completeness,
     rollup: {
       trds: out.length,
-      summaries: out.filter((t) => t.summary.exists).length,
+      summaries: out.filter((t) => t.summary.exists && !t.summary.checkpoint).length,
+      checkpoints: out.filter((t) => t.summary.exists && t.summary.checkpoint).map((t) => t.id),
+      no_self_check: out.filter((t) => t.summary.exists && t.summary.self_check === null).map((t) => t.id),
       self_check_failed: out.filter((t) => t.summary.self_check === 'FAILED').map((t) => t.id),
       artifacts_failed: out.filter((t) => t.artifacts && t.artifacts.all_passed === false).map((t) => t.id),
       key_links_failed: out.filter((t) => t.key_links && t.key_links.all_verified === false).map((t) => t.id),
@@ -94,11 +102,12 @@ function cmdVerifyObjectiveEvidence(cwd, objective, raw) {
   try { r = evidence(cwd, objective); } catch (e) { error(e.message); }
   const x = r.rollup;
   const text = [
-    `Objective ${r.objective}: ${x.summaries}/${x.trds} TRDs have a SUMMARY`,
-    ...['self_check_failed', 'artifacts_failed', 'key_links_failed', 'no_commits', 'missing_key_files']
+    `Objective ${r.objective}: ${x.summaries}/${x.trds} TRDs have a final SUMMARY`,
+    ...['checkpoints', 'no_self_check', 'self_check_failed', 'artifacts_failed', 'key_links_failed', 'no_commits',
+      'missing_key_files']
       .filter((k) => x[k].length).map((k) => `${k}: ${x[k].join(', ')}`),
   ].join('\n');
-  output(r, raw, text);
+  output(r, raw, `${text}\n`);
 }
 
 module.exports = { evidence, keyFiles, cmdVerifyObjectiveEvidence };

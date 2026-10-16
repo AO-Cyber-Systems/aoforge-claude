@@ -5,6 +5,7 @@ const path = require('path');
 const { output, error, safeReadFile, execGit, findPlanFiles, stripPlanSuffix, trdKey } = require('./helpers.cjs');
 const { extractFrontmatter, parseMustHavesBlock } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { isCheckpointOnlySummary } = require('./misc.cjs');
 
 function cmdVerifySummary(cwd, summaryPath, checkFileCount, raw) {
   if (!summaryPath) {
@@ -192,15 +193,32 @@ function cmdVerifyObjectiveCompleteness(cwd, objective, raw) {
   // Pair on the NN-MM key (TRD 53-02): a named TRD is complete under `NN-MM-SUMMARY.md` or
   // `NN-MM-<slug>-SUMMARY.md`. The reported ids keep their shape: a plan's id is its name
   // minus -TRD.md/-JOB.md, a summary's id is its name minus -SUMMARY.md.
+  //
+  // A key is complete only when at least one of its SUMMARYs is final (quick 36): a checkpoint
+  // SUMMARY (misc.cjs isCheckpointOnlySummary: `## Progress`, no `## Self-Check`) was written
+  // mid-run. An unreadable SUMMARY counts as final, as misc.cjs _summaryIsComplete treats it.
   const jobKeys = new Set(plans.map(p => trdKey(p)));
   const summaryKeys = new Set(summaries.map(s => trdKey(s)));
+  const finalKeys = new Set();
+  for (const s of summaries) {
+    let text = null;
+    try { text = fs.readFileSync(path.join(objectiveDir, s), 'utf-8'); } catch { /* unreadable: final */ }
+    if (text === null || !isCheckpointOnlySummary(text)) finalKeys.add(trdKey(s));
+  }
 
-  // Plans without summaries
+  // Plans without a final summary
   const incompleteJobs = [...new Set(
-    plans.filter(p => !summaryKeys.has(trdKey(p))).map(p => stripPlanSuffix(p))
+    plans.filter(p => !finalKeys.has(trdKey(p))).map(p => stripPlanSuffix(p))
   )];
-  if (incompleteJobs.length > 0) {
-    errors.push(`Plans without summaries: ${incompleteJobs.join(', ')}`);
+  const checkpointSummaries = [...new Set(
+    plans.filter(p => summaryKeys.has(trdKey(p)) && !finalKeys.has(trdKey(p))).map(p => stripPlanSuffix(p))
+  )];
+  const withoutSummary = incompleteJobs.filter(id => !checkpointSummaries.includes(id));
+  if (withoutSummary.length > 0) {
+    errors.push(`Plans without summaries: ${withoutSummary.join(', ')}`);
+  }
+  if (checkpointSummaries.length > 0) {
+    errors.push(`Plans with only a checkpoint SUMMARY: ${checkpointSummaries.join(', ')}`);
   }
 
   // Summaries without plans (orphans)
@@ -217,6 +235,7 @@ function cmdVerifyObjectiveCompleteness(cwd, objective, raw) {
     job_count: plans.length,
     summary_count: summaries.length,
     incomplete_jobs: incompleteJobs,
+    checkpoint_summaries: checkpointSummaries,
     orphan_summaries: orphanSummaries,
     errors,
     warnings,

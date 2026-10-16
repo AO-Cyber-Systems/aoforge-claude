@@ -91,7 +91,9 @@ describe('56-03 extractRequirementIds', () => {
   });
 
   test('16d a token that is only a prefix of a longer word is not an ID', () => {
-    assert.deepEqual(extractRequirementIds('F1X, ABCDEFGHI1, ONUM-01x'), []);
+    // Quick 36 (D1): one lowercase suffix is part of a hyphenated ID (ONUM-01x, AUTH-01a; see test 23), so the
+    // longer-word case here carries two lowercase letters.
+    assert.deepEqual(extractRequirementIds('F1X, ABCDEFGHI1, ONUM-01xy'), []);
   });
 
   describe('17 ranges', () => {

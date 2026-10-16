@@ -3,7 +3,8 @@
 // An ID is taken only from an ID-shaped list item; free text yields none. IDs are uppercase (req-01 is not an ID).
 //
 // What counts as an ID (the contract `verify trd-pre` and `objective complete` share):
-//   - Hyphenated:  [A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+   ONUM-01, R-1, REQ-10-03, F1-CONFIG, PHASE-B1, GATE-PTY-MESSAGE
+//   - Hyphenated:  [A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+[a-z]?   ONUM-01, R-1, REQ-10-03, F1-CONFIG, PHASE-B1, GATE-PTY-MESSAGE,
+//     AUTH-01a (one optional lowercase suffix, quick 36)
 //   - Letter-digit: [A-Z]{1,8}\d+                    F1, C1, A1
 //   - Objective-scoped numeric: <objective>-<n>      55-1 for objective 55 (zero-tolerant). Accepted only when an
 //     objective is given, so a date such as 2026-10 or a TRD id such as 53-02 is never an ID.
@@ -23,7 +24,9 @@
 
 const { objectiveNumPattern, boldLabelPattern } = require('./text-escape.cjs');
 
-const ID_SRC = '[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+|[A-Z]{1,8}\\d+';
+// Exported as REQUIREMENT_ID_SRC: `validate roadmap-coverage` builds its REQUIREMENTS.md definition regex from it,
+// so both sides of the coverage check accept the same shapes (quick 36).
+const ID_SRC = '[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+[a-z]?|[A-Z]{1,8}\\d+';
 const LABEL_RE = new RegExp(boldLabelPattern('Requirements') + '[ \\t]*([^\\n]*)', 'i'); // never crosses a newline
 const BOUNDARY_SRC = '(?=$|[\\s:)\\],;*`]|[^\\x00-\\x7F])';
 const LEADING_NOISE_RE = /^[\s([*`]+/;
@@ -148,4 +151,4 @@ function roadmapRequirementIds(section, { objective } = {}) {
   return { found: true, ids: dedupe(ids) };
 }
 
-module.exports = { extractRequirementIds, roadmapRequirementIds };
+module.exports = { extractRequirementIds, roadmapRequirementIds, REQUIREMENT_ID_SRC: ID_SRC };

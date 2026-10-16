@@ -61,6 +61,23 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   `error` for a broken manifest) and exits 2, and `stack doctor` lists it as not ready and exits 1
   (`unavailableSelectedPacks` in `lib/stack-packs.cjs`).
 
+### Fixes (quick 36)
+
+- **`validate roadmap-coverage` reads ROADMAP ids with the shared parser.** It kept its own label and id regexes, so it
+  disagreed with `verify trd-pre` and `objective complete`: `- **Requirements**: API-01` and a label followed by bullet
+  lines were false orphans, and `none (tech debt; AUTH-03 deferred)` counted AUTH-03 as mapped. Each objective section
+  now goes through `roadmapRequirementIds`, and a section ends at the next heading of its own level or higher, so a
+  Requirements line under a later `## Progress` is credited to no objective. A REQUIREMENTS.md section is out of v1
+  only when its heading starts with `v2` (or later), `Out of Scope`, `Traceability`, `Future`, `Deferred` or `Later`,
+  so `## Integrations (OAuth v2)` stays in v1. A REQUIREMENTS.md with no v1 definitions exits 1 with a reason instead of
+  `0/0 ✓`. Requirement ids may carry one lowercase suffix (`AUTH-01a`) on both sides, and raw success output ends in a
+  newline.
+- **A checkpoint SUMMARY is not a finished TRD.** `verify objective-evidence` counted a mid-run SUMMARY (`## Progress`,
+  no `## Self-Check`) as done and reported "2/2 TRDs have a SUMMARY", and `verify objective-completeness` called the
+  objective complete. Evidence now flags `checkpoint` per SUMMARY, counts final SUMMARYs only, lists `checkpoints` and
+  `no_self_check`, and its raw output ends in a newline. Completeness needs a final SUMMARY per plan, lists
+  `checkpoint_summaries` and adds the error `Plans with only a checkpoint SUMMARY`.
+
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 
 - **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and
