@@ -399,8 +399,8 @@ TRDs:
 - [ ] 78-08-claude-md-aoforge-markers-only-TRD.md — (W2, TDD) managed block under AOFORGE markers only with an ELEGACYBLOCK refusal; migration 0014 and the global pre-rename move/outside rewrite removed
 - [ ] 78-09-gh-labels-and-rebrand-guard-TRD.md — (W2, TDD) label lookups use one label; an un-rebranded repository stops with `gh rebrand --apply` instead of getting duplicates
 - [ ] 78-10-env-alias-removal-TRD.md — (W3, TDD) no entry point calls aliasLegacyEnv; gate-edits single planning segment; hook comments
-- [ ] 78-11-compat-single-name-TRD.md — (W3, TDD) compat.cjs AOForge-only: planning dir, project root, agent namespace, user files; legacy exports deleted
-- [ ] 78-12-docs-and-close-out-TRD.md — (W4, TDD) aliasLegacyEnv deleted, SHIM_REMOVAL done, legacy-names trimmed, SC-4 end to end, guide (+ site mirror), USER-GUIDE, CHANGELOG, CLAUDE.md, full suite
+- [ ] 78-11-compat-single-name-TRD.md — (W4, TDD, after 78-10) compat.cjs AOForge-only: planning dir, project root, agent namespace, user files; legacy exports deleted
+- [ ] 78-12-docs-and-close-out-TRD.md — (W5, TDD) aliasLegacyEnv deleted, SHIM_REMOVAL done, legacy-names trimmed, SC-4 end to end, guide (+ site mirror), USER-GUIDE, CHANGELOG, CLAUDE.md, full suite
 
 ## Progress
 

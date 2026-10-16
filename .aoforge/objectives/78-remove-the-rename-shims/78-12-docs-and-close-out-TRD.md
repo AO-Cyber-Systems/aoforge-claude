@@ -2,7 +2,7 @@
 objective: 78-remove-the-rename-shims
 trd: "12"
 type: standard
-wave: 4
+wave: 5
 depends_on: ["78-01", "78-02", "78-03", "78-04", "78-05", "78-06", "78-07", "78-08", "78-09", "78-10", "78-11"]
 files_modified:
   - plugins/aoforge/aoforge/bin/lib/compat.cjs
