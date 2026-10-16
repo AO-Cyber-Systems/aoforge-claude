@@ -135,10 +135,11 @@ describe('run', () => {
   test('18: without --repo the paths carry the literal {owner}/{repo} for gh to fill in', () => {
     const { run } = load();
     const { exec, calls } = fakeExec(script('repos/{owner}/{repo}'));
-    const r = run(['v9.9.9'], { exec });
+    const r = run(['other-1'], { exec });
     assert.equal(r.code, 0, r.stderr);
+    assert.equal(calls.length, 3);
     assert.ok(calls.every((c) => c[2].startsWith('repos/{owner}/{repo}/rulesets')), JSON.stringify(calls));
-    assert.match(r.stdout, /v9\.9\.9/);
+    assert.match(r.stdout, /other-1/);
     assert.match(r.stdout, /no tag ruleset matches/);
   });
 
