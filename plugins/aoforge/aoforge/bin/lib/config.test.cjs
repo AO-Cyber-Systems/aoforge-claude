@@ -149,6 +149,40 @@ describe('loadConfig', () => {
 
 });
 
+// quick 35: loadConfig returned a fixed key list without the two model settings, so init.cjs always read undefined.
+describe('loadConfig: agent_models and model_overrides (quick 35)', () => {
+  test('both objects come through as written', () => {
+    tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-config-'));
+    const agent_models = { planner: { quality: 'haiku' }, 'df-executor': { budget: 'sonnet' } };
+    const model_overrides = { debugger: 'haiku', verifier: 'claude-sonnet-5-5' };
+    buildPlanningDirWithConfig(tmpdir, { agent_models, model_overrides });
+    const cfg = loadConfig(tmpdir);
+    assert.deepStrictEqual(cfg.agent_models, agent_models);
+    assert.deepStrictEqual(cfg.model_overrides, model_overrides);
+  });
+
+  test('a string, an array, null or a missing key gives {}', () => {
+    for (const bad of ['haiku', ['planner'], null, undefined]) {
+      tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-config-'));
+      const config = bad === undefined ? { mode: 'yolo' } : { agent_models: bad, model_overrides: bad };
+      buildPlanningDirWithConfig(tmpdir, config);
+      const cfg = loadConfig(tmpdir);
+      assert.deepStrictEqual(cfg.agent_models, {}, JSON.stringify(config));
+      assert.deepStrictEqual(cfg.model_overrides, {}, JSON.stringify(config));
+      fs.rmSync(tmpdir, { recursive: true, force: true });
+    }
+    tmpdir = null;
+  });
+
+  test('unreadable config gives the defaults, {} for both', () => {
+    tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'df-config-'));
+    buildPlanningDirWithConfig(tmpdir, '{ not json');
+    const cfg = loadConfig(tmpdir);
+    assert.deepStrictEqual(cfg.agent_models, {});
+    assert.deepStrictEqual(cfg.model_overrides, {});
+  });
+});
+
 describe('dead gates removed', () => {
 
   afterEach(() => {
