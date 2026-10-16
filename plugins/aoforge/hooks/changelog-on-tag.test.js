@@ -499,3 +499,79 @@ describe('changelog-on-tag — prefixed release tags (objective 77)', () => {
     } finally { repo.cleanup(); }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick 34 — the printed fix must work as printed for every tag form. For `aoforge--vX.Y.Z` the
+// hint used to pass the prefixed tag to `changelog update`, which wrote `## [aoforge--vX.Y.Z]`.
+// ---------------------------------------------------------------------------
+
+describe('changelog-on-tag — the CHANGELOG hint for prefixed tags (quick 34)', () => {
+  const AOF_TOOLS = path.join(__dirname, '..', 'aoforge', 'bin', 'aof-tools.cjs');
+  const GIT_FLAGS = ['-c', 'user.email=t@t', '-c', 'user.name=T', '-c', 'commit.gpgsign=false'];
+  const bash = (command) => ({ tool_name: 'Bash', tool_input: { command } });
+
+  /** Manifests at 3.1.1 and a CHANGELOG that stops at 3.1.0. */
+  function at311() {
+    const m = manifests('3.1.1');
+    m['CHANGELOG.md'] = '# Changelog\n\n## [3.1.0] - 2026-10-16\n\n- entry\n';
+    return m;
+  }
+
+  test('aoforge--v3.1.1 is denied with a hint that passes the bare version', () => {
+    const { root, cleanup } = mkRepo({ commitFiles: at311() });
+    try {
+      const r = runHook(bash('git tag -a aoforge--v3.1.1 -m x'), root);
+      assert.ok(isDeny(r.stdout), r.stdout);
+      const reason = denyReason(r.stdout);
+      assert.ok(reason.includes('changelog update --version v3.1.1'), reason);
+      assert.ok(!reason.includes('--version aoforge--v'), reason);
+    } finally { cleanup(); }
+  });
+
+  test('the plain v3.1.1 deny reason is unchanged, byte for byte', () => {
+    const { root, cleanup } = mkRepo({ commitFiles: at311() });
+    try {
+      const r = runHook(bash('git tag -a v3.1.1 -m x'), root);
+      assert.ok(isDeny(r.stdout), r.stdout);
+      assert.equal(denyReason(r.stdout),
+        'CHANGELOG.md has no entry for v3.1.1. Run before tagging: ' +
+        '  node ~/.claude/aoforge/bin/aof-tools.cjs changelog update --version v3.1.1 ' +
+        'Then commit the CHANGELOG update, then re-run the tag command. ' +
+        'Escape hatch: AOFORGE_SKIP_CHANGELOG_GATE=1');
+    } finally { cleanup(); }
+  });
+
+  test('a pack tag deny names the pack CHANGELOG and the ## [version] heading', () => {
+    const files = manifests('3.1.0');
+    files['plugins/aoforge-stack-demo/.claude-plugin/plugin.json'] = JSON.stringify({ name: 'aoforge-stack-demo', version: '1.0.0' });
+    files['plugins/aoforge-stack-demo/CHANGELOG.md'] = '# Changelog\n\n## [0.9.0] - 2026-10-01\n\n- old\n';
+    files['.claude-plugin/marketplace.json'] = JSON.stringify({
+      name: 'aocyber', version: '3.1.0',
+      plugins: [{ name: 'aoforge', version: '3.1.0' }, { name: 'aoforge-stack-demo', version: '1.0.0' }],
+    });
+    const { root, cleanup } = mkRepo({ commitFiles: files });
+    try {
+      const r = runHook(bash('git tag -a aoforge-stack-demo--v1.0.0 -m x'), root);
+      assert.ok(isDeny(r.stdout), r.stdout);
+      const reason = denyReason(r.stdout);
+      assert.ok(reason.includes('plugins/aoforge-stack-demo/CHANGELOG.md'), reason);
+      assert.ok(reason.includes('## [1.0.0]'), reason);
+    } finally { cleanup(); }
+  });
+
+  test('end to end: running the hinted changelog update and committing makes aoforge--v3.1.1 pass', () => {
+    const { root, cleanup } = mkRepo({ commitFiles: at311() });
+    try {
+      const cmd = 'git tag -a aoforge--v3.1.1 -m x';
+      const first = runHook(bash(cmd), root);
+      assert.ok(isDeny(first.stdout), first.stdout);
+      const m = /--version (\S+)/.exec(denyReason(first.stdout));
+      assert.ok(m, denyReason(first.stdout));
+      const upd = spawnSync(process.execPath, [AOF_TOOLS, '--cwd', root, 'changelog', 'update', '--version', m[1]], { encoding: 'utf-8' });
+      assert.equal(upd.status, 0, upd.stderr);
+      execFileSync('git', [...GIT_FLAGS, 'commit', '-qam', 'docs: changelog'], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+      const second = runHook(bash(cmd), root);
+      assert.ok(isPassThrough(second.stdout), second.stdout);
+    } finally { cleanup(); }
+  });
+});
