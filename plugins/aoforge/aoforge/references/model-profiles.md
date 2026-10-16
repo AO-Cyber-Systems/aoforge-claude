@@ -98,15 +98,23 @@ fails. Only these never reach haiku and can carry it: `planner`,
 
 ## Resolution Logic
 
-Orchestrators resolve model before spawning:
+Orchestrators resolve the model before spawning, through one resolver (`resolveAgentModel` in `lib/init.cjs`):
+`aof-tools resolve-model <agent> [--objective N] [--focus f] [--escalate-from m] --raw` and every compound init
+command call it, so they cannot disagree. Pass the result as the Task model.
 
-```
-1. aof-tools resolve-model <agent> [--objective N] --raw   (the compound init commands do this)
-2. model_overrides for the agent wins outright
-3. Otherwise the profile: OBJECTIVE.md/TRD override > config model_profile >
-   "auto" → the (kind, work) defaults-table cell > balanced
-4. Look the agent up in the profile table; pass the result as the Task model
-```
+The profile comes first: OBJECTIVE.md/TRD override > config `model_profile` > `"auto"` → the (kind, work)
+defaults-table cell > `balanced`. Then the tier, highest first (the JSON names the winner in `tier_source`):
+
+1. `--escalate-from <model the attempt ran on>`: one rung above that model, whatever supplied it, an override
+   included. `tier_source: escalation`.
+2. `model_overrides[agent]`: a tier, `inherit` or a concrete model id. It applies on every profile and focus, and
+   to an agent missing from the table too. It is **not floored**. `tier_source: model_overrides`.
+3. The project's `agent_models[agent][profile]`. `tier_source: agent_models`.
+4. The `focus{}` tier for `--focus`. `tier_source: focus`.
+5. The package table row, then its `balanced` entry, then `sonnet`. `tier_source: table`.
+
+Over 3-5 the verdict floor raises `verifier` and `job-checker` to `verdict_floor.tier`
+(`tier_source: verdict_floor`). The `opus` tier resolves to the `inherit` alias.
 
 `"auto"` is opt-in on purpose: neither adopt nor the config template writes `model_profile`, and the
 table puts every feature and port objective on `quality` (TRD 76-01).
@@ -119,15 +127,24 @@ Override specific agents without changing the entire profile using `agent_models
 {
   "model_profile": "balanced",
   "agent_models": {
-    "df-planner": { "quality": "sonnet" },
-    "df-executor": { "balanced": "opus", "budget": "sonnet" }
+    "planner": { "quality": "sonnet" },
+    "executor": { "balanced": "opus", "budget": "sonnet" }
   }
 }
 ```
 
-Overrides take precedence over the package defaults. Valid tier values: `opus`, `sonnet`, `haiku`.
+Keys are the bare agent names; the `df-` prefixed spelling (`"df-planner"`) is still accepted, and the bare key wins
+when both are present. An `agent_models` tier beats the focus tier and the package default, and stays under the
+verdict floor. Valid tier values: `opus`, `sonnet`, `haiku`.
 
-> **Legacy:** `model_overrides` (flat string values) is still supported but `agent_models` is preferred as it supports per-tier granularity.
+`model_overrides` is a flat per-agent pin (a tier, `inherit` or a model id) that wins over the profile and is not
+floored:
+
+```json
+{ "model_overrides": { "debugger": "haiku" } }
+```
+
+`--escalate-from` still goes one rung above it.
 
 ## Switching Profiles
 

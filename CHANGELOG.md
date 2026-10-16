@@ -34,6 +34,14 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   single-line file that stalled the sweep past 30 s now takes milliseconds. A `--root` that is missing or not a
   directory exits 1 instead of reporting a clean sweep.
 
+### Fixes (quick 35)
+
+- **Project `agent_models` and `model_overrides` bind.** Both were silently ignored (`loadConfig` dropped them, and
+  `resolve-model` never read `model_overrides`). `resolve-model` and every `init` command now resolve through one
+  function, `resolveAgentModel`, and report the winning layer in `tier_source`. Precedence, highest first:
+  `--escalate-from`, then `model_overrides` (unfloored), then `agent_models`, then the focus tier, then the package
+  table; the verdict floor applies to the last three.
+
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 
 - **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and
