@@ -575,3 +575,41 @@ describe('changelog-on-tag — the CHANGELOG hint for prefixed tags (quick 34)',
     } finally { cleanup(); }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Quick 37 — this repository's own release tags. The gate reads the working tree when the tag
+// command names no commit, so every tag a release of the current versions pushes must pass here.
+// ---------------------------------------------------------------------------
+
+describe('this repository: release tags pass the gate (quick 37)', () => {
+  // hooks/ -> plugins/aoforge/ -> plugins/ -> the repository root.
+  const REPO = path.join(__dirname, '..', '..', '..');
+  const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(REPO, rel), 'utf8'));
+  const packs = () => fs.readdirSync(path.join(REPO, 'plugins'))
+    .filter((d) => /^aoforge-stack-/.test(d) && fs.existsSync(path.join(REPO, 'plugins', d, '.claude-plugin', 'plugin.json')))
+    .sort()
+    .map((d) => ({ dir: d, ...readJson(`plugins/${d}/.claude-plugin/plugin.json`) }));
+
+  test('19: v<core>, aoforge--v<core> and every <pack>--v<version> are allowed against the working tree', () => {
+    const core = readJson('package.json').version;
+    const found = packs();
+    assert.ok(found.length >= 2, `expected the flutter and web packs, found ${found.map((p) => p.dir).join(', ')}`);
+    const tags = [`v${core}`, `aoforge--v${core}`, ...found.map((p) => `${p.name}--v${p.version}`)];
+    for (const tag of tags) {
+      const r = runHook({ tool_name: 'Bash', tool_input: { command: `git tag -a ${tag} -m x` } }, REPO);
+      assert.equal(r.status, 0, `${tag}: ${r.stderr}`);
+      assert.ok(!isDeny(r.stdout), `${tag} denied: ${isDeny(r.stdout) ? denyReason(r.stdout) : r.stdout}`);
+    }
+  });
+
+  test('20: 3.1.0 and both packs\' 1.0.0 carry their release date, 2026-10-16', () => {
+    const heading = (rel, version) => {
+      const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
+      const line = text.split('\n').find((l) => l.startsWith(`## [${version}]`));
+      assert.equal(line, `## [${version}] - 2026-10-16`, `${rel}: ${line}`);
+    };
+    heading('CHANGELOG.md', '3.1.0');
+    heading('plugins/aoforge-stack-flutter/CHANGELOG.md', '1.0.0');
+    heading('plugins/aoforge-stack-web/CHANGELOG.md', '1.0.0');
+  });
+});
