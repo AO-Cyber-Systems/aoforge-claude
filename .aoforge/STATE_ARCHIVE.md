@@ -329,6 +329,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 75]: 75-04 sweep: 14 todos at start = 4 completed with evidence, 9 re-scoped, 1 follow-up; SC-4 passes (10 of 10 pending carry disposition_reason). The verify-commits todo is re-scoped: no SubagentStop block is recorded in the transcripts, and this repo is mode yolo (warn-only). TODO-01 is ticked by 75-05 after SC-4 is re-run.
 - [Objective 75]: EST-11 not met on 68-71 (72 unscored); EST-09 met at 90/92 = 0.97826; 4 todos completed, 9 re-scoped, 1 follow-up opened — The rule pre-registered before any scoring decided it (a five-objective criterion cannot be met by four scored objectives), and nothing was tuned or backfilled.
 - [Objective 78]: 78-01: doctor check 27 and validate W066/W067 KEPT as report-only, naming AOForge 3.0.x or the manual step (never --only 0012/0013); legacy-only W066 is validate's one broken result; new W069 legacy-claude-md-block (W068 is taken on main)
+- [Objective 78]: 78-02: doc-refs drops NAMESPACE_RENAMES and the dash form (one-release per 72-13); only /aoforge:<name> is a command reference, pre-rename text is left to 3.0.x, DEPRECATION_MAP/REMOVED_COMMANDS stay
+- [Objective 78]: 78-02: LEGACY_AGENT_EXEMPT and the 44-08 agent-path gate stay (pre-plugin agent paths, not the 3.0 rename); coexistence.cjs pointer-version handling stays for 78-06 (installed pointer copies remain on users' machines)
 
 ## Performance Metrics
 
@@ -544,4 +546,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 75 P04 | 10min | 2 tasks | 15 files |
 | Objective 75 P05 | 8min | 3 tasks | 9 files |
 | Objective 78 P01 | 17min | 3 tasks | 14 files |
+| Objective 78 P02 | 17min | 3 tasks | 64 files |
 

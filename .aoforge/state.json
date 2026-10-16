@@ -1710,6 +1710,16 @@
       "objective": "78",
       "summary": "78-01: doctor check 27 and validate W066/W067 KEPT as report-only, naming AOForge 3.0.x or the manual step (never --only 0012/0013); legacy-only W066 is validate's one broken result; new W069 legacy-claude-md-block (W068 is taken on main)",
       "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-02: doc-refs drops NAMESPACE_RENAMES and the dash form (one-release per 72-13); only /aoforge:<name> is a command reference, pre-rename text is left to 3.0.x, DEPRECATION_MAP/REMOVED_COMMANDS stay",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-02: LEGACY_AGENT_EXEMPT and the 44-08 agent-path gate stay (pre-plugin agent paths, not the 3.0 rename); coexistence.cjs pointer-version handling stays for 78-06 (installed pointer copies remain on users' machines)",
+      "rationale": null
     }
   ],
   "blockers": [

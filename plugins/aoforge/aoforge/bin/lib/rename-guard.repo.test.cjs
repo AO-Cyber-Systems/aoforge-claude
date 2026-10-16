@@ -35,9 +35,10 @@
 //    directory (not member access such as a config key); a sample line naming the legacy STATE.md
 //    yields one finding; the tree passes with ALLOW entries for .gitignore and the monorepo doctor.
 // 9. Span-scoped ALLOW (TRD 72-14): an entry with `spans` keeps its file in the scan set and masks
-//    only those spans (a JSON file cannot hold an ignore region). In the marketplace, the pointer
-//    entry's lines are masked and another legacy word on another line is still found; the same
-//    text under another path yields every finding. Masking keeps line numbers.
+//    only those spans (a JSON file cannot hold an ignore region). Since TRD 78-02 removed the pointer
+//    release, ALLOW holds no such entry, so a synthetic one is passed in: its spans are masked and
+//    another legacy word on another line is still found; the same text under another path yields
+//    every finding. Masking keeps line numbers.
 //
 // Runtime model: read-only against the repository (5b writes only to its own tmp dir). Repo
 // root is path.resolve(__dirname, '..', '..', '..', '..', '..'); a mirror install (no README.md
@@ -103,29 +104,8 @@ const ALLOW = [
     pattern: 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js',
     reason: 'skips directories by name: its skip lists name the legacy planning and product directories beside the new ones',
   },
-  // TRD 72-14: the final release of the old plugin, a pointer to the new one.
-  {
-    pattern: `plugins/${LEGACY.slug}/**`,
-    reason: 'the final pointer release of the legacy plugin keeps its name; removed in the release after 3.0.0',
-  },
-  {
-    pattern: 'scripts/gen-pointer-skills*',
-    reason: 'generates the pointer plugin, which must use the legacy plugin name',
-  },
-  {
-    pattern: '.claude-plugin/marketplace.json',
-    spans: new RegExp(
-      `"(?:name|source)": "(?:\\./plugins/)?${esc(LEGACY.slug)}"` +
-        `|"description": "${esc(LEGACY.product)} is now ${esc(NAMES.product)}[^"\\n]*"`,
-      'g',
-    ),
-    reason: 'the marketplace entry of the pointer release keeps the legacy plugin name until the release after 3.0.0',
-  },
-  {
-    pattern: 'package.json',
-    spans: new RegExp(`'plugins/${esc(LEGACY.slug)}/\\*\\*/\\*\\.test\\.js'`, 'g'),
-    reason: 'npm test runs the tests of the pointer release, which live under the legacy plugin directory',
-  },
+  // TRD 78-02 removed the pointer release of the old plugin and, with it, its four entries here (the plugin
+  // directory, its generator, and the span-scoped marketplace and package.json entries).
 ];
 
 // ─── ignore regions ───────────────────────────────────────────────────────────────
@@ -521,8 +501,21 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
     });
   });
 
-  describe('9: span-scoped ALLOW (TRD 72-14)', () => {
-    const MARKET = '.claude-plugin/marketplace.json';
+  // TRD 78-02: ALLOW holds no span-scoped entry any more (the pointer release's marketplace and package.json entries
+  // went with it), so the mechanism is tested with a synthetic one, passed in as `allow`.
+  describe('9: span-scoped ALLOW (TRD 72-14, synthetic entry since TRD 78-02)', () => {
+    const FIXTURE = 'fixture.json';
+    const SPAN_ALLOW = [
+      {
+        pattern: FIXTURE,
+        spans: new RegExp(
+          `"(?:name|source)": "(?:\\./plugins/)?${esc(LEGACY.slug)}"` +
+            `|"description": "${esc(LEGACY.product)} is now ${esc(NAMES.product)}[^"\\n]*"`,
+          'g',
+        ),
+        reason: 'a synthetic span-scoped entry: the span mechanism stays covered with no such entry in ALLOW',
+      },
+    ];
     const sample = [
       '{',
       `  "name": "${LEGACY.slug}",`,
@@ -533,23 +526,41 @@ describe('rename-guard.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'no
       '}',
     ].join('\n');
 
-    test('9a: the marketplace pointer entry is masked; another legacy word is still found', () => {
-      assert.ok(scanSet(REPO_ROOT).includes(MARKET), 'a span-scoped file stays in the scan set');
+    test('9a: the spans are masked and the file stays in the scan set; another legacy word is still found', () => {
+      assert.equal(ALLOW.some((a) => a.spans !== undefined), false, 'ALLOW itself holds no span-scoped entry');
       assert.deepEqual(
-        scanFile(sample, MARKET).map((f) => f.line),
+        scanFile(sample, FIXTURE, SPAN_ALLOW).map((f) => f.line),
         [6],
       );
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'rename-guard-spans-'));
+      try {
+        const git = (...args) => {
+          const r = spawnSync('git', args, { cwd: tmp, encoding: 'utf8' });
+          assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+        };
+        git('init', '-q');
+        fs.writeFileSync(path.join(tmp, FIXTURE), sample);
+        git('add', '--', FIXTURE);
+        assert.ok(scanSet(tmp, { allow: SPAN_ALLOW }).includes(FIXTURE), 'a span-scoped file stays in the scan set');
+        assert.deepEqual(
+          scanRepo(tmp, { allow: SPAN_ALLOW }).map((f) => `${f.file}:${f.line}`),
+          [`${FIXTURE}:6`],
+        );
+      } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+      }
     });
 
     test('9b: the same text under another path yields every finding', () => {
       assert.deepEqual(
-        scanFile(sample, 'x.json').map((f) => f.line),
+        scanFile(sample, 'x.json', SPAN_ALLOW).map((f) => f.line),
         [2, 3, 5, 6],
       );
     });
 
     test('9c: masking keeps the text length and its line breaks', () => {
-      const masked = maskAllowedSpans(sample, MARKET);
+      const masked = maskAllowedSpans(sample, FIXTURE, SPAN_ALLOW);
+      assert.notEqual(masked, sample, 'the spans were masked');
       assert.equal(masked.length, sample.length);
       assert.equal(masked.split('\n').length, sample.split('\n').length);
     });

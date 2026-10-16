@@ -8,8 +8,8 @@
  *   1. CHANGELOG.md has a heading for that version (`## [X.Y.Z]`).
  *   2. The three release manifests carry matching versions:
  *        - package.json
- *        - plugins/aoforge/.claude-plugin/plugin.json (on a commit from before the
- *          objective 72 rename, the same file under the legacy plugin directory)
+ *        - plugins/aoforge/.claude-plugin/plugin.json (the only plugin manifest read;
+ *          a tree from before the objective 72 rename has none, so it is skipped)
  *        - .claude-plugin/marketplace.json (the plugin entry matching plugin.json `.name`)
  *
  * If CHANGELOG is missing the entry, denies and tells Claude to run
@@ -55,10 +55,11 @@ try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { i
 const { execFileSync } = require('child_process');
 const { stripHeredocs, stripQuoted } = require('./gate-commits.js');
 const { escapeRegExp } = require('../aoforge/bin/lib/text-escape.cjs');
-const { NAMES, LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
+const { NAMES } = require('../aoforge/bin/lib/legacy-names.cjs');
 
-// The plugin manifest, then its pre-rename location (a tag on a commit from before objective 72).
-const PLUGIN_MANIFESTS = [NAMES.slug, LEGACY.slug].map((d) => `plugins/${d}/.claude-plugin/plugin.json`);
+// The plugin manifest. Only the AOForge one (TRD 78-02): a tree from before the objective 72 rename has none, so the
+// version-sync check skips it like any other repo without the three manifests.
+const PLUGIN_MANIFEST = `plugins/${NAMES.slug}/.claude-plugin/plugin.json`;
 
 // Flags that consume the NEXT token as their value (never a commit-ish candidate).
 const VALUE_FLAGS = new Set(['-m', '--message', '-F', '--file', '-u', '--local-user']);
@@ -240,13 +241,7 @@ function main() {
 
   // Manifest version-sync check.
   const pkg = parseJsonSafe(reader.read('package.json'));
-  // A commit from before the objective 72 rename keeps its plugin under the legacy directory.
-  let pluginPath = PLUGIN_MANIFESTS[0];
-  let plugin = null;
-  for (const p of PLUGIN_MANIFESTS) {
-    plugin = parseJsonSafe(reader.read(p));
-    if (plugin) { pluginPath = p; break; }
-  }
+  const plugin = parseJsonSafe(reader.read(PLUGIN_MANIFEST));
   const market = parseJsonSafe(reader.read('.claude-plugin/marketplace.json'));
 
   // Skip silently if any of the three are absent / unparseable — keeps hook a no-op for other repos.
@@ -262,7 +257,7 @@ function main() {
     mismatches.push(`  package.json: ${pkg.version} (expected ${version})`);
   }
   if (plugin.version !== version) {
-    mismatches.push(`  ${pluginPath}: ${plugin.version} (expected ${version})`);
+    mismatches.push(`  ${PLUGIN_MANIFEST}: ${plugin.version} (expected ${version})`);
   }
   if (marketEntry && marketEntry.version !== version) {
     mismatches.push(`  .claude-plugin/marketplace.json [${marketEntry.name}]: ${marketEntry.version} (expected ${version})`);
@@ -285,4 +280,5 @@ module.exports = {
   parseTagCommand,
   makeTreeReader,
   resolveCommit,
+  PLUGIN_MANIFEST,
 };
