@@ -258,3 +258,105 @@ describe('TRD 41-07 — reference effort column matches agent frontmatter', () =
       `obsolete df- profile keys (canonical keys have no prefix):\n  ${hits.join('\n  ')}`);
   });
 });
+
+describe('TRD 76-06 — per-focus tiers and the verdict floor', () => {
+  const os = require('os');
+  function project(config) {
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'mp-7606-'));
+    fs.mkdirSync(path.join(dir, '.aoforge'));
+    fs.writeFileSync(path.join(dir, '.aoforge', 'config.json'), JSON.stringify(config));
+    return dir;
+  }
+  function resolveIn(dir, ...args) {
+    const r = spawnSync(process.execPath, [DF_TOOLS, 'resolve-model', ...args], { cwd: dir, encoding: 'utf8' });
+    return JSON.parse(r.stdout);
+  }
+
+  test('every focus entry names a known agent and known tiers', () => {
+    for (const [agent, foci] of Object.entries(profiles.focus || {})) {
+      assert.ok(profiles.agents[agent], `focus.${agent} names no agent`);
+      for (const [focus, entry] of Object.entries(foci)) {
+        for (const tier of Object.values(entry)) assert.ok(profiles.models[tier], `focus.${agent}.${focus}: unknown tier ${tier}`);
+      }
+    }
+  });
+
+  test('focus entries only raise a tier (a lower one needs a recorded eval first)', () => {
+    const rank = { haiku: 0, sonnet: 1, opus: 2 };
+    for (const [agent, foci] of Object.entries(profiles.focus || {})) {
+      for (const [focus, entry] of Object.entries(foci)) {
+        for (const [p, tier] of Object.entries(entry)) {
+          assert.ok(rank[tier] >= rank[profiles.agents[agent][p]], `focus.${agent}.${focus}.${p} lowers ${profiles.agents[agent][p]} to ${tier}`);
+        }
+      }
+    }
+  });
+
+  test('--focus applies the focus tiers; an unknown focus changes nothing', () => {
+    const dir = project({ model_profile: 'balanced' });
+    try {
+      assert.equal(resolveIn(dir, 'codebase-mapper').tier, profiles.agents['codebase-mapper'].balanced);
+      const concerns = resolveIn(dir, 'codebase-mapper', '--focus', 'concerns');
+      assert.equal(concerns.tier, profiles.focus['codebase-mapper'].concerns.balanced);
+      assert.equal(concerns.focus, 'concerns');
+      assert.equal(resolveIn(dir, 'codebase-mapper', '--focus', 'nope').tier, profiles.agents['codebase-mapper'].balanced);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('verdict agents resolve at or above the floor on every profile, agent_models included', () => {
+    const rank = { haiku: 0, sonnet: 1, opus: 2 };
+    const floor = profiles.verdict_floor.tier;
+    for (const agent of profiles.verdict_floor.agents) {
+      for (const p of ['quality', 'balanced', 'budget']) {
+        assert.ok(rank[profiles.agents[agent][p]] >= rank[floor], `agents.${agent}.${p} is below the verdict floor`);
+      }
+    }
+    const dir = project({ model_profile: 'budget', agent_models: { verifier: { budget: 'haiku' } } });
+    try {
+      assert.equal(resolveIn(dir, 'verifier').tier, floor, 'a project agent_models entry cannot drop a verdict below the floor');
+      assert.equal(resolveIn(dir, 'job-checker').tier, floor);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  test('init map-codebase and new-project emit one model per focus', () => {
+    const dir = project({ model_profile: 'balanced' });
+    try {
+      const run = (wf) => JSON.parse(spawnSync(process.execPath, [DF_TOOLS, 'init', wf], { cwd: dir, encoding: 'utf8' }).stdout);
+      assert.deepEqual(Object.keys(run('map-codebase').mapper_models), ['tech', 'arch', 'quality', 'concerns']);
+      assert.deepEqual(Object.keys(run('new-project').researcher_models), ['stack', 'features', 'architecture', 'pitfalls']);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe('TRD 76-07 — escalation re-spawns one rung up', () => {
+  function esc(from) {
+    const r = spawnSync(process.execPath, [DF_TOOLS, 'resolve-model', 'debugger', '--escalate-from', from], { cwd: REPO, encoding: 'utf8' });
+    return { status: r.status, out: r.status === 0 ? JSON.parse(r.stdout) : null, stderr: r.stderr };
+  }
+
+  test('each rung escalates to the next; opus (or inherit, or its id) is the ceiling', () => {
+    assert.deepEqual([esc('haiku').out.tier, esc('haiku').out.ceiling], ['sonnet', false]);
+    assert.deepEqual([esc('sonnet').out.tier, esc('sonnet').out.model], ['opus', 'inherit']);
+    for (const top of ['opus', 'inherit', profiles.models.opus]) {
+      const r = esc(top).out;
+      assert.equal(r.ceiling, true, top);
+      assert.equal(r.escalated_from, 'opus', top);
+    }
+    assert.equal(esc(profiles.models.haiku).out.tier, 'sonnet');
+  });
+
+  test('an unrecognised rung is refused, not guessed', () => {
+    const r = esc('gpt-9');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /--escalate-from/);
+  });
+
+  test('the orchestrators act on ESCALATION REQUESTED instead of failing it', () => {
+    const PLUGIN = path.join(__dirname, '..', '..', '..');
+    const read = (rel) => fs.readFileSync(path.join(PLUGIN, rel), 'utf8');
+    for (const rel of ['aoforge/workflows/execute-objective.md', 'skills/debug/SKILL.md', 'aoforge/workflows/diagnose-issues.md']) {
+      assert.match(read(rel), /ESCALATION REQUESTED[\s\S]*--escalate-from/, `${rel} must re-spawn one rung up`);
+    }
+    assert.match(read('agents/debugger.md'), /## ESCALATION REQUESTED/);
+  });
+});

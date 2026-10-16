@@ -39,7 +39,7 @@ function isExecutableFile(fs, file) {
   }
 }
 
-/** Directories searched after PATH: `$GOPATH/bin`, `~/go/bin`, `~/.local/bin`, `~/.maestro/bin`, mise shims. */
+/** Directories searched after PATH: `$GOPATH/bin`, `~/go/bin`, `~/.local/bin`, mise shims, and each enabled stack pack's gate-policy `binDirs`. */
 function extraBinDirs(env, home) {
   const dirs = [];
   const gopath = env && env.GOPATH ? String(env.GOPATH) : path.join(home, 'go');
@@ -47,9 +47,9 @@ function extraBinDirs(env, home) {
   dirs.push(
     path.join(home, 'go', 'bin'),
     path.join(home, '.local', 'bin'),
-    path.join(home, '.maestro', 'bin'),
     path.join(home, '.local', 'share', 'mise', 'shims'),
   );
+  for (const rel of gatePolicy().binDirs) dirs.push(path.join(home, rel));
   return dirs;
 }
 
@@ -295,7 +295,7 @@ function absPath(ctx, rel) {
 
 function needBinary(tool, ctx) {
   if (ctx.which(tool)) return null;
-  return res('binary_missing', tool, `${tool} not found on PATH (also checked GOPATH/bin, ~/go/bin, ~/.local/bin, ~/.maestro/bin, mise shims)`);
+  return res('binary_missing', tool, `${tool} not found on PATH (also checked GOPATH/bin, ~/go/bin, ~/.local/bin, mise shims and stack pack tool dirs)`);
 }
 
 function runnerFileExists(ctx, runner, dir) {
@@ -503,7 +503,7 @@ function verifyCommand(command, { root, cwd = '', env = process.env, home = os.h
 //
 // Build outputs (TRD 71-04, SDR-10). In the objective 43 follow-up run eden-circle's `make build` wrote
 // `bin/circle-api`, which is untracked and not gitignored. The guard removed it, then halted the root, so every
-// later Dart/Flutter gate was skipped `side-effect-unsafe`, including the `client/` Flutter gates a Go binary
+// later guarded gate was skipped `side-effect-unsafe`, including another component's gates the binary
 // cannot affect. A file a `build` gate creates in a conventional output directory is the build doing its job.
 // So a `build` gate's NEW, untracked, unignored files under `bin/ build/ dist/ out/ target/` (the first path
 // segment, relative to the gate's cwd; `RUN_POLICY.buildOutputDirs`) are removed like any other change (the run
@@ -518,9 +518,8 @@ const toolVerb = (tool, verbs) => new RegExp(`\\b(?:${tool})\\b[^|;&\\n]*?\\b(?:
 // The refusals the EFFECT guard adds on top of the key policy (TRD 43-02). The key allow list says which
 // gates may run; these say a gate may NOT run because its effect on the work tree cannot be contained.
 const EFFECT_REASONS = Object.freeze({
-  unsafe: 'side-effect-unsafe',     // an earlier command in this root changed files: no more Dart/Flutter gates
-  unproven: 'side-effect-unproven', // not a git work tree, so a Dart/Flutter gate's effect cannot be undone
-  needsPubGet: 'needs-pub-get',     // `flutter --no-pub` has no resolved package config, and we never run pub get
+  unsafe: 'side-effect-unsafe',     // an earlier command in this root changed files: no more guarded gates
+  unproven: 'side-effect-unproven', // not a git work tree, so a guarded gate's effect cannot be undone
 });
 
 // A service URL scheme, a service variable name and a loopback host:port (TRD 71-03). `SERVICE_ENV_NAME` takes an
@@ -551,13 +550,11 @@ const RUN_POLICY = Object.freeze({
     { re: toolVerb('gh', 'release'), reason: 'gh-release' },
     { re: /\bgoreleaser\b/, reason: 'goreleaser' },
     { re: new RegExp(`${toolVerb('npm|pnpm|yarn|bun|lerna|changeset|changesets', 'publish').source}|\\b(?:semantic-release|release-it)\\b`), reason: 'npm-publish' },
-    { re: /\b(?:dart|flutter)\b[^|;&\n]*?\bpub\b[^|;&\n]*?\bpublish\b/, reason: 'pub-publish' },
     { re: toolVerb('cargo', 'publish|login|yank|owner'), reason: 'cargo-publish' },
     { re: toolVerb('twine|poetry|uv|flit|hatch|pdm', 'upload|publish'), reason: 'python-publish' },
     { re: toolVerb('gem', 'push'), reason: 'gem-push' },
     { re: toolVerb('mvn|mvnw|gradle|gradlew', 'deploy|publish|release'), reason: 'maven-deploy' },
     { re: new RegExp(`${toolVerb('flyctl|fly|vercel|wrangler|firebase|netlify|serverless|sls|cdk|sam|kamal|cap|heroku|railway|doctl|az|aws', 'deploy|publish|release').source}|\\bansible-playbook\\b`), reason: 'deploy-cli' },
-    { re: /\bflutter\b[^|;&\n]*?\b(?:run|attach)\b/, reason: 'flutter-run' },
     { re: toolVerb('npm|pnpm|yarn|bun', 'dev|start|serve|watch|preview|storybook'), reason: 'server-or-watch' },
     { re: /\b(?:nodemon|watchexec|webpack-dev-server|live-server|http-server|browser-sync|storybook)\b/, reason: 'server-or-watch' },
     { re: /\b(?:vite|next|nuxt|astro|remix|gatsby|hugo|jekyll|mkdocs|docusaurus|ng|webpack|rails|uvicorn|gunicorn|flask|manage\.py)\s+(?:dev|serve|server|start|preview|s|run|runserver)\b/, reason: 'server-or-watch' },
@@ -633,7 +630,7 @@ function serviceIn(line) {
 function scanText(text) {
   const lines = logicalLines(text);
   for (const line of lines) {
-    for (const d of RUN_POLICY.deny) if (d.re.test(line)) return { deny: { reason: d.reason, line }, skip: null, service: null };
+    for (const d of [...RUN_POLICY.deny, ...gatePolicy().deny]) if (d.re.test(line)) return { deny: { reason: d.reason, line }, skip: null, service: null };
   }
   let service = null;
   for (const line of lines) {
@@ -934,13 +931,13 @@ function withSkip(it, reason, detail) {
 // ─── The effect guard (TRD 43-02, SDR-03) ─────────────────────────────────────
 //
 // The key allow list above is POLICY: it says which gates may run. It cannot see what a command DOES.
-// In objective 42's rollout the "safe" lint key ran `flutter analyze --fatal-infos`, which rewrote
-// analysis_options.yaml and ran an implicit `pub get` that bumped pubspec.lock. So every spawned command
+// In objective 42's rollout a "safe" lint key rewrote an analyzer options file and ran an implicit
+// dependency resolve that bumped a lockfile. So every spawned command
 // is bracketed by a snapshot of the git work tree, and whatever it changed is reported and put back.
-// THE GUARD IS AUTHORITATIVE; the key list and `--no-pub` only make it fire less often.
+// THE GUARD IS AUTHORITATIVE; the key list and stack pack rewrites only make it fire less often.
 //
-//   * Compare CONTENT, not status codes. aocore and aodex were already dirty on exactly the files flutter
-//     touches, so ` M` before and ` M` after would hide a second modification. Every listed path is hashed.
+//   * Compare CONTENT, not status codes. aocore and aodex were already dirty on exactly the files those tools
+//     touch, so ` M` before and ` M` after would hide a second modification. Every listed path is hashed.
 //   * A path that was clean before and is listed after has HEAD as its before-state, so git restores it.
 //   * A path that was dirty before is restored from the bytes saved before the run (up to 1 MB). Larger
 //     files cannot be held, so they are reported `restored: false` with the path listed.
@@ -1156,9 +1153,33 @@ function restoreTree(before, delta, after, { fs = nodeFs, git = spawnSync } = {}
   return { restored: unrestored.length === 0, unrestored };
 }
 
-// Tools whose gates rewrite the work tree behind the command's back (`pub get`, lockfiles, analyzer
-// options). fvm/puro/melos/very_good/dcm are launchers or Dart-ecosystem drivers for the same tools.
-const DART_TOOLS = new Set(['dart', 'flutter', 'fvm', 'puro', 'melos', 'very_good', 'dcm']);
+// Stack pack gate policies (objective 77 follow-up). A pack's manifest names a `gate_policy` module:
+// `guardedTools` (tools that rewrite the work tree behind the command's back, so once a root has
+// changed they are skipped and outside git they are refused), extra `deny` rules, home-relative
+// `binDirs`, and an optional `rewrite(command, { cwdAbs, root, fs })` that prevents an effect up front.
+// Every enabled pack's policy is loaded: each one only ever matches its own tools.
+let _policy = null;
+function gatePolicy() {
+  if (_policy) return _policy;
+  const merged = { guardedTools: new Set(), deny: [], binDirs: [], rewriters: [] };
+  try {
+    const packs = require('./stack-packs.cjs');
+    for (const p of packs.discoverPacks({})) {
+      const rel = p.enabled && p.manifest && p.manifest.gate_policy;
+      if (!rel) continue;
+      try {
+        const mod = require(path.join(p.root, rel));
+        for (const t of mod.guardedTools || []) merged.guardedTools.add(t);
+        merged.deny.push(...(mod.deny || []));
+        merged.binDirs.push(...(mod.binDirs || []));
+        if (typeof mod.rewrite === 'function') merged.rewriters.push(mod.rewrite);
+      } catch (_) { /* a broken pack policy never breaks the run guard */ }
+    }
+  } catch (_) { /* no packs */ }
+  _policy = merged;
+  return merged;
+}
+function _resetGatePolicy() { _policy = null; }
 
 /** Every tool a command invokes directly: past env/sudo/time prefixes, `cd x &&` chains, launchers and `sh -c "..."`. */
 function directTools(command, depth = 0, into = new Set()) {
@@ -1178,52 +1199,21 @@ function directTools(command, depth = 0, into = new Set()) {
   return into;
 }
 
-function isDartFlutter(command) {
-  for (const tool of directTools(command)) if (DART_TOOLS.has(tool)) return true;
+function isGuarded(command) {
+  const guarded = gatePolicy().guardedTools;
+  if (!guarded.size) return false;
+  for (const tool of directTools(command)) if (guarded.has(tool)) return true;
   return false;
 }
 
-// A single direct `flutter analyze|test`, optionally behind `VAR=value ` assignments and a path to the binary.
-const DIRECT_FLUTTER_GATE = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:\S*\/)?flutter\s+(?:analyze|test)(?:\s|$)/;
-const SHELL_CONTROL_WORD = /^(?:\|\|?|&&?|;)$/;
-
-/**
- * noPubRewrite(command) -> the command with ` --no-pub` appended, or null when it must run as written.
- *
- * Prevention, ahead of the effect guard: `flutter analyze|test` runs an implicit `pub get` that bumps
- * pubspec.lock (objective 42's rollout). `--no-pub` stops it. Only a SINGLE DIRECT invocation is rewritten:
- * `flutter analyze` or `flutter test`, optional leading env assignments, no `&&` `;` `|` `&`, no subshell or
- * comment, and no `--pub` / `--no-pub` already (the author's choice stands). A wrapper (`make lint`,
- * `fvm flutter analyze`, `sh -c`) is not rewritten: appending a flag to the wrapper would not reach flutter.
- * The effect guard still applies to every one of them. `dart analyze|test|format` have no pub flag.
- */
-function noPubRewrite(command) {
-  const text = String(command).trim();
-  if (/\n/.test(text) || /(?:^|\s)#/.test(text) || /\\$/.test(text)) return null;
-  if (!DIRECT_FLUTTER_GATE.test(text) || splitTopLevel(text).length !== 1) return null;
-  const invocations = normalizeScript(text);
-  if (invocations.length !== 1) return null;
-  const { argv } = invocations[0];
-  if (argv.some((w) => w === '--pub' || w === '--no-pub' || w === '--' || SHELL_CONTROL_WORD.test(w))) return null;
-  return `${text} --no-pub`;
-}
-
-/**
- * Is there a resolved package config for a command run in `cwdAbs`? `--no-pub` needs one, and this module
- * never runs `pub get`. It sits next to the package's pubspec; a pub-workspace member (`resolution:
- * workspace`, Dart 3.6+) resolves through the workspace root's, so those climb to the repo root.
- */
-function packageConfigPresent(ctx, cwdAbs) {
-  const has = (dir) => ctx.fs.existsSync(path.join(dir, '.dart_tool', 'package_config.json'));
-  if (has(cwdAbs)) return true;
-  let member = false;
-  try { member = /^resolution:\s*workspace\b/m.test(ctx.fs.readFileSync(path.join(cwdAbs, 'pubspec.yaml'), 'utf-8')); } catch (_) { /* no pubspec: not a member */ }
-  if (!member) return false;
-  for (let dir = cwdAbs; dir !== ctx.root && dir !== path.dirname(dir);) {
-    dir = path.dirname(dir);
-    if (has(dir)) return true;
+/** The first pack rewrite that applies: null, { command } or { skip: { reason, detail } }. */
+function packRewrite(command, ctx, cwdAbs) {
+  for (const fn of gatePolicy().rewriters) {
+    let r = null;
+    try { r = fn(command, { cwdAbs, root: ctx.root, fs: ctx.fs }); } catch (_) { r = null; }
+    if (r) return r;
   }
-  return false;
+  return null;
 }
 
 const haltedDetail = (halted) => (halted.path
@@ -1332,21 +1322,19 @@ function runOne(it, ctx, opts) {
   const signals = [...new Set([...findings.filter((f) => f.type === 'service').map((f) => f.detail), ...serviceSignals(it, ctx)])];
   if (signals.length && !opts.allowServices) return withSkip(it, RUN_POLICY.services.reason, `${signals.join('; ')}${SERVICE_HINT}`);
 
-  // The effect guard. Only a Dart/Flutter gate is refused by it (`pub get`, lockfiles and analyzer options
-  // are what those tools rewrite); every other tool is merely bracketed and restored.
-  const dartFlutter = isDartFlutter(it.command);
-  if (dartFlutter && ctx.halted) return withSkip(it, EFFECT_REASONS.unsafe, haltedDetail(ctx.halted));
+  // The effect guard. Only a guarded tool's gate (a stack pack names its tools) is refused by it; every
+  // other tool is merely bracketed and restored.
+  const guarded = isGuarded(it.command);
+  if (guarded && ctx.halted) return withSkip(it, EFFECT_REASONS.unsafe, haltedDetail(ctx.halted));
 
-  // Prevention: run `flutter analyze|test` with --no-pub (only the executed text; it.command is never
-  // modified). That needs a resolved package config, and we never run `pub get` to make one.
-  const rewritten = noPubRewrite(it.command);
-  if (rewritten !== null && !packageConfigPresent(ctx, cwdAbs)) {
-    return withSkip(it, EFFECT_REASONS.needsPubGet, 'flutter --no-pub needs a resolved package config (.dart_tool/package_config.json); run pub get yourself first');
-  }
+  // Prevention: a stack pack may rewrite the executed text (it.command is never modified) or skip the gate.
+  const rw = packRewrite(it.command, ctx, cwdAbs);
+  if (rw && rw.skip) return withSkip(it, rw.skip.reason, rw.skip.detail);
+  const rewritten = rw && rw.command ? rw.command : null;
   const commandToRun = rewritten !== null ? rewritten : it.command;
 
   const before = snapshotTree(ctx.root, { fs: ctx.fs, git: opts.git, withBytes: true });
-  if (before === null && dartFlutter) {
+  if (before === null && guarded) {
     return withSkip(it, EFFECT_REASONS.unproven, 'not a git work tree (or git is unavailable), so a change this command makes could not be detected and undone');
   }
 
@@ -1392,7 +1380,7 @@ function isBuildOutput(it, d) {
  * Diff the work tree against `before`, restore whatever the command changed, and record it on `run`:
  * `mutated: [{path, change}]`, `restored` (true only if EVERY path was put back and a third snapshot
  * agrees), `unrestored: [path]` when not. An after-snapshot that cannot be taken (git failed mid-run) is
- * `mutated_unknown`. Either way the root is halted for the remaining Dart/Flutter gates.
+ * `mutated_unknown`. Either way the root is halted for the remaining guarded gates.
  *
  * The one exception (TRD 71-04): a `build` gate's new files under an output directory are also listed in
  * `build_outputs` and do not halt the root. Any other changed path, or a restore that did not fully succeed,
@@ -1434,8 +1422,8 @@ function guardEffects(it, ctx, opts, before, run) {
  *
  * Effect guard (43-02): each spawned command is bracketed by a snapshot of the git work tree. What it
  * changed is restored and reported as `run.mutated` / `run.restored`; after one change the remaining
- * Dart/Flutter items for this root are skipped `side-effect-unsafe`. Outside a git work tree a
- * Dart/Flutter item is refused `side-effect-unproven`. `git` (default spawnSync) runs the snapshots and is
+ * guarded items for this root are skipped `side-effect-unsafe`. Outside a git work tree a
+ * guarded item is refused `side-effect-unproven`. `git` (default spawnSync) runs the snapshots and is
  * separate from `spawn`, which only ever runs the gate commands.
  *
  * Build outputs (71-04): a `build` gate's new, untracked, unignored files under `bin/ build/ dist/ out/ target/`

@@ -16,14 +16,34 @@ Model profiles control which Claude model each AOForge agent uses. This allows b
 | `research-synthesizer` | sonnet | sonnet | haiku | — |
 | `debugger` | opus | sonnet | sonnet | xhigh |
 | `codebase-mapper` | sonnet | haiku | haiku | — |
-| `verifier` | sonnet | sonnet | haiku | — |
-| `job-checker` | sonnet | sonnet | haiku | — |
+| `verifier` | sonnet | sonnet | sonnet | — |
+| `job-checker` | sonnet | sonnet | sonnet | — |
 | `integration-checker` | sonnet | sonnet | haiku | — |
 | `security-auditor` | opus | sonnet | sonnet | xhigh |
 
 Agent keys are canonical **without** a `df-` prefix. `aof-tools resolve-model`
 normalises either spelling (TRD 28-02) — before that fix, un-prefixed callers
 missed the table entirely and silently fell back to `sonnet`.
+
+## Per-focus tiers and the verdict floor (TRD 76-06)
+
+`focus{}` gives a spawn's focus its own tiers, overlaid on the agent's row when the spawn names it
+(`resolve-model <agent> --focus <f>`; `init map-codebase` emits `mapper_models`, and `init
+new-project` / `init new-milestone` emit `researcher_models`, one model per focus):
+
+| Agent | Focus | `quality` | `balanced` | `budget` |
+|-------|-------|-----------|------------|----------|
+| `codebase-mapper` | `concerns` | sonnet | sonnet | haiku |
+| `project-researcher` | `architecture` | opus | sonnet | sonnet |
+| `project-researcher` | `pitfalls` | opus | sonnet | sonnet |
+
+A focus entry only raises a tier where the focus is judgment work (concerns: security and debt
+calls; architecture and pitfalls: trade-offs). Lowering one waits on a recorded eval;
+`model-profiles.test.cjs` refuses a focus entry below its agent's row.
+
+`verdict_floor` keeps the pass/fail verdicts (`verifier`, `job-checker`) at `sonnet` or above on
+every profile, a project's `agent_models` included: a false pass ships, and a false fail costs two
+gap-closure cycles. `model_overrides` stays the explicit, unfloored escape.
 
 ## Tier → model id
 
@@ -52,8 +72,9 @@ own frontmatter, so it cannot vary by profile.
 
 **Haiku 4.5 rejects the `effort` parameter.** Any agent that can resolve to the
 `haiku` tier in *any* profile therefore must not declare `effort`, or that run
-fails. Only these five never reach haiku and can carry it: `planner`,
-`roadmapper`, `executor`, `debugger`, `security-auditor`. Stack pack agents (the Flutter pack's
+fails. Only these never reach haiku and can carry it: `planner`,
+`roadmapper`, `executor`, `debugger`, `security-auditor`, and since TRD 76-06 `verifier` and
+`job-checker`. Stack pack agents (the Flutter pack's
 `ui-evaluator`) take their tiers from the pack manifest's `models`, not this table.
 `model-profiles.test.cjs` enforces this.
 

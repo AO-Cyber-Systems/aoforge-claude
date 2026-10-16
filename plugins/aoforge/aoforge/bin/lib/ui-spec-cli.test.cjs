@@ -48,6 +48,7 @@ function splitArgv(argv) {
 function runArm(argv, opts = {}) {
   const r = spawnSync('node', [DF_TOOLS, ...splitArgv(argv)], {
     cwd: opts.cwd || LIB_DIR,
+    env: opts.env ? { ...process.env, ...opts.env } : process.env,
     encoding: 'utf-8'
   });
   return { status: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
@@ -97,7 +98,7 @@ test('Case C1 — the positive control exits 0 with ok:true, engine_version and 
 
   assert.deepStrictEqual(payload.errors, [], 'a fully checked, clean spec reports no rows at all');
 
-  // The pattern catalogue is UNREACHABLE for W1b (no pinned eden-ui-flutter release), so with
+  // The pattern catalogue is UNREACHABLE here (no stack pack declares one), so with
   // no `--patterns` the arm passes `undefined` and I5 reports PAT000/MISSING. Passing `[]` "for
   // now" would fire PAT001 on every real spec; reporting nothing would turn an unreachable
   // catalogue into a silent pass. A MISSING row is neither, and it does NOT flip `ok` — it
@@ -337,8 +338,36 @@ test('Case R6 — a VALUELESS flag before the spec path does not swallow the pat
     'a --patterns pointing at the spec (and so no spec left) must refuse');
 });
 
+test('Case C6 — with no --patterns, an active stack pack\'s ui.pattern_catalogue is the default', () => {
+  // Objective 77: core names no design system. The catalogue default is pack data, read from the
+  // manifest of a pack the project selects (here config stacks.enabled), relative to the pack root.
+  const tmp = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'ui-pack-cat-'));
+  TMP_FILES.push(path.join(tmp, 'stacks')); // the after hook removes the entry's parent: tmp
+  const stacks = path.join(tmp, 'stacks');
+  const pack = path.join(stacks, 'demo');
+  fs.mkdirSync(pack, { recursive: true });
+  fs.copyFileSync(PATTERN_CATALOGUE, path.join(pack, 'catalogue.json'));
+  fs.writeFileSync(path.join(pack, 'aoforge-stack.json'), JSON.stringify({
+    schema: 1, name: 'demo', plugin: 'aoforge-stack-demo', contract: 1,
+    ui: { pattern_catalogue: 'catalogue.json' },
+  }));
+  const project = path.join(tmp, 'project');
+  fs.mkdirSync(path.join(project, '.aoforge'), { recursive: true });
+  fs.writeFileSync(path.join(project, '.aoforge', 'config.json'), JSON.stringify({ stacks: { enabled: ['demo'] } }));
+  const spec = path.join(BROKEN_DIR, 'unknown-pattern.md');
+
+  const selected = runArm(`ui spec validate ${JSON.stringify(spec)}`, { cwd: project, env: { AOFORGE_STACKS_DIR: stacks } });
+  assert.ok(codesOf(parseStdout(selected)).includes('PAT001'),
+    `the pack catalogue must be read, so the unknown pattern is a PAT001:\n${selected.stdout}`);
+
+  fs.writeFileSync(path.join(project, '.aoforge', 'config.json'), JSON.stringify({ stacks: { disabled: ['demo'] } }));
+  const unselected = runArm(`ui spec validate ${JSON.stringify(spec)}`, { cwd: project, env: { AOFORGE_STACKS_DIR: stacks } });
+  assert.ok(codesOf(parseStdout(unselected)).includes('PAT000'),
+    `a pack the project does not select supplies nothing, so I5 stays MISSING:\n${unselected.stdout}`);
+});
+
 test('Case R5 — a MISSING row is reported on stderr, never laundered into a silent pass', () => {
-  // W1b has no pinned eden-ui-flutter release, so EVERY real run carries a PAT000/MISSING row:
+  // With no --patterns and no stack pack declaring a catalogue, a run carries a PAT000/MISSING row:
   // the pattern check COULD NOT RUN. `ok` does not flip (a MISSING row is not a violation), so
   // render proceeds — but it says so. Rendering four artifacts while silently swallowing "one
   // of my checks did not run" is the silent-green class this objective exists to close.

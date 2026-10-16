@@ -642,7 +642,7 @@ test('Case I4f — a `narrow` with no sub-600 viewport, and a `dark` with no `th
 
 // ─── I5: patterns, and the MISSING case (TRD 34-04) ──────────────────────────
 //
-// `ctx.patterns` is the pattern catalogue of the pinned eden-ui-flutter release. THREE states,
+// `ctx.patterns` is the pattern catalogue (`--patterns`, or an active stack pack's). THREE states,
 // and the whole invariant turns on keeping them apart:
 //   undefined  the catalogue is UNREACHABLE          -> PAT000, status MISSING, `ok` unchanged
 //   []         reachable and declares no patterns    -> PAT001 for every referenced pattern

@@ -600,6 +600,7 @@ Return this and stop:
 **TRD:** {objective}-{trd}
 **Trigger:** tests-red-after-2 | verifier-fail | no-progress-stuck
 **Attempts:** {n}
+**Committed:** {git log lines for this TRD, or none}
 
 ### What was tried
 {one line per attempt — what changed, what the result was}
@@ -855,6 +856,14 @@ Do NOT skip. Do NOT proceed to state updates if self-check fails.
 After posting the SUMMARY, record state through the aof-tools `state` commands. They are store-aware; never touch STATE.md by hand:
 
 Every call below passes `--cwd <checkout>`: each Bash call starts in the session's directory, so without it the command updates the wrong tree. `<checkout>` is the literal path your preflight reported.
+
+**One call does all of it (TRD 76-04):**
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs --cwd <checkout> trd finalize {objective}-{trd} --duration "${DURATION}"
+```
+
+It reads the task count and `requirements` from the TRD and the key-files, key-decisions and duration from the posted SUMMARY, runs the steps listed below in order, and stops at the first failure (exit 1, the failing step named). A failure is a blocker to report; do not redo the steps by hand. Only when the command is unknown (an older runtime) run the steps yourself:
 
 ```bash
 # Derive Current/Total TRDs and Status from the objective's TRD and SUMMARY files on disk

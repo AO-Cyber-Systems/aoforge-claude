@@ -249,6 +249,14 @@
           }
         }
       }
+    },
+    "gate_policy": {
+      "description": "A module exporting the pack's run-guard policy for `stack verify --run`: guardedTools, deny, binDirs, rewrite(command, {cwdAbs, root, fs}).",
+      "$ref": "#/$defs/relPath"
+    },
+    "awareness": {
+      "description": "A module that lets org-awareness read the pack's language in the shared library repo: extensions, entrypoints(root, fs), parseExports(source).",
+      "$ref": "#/$defs/relPath"
     }
   }
 }

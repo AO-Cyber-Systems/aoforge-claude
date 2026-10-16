@@ -61,7 +61,7 @@ Example:
 |-------|-------|
 | planner | opus |
 | executor | sonnet |
-| verifier | haiku |
+| verifier | sonnet |
 | ... | ... |
 
 Next spawned agents will use the new profile.

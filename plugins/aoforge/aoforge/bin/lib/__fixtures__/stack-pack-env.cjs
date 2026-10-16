@@ -26,6 +26,8 @@ function useRepoPacks() {
   for (const root of packRoots()) mirrorPack({ packRoot: root, stacksDir: dir });
   fs.writeFileSync(path.join(dir, '.repo-packs'), '');
   process.env.AOFORGE_STACKS_DIR = dir;
+  // A mirrored pack finds core through ~/.claude/aoforge in a real install; point it at this checkout.
+  if (!process.env.AOFORGE_CORE_LIB) process.env.AOFORGE_CORE_LIB = path.join(__dirname, '..');
   process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } });
   return dir;
 }

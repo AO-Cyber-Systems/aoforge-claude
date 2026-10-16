@@ -2,13 +2,15 @@
 
 // parseMustHavesArtifacts(rawContent) — raw-FM scanner for must_haves.artifacts.
 // The permissive extractFrontmatter in frontmatter.cjs flattens nested
-// block-array items to strings (e.g. ["path: lib/foo.dart"]), losing all
+// block-array items to strings (e.g. ["path: src/foo.ts"]), losing all
 // sub-fields. Downstream consumers needing structured {path, states, tests}
 // objects must parse the raw FM directly. Mirrors parseApiContractBlock in
 // api-contract.cjs.
 //
 // Returns Array<{path, provides?, contains?, contains_also?[], states?[],
-//                tests?: {widget?, integration?, maestro?}}>
+//                tests?: {<kind>: <path>}}>
+// `tests` keys are whatever test kinds a stack pack's TRDs use (any key nested under `tests:`);
+// core assigns them no meaning.
 function parseMustHavesArtifacts(rawContent) {
   const fmMatch = rawContent.match(/^---\n([\s\S]*?)\n---/);
   if (!fmMatch) return [];
@@ -17,6 +19,7 @@ function parseMustHavesArtifacts(rawContent) {
   let inMustHaves = false;
   let inArtifacts = false;
   let inTests = false;
+  let testsIndent = -1;
   let artifactBaseIndent = -1;
   const entries = [];
   let current = null;
@@ -60,22 +63,22 @@ function parseMustHavesArtifacts(rawContent) {
     if (!current) continue;
 
     // tests: nested block
-    if (/^\s+tests:\s*$/.test(line)) {
+    const testsHead = line.match(/^(\s+)tests:\s*$/);
+    if (testsHead) {
       inTests = true;
+      testsIndent = testsHead[1].length;
       current.tests = current.tests || {};
       continue;
     }
 
     if (inTests) {
-      const testEntry = line.match(/^\s+(widget|integration|maestro):\s*(.+)$/);
-      if (testEntry) {
-        current.tests[testEntry[1]] = testEntry[2].trim();
+      // A key nested deeper than `tests:` is a test entry; anything else ends the block.
+      const testEntry = line.match(/^(\s+)([A-Za-z_][\w-]*):\s*(.+)$/);
+      if (testEntry && testEntry[1].length > testsIndent) {
+        current.tests[testEntry[2]] = testEntry[3].trim();
         continue;
       }
-      // Non-test field at a lower indent breaks out of tests block
-      if (/^\s+\S+:\s*(.*)$/.test(line) && !/^\s+(widget|integration|maestro):/.test(line)) {
-        inTests = false;
-      }
+      if (/^\s+\S/.test(line)) inTests = false;
     }
 
     // Simple artifact sub-fields

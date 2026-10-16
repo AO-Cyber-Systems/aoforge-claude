@@ -6,6 +6,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
+
+- **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and
+  requirements bookkeeping from the TRD and SUMMARY; `verify objective-evidence <obj>` collects the verifier's per-TRD
+  artifacts, key-links, Self-Check, key-files and commits; `validate roadmap-coverage` checks every v1 requirement maps
+  to exactly one objective (exit 1 on a gap); `codebase facts [--focus]` gives the mapper language-neutral facts;
+  `security sweep [--focus]` runs the auditor's pattern table and reports secret files by existence only. The
+  executor, verifier, roadmapper, codebase-mapper and security-auditor call them.
+- **Per-focus tiers and a verdict floor** (TRD 76-06): `model-profiles.json` `focus{}` raises codebase-mapper
+  `concerns` and project-researcher `architecture`/`pitfalls`; `resolve-model --focus`, `init map-codebase`
+  `mapper_models`, `init new-project|new-milestone` `researcher_models`. `verdict_floor` keeps the verifier and the
+  job-checker at Sonnet or above on every profile (budget was Haiku). No tier is lowered before a recorded eval.
+- **Escalation loop** (TRD 76-07): `resolve-model --escalate-from <tier|inherit|model id>` returns the next rung
+  (`ceiling: true` at opus). `execute-objective` classes `## ESCALATION REQUESTED` as ESCALATE and re-spawns the plan
+  one rung up once (item 5e) instead of FAILED; `/aoforge:debug` and `diagnose-issues` do the same for the debugger,
+  which gains the escalation return.
+- **Stack packs, the rest of the procedure**: `stack verify --run`'s Dart/Flutter gate guard and org-awareness's Dart
+  export extractor move into the Flutter pack behind new manifest hooks `gate_policy` and `awareness`; the Surface
+  Spec pattern catalogue defaults to an active pack's `ui.pattern_catalogue` (`--patterns` still overrides); TRD
+  artifact `tests:` take any key. Six neutrality allowlist entries go.
+
 ### Performance and context budget
 
 - **STATE.md is a digest again.** `state rotate-decisions [--keep N] [--dry-run]` keeps the newest 10 entries of
