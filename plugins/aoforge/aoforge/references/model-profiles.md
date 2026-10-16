@@ -47,9 +47,9 @@ gap-closure cycles. `model_overrides` stays the explicit, unfloored escape.
 
 ## Tier → model id
 
-`models{}` is live, not documentation: `flutter-ui-eval.cjs` reads it and sends
-the id to the Messages API for the vision judge. A stale id here is a runtime
-defect, not a cosmetic one.
+`models{}` is live, not documentation: a stack pack's vision judge reads it and
+sends the id to the Messages API. A stale id here is a runtime defect, not a
+cosmetic one.
 
 | Tier | Model id |
 |------|----------|
@@ -74,8 +74,8 @@ own frontmatter, so it cannot vary by profile.
 `haiku` tier in *any* profile therefore must not declare `effort`, or that run
 fails. Only these never reach haiku and can carry it: `planner`,
 `roadmapper`, `executor`, `debugger`, `security-auditor`, and since TRD 76-06 `verifier` and
-`job-checker`. Stack pack agents (the Flutter pack's
-`ui-evaluator`) take their tiers from the pack manifest's `models`, not this table.
+`job-checker`. Stack pack agents (a pack's visual judge, for example) take their
+tiers from the pack manifest's `models`, not this table.
 `model-profiles.test.cjs` enforces this.
 
 ## Profile Philosophy

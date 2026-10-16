@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Two maps with DIFFERENT consumers — keep both accurate.",
-    "models{}: tier -> concrete API model id. Live: flutter-ui-eval.cjs sends it to the",
+    "models{}: tier -> concrete API model id. Live: a stack pack's vision judge sends it to the",
     "  Messages API for the vision judge. A stale id here is a real runtime defect.",
     "agents{}: agent -> tier per profile. Consumed by aof-tools resolve-model, which",
     "  emits a Task() model ALIAS (opus resolves to 'inherit' so the agent keeps the",

@@ -38,7 +38,7 @@ Template for `.aoforge/codebase/STACK.md` - captures the technology foundation.
 
 **Testing:**
 - [Framework] [Version] - [e.g., "Jest for unit tests"]
-- [Framework] [Version] - [e.g., "Playwright for E2E"]
+- [Framework] [Version] - [e.g., "<browser E2E runner> for E2E"]
 
 **Build/Dev:**
 - [Tool] [Version] - [e.g., "Vite for bundling"]
