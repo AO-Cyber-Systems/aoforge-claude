@@ -234,90 +234,88 @@
 // wins when both are set). First, so no module below reads the environment before it runs.
 require('./lib/compat.cjs').aliasLegacyEnv();
 
+// ─── Lazy module loading ──────────────────────────────────────────────────────
+// aof-tools runs 50-100 times per workflow, and most of a run is node startup. Loading every lib module up front
+// cost ~70 ms of a ~125 ms call (444 require calls, 1.4 MB of source) for commands that use one of them. `lazy`
+// returns forwarders that require the module on first call; `lazyModule` is a proxy for a module used as an
+// object (`intent.x(...)`). Modules every call needs (helpers, help, cwd-flag, flag-guard, flag-spec, compat) stay
+// eager. Every destructured name is a function (checked when this block was generated); a constant must stay eager.
+const lazyCache = new Map();
+function loadLazy(mod) {
+  let m = lazyCache.get(mod);
+  if (!m) { m = require(mod); lazyCache.set(mod, m); }
+  return m;
+}
+function lazy(mod, names) {
+  const out = {};
+  for (const name of names) {
+    out[name] = function (...args) {
+      const fn = loadLazy(mod)[name];
+      if (typeof fn !== 'function') throw new TypeError(`${mod} does not export a function named ${name}`);
+      return fn.apply(this, args);
+    };
+  }
+  return out;
+}
+function lazyModule(mod) {
+  return new Proxy({}, {
+    get: (_, prop) => loadLazy(mod)[prop],
+    has: (_, prop) => prop in loadLazy(mod),
+    ownKeys: () => Reflect.ownKeys(loadLazy(mod)),
+    getOwnPropertyDescriptor: (_, prop) => Object.getOwnPropertyDescriptor(loadLazy(mod), prop),
+  });
+}
+
 const { error, parseIncludeFlag } = require('./lib/helpers.cjs');
-const { cmdConfigEnsureSection, cmdConfigSet, cmdConfigGet } = require('./lib/config.cjs');
-const {
-  cmdStateLoad, cmdStateDigest, cmdStateRotateDecisions, cmdStateGet, cmdStatePatch, cmdStateUpdate, cmdStateAdvanceJob,
-  cmdStateRecordMetric, cmdStateUpdateProgress, cmdStateAddDecision, cmdStateAddBlocker,
-  cmdStateResolveBlocker, cmdStateRecordSession, cmdStateSnapshot,
-} = require('./lib/state.cjs');
-const {
-  cmdFrontmatterGet, cmdFrontmatterSet, cmdFrontmatterMerge, cmdFrontmatterValidate,
-} = require('./lib/frontmatter.cjs');
-const {
-  cmdFindObjective, cmdObjectiveNextDecimal, cmdObjectivesList,
-  cmdObjectiveAdd, cmdObjectiveInsert, cmdObjectiveRemove, cmdObjectiveComplete,
-} = require('./lib/objective.cjs');
-const {
-  cmdRoadmapGetObjective, cmdRoadmapAnalyze, cmdRoadmapDigest, cmdRoadmapUpdateJobProgress,
-  cmdMilestoneComplete, cmdProgressRender,
-} = require('./lib/roadmap.cjs');
-const { cmdTemplateSelect, cmdTemplateFill } = require('./lib/templates.cjs');
-const {
-  cmdVerifySummary, cmdVerifyJobStructure, cmdVerifyObjectiveCompleteness,
-  cmdVerifyReferences, cmdVerifyCommits, cmdVerifyArtifacts, cmdVerifyKeyLinks,
-} = require('./lib/verify.cjs');
-const { cmdVerifyTrdPre } = require('./lib/trd-pre-check.cjs');
-const { cmdVerifyApiContract } = require('./lib/api-contract.cjs');
-const { cmdVerifyFlutterUIBootstrap } = require('./lib/flutter-ui-bootstrap.cjs');
-const { cmdFlutterUISetup } = require('./lib/flutter-ui-setup.cjs');
-const { cmdFlutterUIEvalBootstrap } = require('./lib/flutter-ui-eval-bootstrap.cjs');
-const { cmdVerifyFlutterStateCoverage } = require('./lib/flutter-state-coverage.cjs');
-const { cmdVerifyFlutterUIEval } = require('./lib/flutter-ui-eval.cjs');
-const { cmdDesignReview } = require('./lib/flutter-ui-design-review.cjs');
-const { cmdUiMetrics } = require('./lib/ui-metrics.cjs');
-const { cmdUiSpec, cmdUiSheet, cmdUiLock } = require('./lib/ui-spec-cli.cjs');
-const { cmdDetectNovelDomain } = require('./lib/novel-domain.cjs');
-const { cmdDetectBrownfieldMap } = require('./lib/brownfield-detector.cjs');
-const { cmdDetectFlutterUIScope } = require('./lib/flutter-ui-scope.cjs');
-const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs, cmdValidateRequirements } = require('./lib/validate.cjs');
-const {
-  cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject,
-  cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp,
-  cmdInitTodos, cmdInitMilestoneOp, cmdInitMapCodebase, cmdInitSecurityAudit, cmdInitProgress,
-} = require('./lib/init.cjs');
-const intent = require('./lib/intent.cjs');
-const migrate = require('./lib/migrate.cjs');
-const {
-  cmdWorkstreamsAnalyze, cmdWorkstreamsProvision, cmdWorkstreamsReconcile,
-} = require('./lib/workstreams.cjs');
-const {
-  cmdGhStatus, cmdGhSyncObjectives, cmdGhComment, cmdGhCloseIssue, cmdGhSyncRelease,
-  cmdGhResolve, cmdGhSync,
-} = require('./lib/gh.cjs');
-const {
-  cmdChangelogUpdate, cmdChangelogCheck,
-} = require('./lib/changelog.cjs');
-const { cmdSkillActive } = require('./lib/skill-active.cjs');
-const { cmdAwarenessRoute } = require('./lib/awareness-cli.cjs');
-const { cmdOrgAwarenessRoute } = require('./lib/org-awareness-cli.cjs');
-const { cmdDupDetectRoute } = require('./lib/dup-detect-cli.cjs');
-const { cmdInitiativesRoute } = require('./lib/initiatives-cli.cjs');
-const { cmdCheckTodosRoute } = require('./lib/check-todos-cli.cjs');
-const { cmdSyncRoadmapRoute } = require('./lib/roadmap-reconcile-cli.cjs');
-const { cmdTuiRoute } = require('./lib/tui-cli.cjs');
-const { cmdSurveyDecimalObjectives } = require('./lib/decimal-survey.cjs');
-const {
-  cmdGenerateSlug, cmdCurrentTimestamp, cmdListTodos, cmdVerifyPathExists,
-  cmdHistoryDigest, cmdObjectiveJobIndex, cmdSummaryExtract, cmdWebsearch,
-  cmdCommit, cmdTodoComplete, cmdScaffold, cmdRequirementsMarkComplete,
-} = require('./lib/misc.cjs');
-const {
-  cmdHandoffCreate, cmdHandoffComplete, cmdHandoffList, cmdHandoffGet,
-} = require('./lib/handoff.cjs');
-const {
-  cmdTrdTddInspect,
-} = require('./lib/trd-tdd.cjs');
-const { cmdMicro } = require('./lib/micro.cjs');
-const { cmdProjectDecline, cmdProjectAccept } = require('./lib/decline-tracker.cjs');
-const { cmdProjectState } = require('./lib/project-state.cjs');
-const { cmdGlobalConfig } = require('./lib/global-config.cjs');
-const { cmdExecContextRoute } = require('./lib/exec-context.cjs');
-const { cmdMergeDriver } = require('./lib/merge-driver-cli.cjs');
+const { cmdConfigEnsureSection, cmdConfigSet, cmdConfigGet } = lazy('./lib/config.cjs', ['cmdConfigEnsureSection', 'cmdConfigSet', 'cmdConfigGet']);
+const { cmdStateLoad, cmdStateDigest, cmdStateRotateDecisions, cmdStateGet, cmdStatePatch, cmdStateUpdate, cmdStateAdvanceJob, cmdStateRecordMetric, cmdStateUpdateProgress, cmdStateAddDecision, cmdStateAddBlocker, cmdStateResolveBlocker, cmdStateRecordSession, cmdStateSnapshot } = lazy('./lib/state.cjs', ['cmdStateLoad', 'cmdStateDigest', 'cmdStateRotateDecisions', 'cmdStateGet', 'cmdStatePatch', 'cmdStateUpdate', 'cmdStateAdvanceJob', 'cmdStateRecordMetric', 'cmdStateUpdateProgress', 'cmdStateAddDecision', 'cmdStateAddBlocker', 'cmdStateResolveBlocker', 'cmdStateRecordSession', 'cmdStateSnapshot']);
+const { cmdFrontmatterGet, cmdFrontmatterSet, cmdFrontmatterMerge, cmdFrontmatterValidate } = lazy('./lib/frontmatter.cjs', ['cmdFrontmatterGet', 'cmdFrontmatterSet', 'cmdFrontmatterMerge', 'cmdFrontmatterValidate']);
+const { cmdFindObjective, cmdObjectiveNextDecimal, cmdObjectivesList, cmdObjectiveAdd, cmdObjectiveInsert, cmdObjectiveRemove, cmdObjectiveComplete } = lazy('./lib/objective.cjs', ['cmdFindObjective', 'cmdObjectiveNextDecimal', 'cmdObjectivesList', 'cmdObjectiveAdd', 'cmdObjectiveInsert', 'cmdObjectiveRemove', 'cmdObjectiveComplete']);
+const { cmdRoadmapGetObjective, cmdRoadmapAnalyze, cmdRoadmapDigest, cmdRoadmapUpdateJobProgress, cmdMilestoneComplete, cmdProgressRender } = lazy('./lib/roadmap.cjs', ['cmdRoadmapGetObjective', 'cmdRoadmapAnalyze', 'cmdRoadmapDigest', 'cmdRoadmapUpdateJobProgress', 'cmdMilestoneComplete', 'cmdProgressRender']);
+const { cmdTemplateSelect, cmdTemplateFill } = lazy('./lib/templates.cjs', ['cmdTemplateSelect', 'cmdTemplateFill']);
+const { cmdVerifySummary, cmdVerifyJobStructure, cmdVerifyObjectiveCompleteness, cmdVerifyReferences, cmdVerifyCommits, cmdVerifyArtifacts, cmdVerifyKeyLinks } = lazy('./lib/verify.cjs', ['cmdVerifySummary', 'cmdVerifyJobStructure', 'cmdVerifyObjectiveCompleteness', 'cmdVerifyReferences', 'cmdVerifyCommits', 'cmdVerifyArtifacts', 'cmdVerifyKeyLinks']);
+const { cmdVerifyTrdPre } = lazy('./lib/trd-pre-check.cjs', ['cmdVerifyTrdPre']);
+const { cmdVerifyApiContract } = lazy('./lib/api-contract.cjs', ['cmdVerifyApiContract']);
+const { cmdVerifyFlutterUIBootstrap } = lazy('./lib/flutter-ui-bootstrap.cjs', ['cmdVerifyFlutterUIBootstrap']);
+const { cmdFlutterUISetup } = lazy('./lib/flutter-ui-setup.cjs', ['cmdFlutterUISetup']);
+const { cmdFlutterUIEvalBootstrap } = lazy('./lib/flutter-ui-eval-bootstrap.cjs', ['cmdFlutterUIEvalBootstrap']);
+const { cmdVerifyFlutterStateCoverage } = lazy('./lib/flutter-state-coverage.cjs', ['cmdVerifyFlutterStateCoverage']);
+const { cmdVerifyFlutterUIEval } = lazy('./lib/flutter-ui-eval.cjs', ['cmdVerifyFlutterUIEval']);
+const { cmdDesignReview } = lazy('./lib/flutter-ui-design-review.cjs', ['cmdDesignReview']);
+const { cmdUiMetrics } = lazy('./lib/ui-metrics.cjs', ['cmdUiMetrics']);
+const { cmdUiSpec, cmdUiSheet, cmdUiLock } = lazy('./lib/ui-spec-cli.cjs', ['cmdUiSpec', 'cmdUiSheet', 'cmdUiLock']);
+const { cmdDetectNovelDomain } = lazy('./lib/novel-domain.cjs', ['cmdDetectNovelDomain']);
+const { cmdDetectBrownfieldMap } = lazy('./lib/brownfield-detector.cjs', ['cmdDetectBrownfieldMap']);
+const { cmdDetectFlutterUIScope } = lazy('./lib/flutter-ui-scope.cjs', ['cmdDetectFlutterUIScope']);
+const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs, cmdValidateRequirements } = lazy('./lib/validate.cjs', ['cmdValidateConsistency', 'cmdValidateHealth', 'cmdValidateDocs', 'cmdValidateRequirements']);
+const { cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject, cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp, cmdInitTodos, cmdInitMilestoneOp, cmdInitMapCodebase, cmdInitSecurityAudit, cmdInitProgress } = lazy('./lib/init.cjs', ['cmdResolveModel', 'cmdInitExecuteObjective', 'cmdInitPlanObjective', 'cmdInitNewProject', 'cmdInitNewMilestone', 'cmdInitQuick', 'cmdInitResume', 'cmdInitVerifyWork', 'cmdInitObjectiveOp', 'cmdInitTodos', 'cmdInitMilestoneOp', 'cmdInitMapCodebase', 'cmdInitSecurityAudit', 'cmdInitProgress']);
+const intent = lazyModule('./lib/intent.cjs');
+const migrate = lazyModule('./lib/migrate.cjs');
+const { cmdWorkstreamsAnalyze, cmdWorkstreamsProvision, cmdWorkstreamsReconcile } = lazy('./lib/workstreams.cjs', ['cmdWorkstreamsAnalyze', 'cmdWorkstreamsProvision', 'cmdWorkstreamsReconcile']);
+const { cmdGhStatus, cmdGhSyncObjectives, cmdGhComment, cmdGhCloseIssue, cmdGhSyncRelease, cmdGhResolve, cmdGhSync } = lazy('./lib/gh.cjs', ['cmdGhStatus', 'cmdGhSyncObjectives', 'cmdGhComment', 'cmdGhCloseIssue', 'cmdGhSyncRelease', 'cmdGhResolve', 'cmdGhSync']);
+const { cmdChangelogUpdate, cmdChangelogCheck } = lazy('./lib/changelog.cjs', ['cmdChangelogUpdate', 'cmdChangelogCheck']);
+const { cmdSkillActive } = lazy('./lib/skill-active.cjs', ['cmdSkillActive']);
+const { cmdAwarenessRoute } = lazy('./lib/awareness-cli.cjs', ['cmdAwarenessRoute']);
+const { cmdOrgAwarenessRoute } = lazy('./lib/org-awareness-cli.cjs', ['cmdOrgAwarenessRoute']);
+const { cmdDupDetectRoute } = lazy('./lib/dup-detect-cli.cjs', ['cmdDupDetectRoute']);
+const { cmdInitiativesRoute } = lazy('./lib/initiatives-cli.cjs', ['cmdInitiativesRoute']);
+const { cmdCheckTodosRoute } = lazy('./lib/check-todos-cli.cjs', ['cmdCheckTodosRoute']);
+const { cmdSyncRoadmapRoute } = lazy('./lib/roadmap-reconcile-cli.cjs', ['cmdSyncRoadmapRoute']);
+const { cmdTuiRoute } = lazy('./lib/tui-cli.cjs', ['cmdTuiRoute']);
+const { cmdSurveyDecimalObjectives } = lazy('./lib/decimal-survey.cjs', ['cmdSurveyDecimalObjectives']);
+const { cmdGenerateSlug, cmdCurrentTimestamp, cmdListTodos, cmdVerifyPathExists, cmdHistoryDigest, cmdObjectiveJobIndex, cmdSummaryExtract, cmdWebsearch, cmdCommit, cmdTodoComplete, cmdScaffold, cmdRequirementsMarkComplete } = lazy('./lib/misc.cjs', ['cmdGenerateSlug', 'cmdCurrentTimestamp', 'cmdListTodos', 'cmdVerifyPathExists', 'cmdHistoryDigest', 'cmdObjectiveJobIndex', 'cmdSummaryExtract', 'cmdWebsearch', 'cmdCommit', 'cmdTodoComplete', 'cmdScaffold', 'cmdRequirementsMarkComplete']);
+const { cmdHandoffCreate, cmdHandoffComplete, cmdHandoffList, cmdHandoffGet } = lazy('./lib/handoff.cjs', ['cmdHandoffCreate', 'cmdHandoffComplete', 'cmdHandoffList', 'cmdHandoffGet']);
+const { cmdTrdTddInspect } = lazy('./lib/trd-tdd.cjs', ['cmdTrdTddInspect']);
+const { cmdMicro } = lazy('./lib/micro.cjs', ['cmdMicro']);
+const { cmdProjectDecline, cmdProjectAccept } = lazy('./lib/decline-tracker.cjs', ['cmdProjectDecline', 'cmdProjectAccept']);
+const { cmdProjectState } = lazy('./lib/project-state.cjs', ['cmdProjectState']);
+const { cmdGlobalConfig } = lazy('./lib/global-config.cjs', ['cmdGlobalConfig']);
+const { cmdExecContextRoute } = lazy('./lib/exec-context.cjs', ['cmdExecContextRoute']);
+const { cmdMergeDriver } = lazy('./lib/merge-driver-cli.cjs', ['cmdMergeDriver']);
 const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
-const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
+const { cmdGenerateUAT } = lazy('./lib/uat-generator.cjs', ['cmdGenerateUAT']);
 const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
 const { checkFlags, formatUnknownFlag } = require('./lib/flag-guard.cjs');
 const { FLAG_SPEC } = require('./lib/flag-spec.cjs');
