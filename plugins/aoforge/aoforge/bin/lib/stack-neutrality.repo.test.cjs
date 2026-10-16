@@ -7,8 +7,7 @@
 //
 // ALLOW is for language-neutral DATA, not procedure: multi-language detection and evidence
 // tables where Dart is one row beside Go, Node, Python and Rust; project-MCP tool grants a pack
-// cannot add to a core agent; and the Surface Spec catalogue source that is still a pinned
-// release. Each entry says why. A new entry needs the same kind of reason.
+// cannot add to a core agent. Each entry says why. A new entry needs the same kind of reason.
 //
 // Go is deliberately out of scope until its pack exists (it is core's bundled tier-2 profile).
 
@@ -26,7 +25,6 @@ const ALLOW = {
   'aoforge/bin/lib/calibration-inputs.cjs': 'test/source file regexes per language (.dart beside .go, .ts, .py)',
   'aoforge/bin/lib/doc-staleness.cjs': 'manifest alias table across languages',
   'aoforge/bin/lib/init.cjs': 'the brownfield stack list: pubspec.yaml -> dart beside go.mod -> go',
-  'aoforge/bin/lib/org-awareness.cjs': 'per-language export extractors (Dart beside Node); a candidate for a pack hook later',
   'aoforge/bin/lib/repo-state.cjs': 'manifest and extension tables across languages',
   'aoforge/bin/lib/skill-requires.cjs': 'install hints keyed by tool name',
   'aoforge/bin/lib/stack-classify.cjs': 'the CI evidence classification table: one row per tool across every stack',
@@ -34,10 +32,6 @@ const ALLOW = {
   'aoforge/bin/lib/stack-draft.cjs': 'drafter command candidates per detected tool',
   'aoforge/bin/lib/stack-mcp.cjs': 'the project .mcp.json writer knows the gopls and dart servers a profile names',
   'aoforge/bin/lib/stack-report.cjs': 'recommendation rows per language (DART-*, FLUT-* beside GO-*)',
-  'aoforge/bin/lib/stack-verify.cjs': 'the effect guard for pub-based gates and the tool PATH search; a candidate for the pack verify hook',
-  'aoforge/bin/lib/trd-artifacts.cjs': 'TRD frontmatter vocabulary (tests.widget/integration/maestro keys) parsed generically',
-  'aoforge/bin/lib/ui-spec-validate.cjs': 'the Surface Spec pattern catalogue is still read from the pinned design-system release',
-  'aoforge/bin/lib/ui-spec-cli.cjs': 'names the pinned design-system release the catalogue default comes from',
   'aoforge/workflows/adopt.md': 'kind examples, and the drafted-profile confirm step uses the gopls/dart MCP servers when present',
   'aoforge/workflows/map-codebase.md': 'the drafted-profile confirm step uses the gopls/dart MCP servers when present',
 };

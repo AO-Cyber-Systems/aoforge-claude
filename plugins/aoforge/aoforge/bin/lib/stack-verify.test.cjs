@@ -1,4 +1,5 @@
 'use strict';
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // the Flutter pack's gate policy and profiles (objective 77)
 
 // stack-verify.test.cjs — Test list (TRD 42-06), outermost (CLI) to innermost (resolver).
 //
@@ -387,7 +388,8 @@ describe('RUN_POLICY shape', () => {
   });
 
   test('the effect guard reasons are listed, and the policy stays frozen (43-02 test 10)', () => {
-    assert.deepEqual(RUN_POLICY.effectReasons, ['side-effect-unsafe', 'side-effect-unproven', 'needs-pub-get']);
+    // needs-pub-get moved to the Flutter pack's gate policy (objective 77 follow-up): core keeps the generic two.
+    assert.deepEqual(RUN_POLICY.effectReasons, ['side-effect-unsafe', 'side-effect-unproven']);
     assert.ok(Object.isFrozen(RUN_POLICY));
     assert.ok(Object.isFrozen(RUN_POLICY.effectReasons));
   });
