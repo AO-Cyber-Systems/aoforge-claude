@@ -218,7 +218,9 @@ describe('trd finalize', () => {
     assert.deepEqual(steps, ['advance-job', 'update-progress', 'record-metric', 'add-decision', 'add-decision', 'record-session', 'roadmap-progress', 'requirements']);
     const metric = r.json.steps.find((s) => s.step === 'record-metric').argv;
     assert.deepEqual(metric.slice(metric.indexOf('--duration'), metric.indexOf('--duration') + 2), ['--duration', '12min']);
-    assert.equal(r.json.steps.find((s) => s.step === 'add-decision').argv.at(-1), 'Cookie sessions');
+    // Quick 36 (D3): the text after `: ` is the decision's rationale, not dropped.
+    assert.deepEqual(r.json.steps.find((s) => s.step === 'add-decision').argv.slice(-4),
+      ['--summary', 'Cookie sessions', '--rationale', 'simpler than JWT here']);
   });
 
   test('no SUMMARY yet is refused: post it first', () => {
@@ -234,6 +236,153 @@ describe('trd finalize', () => {
     const flag = run(root, 'trd', 'finalize', '01-01', '--nope');
     assert.equal(flag.status, 1);
     assert.match(flag.stderr, /unknown flag/);
+  });
+});
+
+// Quick 36 (D3): trd finalize is a safe retry. The fixture lets all eight steps pass: a narrative STATE.md with the
+// `## Current Position` (update-progress) and `## Session Continuity` (record-session) sections it needs, a ROADMAP
+// with the objective's TRD list and a REQUIREMENTS.md defining AUTH-01/02.
+const { narrativeState } = require('./__fixtures__/state-position-fixtures.cjs');
+
+const FINALIZE_STATE = `${narrativeState({ status: 'Executing objective 1' })}
+## Current Position
+
+Progress: [░░░░░░░░░░] 0%
+
+## Session Continuity
+
+Last session: 2026-01-01
+Stopped at: nowhere
+Resume file: None
+`;
+const FINALIZE_ROADMAP = `# Roadmap
+
+### Objective 1: Auth
+**Goal**: sign in
+**Requirements**: AUTH-01, AUTH-02
+**TRDs**: 1 TRDs
+
+TRDs:
+- [ ] 01-01-TRD.md — sign in
+`;
+const FINALIZE_REQS = `# Requirements
+
+## v1 Requirements
+
+- [ ] **AUTH-01**: sign in
+- [ ] **AUTH-02**: sign out
+
+## Traceability
+
+| Requirement | Objective | Status |
+|---|---|---|
+| AUTH-01 | Objective 1 | Pending |
+| AUTH-02 | Objective 1 | Pending |
+`;
+
+describe('trd finalize is a safe retry (quick 36)', () => {
+  const SUMMARY_REL = '.aoforge/objectives/01-auth/01-01-SUMMARY.md';
+  const full = (summary = SUMMARY) => ({
+    '.aoforge/STATE.md': FINALIZE_STATE,
+    '.aoforge/ROADMAP.md': FINALIZE_ROADMAP,
+    '.aoforge/REQUIREMENTS.md': FINALIZE_REQS,
+    '.aoforge/objectives/01-auth/01-01-sign-in-TRD.md': TRD,
+    [SUMMARY_REL]: summary,
+    'src/auth.js': 'module.exports = {};\n',
+  });
+  // A real run writes only the fixture project; HOME is a fresh temp dir so no step can reach the user's.
+  function runHome(root, ...argv) {
+    const home = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'mech-verbs-home-'));
+    DIRS.push(home);
+    const r = spawnSync(process.execPath, [TOOLS, '--cwd', root, ...argv], {
+      encoding: 'utf8', env: { ...process.env, HOME: home },
+    });
+    let json = null;
+    try { json = JSON.parse(r.stdout); } catch { /* raw or error */ }
+    return { status: r.status, json, stdout: r.stdout, stderr: r.stderr };
+  }
+  // Every planning file's bytes, so "nothing ran" is checked rather than assumed.
+  function planningSnapshot(root) {
+    const out = {};
+    const walk = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else out[path.relative(root, p)] = fs.readFileSync(p, 'utf8');
+      }
+    };
+    walk(path.join(root, '.aoforge'));
+    return out;
+  }
+  const argvOf = (r, step) => r.json.steps.find((s) => s.step === step).argv;
+
+  test('16 a real run twice leaves each decision and the metrics row in STATE_ARCHIVE.md exactly once', () => {
+    const root = project(full());
+    const first = runHome(root, 'trd', 'finalize', '01-01');
+    assert.equal(first.status, 0, first.stdout + first.stderr);
+    const second = runHome(root, 'trd', 'finalize', '01-01');
+    assert.equal(second.status, 0, second.stdout + second.stderr);
+    const lines = fs.readFileSync(path.join(root, '.aoforge', 'STATE_ARCHIVE.md'), 'utf8').split('\n');
+    assert.equal(lines.filter((l) => l.startsWith('- [Objective 01]: Cookie sessions')).length, 1, lines.join('\n'));
+    assert.equal(lines.filter((l) => l.startsWith('- [Objective 01]: No refresh tokens')).length, 1, lines.join('\n'));
+    assert.equal(lines.filter((l) => l.startsWith('| Objective 01 P01 |')).length, 1, lines.join('\n'));
+  });
+
+  test('17 a decision keeps its rationale; a colon inside a URL does not split it', () => {
+    const r = runHome(project(full()), 'trd', 'finalize', '01-01', '--dry-run');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.deepEqual(argvOf(r, 'add-decision').slice(-4), ['--summary', 'Cookie sessions', '--rationale', 'simpler than JWT here']);
+
+    const url = runHome(project(full(SUMMARY.replace('"Cookie sessions: simpler than JWT here"', '"Use https://example.com docs"'))),
+      'trd', 'finalize', '01-01', '--dry-run');
+    assert.equal(url.status, 0, url.stdout + url.stderr);
+    const argv = argvOf(url, 'add-decision');
+    assert.deepEqual(argv.slice(-2), ['--summary', 'Use https://example.com docs']);
+    assert.ok(!argv.includes('--rationale'), JSON.stringify(argv));
+  });
+
+  test('18 --duration=99min reaches record-metric', () => {
+    const r = runHome(project(full()), 'trd', 'finalize', '01-01', '--duration=99min', '--dry-run');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    const metric = argvOf(r, 'record-metric');
+    assert.equal(metric[metric.indexOf('--duration') + 1], '99min');
+  });
+
+  test('19 --duration with no value (followed by a flag, or trailing) exits 1 and runs nothing', () => {
+    const root = project(full());
+    const before = planningSnapshot(root);
+    const swallowed = runHome(root, 'trd', 'finalize', '01-01', '--duration', '--dry-run');
+    assert.equal(swallowed.status, 1, swallowed.stdout);
+    assert.match(swallowed.stderr, /--duration/);
+    assert.deepEqual(planningSnapshot(root), before);
+    const trailing = runHome(root, 'trd', 'finalize', '01-01', '--duration');
+    assert.equal(trailing.status, 1, trailing.stdout);
+    assert.match(trailing.stderr, /--duration/);
+    assert.deepEqual(planningSnapshot(root), before);
+  });
+
+  test('20 a checkpoint SUMMARY is refused, with and without --dry-run', () => {
+    const checkpoint = SUMMARY.replace('## Self-Check: PASSED\n', '## Progress\n- [x] Task 1: one — abc1234\n- [ ] Task 2: two — next step: finish src/auth.js\n');
+    const root = project(full(checkpoint));
+    const before = planningSnapshot(root);
+    for (const flags of [['--dry-run'], []]) {
+      const r = runHome(root, 'trd', 'finalize', '01-01', ...flags);
+      assert.equal(r.status, 1, `${flags}: ${r.stdout}`);
+      assert.match(r.stderr, /checkpoint/);
+      assert.match(r.stderr, /summary post/);
+      assert.deepEqual(planningSnapshot(root), before);
+    }
+  });
+
+  test('21 a short TRD number resolves: 01-1 and 1-1 are 01-01', () => {
+    const root = project(full());
+    for (const id of ['01-1', '1-1']) {
+      const r = runHome(root, 'trd', 'finalize', id, '--dry-run');
+      assert.equal(r.status, 0, `${id}: ${r.stdout}${r.stderr}`);
+      assert.equal(r.json.id, '01-01');
+      const metric = argvOf(r, 'record-metric');
+      assert.equal(metric[metric.indexOf('--job') + 1], '01');
+    }
   });
 });
 
