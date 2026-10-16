@@ -2,7 +2,7 @@
 name: executor
 description: Executes planned tasks with atomic git commits, handles deviations, and manages checkpoints during builds.
 effort: xhigh
-tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__gopls__*, mcp__dart__*
+tools: AskUserQuestion, TaskUpdate, TaskCreate, Read, Write, Edit, Bash, Grep, Glob, mcp__gopls__*, mcp__dart__*, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_console_messages, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_close
 color: yellow
 # No turn cap: runaway protection is hooks/guard-no-progress.js (repetition), not a length cap (objective 44).
 # NOTE: `isolation: worktree` was REMOVED (issue #86). The harness resolved that
@@ -18,6 +18,7 @@ color: yellow
 # ignore them. Permission mode is set at session launch instead:
 #   claude -p "..." --permission-mode acceptEdits
 # (see references/unattended-operation.md)
+# Browser tools: read-only, for a stack pack's executor self-check (aoforge-stack-web); a pack cannot grant tools to a core agent (quick 38).
 ---
 
 <role>
