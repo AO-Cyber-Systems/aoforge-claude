@@ -1,15 +1,15 @@
 'use strict';
 
-// Test list (TRD 72-11, objective 72, INST-03): the required checks of a repository set up before the rename keep
-// passing, and its managed caller workflow is read but never re-pinned in place.
+// Test list (TRD 78-03, objective 78, SC-2): 3.1.0's required checks speak the AOForge namespace only. A ruleset that
+// still requires the pre-rename contexts waits until `aof-tools gh rebrand --apply` rewrites it (72-16, kept); the
+// managed caller detector stays (W062 `legacy: true`, fix `gh rebrand`).
 //
-// 9.  postStatus posts every status twice: the AOForge context first, then the legacy one, same state, description and
-//     target URL (a ruleset made before 3.0.0 requires the legacy context). 9a planning-consistency, 9b linked-issue.
-// 10. A PR body opening with the legacy PR marker is an objective PR: 10a the pure planningConsistency verdict is not
-//     "not an AOForge objective PR"; 10b the runner finds the objective issue under the legacy objective label (and the
-//     legacy planning directory's config.json) and names it as not closed.
-// 11. Reconcile on a PR that already carries a legacy reconcile comment closes what is still open and edits that one
-//     comment in place (AOForge marker, the earlier list kept, the new one appended); it never posts a second.
+// 9.  postStatus posts every status once, under `aoforge/<check>` only. 9a planning-consistency, 9b linked-issue.
+// 10. A PR body opening with the legacy PR marker is not an AOForge objective PR: 10a the pure planningConsistency
+//     verdict is "not an AOForge objective PR"; 10b the runner, in store mode, posts that one success and never looks
+//     an objective issue up.
+// 11. Reconcile: 11a a legacy reconcile comment is not "the reconcile comment": it is left as it is and a new one is
+//     posted under the AOForge marker; 11b an AOForge reconcile comment is still edited in place (earlier list kept).
 // 12. checks-pin reads the legacy caller (legacy slug, reusable-workflow file and ref input) like a new one:
 //     `{ managed: true, uses_ref: <sha>, legacy: true }` with the same pin fields; a new caller is `legacy: false`. A
 //     release pin is compared like a new caller's; collectPinFindings reads the legacy caller file when the new one is
@@ -28,7 +28,7 @@ const cli = require('./gh-check-cli.cjs');
 const check = require('./gh-check.cjs');
 const checksPin = require('./checks-pin.cjs');
 const client = require('./gh-client.cjs');
-const { LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 const F = require('./__fixtures__/legacy-gh-fixtures.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { hermeticEnv } = require('./__fixtures__/gh-store-fixtures.cjs');
@@ -83,19 +83,17 @@ afterEach(() => {
   fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-// ─── 9. Both status contexts ─────────────────────────────────────────────────
+// ─── 9. One status context ───────────────────────────────────────────────────
 
-describe('9. every status is posted under the AOForge context, then the legacy one', () => {
+describe('9. every status is posted once, under the AOForge context only', () => {
   test('9a. planning-consistency', () => {
     const r = run('planning-consistency', prEvent('Closes #1'));
     assert.equal(r.code, 0);
     const posted = postedInOrder(HEAD);
-    assert.deepEqual(posted.map((s) => s.context), ['aoforge/planning-consistency', `${OLD}/planning-consistency`]);
+    assert.deepEqual(posted.map((s) => s.context), ['aoforge/planning-consistency']);
     assert.equal(posted[0].context, check.CONTEXTS.planningConsistency);
-    assert.equal(posted[1].state, posted[0].state);
-    assert.equal(posted[1].description, posted[0].description);
-    assert.equal(posted[1].target_url, posted[0].target_url);
     assert.match(posted[0].description, /store mode off/);
+    assert.ok(!posted.some((s) => s.context.startsWith(`${OLD}/`)));
   });
 
   test('9b. linked-issue', () => {
@@ -103,72 +101,82 @@ describe('9. every status is posted under the AOForge context, then the legacy o
     const r = run('linked-issue', prEvent('Closes #1'));
     assert.equal(r.code, 0);
     const posted = postedInOrder(HEAD);
-    assert.deepEqual(posted.map((s) => [s.context, s.state]), [['aoforge/linked-issue', 'success'], [`${OLD}/linked-issue`, 'success']]);
+    assert.deepEqual(posted.map((s) => [s.context, s.state]), [['aoforge/linked-issue', 'success']]);
   });
 });
 
 // ─── 10. Legacy PR marker ────────────────────────────────────────────────────
 
-describe('10. a legacy PR marker is an AOForge objective PR', () => {
-  test('10a. planningConsistency treats it as an objective PR', () => {
+describe('10. a legacy PR marker is not an AOForge objective PR', () => {
+  test('10a. planningConsistency: "not an AOForge objective PR"', () => {
     const pr = { number: 9, body: F.legacyPrBody({ objective: '49', closes: [100] }), base: { ref: 'main' } };
     const v = check.planningConsistency({
       pr, repo: 'o/r', defaultBranch: 'main', config: { github: { store: true } }, issues: new Map(), linked: [],
     });
-    assert.notEqual(v.description, 'not an AOForge objective PR');
-    assert.equal(v.state, 'failure');
-    assert.match(v.description, /objective issue \(aoforge:id=49\) not found/);
+    assert.deepEqual(v, { state: 'success', description: 'not an AOForge objective PR', details: [] });
   });
 
-  test('10b. the runner finds the objective under the legacy label and names it as not closed', () => {
-    fake.files[HEAD] = { [`${LEGACY.planningDir}/config.json`]: JSON.stringify({ github: { enabled: true, store: true } }) };
+  test('10b. the runner in store mode posts that one success and never looks an objective issue up', () => {
+    fake.files[HEAD] = { [`${NAMES.planningDir}/config.json`]: JSON.stringify({ github: { enabled: true, store: true } }) };
     fake.seedIssue({ title: 'objective 50', body: F.legacyIssueBody({ id: '50' }), labels: [`${OLD}:objective`] });
-    fake.seedIssue({ title: 'TRD 50-01', body: F.legacyTrdBody({ id: '50-01', file: '50-01-a-TRD.md' }) });
-    fake.seedIssue({ title: 'TRD 50-02', body: F.legacyTrdBody({ id: '50-02', file: '50-02-b-TRD.md' }) });
-    fake.issues[0].subIssues.push(2, 3);
-    fake.issues[1].parent = 1;
-    fake.issues[2].parent = 1;
 
-    const r = run('planning-consistency', prEvent(F.legacyPrBody({ objective: '50', closes: [2, 3] })));
-    assert.equal(r.state, 'failure');
-    assert.ok(r.details.some((d) => /objective issue #1 \(aoforge:id=50\) is not closed by this pull request/.test(d)), r.details.join('\n'));
-    assert.deepEqual(fake.statuses[HEAD].map((s) => s.state), ['failure', 'failure']);
+    const r = run('planning-consistency', prEvent(F.legacyPrBody({ objective: '50', closes: [1] })));
+    assert.equal(r.code, 0, JSON.stringify(r));
+    assert.equal(r.state, 'success');
+    const posted = postedInOrder(HEAD);
+    assert.deepEqual(posted.map((s) => [s.context, s.state, s.description]),
+      [['aoforge/planning-consistency', 'success', 'not an AOForge objective PR']]);
+    assert.ok(!fake.calls().some((args) => /issues\?labels=/.test(args.join(' '))), 'no objective label listed');
   });
 });
 
 // ─── 11. Reconcile comment ───────────────────────────────────────────────────
 
-describe('11. reconcile edits an existing legacy reconcile comment instead of posting a second one', () => {
-  test('11. one comment on the PR, in the AOForge form, with the earlier list kept', () => {
-    fake.seedIssue({ title: 'objective 50', body: F.legacyIssueBody({ id: '50' }), labels: [`${OLD}:objective`], state: 'CLOSED' });
-    fake.seedIssue({ title: 'TRD 50-01', body: F.legacyTrdBody({ id: '50-01', file: '50-01-a-TRD.md' }) });
-    fake.seedIssue({ title: 'TRD 50-02', body: F.legacyTrdBody({ id: '50-02', file: '50-02-b-TRD.md' }), state: 'CLOSED' });
-    fake.issues[0].subIssues.push(2, 3);
-    fake.issues[1].parent = 1;
-    fake.issues[2].parent = 1;
-    fake.pushRef('feat-4', '4'.repeat(40));
-    const opened = fake.runGh(['api', '--method', 'POST', 'repos/o/r/pulls', '--input', '-'], {
-      input: JSON.stringify({ title: 'objective 50', head: 'feat-4', base: 'main', body: F.legacyPrBody({ objective: '50', closes: [1, 3] }) }),
-    });
-    assert.equal(opened.ok, true, opened.stderr);
-    const pr = JSON.parse(opened.stdout).number;
-    fake.seedComment(pr, F.legacyReconcileComment({ closed: [3] }));
+/** A merged PR (`Closes #1`) whose issue #1 is still open, with `comment` already on it. Returns the PR number. */
+function mergedPrWith(comment) {
+  fake.seedIssue({ title: 'issue 1' });
+  fake.pushRef('feat-4', '4'.repeat(40));
+  const opened = fake.runGh(['api', '--method', 'POST', 'repos/o/r/pulls', '--input', '-'], {
+    input: JSON.stringify({ title: 'fix it', head: 'feat-4', base: 'main', body: 'Closes #1' }),
+  });
+  assert.equal(opened.ok, true, opened.stderr);
+  const pr = JSON.parse(opened.stdout).number;
+  fake.seedComment(pr, comment);
+  return pr;
+}
 
-    const payload = fixture('pull_request-merged', (p) => {
-      p.pull_request.number = pr;
-      p.pull_request.body = F.legacyPrBody({ objective: '50', closes: [1, 3] });
-    });
-    const r = run('reconcile', payload);
+const reconcileEvent = (pr) => fixture('pull_request-merged', (p) => {
+  p.pull_request.number = pr;
+  p.pull_request.body = 'Closes #1';
+});
+
+describe('11. reconcile and an earlier reconcile comment', () => {
+  test('11a. a legacy reconcile comment is left as it is; a new AOForge one is posted', () => {
+    const legacy = F.legacyReconcileComment({ closed: [3] });
+    const pr = mergedPrWith(legacy);
+    const r = run('reconcile', reconcileEvent(pr));
     assert.equal(r.code, 0, JSON.stringify(r));
-    assert.equal(fake.issues[1].state, 'CLOSED', 'the linked TRD still open is closed');
+    assert.equal(fake.issues[0].state, 'CLOSED', 'the target still open is closed');
+
+    const comments = fake.comments.filter((c) => c.issue_number === pr);
+    assert.equal(comments.length, 2, 'the legacy comment is not the reconcile comment');
+    assert.equal(comments[0].body, legacy, 'the legacy comment is untouched');
+    assert.ok(comments[1].body.startsWith('<!-- aoforge:reconcile -->\n'), comments[1].body);
+    assert.match(comments[1].body, /- #1/);
+    assert.doesNotMatch(comments[1].body, /- #3/, 'the legacy list is not carried over');
+    assert.equal(fake.writes().filter((a) => a.includes('PATCH') && a.join(' ').includes('issues/comments/')).length, 0);
+  });
+
+  test('11b. an AOForge reconcile comment is still edited in place, its earlier list kept', () => {
+    const pr = mergedPrWith('<!-- aoforge:reconcile -->\nClosed after the merge (they were still open):\n\n- #3\n');
+    const r = run('reconcile', reconcileEvent(pr));
+    assert.equal(r.code, 0, JSON.stringify(r));
 
     const comments = fake.comments.filter((c) => c.issue_number === pr);
     assert.equal(comments.length, 1, 'no second reconcile comment');
-    const body = comments[0].body;
-    assert.ok(body.startsWith('<!-- aoforge:reconcile -->\n'), body);
-    assert.ok(!body.includes(`${OLD}:reconcile`), body);
-    assert.match(body, /- #3/, 'the earlier list is kept');
-    assert.match(body, /- #2/, 'the new close is recorded');
+    assert.ok(comments[0].body.startsWith('<!-- aoforge:reconcile -->\n'), comments[0].body);
+    assert.match(comments[0].body, /- #3/, 'the earlier list is kept');
+    assert.match(comments[0].body, /- #1/, 'the new close is recorded');
     assert.equal(fake.writes().filter((a) => a.includes('POST') && a.join(' ').includes(`issues/${pr}/comments`)).length, 0);
   });
 });

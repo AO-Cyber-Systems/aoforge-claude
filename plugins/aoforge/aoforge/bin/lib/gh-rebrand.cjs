@@ -830,7 +830,11 @@ function baseRefresher(root, snapshot, env) {
     const key = prs.has(op.number) ? `${marker.id}#pr-${marker.kind}` : `${marker.id}#${marker.kind}`;
     const entry = bases[key];
     if (!entry || entry.issue_number !== op.number) return;
-    const found = bodyLib.findCommentsByMarker(list, marker.id, marker.kind);
+    // gh-body reads the AOForge namespace only (78-03), and the other parts of a multi-part comment may not be
+    // rewritten yet: read the list with every marker re-spelled (this module's own legacy pattern), so a partly
+    // rewritten comment still joins.
+    const view = list.map((c) => ({ ...c, body: respellMarkers(c.body) }));
+    const found = bodyLib.findCommentsByMarker(view, marker.id, marker.kind);
     if (found.length === 0) return;
     const joined = trdLib.joinParts(found.map((f) => stripMarkerLine(f.comment.body)));
     if (!joined.ok) {

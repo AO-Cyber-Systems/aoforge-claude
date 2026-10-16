@@ -331,6 +331,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-01: doctor check 27 and validate W066/W067 KEPT as report-only, naming AOForge 3.0.x or the manual step (never --only 0012/0013); legacy-only W066 is validate's one broken result; new W069 legacy-claude-md-block (W068 is taken on main)
 - [Objective 78]: 78-02: doc-refs drops NAMESPACE_RENAMES and the dash form (one-release per 72-13); only /aoforge:<name> is a command reference, pre-rename text is left to 3.0.x, DEPRECATION_MAP/REMOVED_COMMANDS stay
 - [Objective 78]: 78-02: LEGACY_AGENT_EXEMPT and the 44-08 agent-path gate stay (pre-plugin agent paths, not the 3.0 rename); coexistence.cjs pointer-version handling stays for 78-06 (installed pointer copies remain on users' machines)
+- [Objective 78]: 78-03: gh rebrand (72-16) KEPT in 3.1.0 as the explicit converter; it owns its legacy patterns now that gh-body/gh-trd/gh-cache read the aoforge namespace only
+- [Objective 78]: 78-03: checks-pin pre-rename caller detection (W062 legacy:true, fix gh rebrand) KEPT as a detector; gh setup refuses a pre-rename PR-template block (conflict, reason legacy-pr-template)
 
 ## Performance Metrics
 
@@ -547,4 +549,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 75 P05 | 8min | 3 tasks | 9 files |
 | Objective 78 P01 | 17min | 3 tasks | 14 files |
 | Objective 78 P02 | 17min | 3 tasks | 64 files |
+| Objective 78 P03 | 21min | 3 tasks | 11 files |
 

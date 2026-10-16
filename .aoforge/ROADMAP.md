@@ -391,7 +391,7 @@ TRDs:
 TRDs:
 - [x] 78-01-legacy-layout-detectors-TRD.md — (W1, TDD) planning-layout detectors independent of compat, the one legacy-layout message, W066 broken / W067 / new W069; validate, doctor 27/22 and doctor's project note point at 3.0.x or the manual step
 - [ ] 78-02-old-commands-and-pointer-plugin-TRD.md — (W1, TDD) pointer plugin, marketplace entry, gen-pointer-skills, package.json glob and their ALLOW entries removed; doc-refs drops NAMESPACE_RENAMES and the dash form
-- [ ] 78-03-gh-markers-and-contexts-TRD.md — (W1, TDD) GitHub body/TRD/cache readers, status contexts and reconcile line in the AOForge namespace only; gh setup refuses a pre-rename PR-template block; gh rebrand kept and self-contained
+- [x] 78-03-gh-markers-and-contexts-TRD.md — (W1, TDD) GitHub body/TRD/cache readers, status contexts and reconcile line in the AOForge namespace only; gh setup refuses a pre-rename PR-template block; gh rebrand kept and self-contained
 - [ ] 78-04-file-identities-TRD.md — (W1, TDD) .mcp.json owner key (reported), todo metadata key, adopt branch/marker and 0010's block slug read under AOForge names only
 - [ ] 78-05-watch-daemon-runtime-home-TRD.md — (W2, TDD) watch pid and log from the runtime home only; a live 3.0.0 daemon is named, never duplicated
 - [ ] 78-06-global-legacy-notices-and-doctor-TRD.md — (W2, TDD) one SessionStart notice for the old plugin, DEVFLOW_* variables, an unmigrated runtime home and ~/.aoforge files; checks 15/16 report-only, 17 keeps its fix; runtime-state migration retired
