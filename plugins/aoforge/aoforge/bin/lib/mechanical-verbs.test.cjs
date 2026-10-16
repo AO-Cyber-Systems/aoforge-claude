@@ -83,6 +83,97 @@ describe('validate roadmap-coverage', () => {
   });
 });
 
+// Quick 36 (D1): coverage reads ROADMAP ids through requirement-ids.cjs roadmapRequirementIds, the parser
+// `verify trd-pre` and `objective complete` use, one level-bounded objective section at a time.
+describe('validate roadmap-coverage uses the shared requirement parser (quick 36)', () => {
+  const cover = (reqs, road, ...flags) => run(
+    project({ '.aoforge/REQUIREMENTS.md': reqs, '.aoforge/ROADMAP.md': road }), 'validate', 'roadmap-coverage', ...flags);
+  const API_REQS = '# Requirements\n\n## v1 Requirements\n\n- [ ] **API-01**: list endpoints\n';
+
+  test('1 a bulleted label line `- **Requirements**: API-01` maps its id', () => {
+    const r = cover(API_REQS, '# Roadmap\n\n### Objective 1: Api\n- **Requirements**: API-01\n');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.json.coverage, '1/1');
+    assert.deepEqual(r.json.orphans, []);
+  });
+
+  test('2 a label with no value reads the bullet lines below it', () => {
+    const road = '# Roadmap\n\n### Objective 1: Auth\n**Requirements**:\n- AUTH-01\n- AUTH-02\n\n### Objective 2: Data\n**Requirements**: DATA-01\n';
+    const r = cover(REQS, road);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.json.coverage, '3/3');
+    assert.deepEqual(r.json.orphans, []);
+  });
+
+  test('3 `none (tech debt; AUTH-03 deferred)` maps nothing, so a v1 AUTH-03 is an orphan', () => {
+    const reqs = REQS.replace('- [ ] **DATA-01**: list items\n', '- [ ] **DATA-01**: list items\n- [ ] **AUTH-03**: reset password\n');
+    const road = `${roadmap('AUTH-01, AUTH-02', 'DATA-01')}\n### Objective 3: Cleanup\n**Requirements**: none (tech debt; AUTH-03 deferred)\n`;
+    const r = cover(reqs, road);
+    assert.equal(r.status, 1, r.stdout);
+    assert.ok(r.json.orphans.includes('AUTH-03'), JSON.stringify(r.json));
+  });
+
+  test('4 a Requirements line under `## Progress` after the last objective is credited to no objective', () => {
+    const road = '# Roadmap\n\n### Objective 1: Auth\n**Requirements**: AUTH-01, AUTH-02\n\n### Objective 2: Data\n**Goal**: lists\n\n## Progress\n\n| Objective | Status |\n|---|---|\n**Requirements**: DATA-01\n';
+    const r = cover(REQS, road);
+    assert.equal(r.status, 1, r.stdout);
+    assert.deepEqual(r.json.orphans, ['DATA-01']);
+    assert.deepEqual(r.json.duplicates, []);
+  });
+
+  test('5 a deeper heading inside an objective stays inside its section', () => {
+    const road = '# Roadmap\n\n### Objective 1: Auth\n**Requirements**: AUTH-01, AUTH-02\n\n### Objective 2: Data\n#### Notes\nPagination later.\n**Requirements**: DATA-01\n';
+    const r = cover(REQS, road);
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.json.coverage, '3/3');
+  });
+
+  test('6 a section is out of v1 only when its heading starts with a later version or an out-of-scope word', () => {
+    const reqs = [
+      '# Requirements', '',
+      '## v1 Requirements', '- [ ] **AUTH-01**: sign in', '',
+      '## Integrations (OAuth v2)', '- [ ] **INT-01**: oauth login', '',
+      '## v2 Requirements', '- [ ] **VTWO-01**: later thing', '',
+      '## v10 Stretch', '- [ ] **VTEN-01**: far thing', '',
+      '## Out of Scope', '- [ ] **OOS-01**: not doing', '',
+      '## Traceability', '- [ ] **TRC-01**: table row', '',
+      '## Future Requirements', '- [ ] **FUT-01**: someday', '',
+      '## Deferred', '- [ ] **DEF-01**: parked', '',
+    ].join('\n');
+    const r = cover(reqs, '# Roadmap\n\n### Objective 1: Auth\n**Requirements**: AUTH-01\n');
+    assert.equal(r.status, 1, r.stdout);
+    assert.equal(r.json.v1_total, 2);
+    assert.deepEqual(r.json.orphans, ['INT-01']);
+  });
+
+  test('7 a REQUIREMENTS.md with no v1 definitions fails with a reason, never `0/0 ✓`', () => {
+    const reqs = '# Requirements\n\n## v1 Requirements\n\n(none yet)\n\n## v2 Requirements\n\n- [ ] **NOTF-01**: notifications\n';
+    const road = '# Roadmap\n\n### Objective 1: Auth\n**Requirements**: none\n';
+    const r = cover(reqs, road);
+    assert.equal(r.status, 1, r.stdout);
+    assert.equal(r.json.ok, false);
+    assert.equal(r.json.v1_total, 0);
+    assert.match(r.json.reason, /no v1 requirements/);
+    const raw = cover(reqs, road, '--raw');
+    assert.equal(raw.status, 1);
+    assert.ok(!raw.stdout.includes('0/0 ✓'), raw.stdout);
+    assert.match(raw.stdout, /no v1 requirements/);
+  });
+
+  test('8 an id with a lowercase suffix (AUTH-01a) is defined and mapped', () => {
+    const reqs = '# Requirements\n\n## v1 Requirements\n\n- [ ] **AUTH-01a**: sign in with a code\n';
+    const r = cover(reqs, '# Roadmap\n\n### Objective 1: Auth\n**Requirements**: AUTH-01a\n');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.json.coverage, '1/1');
+  });
+
+  test('9 raw success output ends with a newline', () => {
+    const r = cover(API_REQS, '# Roadmap\n\n### Objective 1: Api\n**Requirements**: API-01\n', '--raw');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /Coverage: 1\/1 v1 requirements mapped ✓\n$/);
+  });
+});
+
 const TRD = `---
 objective: 01-auth
 requirements: [AUTH-01, AUTH-02]
@@ -168,5 +259,61 @@ describe('verify objective-evidence', () => {
   test('an unknown objective is an error', () => {
     const r = run(project({ '.aoforge/ROADMAP.md': '# r\n' }), 'verify', 'objective-evidence', '9');
     assert.equal(r.status, 1);
+  });
+});
+
+// Quick 36 (D2): a mid-run SUMMARY (`## Progress` with an unticked task, no `## Self-Check`) is a checkpoint,
+// not a finished TRD, in both objective-evidence and objective-completeness (misc.cjs isCheckpointOnlySummary).
+const CHECKPOINT_SUMMARY = `---
+duration: 5min
+---
+# Summary
+
+## Progress
+- [x] Task 1: one — abc1234
+- [ ] Task 2: two — next step: add the sign-out handler to src/auth.js
+`;
+
+describe('checkpoint SUMMARYs are not done (quick 36)', () => {
+  const files = {
+    '.aoforge/objectives/01-auth/01-01-sign-in-TRD.md': TRD,
+    '.aoforge/objectives/01-auth/01-01-SUMMARY.md': SUMMARY,
+    '.aoforge/objectives/01-auth/01-02-sign-out-TRD.md': TRD,
+    '.aoforge/objectives/01-auth/01-02-SUMMARY.md': CHECKPOINT_SUMMARY,
+    'src/auth.js': 'module.exports = {};\n',
+    'src/app.js': 'module.exports = {};\n',
+  };
+
+  test('12 objective-evidence counts final SUMMARYs only and names the checkpoint', () => {
+    const r = run(project(files), 'verify', 'objective-evidence', '1');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.json.rollup.trds, 2);
+    assert.equal(r.json.rollup.summaries, 1);
+    assert.deepEqual(r.json.rollup.checkpoints, ['01-02']);
+    assert.deepEqual(r.json.rollup.no_self_check, ['01-02']);
+    assert.equal(r.json.trds[0].summary.checkpoint, false);
+    assert.equal(r.json.trds[1].summary.checkpoint, true);
+    assert.equal(r.json.completeness.complete, false);
+    assert.ok(r.json.completeness.checkpoint_summaries.some((id) => id.startsWith('01-02')),
+      JSON.stringify(r.json.completeness));
+  });
+
+  test('13 raw objective-evidence names the checkpoint and every SUMMARY without a Self-Check, newline-terminated', () => {
+    const r = run(project(files), 'verify', 'objective-evidence', '1', '--raw');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.match(r.stdout, /^Objective 01: 1\/2 TRDs have a final SUMMARY$/m);
+    assert.match(r.stdout, /^checkpoints: .*01-02/m);
+    assert.match(r.stdout, /^no_self_check: .*01-02/m);
+    assert.ok(r.stdout.endsWith('\n'), JSON.stringify(r.stdout));
+  });
+
+  test('14 objective-completeness: a plan with only a checkpoint SUMMARY is incomplete', () => {
+    const r = run(project(files), 'verify', 'objective-completeness', '1');
+    assert.equal(r.status, 0, r.stdout + r.stderr);
+    assert.equal(r.json.complete, false);
+    assert.ok(r.json.incomplete_jobs.some((id) => id.startsWith('01-02')), JSON.stringify(r.json));
+    assert.ok(!r.json.incomplete_jobs.some((id) => id.startsWith('01-01')), JSON.stringify(r.json));
+    assert.ok(r.json.errors.some((e) => /checkpoint/i.test(e) && e.includes('01-02')), JSON.stringify(r.json.errors));
+    assert.equal(r.json.summary_count, 2);
   });
 });

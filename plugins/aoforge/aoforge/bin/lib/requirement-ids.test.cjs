@@ -232,3 +232,14 @@ describe('56-03 roadmapRequirementIds', () => {
     assert.deepEqual(roadmapRequirementIds(text), { found: true, ids: ['ONUM-01', 'ONUM-02'] });
   });
 });
+
+// Quick 36 (D1): validate roadmap-coverage builds its definition regex from the same ID source, so a lowercase
+// suffix the coverage check used to accept (AUTH-01a) is an ID on both sides.
+describe('quick 36 shared ID source', () => {
+  test('23 a hyphenated ID may carry one lowercase suffix; the source string is exported', () => {
+    assert.deepEqual(extractRequirementIds('AUTH-01a, AUTH-02'), ['AUTH-01a', 'AUTH-02']);
+    const { REQUIREMENT_ID_SRC } = require('./requirement-ids.cjs');
+    assert.equal(typeof REQUIREMENT_ID_SRC, 'string');
+    assert.match('AUTH-01a', new RegExp(`^(?:${REQUIREMENT_ID_SRC})$`));
+  });
+});
