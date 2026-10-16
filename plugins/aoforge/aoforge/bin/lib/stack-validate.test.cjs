@@ -1,4 +1,6 @@
 'use strict';
+const { shippedProfile } = require('./__fixtures__/stack-pack-env.cjs');
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-validate.test.cjs — V-group unit tests for validateProfile / validateProfileText
 // (TRD 35-03). Schema violations, cross-field rules (STK002-STK009) and the two positive
@@ -257,9 +259,9 @@ describe('validateProfile (V group)', () => {
 
   test('V13: bundled general and the three bundled stack-profiles validate ok — flutter via dart via general', () => {
     const PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
-    const goText = fs.readFileSync(path.join(PROFILES_DIR, 'go.md'), 'utf-8');
-    const dartText = fs.readFileSync(path.join(PROFILES_DIR, 'dart.md'), 'utf-8');
-    const flutterText = fs.readFileSync(path.join(PROFILES_DIR, 'flutter.md'), 'utf-8');
+    const goText = fs.readFileSync(shippedProfile('go.md'), 'utf-8');
+    const dartText = fs.readFileSync(shippedProfile('dart.md'), 'utf-8');
+    const flutterText = fs.readFileSync(shippedProfile('flutter.md'), 'utf-8');
     // No install: flutter's `extends: dart` resolves through the bundled tier (TRD 42-02).
     const home = fx.makeHome({});
     try {
@@ -282,8 +284,8 @@ describe('validateProfile (V group)', () => {
 
   test('V13b: a user-tier dart.md override is what flutter extends, ahead of the bundled dart', () => {
     const PROFILES_DIR = path.join(__dirname, '..', '..', 'stack-profiles');
-    const dartText = fs.readFileSync(path.join(PROFILES_DIR, 'dart.md'), 'utf-8');
-    const flutterText = fs.readFileSync(path.join(PROFILES_DIR, 'flutter.md'), 'utf-8');
+    const dartText = fs.readFileSync(shippedProfile('dart.md'), 'utf-8');
+    const flutterText = fs.readFileSync(shippedProfile('flutter.md'), 'utf-8');
     const home = fx.makeHome({ stacks: { dart: dartText.replace('run: "dart test"', 'run: "dart test --user-tier"') } });
     try {
       const flutterResult = sp.validateProfileText(flutterText, { userHome: home });

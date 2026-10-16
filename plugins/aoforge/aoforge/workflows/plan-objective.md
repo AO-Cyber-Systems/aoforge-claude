@@ -617,8 +617,24 @@ TaskCreate(
 TaskUpdate(taskId=checker_task_id, status="in_progress")
 ```
 
+**Mechanical pre-check first.** Five of the checker's dimensions are code (`verify trd-pre`). Run it
+before every checker spawn, the first and each revision's:
+
 ```bash
-PLANS_CONTENT=$(cat "${OBJECTIVE_DIR}"/*-TRD.md "${OBJECTIVE_DIR}"/*-JOB.md 2>/dev/null)
+PRECHECK=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify trd-pre "$OBJECTIVE" 2>/dev/null)
+```
+
+If `checks.requirement_coverage.missing`, `checks.task_completeness.incomplete`,
+`checks.dependency_correctness.cycles` or `checks.dependency_correctness.orphan_refs` is non-empty,
+those are blockers no model needs to confirm. **Skip the checker spawn this iteration:** write one
+blocker issue per finding (the job-checker `issue_structure` format: `trd`, `dimension`, `severity:
+blocker`, `description`, `fix_hint`) and go to step 13 with them as the checker issues. The iteration
+counts. Scope and TRD-budget findings are severity calls, so they go to the checker.
+
+Otherwise spawn the checker with the JSON. It reads each TRD itself, so pass paths, not contents:
+
+```bash
+PLAN_PATHS=$(ls "${OBJECTIVE_DIR}"/*-TRD.md "${OBJECTIVE_DIR}"/*-JOB.md 2>/dev/null)
 ```
 
 Checker prompt:
@@ -628,7 +644,8 @@ Checker prompt:
 **Objective:** {objective_number}
 **Objective Goal:** {goal from ROADMAP}
 
-**Plans to verify:** {plans_content}
+**Plans to verify (read each):** {plan_paths}
+**Mechanical pre-check (verify trd-pre):** {precheck}
 **Objective requirement IDs (MUST ALL be covered):** {objective_req_ids}
 **Requirements:** {requirements_content}
 
@@ -874,27 +891,17 @@ Confidence: {Display confidence scores if checker ran, e.g., "01: 8/10, 02: 7/10
 
 ───────────────────────────────────────────────────────────────
 
-### Visual-Eval Gate (conditional — UI objectives only)
+### Stack pack gates (conditional)
 
-If the planner reported a visual-eval gate for this objective (i.e. `decideUIEvalDefault.emit`
-was true / the plan contains a `## Visual-Eval Gate (auto-required)` section), then:
+A stack pack's planner fragment can add an auto-required gate to a TRD: a `## <Name> Gate
+(auto-required)` section carrying a `callout` line and a `tasks` list (a UI pack's visual-eval
+gate is one). If the plan contains one, then:
 
-1. Surface the gate's `callout` line in this Next Up block, e.g.:
+1. Surface each gate's `callout` line in this Next Up block.
+2. Create a tracked session task with `TaskCreate` for EACH entry in the gate's `tasks` list, so the
+   steps are on the session task list and not forgotten.
 
-   > 👁 Visual-eval gate auto-required for {X}: author a ui_eval state-matrix manifest, then run /aoforge:ui-eval after build.
-
-2. Create tracked session tasks via `TaskCreate` for EACH entry in the gate's `tasks` array
-   (the planner surfaced them in the Visual-Eval Gate section), e.g.:
-
-   ```
-   TaskCreate(subject="Author ui_eval state-matrix manifest for {X}", description="...", activeForm="Authoring ui_eval manifest")
-   TaskCreate(subject="Run /aoforge:ui-eval visual gate for {X}", description="...", activeForm="Running /aoforge:ui-eval gate")
-   ```
-
-   so the visual-eval steps are on the session task list and not forgotten.
-
-Non-UI objectives (no visual-eval gate) get NEITHER the callout line NOR the session tasks —
-this block is strictly conditional on the gate being on.
+An objective with no such section gets NEITHER the callout NOR the tasks.
 
 ───────────────────────────────────────────────────────────────
 

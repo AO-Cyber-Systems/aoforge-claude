@@ -61,6 +61,23 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 
 - [ ] **TODO-01**: Every todo pending at v1.6 start is completed through `todo complete` by the objective that addresses it, or explicitly re-scoped. None is left pending without a reason.
 
+### Model efficiency (MEF) and stack content (STK)
+
+- [ ] **MEF-01**: The model tier an agent runs on is the one the profile resolves: the objective's intent `model_profile` binds, every spawn passes a model its init emits, and the UI judge reads the project profile.
+- [ ] **MEF-02**: No spawn loads instructions or templates it cannot use: no `@` lists across the Task boundary, one template per mapper focus and research dimension.
+- [ ] **MEF-03**: Mechanical plan checks run as code (`verify trd-pre`) before the job-checker, which covers only judgment dimensions.
+- [ ] **MEF-04**: Post-TRD bookkeeping, verifier evidence, codebase facts, roadmap coverage and the security grep sweep are aof-tools commands.
+- [ ] **MEF-05**: Tiers are set per focus or dimension where the work differs; the haiku tier is re-pinned after a recorded eval; pass/fail verdicts run at Sonnet or above on every profile.
+- [ ] **MEF-06**: The debugger and the UI judge start cheap and escalate on a recorded signal; orchestrators act on `ESCALATION REQUESTED`.
+- [ ] **STK-01**: Stack-specific agent procedure (Flutter, Dart, Go, web) is delivered through stack profiles or on-demand references, not resident agent prompts.
+
+### Stack packs (PCK)
+
+- [ ] **PCK-01**: A stack pack contract: manifest schema, discovery from the mirror gated on the plugin being enabled, selection by profile/config/runtime, a pack profile tier, and `stack discover|doctor|verify --changed|--all`.
+- [ ] **PCK-02**: Agents reach stack procedure only through `stack context <agent>` (fragments and pack sub-agents).
+- [ ] **PCK-03**: Flutter/Dart and web procedure ships in `aoforge-stack-flutter` and `aoforge-stack-web`, with no core aliases; core CI fails on a pack stack named in core (neutrality guard).
+- [ ] **PCK-04**: Packs release as `<pack>--vX.Y.Z` and the changelog gate checks their CHANGELOG and manifests.
+
 ## Future Requirements
 
 - Node, Rust and Python tier-2 stack profiles.
@@ -107,3 +124,14 @@ Scope: everything v1.5 left open (Known Gaps and tech debt in `milestones/v1.5-M
 | OPS-03 | Objective 74 | Pending |
 | EST-11 | Objective 75 | Pending |
 | TODO-01 | Objective 75 | Pending |
+| MEF-01 | Objective 76 | Pending |
+| MEF-02 | Objective 76 | Pending |
+| MEF-03 | Objective 76 | Pending |
+| MEF-04 | Objective 76 | Pending |
+| MEF-05 | Objective 76 | Pending |
+| MEF-06 | Objective 76 | Pending |
+| STK-01 | Objective 77 | Pending |
+| PCK-01 | Objective 77 | Pending |
+| PCK-02 | Objective 77 | Pending |
+| PCK-03 | Objective 77 | Pending |
+| PCK-04 | Objective 77 | Pending |

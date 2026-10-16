@@ -14,8 +14,9 @@
 // stack-render.cjs must stay free of (P11 / C14). Its consumers are the drafter (42-07: areas
 // become `components`) and the recommendations report (42-08: checks apply per area).
 //
-// Pure Dart vs Flutter reuses flutter-ui-scope's `detectPubspecFlutter` — the one shared test for
-// "this pubspec depends on the Flutter SDK". There is deliberately no second pubspec regex here.
+// Pure Dart vs Flutter: a pubspec that depends on the Flutter SDK. The Flutter stack pack's
+// flutter-ui-scope keeps the same test; core keeps its own copy because the pack is optional and
+// area detection is language-neutral evidence (objective 77).
 //
 // Ignored directories (TRD 42-12, gap G1). A gitignored build output such as `dist/<scaffold>/`
 // once became a drafted component. Two filters now keep such trees out, and both PRUNE — an
@@ -36,7 +37,10 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { detectPubspecFlutter } = require('./flutter-ui-scope.cjs');
+const PUBSPEC_FLUTTER_DEP_RE = /^\s*flutter\s*:\s*\n\s+sdk\s*:\s*flutter\s*$/m;
+function detectPubspecFlutter(content) {
+  return { fired: typeof content === 'string' && PUBSPEC_FLUTTER_DEP_RE.test(content) };
+}
 const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 // ─── marker data ──────────────────────────────────────────────────────────

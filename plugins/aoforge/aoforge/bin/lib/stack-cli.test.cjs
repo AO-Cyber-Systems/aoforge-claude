@@ -1,4 +1,5 @@
 'use strict';
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-cli.test.cjs — L-group CLI tests for `aof-tools stack resolve|context|validate|command`
 // (TRD 35-03). Every run spawns the checkout's OWN aof-tools.cjs via spawnSync with a sandboxed
@@ -291,13 +292,13 @@ function runInProcess(fn) {
 }
 
 describe('aof-tools stack extensions (L12-L13)', () => {
-  test('L12: stack frobnicate -> the error lists all eight subcommands', () => {
+  test('L12: stack frobnicate -> the error lists all ten subcommands', () => {
     const root = fx.makeProject({});
     const home = fx.makeHome({});
     try {
       const r = run(['stack', 'frobnicate'], { cwd: root, home });
       assert.equal(r.code, 1);
-      assert.match(r.stderr, /resolve, context, validate, command, init, verify, report, mcp/);
+      assert.match(r.stderr, /resolve, context, validate, command, init, discover, doctor, verify, report, mcp/);
     } finally {
       fx.cleanup(root, home);
     }

@@ -12,7 +12,7 @@ Soft-bundled with `defaults-table.md` per the v1.1 design — both are read by t
 | Integration | Multiple units or a unit plus real I/O behave correctly together | profile `## Testing` |
 | System / E2E | The system behaves correctly end-to-end, driven from its outermost surface | profile `verification.runtime` + `runtime_check` |
 | AI exploratory | Ad hoc, judgment-driven probing beyond scripted cases | (no formal pattern) |
-| Visual / golden | Rendered UI matches an approved baseline | `aof-tools verify flutter-ui-eval` where a UI profile applies |
+| Visual / golden | Rendered UI matches an approved baseline | `aof-flutter verify flutter-ui-eval` where a UI profile applies |
 | Wrong-tenant assertion | Cross-tenant access is rejected | profile `## Testing` |
 | Contract / parity (port) | A reimplementation reproduces the source's observable behavior | profile `## Testing` |
 
@@ -32,7 +32,7 @@ The former per-stack cells (Go, Flutter, Node) now live as tier-2 profiles that 
 | Integration | `*_test.go` with httpmock or interceptor cassettes | `integration_test/` driver harness | Fixture-driven test against real I/O |
 | System / E2E | (rare — gateway level only) | `integration_test/` + Patrol (or Maestro YAML for native flows) | (rare) |
 | AI exploratory | (no formal pattern in org) | (no formal pattern in org) | (no formal pattern in org) |
-| Visual / golden | n/a | `aof-tools verify flutter-ui-eval` — two-layer (golden net + VLM judge), shipped in AOForge 2.4.0; `matchesGoldenFile` in use on aodex/eden-biz | n/a |
+| Visual / golden | n/a | `aof-flutter verify flutter-ui-eval` — two-layer (golden net + VLM judge), shipped in AOForge 2.4.0; `matchesGoldenFile` in use on aodex/eden-biz | n/a |
 | Wrong-tenant assertion | httpmock test asserting cross-tenant 403/404 | (rarely applicable) | n/a |
 | Contract / parity (port) | Recorded cassettes vs source | Widget-tree behavioral parity | I/O snapshot or daemon contract test |
 

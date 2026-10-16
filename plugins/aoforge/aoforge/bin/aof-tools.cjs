@@ -106,9 +106,6 @@
  *   verify api-contract <trd-path>    SHA drift for api_contract: block (advisory; exits 0)
  *   verify trd-pre <objective>        Cheap pre-flight: req coverage, task completeness,
  *                                       dep cycles, scope counts (pure-logic, no agent spawn)
- *   verify flutter-ui-bootstrap <project-dir>  Check Flutter UI testing infra
- *                                       (pubspec/integration_test/.maestro/test_driver/marker)
- *   verify flutter-state-coverage <trd-path>  Check Flutter UI artifact state coverage via regex catalog
  *
  * Skill Lifecycle:
  *   skill-active --start <name>        Mark skill as active (writes .aoforge/.skill-active)
@@ -126,14 +123,6 @@
  *   detect novel-domain <objective>   Detect if objective crosses research boundary
  *     [--raw]                           Returns { novel, signals, recommendation }
  *                                       Signals: new_dep, missing_patterns, comparison_keyword
- *   detect flutter-ui-scope <objective>  Detect Flutter UI scope (sets type=ui semantics in planner)
- *     [--raw]                           Returns { detected, signals, platform, state_management, evidence }
- *
- * UAT Generation:
- *   generate uat <objective>           Auto-generate 1-page UAT.md checklist from TRDs + Maestro flows
- *     [--raw]                           (mobile-only) + flutter drive web instructions. Writes to
- *                                       .aoforge/objectives/<obj-dir>/<obj>-UAT.md. Refuses to
- *                                       overwrite a UAT.md already in use (non-pending results).
  *
  * Template Fill:
  *   template fill summary --objective N    Create pre-filled SUMMARY.md
@@ -256,17 +245,10 @@ const {
 } = require('./lib/verify.cjs');
 const { cmdVerifyTrdPre } = require('./lib/trd-pre-check.cjs');
 const { cmdVerifyApiContract } = require('./lib/api-contract.cjs');
-const { cmdVerifyFlutterUIBootstrap } = require('./lib/flutter-ui-bootstrap.cjs');
-const { cmdFlutterUISetup } = require('./lib/flutter-ui-setup.cjs');
-const { cmdFlutterUIEvalBootstrap } = require('./lib/flutter-ui-eval-bootstrap.cjs');
-const { cmdVerifyFlutterStateCoverage } = require('./lib/flutter-state-coverage.cjs');
-const { cmdVerifyFlutterUIEval } = require('./lib/flutter-ui-eval.cjs');
-const { cmdDesignReview } = require('./lib/flutter-ui-design-review.cjs');
 const { cmdUiMetrics } = require('./lib/ui-metrics.cjs');
 const { cmdUiSpec, cmdUiSheet, cmdUiLock } = require('./lib/ui-spec-cli.cjs');
 const { cmdDetectNovelDomain } = require('./lib/novel-domain.cjs');
 const { cmdDetectBrownfieldMap } = require('./lib/brownfield-detector.cjs');
-const { cmdDetectFlutterUIScope } = require('./lib/flutter-ui-scope.cjs');
 const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs, cmdValidateRequirements } = require('./lib/validate.cjs');
 const {
   cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject,
@@ -314,7 +296,6 @@ const { cmdMergeDriver } = require('./lib/merge-driver-cli.cjs');
 const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
-const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
 const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
 const { checkFlags, formatUnknownFlag } = require('./lib/flag-guard.cjs');
 const { FLAG_SPEC } = require('./lib/flag-spec.cjs');
@@ -456,7 +437,8 @@ async function main() {
     }
 
     case 'resolve-model': {
-      cmdResolveModel(cwd, args[1], raw);
+      const objIdx = args.indexOf('--objective');
+      cmdResolveModel(cwd, args[1], raw, objIdx !== -1 ? args[objIdx + 1] : undefined);
       break;
     }
 
@@ -555,42 +537,12 @@ async function main() {
       } else if (subcommand === 'api-contract') {
         // verify api-contract <trd-path> [--raw]
         cmdVerifyApiContract(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-ui-bootstrap') {
-        // verify flutter-ui-bootstrap <project-dir> [--raw]
-        cmdVerifyFlutterUIBootstrap(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-state-coverage') {
-        // verify flutter-state-coverage <trd-path> [--raw]
-        cmdVerifyFlutterStateCoverage(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-ui-eval') {
-        // verify flutter-ui-eval <manifest|captureResults> [--raw]
-        cmdVerifyFlutterUIEval(cwd, args.slice(2), raw);
       } else {
-        error('Unknown verify subcommand. Available: job-structure, objective-completeness, references, commits, artifacts, key-links, trd-pre, api-contract, flutter-ui-bootstrap, flutter-state-coverage, flutter-ui-eval');
+        error('Unknown verify subcommand. Available: job-structure, objective-completeness, references, commits, artifacts, key-links, trd-pre, api-contract');
       }
       break;
     }
 
-    case 'flutter-ui': {
-      // flutter-ui setup [--print-only] [--auto] [--raw]
-      //   One-command adoption: detect missing system tools, build install plan,
-      //   dispatch via handoff (daemon live) or print (daemon down), chain bootstrap.
-      const subcommand = args[1];
-      if (subcommand === 'setup') {
-        cmdFlutterUISetup(cwd, args.slice(2), raw);
-      } else if (subcommand === 'eval') {
-        // flutter-ui eval <manifest|captureResults> [--raw]
-        cmdVerifyFlutterUIEval(cwd, args.slice(2), raw);
-      } else if (subcommand === 'bootstrap') {
-        // flutter-ui bootstrap [project-dir] [--raw]
-        cmdFlutterUIEvalBootstrap(cwd, args[2], raw, args.slice(2));
-      } else if (subcommand === 'design-review') {
-        // flutter-ui design-review <manifest> [--live] [--raw]
-        cmdDesignReview(cwd, args.slice(2), raw);
-      } else {
-        error('Unknown flutter-ui subcommand. Available: setup, eval, bootstrap, design-review');
-      }
-      break;
-    }
 
     case 'ui': {
       // ui metrics baseline [--since YYYY-MM-DD] [--paths p1,p2] [--out file]
@@ -645,27 +597,12 @@ async function main() {
       } else if (subcommand === 'brownfield-map') {
         // detect brownfield-map [<cwd>] [--raw]
         cmdDetectBrownfieldMap(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-ui-scope') {
-        // detect flutter-ui-scope <objective> [--raw]
-        cmdDetectFlutterUIScope(cwd, args[2], raw);
       } else {
-        error('Unknown detect subcommand. Available: novel-domain, brownfield-map, flutter-ui-scope');
+        error('Unknown detect subcommand. Available: novel-domain, brownfield-map');
       }
       break;
     }
 
-    case 'generate': {
-      const subcommand = args[1];
-      if (subcommand === 'uat') {
-        // generate uat <objective> [--raw]
-        // Auto-generates 1-page UAT checklist from TRDs + Maestro flows + flutter drive web rows.
-        // Writes to .aoforge/objectives/<obj-dir>/<obj>-UAT.md
-        cmdGenerateUAT(cwd, args[2], raw);
-      } else {
-        error('Unknown generate subcommand. Available: uat');
-      }
-      break;
-    }
 
     case 'generate-slug': {
       cmdGenerateSlug(args[1], raw);

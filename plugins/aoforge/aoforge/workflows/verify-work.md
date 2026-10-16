@@ -547,7 +547,13 @@ Display:
 
 Initialize: `iteration_count = 1`
 
-Spawn job-checker:
+Run the mechanical pre-check, then spawn job-checker. An `@` line does not expand inside a Task
+prompt, so pass the gap plans' paths and the pre-check JSON:
+
+```bash
+PRECHECK=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify trd-pre "{objective_number}" 2>/dev/null)
+GAP_PLANS=$(grep -l "gap_closure: true" "{objective_dir}"/*-TRD.md "{objective_dir}"/*-JOB.md 2>/dev/null)
+```
 
 ```
 Task(
@@ -557,8 +563,9 @@ Task(
 **Objective:** {objective_number}
 **Objective Goal:** Close diagnosed gaps from UAT
 
-**Plans to verify:**
-@.aoforge/objectives/{objective_dir}/*-JOB.md
+**Plans to verify (read each; these are the gap-closure plans):** {gap_plans}
+**Mechanical pre-check (verify trd-pre, covers every TRD in the objective; report only findings
+on the plans above):** {precheck}
 
 </verification_context>
 

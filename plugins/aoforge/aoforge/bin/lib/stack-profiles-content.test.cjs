@@ -1,4 +1,6 @@
 'use strict';
+const { shippedProfile } = require('./__fixtures__/stack-pack-env.cjs');
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-profiles-content.test.cjs — TRD 42-02 (SDR-04).
 //
@@ -38,7 +40,7 @@ const NAMES = ['go', 'dart', 'flutter'];
 const GO_FORMAT_GATE = 'test -z "$(gofmt -l .)"';
 
 function load(name) {
-  const p = path.join(PROFILES_DIR, `${name}.md`);
+  const p = shippedProfile(`${name}.md`);
   const text = fs.readFileSync(p, 'utf-8');
   return { path: p, text, parsed: sp.parseProfile(text, { source: p }) };
 }
@@ -70,7 +72,7 @@ function alwaysPrefixed(text, name, prefix) {
 describe('C1a: go and dart validate clean', () => {
   for (const name of ['go', 'dart']) {
     test(`C1a: ${name}.md validates ok with no errors and no warnings (no STK010)`, () => {
-      const r = sp.validateProfile({ profilePath: path.join(PROFILES_DIR, `${name}.md`) });
+      const r = sp.validateProfile({ profilePath: shippedProfile(`${name}.md`) });
       assert.equal(r.ok, true, JSON.stringify(r.errors));
       assert.deepEqual(r.errors, []);
       assert.deepEqual(r.warnings, []);
@@ -82,7 +84,7 @@ describe('C1b: flutter validates clean through the bundled tier', () => {
   test('C1b: flutter.md with an empty fake home -> ok, no STK002, no warnings (extends dart resolves bundled)', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'df-stack-empty-home-'));
     try {
-      const r = sp.validateProfile({ profilePath: path.join(PROFILES_DIR, 'flutter.md'), userHome: home });
+      const r = sp.validateProfile({ profilePath: shippedProfile('flutter.md'), userHome: home });
       assert.equal(r.ok, true, JSON.stringify(r.errors));
       assert.deepEqual(r.errors, []);
       assert.deepEqual(r.warnings, []);

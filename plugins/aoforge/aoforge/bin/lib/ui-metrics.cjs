@@ -16,7 +16,23 @@ const { output, error, pluginVersion } = require('./helpers.cjs');
 const { planningRel } = require('./compat.cjs');
 
 const DEFAULT_SINCE = '2026-06-01';
-const DEFAULT_PATHS = ['flutter/lib'];
+// No stack default in core (objective 77): the active stack packs' manifest `ui.metrics_paths`,
+// else `--paths`. With neither, the command asks for --paths rather than guessing a stack.
+function defaultPaths(cwd) {
+  try {
+    const packs = require('./stack-packs.cjs');
+    const resolved = require('./stack-profile.cjs').resolveProfile({ projectRoot: cwd, userHome: require('os').homedir() });
+    const out = [];
+    for (const p of packs.activePacks({ projectRoot: cwd, resolved })) {
+      for (const x of ((p.manifest.ui || {}).metrics_paths || [])) {
+        if (!out.includes(x) && fs.existsSync(path.join(cwd, x))) out.push(x);
+      }
+    }
+    return out;
+  } catch (_) {
+    return [];
+  }
+}
 // relative to the project's resolved planning directory (`.aoforge/`, or a legacy one)
 const DEFAULT_OUT_FILE = 'ui-metrics-baseline.json';
 
@@ -42,7 +58,7 @@ function classifySubject(subject) {
   return KNOWN_TYPES.includes(type) ? type : 'other';
 }
 
-function computeBaseline({ cwd, since = DEFAULT_SINCE, paths = DEFAULT_PATHS, git = defaultGitLog }) {
+function computeBaseline({ cwd, since = DEFAULT_SINCE, paths = defaultPaths(cwd), git = defaultGitLog }) {
   const pathList = Array.isArray(paths) ? paths : [paths];
   const stdout = git({ cwd, since, paths: pathList });
   const subjects = stdout.split('\n').map(s => s.trim()).filter(Boolean);
@@ -86,7 +102,7 @@ function cmdUiMetrics(cwd, args, raw) {
   }
 
   const since = flagValue(args, '--since', DEFAULT_SINCE);
-  const pathsArg = flagValue(args, '--paths', DEFAULT_PATHS.join(','));
+  const pathsArg = flagValue(args, '--paths', defaultPaths(cwd).join(','));
   const paths = pathsArg.split(',').map(p => p.trim()).filter(Boolean);
   if (paths.length === 0) {
     // `--paths ""` / `--paths ,` slips past flagValue (a defined, non-flag

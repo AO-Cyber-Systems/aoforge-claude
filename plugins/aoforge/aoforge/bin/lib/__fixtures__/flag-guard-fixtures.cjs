@@ -232,15 +232,10 @@ const PROBES = {
   // Group 2 (TRD 68-05): the remaining writing commands. Where a command could act outside the temp project if it were
   // not rejected first (a worktree, a push, an OS notification), the argv names something that does not exist, so the RED
   // run before the spec lands cannot do more than fail. `ownParser` entries use an argv that reaches the module's parser.
-  'flutter-ui setup': ['flutter-ui', 'setup', '--print-only'],
-  'flutter-ui eval': ['flutter-ui', 'eval', 'missing-manifest.json'],
-  'flutter-ui bootstrap': ['flutter-ui', 'bootstrap'],
-  'flutter-ui design-review': ['flutter-ui', 'design-review', 'missing-manifest.json'],
   'ui metrics': ['ui', 'metrics', 'baseline'],
   'ui spec': ['ui', 'spec', 'validate', 'draft.md'],
   'ui sheet': ['ui', 'sheet', 'draft.md', '--out', 'sheet.html'],
   'ui lock': ['ui', 'lock', 'draft.md', '--sheet-hash', '0'.repeat(64), '--by', 'probe@example.com'],
-  'generate uat': ['generate', 'uat', '1'],
   'migrate plan': ['migrate', 'plan'],
   'migrate apply': ['migrate', 'apply', '--dry-run'],
   'upgrade': ['upgrade', '--check'],
@@ -284,6 +279,8 @@ const PROBES = {
   'stack command': ['stack', 'command', 'test'],
   'stack init': ['stack', 'init'],
   'stack verify': ['stack', 'verify'],
+  'stack discover': ['stack', 'discover'],
+  'stack doctor': ['stack', 'doctor'],
   'stack report': ['stack', 'report'],
   'stack mcp': ['stack', 'mcp'],
   'planning sibling-trd-scan': ['planning', 'sibling-trd-scan', '1'],

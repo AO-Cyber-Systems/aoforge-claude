@@ -225,7 +225,7 @@ if (reduce) return child;                      // static, no transition
 ## 6. Interactive states
 
 Generated Flutter screens ship the populated state and nothing else. All four are
-required, and `/aoforge:ui-eval` scores each one:
+required, and `/aoforge-stack-flutter:ui-eval` scores each one:
 
 | State | Use |
 |---|---|
@@ -257,7 +257,7 @@ required, and `/aoforge:ui-eval` scores each one:
 - **Images:** `cacheWidth` / `cacheHeight` on `Image.asset` and `Image.network`
   so the decode is sized to the display, not the source.
 - **Profile in profile mode**, never debug — debug-mode jank is not real jank.
-- **Check for overflow warnings** in logs before shipping. `/aoforge:ui-eval`
+- **Check for overflow warnings** in logs before shipping. `/aoforge-stack-flutter:ui-eval`
   surfaces these; an overflow is a real layout failure, not a warning to ignore.
 
 ---

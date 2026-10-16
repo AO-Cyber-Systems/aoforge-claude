@@ -188,7 +188,7 @@ When flutter-skill MCP is available, use its tools for live inspection:
 9. **Run the pre-flight check** — Work every box in `design-preflight.md` before
    reporting the surface complete. It is a gate, not a checklist to note.
 
-   Flutter has a stronger option than a screenshot: run `/aoforge:ui-eval` to
+   Flutter has a stronger option than a screenshot: run `/aoforge-stack-flutter:ui-eval` to
    capture every declared state (loading, empty, error, populated), score it
    through the offline visual-eval engine, and write evidence the verifier
    consumes. Declared states that are never rendered are the usual gap — a widget

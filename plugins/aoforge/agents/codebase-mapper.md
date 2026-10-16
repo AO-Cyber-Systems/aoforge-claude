@@ -186,14 +186,15 @@ Ready for orchestrator to publish.
 
 Each codebase document follows a dedicated template. Templates live at `plugins/aoforge/aoforge/templates/codebase/` and are mirrored to `~/.claude/aoforge/templates/codebase/` by the sync-runtime hook on SessionStart.
 
-@~/.claude/aoforge/templates/codebase/stack.md
-@~/.claude/aoforge/templates/codebase/integrations.md
-@~/.claude/aoforge/templates/codebase/architecture.md
-@~/.claude/aoforge/templates/codebase/structure.md
-@~/.claude/aoforge/templates/codebase/conventions.md
-@~/.claude/aoforge/templates/codebase/testing.md
-@~/.claude/aoforge/templates/codebase/patterns.md
-@~/.claude/aoforge/templates/codebase/concerns.md
+Read **only the templates for your focus** (Read tool, before you write each document). The other
+focuses' templates are another mapper's job; loading all eight costs about 2,200 lines per spawn.
+
+| Focus | Templates under `~/.claude/aoforge/templates/codebase/` |
+|---|---|
+| `tech` | `stack.md`, `integrations.md` |
+| `arch` | `architecture.md`, `structure.md` |
+| `quality` | `conventions.md`, `testing.md`, `patterns.md` |
+| `concerns` | `concerns.md` |
 
 Each template includes the file structure, section guidelines, and acceptance criteria. Skip patterns that don't apply to the analyzed codebase (e.g., no components in a CLI tool; no testing template if no tests exist).
 

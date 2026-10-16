@@ -73,10 +73,10 @@ skipped: [N]
 
 ## Auto-generated UAT (REQ-10-06)
 
-For `type: ui` + `stack: flutter` Flutter objectives, `aof-tools generate uat <objective>` auto-derives the test list from:
+For `type: ui` + `stack: flutter` Flutter objectives, `aof-flutter generate uat <objective>` auto-derives the test list from:
 
 - **State coverage rows:** each `(must_haves.artifacts[*].states[*], platform)` pair across all `type: ui` TRDs — one test row per (state, platform) combination. E.g., a TRD with `platform: [mobile, web]` and 3 states per artifact produces 6 state-coverage rows per artifact (state matrix expansion).
-- **Maestro flow rows:** each YAML file in `.maestro/` — one **mobile-only** test row. (Maestro is mobile-only by design — Maestro on Flutter web is blocked upstream by mobile-dev-inc/maestro#2591. See `references/flutter-state-patterns.md` "Web verification mechanism" section.)
+- **Maestro flow rows:** each YAML file in `.maestro/` — one **mobile-only** test row. (Maestro is mobile-only by design — Maestro on Flutter web is blocked upstream by mobile-dev-inc/maestro#2591. See `~/.claude/aoforge/stacks/flutter/references/flutter-state-patterns.md` "Web verification mechanism" section.)
 - **Web integration rows:** when a TRD has `web` in `platform:`, one row per artifact instructing the user to run `flutter drive --driver=test_driver/integration_test.dart --target=<tests.integration> -d chrome`. The web verifier is `flutter drive`, NOT Maestro.
 
 The auto-generated body conforms to the same format as manually-authored UAT.md — `### N. {test name}\nexpected: ...\nresult: [pending]`. The user walks through it in ~5 min before marking the objective done.
@@ -84,7 +84,7 @@ The auto-generated body conforms to the same format as manually-authored UAT.md 
 Invocation:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs generate uat <objective>
+node ~/.claude/aoforge/stacks/flutter/bin/aof-flutter.cjs generate uat <objective>
 # The generator fills .aoforge/objectives/<obj-dir>/<obj>-UAT.md; publish those bytes through the UAT verb
 # (local mode rewrites the same file; store mode also queues its wiki page):
 node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/<obj-dir>/<obj>-UAT.md --from .aoforge/objectives/<obj-dir>/<obj>-UAT.md
