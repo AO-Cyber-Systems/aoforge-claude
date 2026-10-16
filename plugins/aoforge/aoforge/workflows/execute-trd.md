@@ -232,7 +232,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs requirements mark-complete ${REQ_IDS}
 
 <step name="git_commit_metadata">
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [plan-name]" --files .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md .aoforge/STATE.md .aoforge/ROADMAP.md .aoforge/REQUIREMENTS.md
+node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs({objective}-{trd}): complete [plan-name]" --files .aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md .aoforge/STATE.md .aoforge/STATE_ARCHIVE.md .aoforge/ROADMAP.md .aoforge/REQUIREMENTS.md
 ```
 </step>
 

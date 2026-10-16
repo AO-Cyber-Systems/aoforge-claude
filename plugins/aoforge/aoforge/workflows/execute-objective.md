@@ -607,7 +607,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/aoforge/bin/aof-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
    ```
    ```bash
-   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/state.json
+   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/STATE_ARCHIVE.md .aoforge/state.json
    ```
    <!-- merge-sequence:end -->
 

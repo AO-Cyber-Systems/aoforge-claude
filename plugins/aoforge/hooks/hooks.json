@@ -131,7 +131,7 @@
         ]
       },
       {
-        "matcher": "Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|LS|Task|Agent|Skill|WebFetch|WebSearch|TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|AskUserQuestion|ExitPlanMode|EnterPlanMode|mcp__",
+        "matcher": "^(?!Bash$).*",
         "hooks": [
           {
             "type": "command",

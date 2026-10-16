@@ -517,7 +517,13 @@ describe('48-13 characterization — local-mode STATE.md mutators write today\'s
     const dir = charProject();
     const r = run(['state', 'advance-job'], dir);
     assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json, { advanced: true, previous_job: 2, current_job: 3, total_jobs: 4 });
+    // quick 35 added files_changed and archive_updated; the pre-35 keys and values are unchanged. The archive is
+    // seeded on the STATE.md-writing path, so a commit naming it cannot fail on a missing path.
+    assert.deepEqual(r.json, {
+      advanced: true, previous_job: 2, current_job: 3, total_jobs: 4,
+      files_changed: ['.aoforge/STATE.md', '.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json'],
+      archive_updated: true,
+    });
     let want = edit(CHAR_STATE, '**Current Job:** 2', '**Current Job:** 3');
     want = edit(want, '**Status:** Planning', '**Status:** Ready to execute');
     want = edit(want, '**Last Activity:** 2026-01-01', '**Last Activity:** 2099-09-09');

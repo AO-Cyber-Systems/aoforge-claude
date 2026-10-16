@@ -396,6 +396,18 @@ function bareObjectiveNumber(n) {
   return String(n).replace(/^0+(?=\d)/, '');
 }
 
+/**
+ * What one advance-job run wrote (quick 35): repo-relative posix paths, plus whether STATE_ARCHIVE.md changed. The
+ * workflows commit these files, and before this the archive rows a rotation moved were left out of the commit.
+ */
+function advanceFilesChanged(cwd, { stateMd = false, archive = false, stateJson = false } = {}) {
+  const files_changed = [];
+  if (stateMd) files_changed.push(planningRel(cwd, 'STATE.md'));
+  if (archive) files_changed.push(planningRel(cwd, 'STATE_ARCHIVE.md'));
+  if (stateJson) files_changed.push(planningRel(cwd, 'state.json'));
+  return { files_changed, archive_updated: !!archive };
+}
+
 // The position as a fact read from disk (TRD 59-02, PLMB-01): count objective N's TRDs
 // and the TRDs that have a SUMMARY (the NN-MM pairing findObjectiveInternal does). The
 // result does not depend on any counter carried between calls, so it is idempotent and
@@ -406,7 +418,7 @@ function advanceFromDisk(cwd, objective, raw) {
 
   const total = info.jobs.length;
   if (total === 0) {
-    output({ advanced: false, reason: 'no_trds', objective: info.objective_number }, raw, 'false');
+    output({ advanced: false, reason: 'no_trds', objective: info.objective_number, ...advanceFilesChanged(cwd) }, raw, 'false');
     return;
   }
   const done = total - info.incomplete_jobs.length;
@@ -423,9 +435,16 @@ function advanceFromDisk(cwd, objective, raw) {
 
   const store = storeMode(cwd);
   const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
   let stateMdUpdated = false;
+  let rotated = 0;
+  let archiveCreated = false;
   if (!store && fs.existsSync(statePath)) {
-    try { rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP); } catch { /* advisory */ }
+    const archiveExisted = fs.existsSync(archivePath);
+    try { rotated = rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP).moved; } catch { /* advisory */ }
+    // The archive exists whenever this path writes STATE.md, so a commit naming it never fails on a missing path.
+    ensureArchive(cwd);
+    archiveCreated = !archiveExisted;
     const original = fs.readFileSync(statePath, 'utf-8');
     let content = original;
     // Fields are rewritten only where they already exist; none is ever added.
@@ -462,6 +481,7 @@ function advanceFromDisk(cwd, objective, raw) {
     status: statusKey,
     status_text: statusText,
     state_md_updated: stateMdUpdated,
+    ...advanceFilesChanged(cwd, { stateMd: stateMdUpdated || rotated > 0, archive: archiveCreated || rotated > 0, stateJson: true }),
   }, raw, statusKey);
 }
 
@@ -482,9 +502,19 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
 
   // Every advance keeps STATE.md a digest: decisions beyond DEFAULT_KEEP move to the archive (local mode only;
   // in store mode STATE.md is a generated view and is never written here).
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
+  const archiveExisted = fs.existsSync(archivePath);
+  let rotated = 0;
   if (!store && hasStateMd) {
-    try { rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP); } catch { /* advisory: the advance still runs */ }
+    try { rotated = rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP).moved; } catch { /* advisory: the advance still runs */ }
   }
+  // The two branches below that write STATE.md seed the archive first, so a commit naming it never fails on a
+  // missing path (quick 35). seedArchive() reports whether it created the file, for files_changed.
+  const seedArchive = () => {
+    ensureArchive(cwd);
+    return !archiveExisted;
+  };
+  let archiveCreated = false;
 
   // Store mode reads a rendered STATE.md only as the counters' fallback; it never writes it.
   let content = hasStateMd ? fs.readFileSync(statePath, 'utf-8') : '';
@@ -499,28 +529,34 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
   // No usable position (no counters, or state.json's 0/0): nothing to advance. Before this
   // guard 0 >= 0 rewrote Status to "Objective complete" after the first TRD of every objective.
   if (isNaN(currentJob) || isNaN(totalJobs) || totalJobs <= 0) {
-    output({ advanced: false, reason: 'no_position', hint: NO_POSITION_HINT }, raw, 'false');
+    // A rotation above may already have written STATE.md and the archive; say so.
+    const changed = advanceFilesChanged(cwd, { stateMd: rotated > 0, archive: rotated > 0 });
+    output({ advanced: false, reason: 'no_position', hint: NO_POSITION_HINT, ...changed }, raw, 'false');
     return;
   }
 
   if (currentJob >= totalJobs) {
     if (!store) {
+      archiveCreated = seedArchive();
       content = stateReplaceField(content, 'Status', 'Objective complete — ready for verification') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
       fs.writeFileSync(statePath, content, 'utf-8');
     }
     writeStateJson(cwd, { current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification', last_activity: today });
-    emit({ advanced: false, reason: 'last_job', current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification' }, raw, 'false');
+    const changed = advanceFilesChanged(cwd, { stateMd: !store, archive: archiveCreated || rotated > 0, stateJson: true });
+    emit({ advanced: false, reason: 'last_job', current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification', ...changed }, raw, 'false');
   } else {
     const newJob = currentJob + 1;
     if (!store) {
+      archiveCreated = seedArchive();
       content = stateReplaceField(content, 'Current Job', String(newJob)) || content;
       content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
       fs.writeFileSync(statePath, content, 'utf-8');
     }
     writeStateJson(cwd, { current_job: newJob, total_jobs: totalJobs, status: 'Ready to execute', last_activity: today });
-    emit({ advanced: true, previous_job: currentJob, current_job: newJob, total_jobs: totalJobs }, raw, 'true');
+    const changed = advanceFilesChanged(cwd, { stateMd: !store, archive: archiveCreated || rotated > 0, stateJson: true });
+    emit({ advanced: true, previous_job: currentJob, current_job: newJob, total_jobs: totalJobs, ...changed }, raw, 'true');
   }
 }
 

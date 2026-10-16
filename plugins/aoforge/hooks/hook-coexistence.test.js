@@ -28,6 +28,8 @@ const { execFile, execFileSync } = require('child_process');
 const runner = require('./__fixtures__/hook-runner.js');
 const { STOP_FAMILY_EVENTS, stopFamilyProblems } = require('./__fixtures__/hook-output-schema.js');
 const fx = require('./__fixtures__/coexistence-fixtures.js');
+// Claude Code's documented tool-event matcher rule (exact-name lists vs unanchored regex), shared with pre-bash.test.js.
+const { matcherFires } = require('./__fixtures__/claude-matcher.js');
 const todoTranscripts = require('../aoforge/bin/lib/__fixtures__/todo-transcript-fixtures.cjs');
 
 // ─── 1. The composition model ────────────────────────────────────────────────
@@ -388,11 +390,6 @@ function tableGaps(regs, runs) {
   };
 }
 
-/** Claude Code matches a tool event on its matcher: `*` (or none) matches all, otherwise an exact-name alternation. */
-function matcherFires(matcher, toolName) {
-  if (!matcher || matcher === '*') return true;
-  return new RegExp(`^(?:${matcher})$`).test(toolName || '');
-}
 
 // ─── One entry per registered hook and event ─────────────────────────────────
 //

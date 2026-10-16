@@ -41,6 +41,16 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   function, `resolveAgentModel`, and report the winning layer in `tier_source`. Precedence, highest first:
   `--escalate-from`, then `model_overrides` (unfloored), then `agent_models`, then the focus tier, then the package
   table; the verdict floor applies to the last three.
+- **The no-progress guard covers every tool again.** Its PreToolUse matcher was a list of exact names, and under
+  Claude Code's matcher rule `mcp__` matched no MCP tool while BashOutput, Monitor, ToolSearch and SendMessage got no
+  guard at all. The matcher is now `^(?!Bash$).*`: every tool except exactly `Bash`, MCP tools included. Bash stays
+  covered once, through the PreToolUse(Bash) dispatcher. pre-bash.test.js and hook-coexistence.test.js model the rule
+  with one shared helper (`hooks/__fixtures__/claude-matcher.js`).
+- **Rotated decisions reach the branch.** `state advance-job` reports `files_changed` (the planning files the run
+  wrote) and `archive_updated`, and seeds STATE_ARCHIVE.md whenever it writes STATE.md. The commits that follow it in
+  execute-trd.md and execute-objective.md now name `.aoforge/STATE_ARCHIVE.md`, so in a worktree the decision and
+  metric rows it moved are committed. A repo test (`state-archive-commit.repo.test.cjs`) fails on any prompt that
+  commits STATE.md after an archive-writing command without the archive.
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 

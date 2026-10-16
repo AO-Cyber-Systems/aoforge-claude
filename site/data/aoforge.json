@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-16T19:34:18.607Z",
+  "generatedAt": "2026-10-16T20:19:46.558Z",
   "version": "3.1.0",
   "packageVersion": "3.1.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
@@ -1276,7 +1276,7 @@
       "purpose": "Detects the same tool being called with identical arguments repeatedly: warns at 3, escalates to `ask` at 5, and resets whenever the agent varies its approach. Step limits cannot catch a stuck loop — they only fire once the whole budget is spent.",
       "escape": "AOFORGE_SKIP_PROGRESS_GUARD=1",
       "events": [
-        "PreToolUse (Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|LS|Task|Agent|Skill|WebFetch|WebSearch|TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|AskUserQuestion|ExitPlanMode|EnterPlanMode|mcp__)"
+        "PreToolUse (^(?!Bash$).*)"
       ],
       "registered": true,
       "note": null
