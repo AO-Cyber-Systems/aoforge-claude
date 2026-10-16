@@ -98,6 +98,74 @@ describe('shipped packs', () => {
   }
 });
 
+// Quick 34: the packs depend on `aoforge >=3.1.0`. A core that says less makes Claude Code disable
+// every pack (`dependency-version-unsatisfied`), so the release files, the packs' range and the
+// CHANGELOG heading are checked together here.
+describe('core version against the packs (quick 34)', () => {
+  const REPO = path.join(__dirname, '..', '..', '..', '..', '..');
+  const readJson = (rel) => JSON.parse(fs.readFileSync(path.join(REPO, rel), 'utf8'));
+  const semver = (v) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v);
+    assert.ok(m, `not a plain X.Y.Z version: ${v}`);
+    return m.slice(1).map(Number);
+  };
+  const atLeast = (a, b) => {
+    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i];
+    return true;
+  };
+
+  test('core version: the sync files agree, satisfy every pack\'s aoforge range, and have a CHANGELOG heading', () => {
+    const pkg = readJson('package.json');
+    const lock = readJson('package-lock.json');
+    const plugin = readJson('plugins/aoforge/.claude-plugin/plugin.json');
+    const market = readJson('.claude-plugin/marketplace.json');
+    const entry = market.plugins.find((p) => p.name === 'aoforge');
+    const core = pkg.version;
+    assert.deepEqual(
+      { lock: lock.version, lockRoot: lock.packages[''].version, plugin: plugin.version, market: market.version, entry: entry && entry.version },
+      { lock: core, lockRoot: core, plugin: core, market: core, entry: core },
+      'package.json, package-lock.json (root and packages[""]), plugins/aoforge plugin.json and marketplace.json (top level and the aoforge entry) must agree');
+
+    const roots = packRoots();
+    assert.ok(roots.length > 0, 'no in-repo pack found');
+    for (const root of roots) {
+      const name = path.basename(root);
+      const pj = JSON.parse(fs.readFileSync(path.join(root, '.claude-plugin', 'plugin.json'), 'utf8'));
+      const dep = (pj.dependencies || []).find((d) => (d && d.name ? d.name : d) === 'aoforge');
+      assert.ok(dep, `${name}: no aoforge dependency`);
+      const range = typeof dep === 'object' ? dep.version : undefined;
+      const m = /^>=(\d+)\.(\d+)\.(\d+)$/.exec(range || '');
+      assert.ok(m, `${name}: unsupported range ${JSON.stringify(range)} for aoforge (this test reads only >=X.Y.Z)`);
+      assert.ok(atLeast(semver(core), m.slice(1).map(Number)),
+        `${name} needs aoforge ${range}, but core is ${core}: Claude Code disables the pack (dependency-version-unsatisfied)`);
+    }
+
+    const changelog = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8');
+    assert.match(changelog, new RegExp(`^## \\[${core.replace(/\./g, '\\.')}\\]`, 'm'), `CHANGELOG.md has no ## [${core}] heading`);
+  });
+
+  test('stack-pack-hints covers exactly the profiles the in-repo packs ship', () => {
+    const { PACK_PROFILES, packInstallHint } = require('./stack-pack-hints.cjs');
+    assert.ok(Object.isFrozen(PACK_PROFILES), 'PACK_PROFILES is frozen');
+    const shipped = {};
+    for (const root of packRoots()) {
+      const m = JSON.parse(fs.readFileSync(path.join(root, 'aoforge-stack.json'), 'utf8'));
+      for (const rel of m.profiles || []) shipped[path.basename(rel, '.md')] = m.plugin;
+    }
+    assert.ok(Object.keys(shipped).length > 0, 'the in-repo packs ship no profile');
+    assert.deepEqual({ ...PACK_PROFILES }, shipped, 'every pack-shipped profile id maps to its pack, and nothing else is listed');
+    const market = readJson('.claude-plugin/marketplace.json');
+    for (const [id, plugin] of Object.entries(PACK_PROFILES)) {
+      assert.ok(fs.existsSync(path.join(REPO, 'plugins', plugin, 'profiles', `${id}.md`)), `${plugin} does not ship profiles/${id}.md`);
+      assert.ok(market.plugins.some((p) => p.name === plugin), `${plugin} is not in the marketplace`);
+      const hint = packInstallHint(id);
+      assert.ok(hint.includes(`/plugin install ${plugin}@${market.name}`), hint);
+    }
+    assert.equal(packInstallHint('go'), null);
+    assert.equal(packInstallHint('nosuch'), null);
+  });
+});
+
 describe('validateManifest', () => {
   test('rejects an unknown key, a bad name and an unsupported contract', () => {
     assert.ok(packs.validateManifest({ schema: 1, name: 'x', plugin: 'p', contract: 1, bogus: 1 }).length > 0);

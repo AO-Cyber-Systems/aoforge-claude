@@ -604,6 +604,30 @@ describe('bundled tier-2 lookup (B group, TRD 42-02)', () => {
     }
   });
 
+  test('B4b (quick 34): an unresolved pack-owned id names the pack and its install command', () => {
+    const prev = process.env.AOFORGE_STACKS_DIR;
+    const emptyStacks = fs.mkdtempSync(path.join(require('os').tmpdir(), 'df-stack-nopacks-'));
+    const home = fx.makeHome({});
+    process.env.AOFORGE_STACKS_DIR = emptyStacks;
+    try {
+      for (const id of ['flutter', 'dart']) {
+        const root = fx.makeProject({ stackMd: extendsMd(id) });
+        try {
+          const r = sp.resolveProfile({ projectRoot: root, userHome: home });
+          const unresolved = r.issues.filter((i) => i.code === 'EXTENDS_UNRESOLVED');
+          assert.strictEqual(unresolved.length, 1, JSON.stringify(r.issues));
+          assert.ok(unresolved[0].message.includes('aoforge-stack-flutter'), unresolved[0].message);
+          assert.ok(unresolved[0].message.includes('/plugin install aoforge-stack-flutter@aocyber'), unresolved[0].message);
+        } finally {
+          fx.cleanup(root);
+        }
+      }
+    } finally {
+      if (prev === undefined) delete process.env.AOFORGE_STACKS_DIR; else process.env.AOFORGE_STACKS_DIR = prev;
+      fx.cleanup(emptyStacks, home);
+    }
+  });
+
   test('B5: bundledDir is injectable, and the cache keys on it', () => {
     const bundled = fs.mkdtempSync(path.join(require('os').tmpdir(), 'df-stack-bundled-'));
     fs.writeFileSync(path.join(bundled, 'zz.md'), fx.profileMd({
