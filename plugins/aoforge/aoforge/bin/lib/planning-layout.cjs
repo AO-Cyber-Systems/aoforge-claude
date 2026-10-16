@@ -36,8 +36,6 @@ const { planningDir: OLD_DIR, configKey: OLD_KEY, blockTag: OLD_TAG } = LEGACY;
 const CODE = 'W066';
 const CONFIG_CODE = 'W067';
 const CLAUDE_MD_CODE = 'W069';
-const MIGRATION_ID = '0012';
-const CONFIG_MIGRATION_ID = '0013';
 
 /** The migration guide in the aoforge-claude repository (its "Upgrading from 2.x" section is the manual path). */
 const MIGRATION_GUIDE = 'docs/MIGRATING-TO-AOFORGE.md';
@@ -247,8 +245,6 @@ module.exports = {
   CODE,
   CONFIG_CODE,
   CLAUDE_MD_CODE,
-  MIGRATION_ID,
-  CONFIG_MIGRATION_ID,
   MIGRATION_GUIDE,
   PLANNING_MARKERS,
   LEGACY_BLOCK_START_RE,

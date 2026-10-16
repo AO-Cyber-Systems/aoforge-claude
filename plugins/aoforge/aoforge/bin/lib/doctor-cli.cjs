@@ -22,6 +22,7 @@ const path = require('path');
 const doctor = require('./doctor.cjs');
 const helpers = require('./helpers.cjs');
 const { planningRoot, planningDirLabel, findProjectRoot } = require('./compat.cjs');
+const { isLegacyPlanning, findLegacyLayoutRoot, legacyLayoutMessage } = require('./planning-layout.cjs');
 
 const DF_TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
 
@@ -82,24 +83,34 @@ function realpath(p) {
 /**
  * resolveProject(cwd, pathArg) -> { projectRoot: string|null, note?: string }
  *
- * With `pathArg`: that directory is the project iff it has a planning DIRECTORY, `.aoforge/` or a legacy
- * one (no walking). Without: compat.findProjectRoot walks up from `cwd` to the nearest ancestor with one. The root is
- * returned as a realpath. When none is found, projectRoot is null and `note` says project checks
- * were skipped.
+ * With `pathArg`: that directory is the project iff it has a planning DIRECTORY (no walking). Without:
+ * compat.findProjectRoot walks up from `cwd` to the nearest ancestor with one. The root is returned as a realpath.
+ * When none is found, projectRoot is null and `note` says project checks were skipped.
+ *
+ * A legacy-only project (planning-layout.isLegacyPlanning; objective 78, TRD 78-01) is never a project root: AOForge
+ * 3.1 reads none of it, so projectRoot is null and the note is the one legacy-layout message naming the fix. This
+ * holds whether compat still finds the legacy directory (before TRD 78-11) or not: then findLegacyLayoutRoot walks
+ * up from `cwd` for it.
  */
 function resolveProject(cwd, pathArg) {
+  const legacyNote = (root) => ({ projectRoot: null, note: legacyLayoutMessage(realpath(root)) });
   if (pathArg) {
+    if (isLegacyPlanning(pathArg)) return legacyNote(pathArg);
     if (isDir(planningRoot(pathArg))) return { projectRoot: realpath(pathArg) };
     return {
       projectRoot: null,
       note: `no ${planningDirLabel()} at ${pathArg}; project checks skipped (global checks only)`,
     };
   }
-  const found = findProjectRoot(path.resolve(cwd || process.cwd()), { maxUp: Infinity });
+  const start = path.resolve(cwd || process.cwd());
+  const found = findProjectRoot(start, { maxUp: Infinity });
+  if (found && isLegacyPlanning(found)) return legacyNote(found);
   if (found) return { projectRoot: realpath(found) };
+  const legacyRoot = findLegacyLayoutRoot(start);
+  if (legacyRoot) return legacyNote(legacyRoot);
   return {
     projectRoot: null,
-    note: `no AOForge project found at or above ${path.resolve(cwd || process.cwd())}; project checks skipped (global checks only)`,
+    note: `no AOForge project found at or above ${start}; project checks skipped (global checks only)`,
   };
 }
 

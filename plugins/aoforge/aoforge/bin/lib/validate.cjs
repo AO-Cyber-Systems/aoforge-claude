@@ -205,6 +205,27 @@ function cmdValidateHealth(cwd, options, raw) {
     else info.push(issue);
   };
 
+  // ─── Check 0: a legacy-only project (objective 78, TRD 78-01, SC-4) ──────
+  // Only the pre-rename planning directory: AOForge 3.1 reads none of it, so no other check can say anything true.
+  // The one broken result is W066 with the legacy-layout message and its two fixes (AOForge 3.0.x or the manual
+  // move); nothing else runs and nothing is written, `--repair` included (planning-layout.cjs).
+  {
+    const legacy = require('./planning-layout.cjs').legacyPlanningIssue(cwd);
+    if (legacy && legacy.layout === 'legacy') {
+      addIssue('error', legacy.code, legacy.message, legacy.fix, false);
+      output({
+        engine_version: pluginVersion(),
+        schema_version: 1,
+        status: 'broken',
+        errors,
+        warnings,
+        info,
+        repairable_count: 0,
+      }, raw);
+      return;
+    }
+  }
+
   // ─── Check 1: .aoforge/ exists ───────────────────────────────────────────
   if (!fs.existsSync(planningDir)) {
     addIssue('error', 'E001', `${planningDirLabel()} directory not found`, 'Run /aoforge:new-project to initialize');
@@ -815,22 +836,30 @@ function cmdValidateHealth(cwd, options, raw) {
     addIssue('warning', 'W065', `requirements-check-failed: ${e.message}`, 'Run `aof-tools validate requirements` to see why', false);
   }
 
-  // ─── Check 21: Legacy planning directory (objective 72, INST-03) ─────────
-  // W066: the project still has only the legacy planning directory (AOForge reads it for one release; migration 0012
-  // moves it), or has both (the legacy one is ignored). Advisory and never repairable here: the move is the
-  // migration's, with its backup and its commit (planning-layout.cjs).
+  // ─── Check 21: Both planning directories (objective 72, INST-03; objective 78, TRD 78-01) ─────────
+  // W066 (both): `.aoforge/` and the pre-rename directory both exist; the legacy one is ignored. A warning, never
+  // repairable: a person decides what to keep. (Legacy only is Check 0's broken result.) Detection is shared with
+  // doctor check 27 (planning-layout.cjs).
   {
     const issue = require('./planning-layout.cjs').legacyPlanningIssue(cwd);
+    if (issue && issue.layout === 'both') addIssue('warning', issue.code, issue.message, issue.fix, false);
+  }
+
+  // ─── Check 22: Pre-rename config stamp key (objective 72, TRD 72-08; objective 78, TRD 78-01) ─────────
+  // W067: `.aoforge/config.json` carries the pre-rename stamp key, alone (fix: rename it) or beside the new one (fix:
+  // delete it; 3.1 never merges or removes it). A warning, never repairable here. Unreadable or absent config.json is
+  // Check 3's (E005/W003), so it is silent here. Shared with doctor check 27 (planning-layout.cjs legacyConfigKeyIssue).
+  {
+    const issue = require('./planning-layout.cjs').legacyConfigKeyIssue(cwd);
     if (issue) addIssue('warning', issue.code, issue.message, issue.fix, false);
   }
 
-  // ─── Check 22: Legacy config stamp key (objective 72, TRD 72-08, INST-03) ─────────
-  // W067: config.json records its upgrades only under the legacy stamp key. The runner still reads it for one release
-  // (upgrade.readStamp); migration 0013 renames it. Advisory and never repairable here: the rename is the migration's.
-  // Unreadable or absent config.json is Check 3's (E005/W003), so it is silent here. The detection is shared with the
-  // doctor's legacy-planning-layout check (planning-layout.cjs legacyConfigKeyIssue, TRD 72-15).
+  // ─── Check 23: Pre-rename CLAUDE.md managed block (objective 78, TRD 78-01) ─────────
+  // W069: the project CLAUDE.md holds a managed block under the pre-rename markers, which AOForge no longer updates.
+  // A warning, never repairable here: renaming the two marker comments is the user's edit. Shared with doctor check
+  // 27 (planning-layout.cjs legacyClaudeMdIssue) and the managed-block refusal (legacyBlockMessage).
   {
-    const issue = require('./planning-layout.cjs').legacyConfigKeyIssue(cwd);
+    const issue = require('./planning-layout.cjs').legacyClaudeMdIssue(cwd);
     if (issue) addIssue('warning', issue.code, issue.message, issue.fix, false);
   }
 
