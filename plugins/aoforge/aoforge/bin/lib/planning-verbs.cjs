@@ -5,8 +5,9 @@
  * GWP-01). One primitive, `writeThrough`, with two branches, and the core verbs on top of it.
  *
  * INVARIANT (D-01): with `github.store` off (`local` mode, planning-mode.cjs) a verb writes exactly the file today's
- * prose writes: same path under the MAIN checkout's `.aoforge/`, the same bytes as its input. It makes zero gh calls,
- * writes no outbox journal and no ledger. Size and bulk findings are warnings only.
+ * prose writes: same path under the planning dir of the checkout that runs it (see the root rule below), the same
+ * bytes as its input. It makes zero gh calls, writes no outbox journal and no ledger. Size and bulk findings are
+ * warnings only.
  *
  * STORE mode (`github.enabled && github.store`): the verb validates, writes the cache file atomically, records the
  * ledger (D-15), enqueues its op(s), and flushes unless `noFlush`. Only after a flush that DRAINED the journal
@@ -17,15 +18,16 @@
  * `(not queued)` verb mark (gh-store-cli UNQUEUED_MARK). W055 stays quiet (the hash matches), but no flush settles
  * it, because GitHub does not have it yet. The next verb that queues the file (or `plan push`) clears the mark.
  *
- * Every verb resolves the MAIN checkout first (D-14), so a call from a worktree writes the main `.aoforge/` and uses
- * the main journal, ledger and cache index.
- *
- * ONE exception, local mode only (TRD 53-01): `summary post|checkpoint` write the checkout that holds the caller
- * (planning-mode.resolveCheckoutRoot), so an executor in a linked worktree writes its own `.aoforge/` and commits the
- * SUMMARY on its `df/exec-*` branch. Writing main there left an untracked copy that made the wave merge refuse to
- * overwrite it (objective 52, five times). Visibility is unaffected: gate-executor-stop scans every worktree and the
- * orchestrator reads a parallel plan's SUMMARY from that plan's worktree. Store mode keeps the rule above: the cache,
- * `.trd-progress/`, journal, ledger and outbox are single-writer files in the main checkout.
+ * The root rule (quick 36): every verb resolves its root with planning-mode.resolveVerbRoot. STORE mode: the MAIN
+ * checkout (D-14), so a call from a worktree writes main's cache and uses the main journal, ledger and cache index.
+ * LOCAL mode: the checkout that holds the caller when it has its own planning dir (either name), else MAIN. So a
+ * linked worktree reads its own TRDs and objectives and writes, then commits, its own planning files: a JOB, a quick
+ * SUMMARY, a doc, a TRD SUMMARY. TRD 53-01 made this the rule for `summary post|checkpoint` only, after writing main
+ * left an untracked copy that made the wave merge refuse to overwrite it (objective 52, five times); every verb now
+ * follows it, and the TRD a summary verb names is found in that checkout too. Visibility is unaffected:
+ * gate-executor-stop scans every worktree and the orchestrator reads a parallel plan's SUMMARY from that plan's
+ * worktree. A worktree with no planning dir (planning untracked) falls back to main, as before. The mode is always
+ * read from MAIN's config.
  *
  * Verb -> file -> store-mode op(s):
  *   plan put-trd          objectives/<dir>/<NN-MM-slug>-TRD.md   hierarchy push of the objective (none with noPush)
@@ -108,9 +110,14 @@ function fail(error, base = {}, extra = {}) {
   return { ok: false, mode: null, rel: null, path: null, warnings: [], ...base, ...extra, error, exit: EXIT.ERROR };
 }
 
-/** The MAIN checkout root (D-14), or null when there is no `.aoforge/` above `root`. */
+/**
+ * The root every verb in this module reads and writes (planning-mode.resolveVerbRoot, quick 36): MAIN in store mode
+ * (D-14); in local mode the checkout holding `root` when it has a planning dir, else MAIN. null when there is no
+ * planning dir at or above `root`. The name is kept so the store-mode paths (outbox, ledger, mapping) read unchanged:
+ * in store mode this IS the main checkout.
+ */
 function mainRoot(root) {
-  return planningMode.resolveMainRoot(root);
+  return planningMode.resolveVerbRoot(root);
 }
 
 /** `rel` as a safe `.aoforge/`-relative path; throws TypeError (planning-paths' rule) for anything unsafe. */
@@ -236,8 +243,9 @@ function enqueueAndFlush(main, base, { enqueue, covers = [], rel = null, text = 
 /**
  * writeThrough(root, {rel, text, verb, enqueue, covers, noFlush, noWait, warnings, writeRoot}) — the one write primitive.
  *
- *   local  atomic write of `<main>/.aoforge/<rel>` (directories created), nothing else. `writeRoot` (the summary verbs
- *          only, 53-01) names another checkout to write instead of `<main>`; store mode ignores it.
+ *   local  atomic write of `<root>/<planning dir>/<rel>` (directories created), nothing else; `<root>` is mainRoot()'s
+ *          answer, the running checkout. `writeRoot` (the summary verbs, 53-01) names the checkout to write explicitly;
+ *          it agrees with mainRoot() now, and store mode ignores it.
  *   store  atomic write -> ledger.record(rel, text, {verb}) -> `enqueue(main)` -> flush unless `noFlush`
  *          -> on a drained flush, baseline + forget `rel` and `covers`.
  *
@@ -606,6 +614,8 @@ function summaryFileOf(t, file) {
 /**
  * The checkout a summary verb writes (TRD 53-01). Local mode: the one holding `root`, so a linked worktree commits its own
  * SUMMARY. Store mode: `main`, always (D-14: cache, `.trd-progress/`, journal, ledger and outbox are single-writer there).
+ * Since quick 36 this is the same answer mainRoot() gives (planning-mode.resolveVerbRoot); it stays as the explicit
+ * statement of where a summary verb writes.
  */
 function summaryWriteRoot(root, main) {
   if (planningMode.planningMode(main).mode !== LOCAL) return main;

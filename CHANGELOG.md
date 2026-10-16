@@ -84,6 +84,14 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   JWT here` passes `--summary` and `--rationale`, and `Use https://example.com docs` stays whole. `--duration=99min`
   is read, and `--duration` with no value (or followed by a flag) exits 1 before anything runs. A checkpoint SUMMARY is
   refused, and `01-1` or `1-1` resolves to TRD 01-01.
+- **Planning verbs write the checkout that runs them in local mode.** Every verb resolved the main checkout whenever it
+  had a planning directory, so `quick put` run from a worktree whose tree used the legacy planning directory wrote the
+  main checkout's `.aoforge/quick/...` and printed `wrote .aoforge/quick/...`, and `summary checkpoint` could not find
+  a TRD that only the worktree had. One resolver, `planning-mode.resolveVerbRoot`, now decides the root for every
+  planning verb (plan, objective, summary, verification, doc, todo, debug, quick, decision, milestone and `planning
+  draft`): in local mode the checkout holding the caller when it has its own planning directory, else the main
+  checkout. Store mode still reads and writes the main checkout (D-14), and drafts stay keyed on the main checkout.
+  `todo-sync` keeps passing the main checkout explicitly.
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 

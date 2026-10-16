@@ -188,6 +188,22 @@ function resolveCheckoutRoot(cwd) {
   return resolveMainRoot(start);
 }
 
+/**
+ * The root a planning verb reads and writes for `cwd`, realpath'd, or null when there is no planning dir (quick 36).
+ *
+ * Store mode: the MAIN checkout (resolveMainRoot), always. The cache, ledger, journal and outbox are single-writer files
+ * there (D-14). Local mode: the checkout holding `cwd` when it has its own planning dir (resolveCheckoutRoot, the 53-01
+ * rule generalised from the summary verbs to every verb), so a linked worktree reads and writes, and then commits, its
+ * own tree; a worktree with none falls back to MAIN. The mode itself is always read from MAIN's config. resolveMainRoot
+ * keeps meaning "main" for config, journal, ledger, outbox and the drafts' repo key.
+ */
+function resolveVerbRoot(cwd) {
+  const main = resolveMainRoot(cwd);
+  if (!main) return null;
+  if (planningMode(main).mode !== LOCAL) return main; // D-14: cache, ledger, journal, outbox live in main
+  return resolveCheckoutRoot(cwd) || main; // 53-01 generalised: the checkout that will commit it
+}
+
 // ─── mode ─────────────────────────────────────────────────────────────────────
 
 /**
@@ -221,4 +237,5 @@ module.exports = {
   isStoreMode,
   resolveMainRoot,
   resolveCheckoutRoot,
+  resolveVerbRoot,
 };

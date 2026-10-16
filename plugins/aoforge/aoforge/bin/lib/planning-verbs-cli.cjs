@@ -544,7 +544,7 @@ function cmdPlanningVerb(cwd, args, raw) {
       if (res.reseeded) {
         line(
           'stderr',
-          `planning draft: reseeded ${res.path} from ${planningRel(planningMode.resolveMainRoot(cwd) || cwd, pos[0])}: the live file changed after the draft was ` +
+          `planning draft: reseeded ${res.path} from ${planningRel(planningMode.resolveVerbRoot(cwd) || cwd, pos[0])}: the live file changed after the draft was ` +
             `seeded. Your previous draft is at ${res.stale_copy}.`,
         );
       }
