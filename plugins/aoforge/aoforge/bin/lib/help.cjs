@@ -202,7 +202,7 @@ const COMMANDS = {
     details: VERB_DETAILS,
   },
   'summary': {
-    usage: 'aof-tools summary post <trd-id> --from <path|-> [--file <name>] | summary checkpoint <trd-id> --from <path|-> [--raw]',
+    usage: 'aof-tools summary post <trd-id> [--from <path|->] [--file <name>] | summary checkpoint <trd-id> [--from <path|->] [--tick <n|text>] [--hash <short>] [--raw]',
     summary: 'Write a TRD\'s SUMMARY (post) or a per-task progress checkpoint.',
     mutates: true,
     details: VERB_DETAILS,
