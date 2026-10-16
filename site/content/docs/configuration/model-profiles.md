@@ -34,7 +34,7 @@ costs a whole build, a slightly worse codebase map costs a re-read.
 |---|---|
 | `opus` | `claude-opus-5` |
 | `sonnet` | `claude-sonnet-5` |
-| `haiku` | `claude-haiku-4-5` |
+| `haiku` | `claude-haiku-5-5` |
 
 ## How resolution works
 
