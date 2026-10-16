@@ -233,13 +233,16 @@ function healthWarnings(p, code) {
   return (j.warnings || []).filter((w) => w.code === code);
 }
 
+// TRD 78-01 changed W067's text (it names the manual rename or AOForge 3.0.x, never `--only 0013`) and made it fire
+// when both keys exist (3.1 never merges or removes the pre-rename key). TRD 78-07 retires this migration and file.
 describe('13. validate health W067', () => {
-  test('13. only the legacy key -> W067 legacy-config-key with the 0013 fix; after 0013 -> none', () => {
+  test('13. only the legacy key -> W067 legacy-config-key naming the rename; after 0013 -> none', () => {
     withProject(() => aoforgeWithConfig({ mode: 'yolo', devflow: { version: '2.15.0' } }), (p) => {
       const found = healthWarnings(p, 'W067');
       assert.equal(found.length, 1, JSON.stringify(found));
       assert.match(found[0].message, /^legacy-config-key: /);
-      assert.ok(found[0].fix.includes('aof-tools upgrade --apply --only 0013'), found[0].fix);
+      assert.ok(found[0].fix.includes(`rename the key to "${NAMES.configKey}"`), found[0].fix);
+      assert.equal(found[0].fix.includes('--only'), false, found[0].fix);
       assert.equal(found[0].repairable, false);
 
       m0013().apply(ctxFor(p));
@@ -247,8 +250,13 @@ describe('13. validate health W067', () => {
     });
   });
 
-  test('13b. both keys, or only the new key -> no W067', () => {
+  test('13b. both keys -> W067 naming the deletion; only the new key -> no W067', () => {
     withProject(() => aoforgeWithConfig({ aoforge: { version: '3.0.0' }, devflow: { version: '2.15.0' } }), (p) => {
+      const found = healthWarnings(p, 'W067');
+      assert.equal(found.length, 1, JSON.stringify(found));
+      assert.ok(found[0].fix.includes('delete the pre-rename key'), found[0].fix);
+    });
+    withProject(() => aoforgeWithConfig({ aoforge: { version: '3.0.0' } }), (p) => {
       assert.deepEqual(healthWarnings(p, 'W067'), []);
     });
   });

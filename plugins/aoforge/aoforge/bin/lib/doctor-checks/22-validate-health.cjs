@@ -15,6 +15,7 @@
 //   W062         checks-workflow pin — checks-workflow-pin, TRD 61-01
 //   W063         stale pinned model id — model-profiles (check 13), TRD 61-07
 //   W066 / W067  legacy planning directory / config key — legacy-planning-layout (check 27), TRD 72-15
+//   W069         pre-rename CLAUDE.md managed block — legacy-planning-layout (check 27), TRD 78-01
 // They are listed in details.deferred and never set the severity.
 //
 //   remaining errors → error; remaining warnings → warn; else ok
@@ -29,7 +30,7 @@ const dg = require('../doctor-git.cjs');
 const { planningRel, PLANNING_DIR_NAMES } = require('../compat.cjs');
 const legacy = require('./20-legacy-runtime-state.cjs');
 
-const DEFERRED = ['E006', 'E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063', 'W064', 'W066', 'W067'];
+const DEFERRED = ['E006', 'E020', 'I022', 'W040', 'W057', 'W058', 'W059', 'W060', 'W061', 'W062', 'W063', 'W064', 'W066', 'W067', 'W069'];
 const DF_TOOLS = 'node ~/.claude/aoforge/bin/aof-tools.cjs';
 const HEALTH_COMMAND = `${DF_TOOLS} validate health`;
 const REPAIR_COMMAND = `${DF_TOOLS} validate health --repair`;

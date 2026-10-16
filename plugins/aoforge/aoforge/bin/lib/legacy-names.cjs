@@ -73,4 +73,8 @@ const PRESERVE = Object.freeze(['devflowops', 'devFlowOps', 'DevFlowOps', 'devfl
 
 const SHIM_REMOVAL = 'the release after 3.0.0';
 
-module.exports = { NAMES, LEGACY, PRESERVE, SHIM_REMOVAL };
+// The last release line that carries the one-release shims and migrations 0012-0014; every 3.1 legacy message
+// names it as the conversion path (objective 78, TRD 78-01).
+const SHIM_RELEASE = '3.0.x';
+
+module.exports = { NAMES, LEGACY, PRESERVE, SHIM_REMOVAL, SHIM_RELEASE };

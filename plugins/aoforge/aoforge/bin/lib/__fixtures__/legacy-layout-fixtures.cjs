@@ -10,6 +10,20 @@
  *   const w = worktreePair({ layout: 'legacy', marker: 'main' });  // TRD 72-06: main checkout + worktree,
  *   w.worktree; w.markerPath; w.cleanup();                         // live skill marker where asked
  *
+ *   // TRD 78-01: the 3.1 legacy-layout detectors
+ *   planningProject({ layout: 'aoforge', configKey: 'both', claudeMd: 'legacy-block' });
+ *   planningProject({ layout: 'legacy', markers: false });  // a legacy-named directory with no planning files
+ *   const h = nestedHome();                                 // a fake HOME holding the legacy layout, a project below
+ *   nestedProject(p.root, 'inner', { layout: 'aoforge' });  // a planning tree nested inside another project
+ *
+ * Options added by TRD 78-01 (each defaults to "not asked for", so earlier callers get the same tree):
+ *   configKey  'aoforge' | 'legacy' | 'both' | null: config.json (in `.aoforge/`, or in the legacy directory for
+ *              layout `legacy`) records the fixed STAMP under the new key, the pre-rename key, or both
+ *   claudeMd   'legacy-block' | 'aoforge-block' | null: a root CLAUDE.md holding one managed block under the
+ *              pre-rename or the AOFORGE tag
+ *   markers    false: the legacy directory (layouts `legacy` and `both`) gets none of the planning files, only
+ *              what `files` adds, so it is an unrelated directory that happens to carry the legacy name
+ *
  * Layouts:
  *   aoforge   only `.aoforge/` (the new default)
  *   legacy    only `.planning/` (the one-release fallback)
@@ -184,6 +198,41 @@ function tree(status) {
 const CURRENT_STATUS = 'Ready to execute';
 const LEGACY_COPY_STATUS = 'Legacy copy';
 
+// ─── TRD 78-01: config stamp keys and CLAUDE.md managed blocks ───────────────
+
+const CONFIG_KEYS = Object.freeze(['aoforge', 'legacy', 'both']);
+const CLAUDE_MD_KINDS = Object.freeze(['legacy-block', 'aoforge-block']);
+
+/** The upgrade stamp every configKey variant records (a fixed literal). */
+const STAMP = Object.freeze({
+  version: '3.0.0',
+  migrations_applied: ['0001'],
+  upgraded_at: '2026-10-01T00:00:00.000Z',
+});
+
+/** config.json text with the base settings of CONFIG_JSON plus STAMP under the key(s) `configKey` asks for. */
+function configWithKey(configKey) {
+  const config = { mode: 'yolo', github: { enabled: false }, workflow: { auto_advance: false } };
+  if (configKey === 'aoforge' || configKey === 'both') config[NAMES.configKey] = { ...STAMP };
+  if (configKey === 'legacy' || configKey === 'both') config[LEGACY.configKey] = { ...STAMP };
+  return `${JSON.stringify(config, null, 2)}\n`;
+}
+
+/** A project CLAUDE.md holding one managed block under `tag` (the START/END syntax of managed-block.cjs). */
+function claudeMdWithBlock(tag) {
+  return doc([
+    '# Layout Demo',
+    '',
+    'Notes the user wrote by hand.',
+    '',
+    `<!-- ${tag}:START v=3.0.0 src=project-claude-md -->`,
+    '## Workflow',
+    '',
+    'Managed text the upgrade refreshes.',
+    `<!-- ${tag}:END -->`,
+  ]);
+}
+
 function writeTree(dir, files) {
   for (const [rel, text] of Object.entries(files)) {
     const abs = path.join(dir, ...rel.split('/'));
@@ -225,15 +274,38 @@ function git(root, env, args) {
  * @param {boolean} [opts.git=true]   git init with a local identity and one commit of everything
  * @param {Object<string,string>} [opts.files={}]  extra files, relative to each planning directory
  *        present (to the root for layout `none`), written before the commit
+ * @param {'aoforge'|'legacy'|'both'|null} [opts.configKey=null]  TRD 78-01: config.json records STAMP under
+ *        the new key, the pre-rename key, or both (in `.aoforge/`, or the legacy directory for layout legacy)
+ * @param {'legacy-block'|'aoforge-block'|null} [opts.claudeMd=null]  TRD 78-01: a root CLAUDE.md with one
+ *        managed block under the pre-rename or the AOFORGE tag
+ * @param {boolean} [opts.markers=true]  TRD 78-01: false leaves the legacy directory (layouts legacy and
+ *        both) without any planning file, holding only `files`
  * @returns {{ root: string, home: string, dir: string|null, layout: string, env: object,
  *             run: function(string[], object=): {status: number, stdout: string, stderr: string, out: string},
  *             git: function(string[]): string, cleanup: function(): void }}
  *   `dir` is the absolute planning directory the tools should use: `.aoforge/` for layouts aoforge and both,
  *   `.planning/` for legacy, null for none.
  */
-function planningProject({ layout = 'aoforge', git: withGit = true, files = {} } = {}) {
+function planningProject({
+  layout = 'aoforge', git: withGit = true, files = {}, configKey = null, claudeMd = null, markers = true,
+} = {}) {
   if (!LAYOUTS.includes(layout)) {
     throw new Error(`planningProject: unknown layout ${JSON.stringify(layout)} (expected one of ${LAYOUTS.join(', ')})`);
+  }
+  if (configKey !== null && !CONFIG_KEYS.includes(configKey)) {
+    throw new Error(`planningProject: unknown configKey ${JSON.stringify(configKey)} (expected one of ${CONFIG_KEYS.join(', ')} or null)`);
+  }
+  if (configKey !== null && (layout === 'none' || Object.prototype.hasOwnProperty.call(files, 'config.json'))) {
+    throw new Error('planningProject: configKey needs a planning directory and no config.json in `files`');
+  }
+  if (claudeMd !== null && !CLAUDE_MD_KINDS.includes(claudeMd)) {
+    throw new Error(`planningProject: unknown claudeMd ${JSON.stringify(claudeMd)} (expected one of ${CLAUDE_MD_KINDS.join(', ')} or null)`);
+  }
+  if (markers === false && layout !== 'legacy' && layout !== 'both') {
+    throw new Error('planningProject: markers:false needs a legacy directory (layout legacy or both)');
+  }
+  if (markers === false && layout === 'legacy' && configKey !== null) {
+    throw new Error('planningProject: markers:false leaves the legacy directory without config.json');
   }
   const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aof-layout-')));
   const root = path.join(base, 'repo');
@@ -246,11 +318,19 @@ function planningProject({ layout = 'aoforge', git: withGit = true, files = {} }
   const newDir = path.join(root, NAMES.planningDir);
   const oldDir = path.join(root, LEGACY.planningDir);
 
-  if (layout === 'aoforge' || layout === 'both') writeTree(newDir, { ...tree(CURRENT_STATUS), ...files });
-  if (layout === 'legacy') writeTree(oldDir, { ...tree(CURRENT_STATUS), ...files });
-  if (layout === 'both') writeTree(oldDir, { ...tree(LEGACY_COPY_STATUS), ...files });
+  // The config the tools use carries the stamp; the legacy copy of layout `both` keeps the plain config.
+  const config = configKey === null ? {} : { 'config.json': configWithKey(configKey) };
+  const legacyTree = (status) => (markers === false ? {} : tree(status));
+
+  if (layout === 'aoforge' || layout === 'both') writeTree(newDir, { ...tree(CURRENT_STATUS), ...files, ...config });
+  if (layout === 'legacy') writeTree(oldDir, { ...legacyTree(CURRENT_STATUS), ...files, ...config });
+  if (layout === 'both') writeTree(oldDir, { ...legacyTree(LEGACY_COPY_STATUS), ...files });
+  if (markers === false) fs.mkdirSync(oldDir, { recursive: true });
   if (layout === 'none') {
     writeTree(root, { 'README.md': '# Layout Demo\n', ...files });
+  }
+  if (claudeMd !== null) {
+    writeTree(root, { 'CLAUDE.md': claudeMdWithBlock(claudeMd === 'legacy-block' ? LEGACY.blockTag : NAMES.blockTag) });
   }
 
   const env = hermeticEnv(home, tmp);
@@ -261,7 +341,8 @@ function planningProject({ layout = 'aoforge', git: withGit = true, files = {} }
     git(root, env, ['config', 'commit.gpgsign', 'false']);
     git(root, env, ['config', 'tag.gpgsign', 'false']);
     git(root, env, ['add', '-A']);
-    git(root, env, ['-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'init']);
+    // --allow-empty: an empty legacy directory (markers:false) leaves git nothing to commit
+    git(root, env, ['-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'init']);
   }
 
   const dir = layout === 'legacy' ? oldDir : layout === 'none' ? null : newDir;
@@ -384,12 +465,52 @@ function worktreePair({ layout = 'aoforge', marker = 'main' } = {}) {
   }
 }
 
+// ─── nestedHome / nestedProject (TRD 78-01) ───────────────────────────────────
+
+/**
+ * A fake HOME that itself holds the legacy layout, with a plain directory (no planning directory) below it,
+ * for the "a walk never returns $HOME or searches above it" case. No git.
+ *
+ * @returns {{ base: string, home: string, project: string, nested: string, cleanup: function(): void }}
+ *   `project` is `<home>/work/proj`, `nested` is `<project>/src/deep` (both exist).
+ */
+function nestedHome() {
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aof-layout-home-')));
+  const home = path.join(base, 'home');
+  writeTree(path.join(home, LEGACY.planningDir), tree(CURRENT_STATUS));
+  const project = path.join(home, 'work', 'proj');
+  const nested = path.join(project, 'src', 'deep');
+  fs.mkdirSync(nested, { recursive: true });
+  writeTree(project, { 'README.md': '# Below home\n' });
+  return { base, home, project, nested, cleanup: () => fs.rmSync(base, { recursive: true, force: true }) };
+}
+
+/**
+ * Write a minimal planning tree in `layout` (`aoforge` or `legacy`) at `<parent>/<rel>`, inside an existing
+ * fixture: a project nested in another one. Returns the nested root.
+ */
+function nestedProject(parent, rel = 'inner', { layout = 'aoforge' } = {}) {
+  if (layout !== 'aoforge' && layout !== 'legacy') {
+    throw new Error(`nestedProject: layout must be aoforge or legacy, not ${JSON.stringify(layout)}`);
+  }
+  const root = path.join(parent, ...rel.split('/'));
+  writeTree(path.join(root, layout === 'legacy' ? LEGACY.planningDir : NAMES.planningDir), tree(CURRENT_STATUS));
+  return root;
+}
+
 module.exports = {
   LAYOUTS,
   MARKER_PLACES,
   CURRENT_STATUS,
   LEGACY_COPY_STATUS,
+  CONFIG_KEYS,
+  CLAUDE_MD_KINDS,
+  STAMP,
   planningProject,
   worktreePair,
   markerText,
+  nestedHome,
+  nestedProject,
+  configWithKey,
+  claudeMdWithBlock,
 };
