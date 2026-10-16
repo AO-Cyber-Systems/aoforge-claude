@@ -590,3 +590,60 @@ describe('migration 0010: confirm safety through the runner (test 13)', () => {
     assert.ok(stamp.migrations_applied.includes('0010'));
   });
 });
+
+// TRD 78-04 (test-list case 7): the block is recognised only under the AOForge marker slug. The pre-rename block is
+// built from LEGACY with BLOCK's own inner lines, so the slug is the only difference and this file never spells it.
+describe('migration 0010: the block is recognised under the AOForge slug only (TRD 78-04)', () => {
+  const { slug: LEGACY_SLUG } = require('../legacy-names.cjs').LEGACY;
+  const PRE_RENAME_BLOCK = [
+    `# >>> ${LEGACY_SLUG} store (0010) >>>`,
+    ...BLOCK.split('\n').slice(1, -1),
+    `# <<< ${LEGACY_SLUG} store (0010) <<<`,
+  ].join('\n');
+
+  test('7. a .gitignore holding only a pre-rename-slug block: not recognised, reported as missing', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    assert.equal(m0010().readBlock(`node_modules/\n\n${PRE_RENAME_BLOCK}\n`), null);
+
+    const p = project({ gitignore: `${PRE_RENAME_BLOCK}\n` });
+    assert.deepEqual(lsPlanning(p), ['.aoforge/STACK.md', '.aoforge/config.json'], 'precondition: its rules applied at commit');
+    assert.deepEqual(m0010().discover(ctxFor(p)).block, { present: false, current: false, error: null });
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, true, JSON.stringify(det));
+    assert.match(det.reason, /\.gitignore block missing/);
+  });
+
+  test('7b. the same block under the AOForge slug is recognised as before', (t) => {
+    if (!HAS_GIT) return t.skip('git not installed');
+    const b = m0010().readBlock(`node_modules/\n\n${BLOCK}\n`);
+    assert.ok(b, 'found');
+    assert.equal(b.start, 2);
+
+    const p = project({ gitignore: `${BLOCK}\n` });
+    const block = m0010().discover(ctxFor(p)).block;
+    assert.equal(block.present, true);
+    assert.equal(block.current, true);
+    assert.equal(block.error, null);
+    const det = m0010().detect(ctxFor(p));
+    assert.equal(det.applies, false, JSON.stringify(det));
+    assert.match(det.reason, /\.gitignore block is current/);
+  });
+
+  test('7c. a pre-rename block is user text: upsert keeps it byte for byte and appends the AOForge block; no "two blocks"', () => {
+    const text = `node_modules/\n\n${PRE_RENAME_BLOCK}\n`;
+    const out = m0010().upsertBlock(text);
+    assert.ok(out.startsWith(text), `the bytes before, pre-rename block included, are kept:\n${out}`);
+    assert.equal(out.slice(text.length), `\n${m0010().blockLines().join('\n')}\n`);
+
+    const both = m0010().readBlock(out);
+    assert.ok(both, 'the AOForge block is found beside the pre-rename one');
+    assert.equal(out.split('\n')[both.start], m0010().BLOCK_START);
+    assert.equal(m0010().upsertBlock(out), out, 'a second upsert replaces the AOForge block in place');
+  });
+
+  test('7d. no pre-rename marker is exported', () => {
+    const m = m0010();
+    assert.equal(Object.prototype.hasOwnProperty.call(m, 'LEGACY_BLOCK_START'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(m, 'LEGACY_BLOCK_END'), false);
+  });
+});
