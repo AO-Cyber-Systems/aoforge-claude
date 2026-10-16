@@ -127,11 +127,18 @@ Set `is_re_verification = false`, proceed with Step 1.
 ## Step 1: Load Context (Initial Mode Only)
 
 ```bash
-ls "$OBJECTIVE_DIR"/*-TRD.md "$OBJECTIVE_DIR"/*-JOB.md 2>/dev/null
-ls "$OBJECTIVE_DIR"/*-SUMMARY.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs verify objective-evidence "$OBJECTIVE_NUM"
 node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective "$OBJECTIVE_NUM"
 grep -E "^| $OBJECTIVE_NUM" .aoforge/REQUIREMENTS.md 2>/dev/null
 ```
+
+`verify objective-evidence` (TRD 76-04) is the mechanical evidence in one call: for every TRD, the
+`verify artifacts` and `verify key-links` results (Steps 4 and 5 read them from here instead of
+re-running them), the SUMMARY's Self-Check and key-files with whether each exists (Step 7's file
+list), and the commit count; plus `objective-completeness`. Its `rollup` names the TRDs that need a
+closer look. Your judgment starts there: whether each truth holds, whether a passing artifact is a
+stub, whether a link is real wiring. In an older runtime where the command is unknown, list the
+TRD and SUMMARY files with `ls` and run the per-TRD commands in Steps 4, 5 and 7.
 
 Extract objective goal from ROADMAP.md — this is the outcome to verify, not the tasks.
 

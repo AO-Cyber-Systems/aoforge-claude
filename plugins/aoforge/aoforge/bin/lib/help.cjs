@@ -98,8 +98,23 @@ const COMMANDS = {
     mutates: true,
   },
   'verify': {
-    usage: 'aof-tools verify <job-structure|objective-completeness|references|commits|artifacts|key-links|trd-pre|api-contract> <arg> [--raw]',
+    usage: 'aof-tools verify <job-structure|objective-completeness|objective-evidence|references|commits|artifacts|key-links|trd-pre|api-contract> <arg> [--raw]',
     summary: 'Verification suite — structure, references, commits, artifacts, API contracts.',
+    details: 'objective-evidence <objective> collects the verifier\'s mechanical evidence in one call: per TRD the artifacts and key-links checks, the SUMMARY Self-Check and key-files (and whether each exists) and the commit count, plus objective-completeness (TRD 76-04). Read-only.',
+  },
+  'trd': {
+    usage: 'aof-tools trd finalize <objective>-<trd> [--duration <d>] [--dry-run] [--raw]',
+    summary: 'Run the post-SUMMARY state, roadmap and requirements bookkeeping for one TRD (TRD 76-04).',
+    mutates: true,
+    details: 'Reads the TRD (task count, requirements) and its posted SUMMARY (key-files, key-decisions, duration), then runs state advance-job, update-progress, record-metric, add-decision per decision, record-session, roadmap update-job-progress and requirements mark-complete, stopping at the first failure (exit 1). --dry-run prints the steps without running them. Pass --cwd <checkout> first in a worktree.',
+  },
+  'codebase': {
+    usage: 'aof-tools codebase facts [--focus tech|arch|quality|concerns|all] [--root <dir>] [--raw]',
+    summary: 'Language-neutral codebase facts for the mapper: manifests, languages, layout, tests, markers, imports (TRD 76-04).',
+  },
+  'security': {
+    usage: 'aof-tools security sweep [--focus <focus>|all] [--root <dir>] [--raw]',
+    summary: 'The security auditor\'s pattern sweep in one call: hits per check, secret files by existence only (TRD 76-04).',
   },
   'ui': {
     usage: 'aof-tools ui <metrics|spec|sheet|lock> [args] [--raw]',
@@ -238,10 +253,10 @@ const COMMANDS = {
     details: VERB_DETAILS,
   },
   'validate': {
-    usage: 'aof-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]> [--raw]',
+    usage: 'aof-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]|roadmap-coverage> [--raw]',
     summary: 'Check .aoforge/ integrity, objective numbering, documentation staleness, and SUMMARY/VERIFICATION requirement agreement.',
     mutates: true,
-    details: 'health reports W066 legacy-planning-dir when the project still uses the legacy planning directory (AOForge reads it for one release; fix: aof-tools upgrade --apply --only 0012) or holds both directories (the legacy one is ignored), and W067 legacy-config-key when config.json records its upgrades only under the legacy stamp key (read for one release; fix: aof-tools upgrade --apply --only 0013).',
+    details: 'health reports W066 legacy-planning-dir when the project still uses the legacy planning directory (AOForge reads it for one release; fix: aof-tools upgrade --apply --only 0012) or holds both directories (the legacy one is ignored), and W067 legacy-config-key when config.json records its upgrades only under the legacy stamp key (read for one release; fix: aof-tools upgrade --apply --only 0013). roadmap-coverage checks that every v1 requirement maps to exactly one ROADMAP objective (orphans, duplicates, unknown ids); exit 1 on a gap (TRD 76-04).',
   },
   'doctor': {
     usage: 'aof-tools doctor [--fix] [--json] [--path <dir>] [--global]',

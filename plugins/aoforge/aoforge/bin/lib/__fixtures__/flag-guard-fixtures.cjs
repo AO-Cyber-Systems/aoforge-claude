@@ -227,6 +227,8 @@ const PROBES = {
   'validate health': ['validate', 'health'],
   'validate docs': ['validate', 'docs'],
   'validate requirements': ['validate', 'requirements'],
+  'validate roadmap-coverage': ['validate', 'roadmap-coverage'],
+  'trd finalize': ['trd', 'finalize', '1-01', '--dry-run'],
   'skill-active': ['skill-active', '--status'],
   'micro start': ['micro', 'start', 'a small task'],
   'micro commit': ['micro', 'commit'],

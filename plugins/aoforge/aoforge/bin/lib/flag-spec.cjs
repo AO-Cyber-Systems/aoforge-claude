@@ -178,6 +178,14 @@ const FLAG_SPEC = deepFreeze({
       docs: {},
       health: { bools: ['--repair'] },
       requirements: { values: ['--objective'] },
+      'roadmap-coverage': {},
+    },
+  },
+
+  // TRD 76-04: the executor's post-SUMMARY bookkeeping in one call.
+  trd: {
+    subcommands: {
+      finalize: { values: ['--duration'], bools: ['--dry-run'] },
     },
   },
 

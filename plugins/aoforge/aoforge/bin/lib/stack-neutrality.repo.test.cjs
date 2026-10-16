@@ -21,7 +21,6 @@ const ROOTS = ['agents', 'skills', 'hooks', 'aoforge/bin', 'aoforge/workflows'];
 const PATTERN = /flutter|\bdart\b|maestro|playwright|pubspec/i;
 
 const ALLOW = {
-  'agents/codebase-mapper.md': 'manifest discovery `ls` lists pubspec.yaml beside go.mod, Cargo.toml and the rest',
   'aoforge/bin/lib/calibration-inputs.cjs': 'test/source file regexes per language (.dart beside .go, .ts, .py)',
   'aoforge/bin/lib/doc-staleness.cjs': 'manifest alias table across languages',
   'aoforge/bin/lib/init.cjs': 'the brownfield stack list: pubspec.yaml -> dart beside go.mod -> go',

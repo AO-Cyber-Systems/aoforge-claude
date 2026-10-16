@@ -102,6 +102,11 @@
  * Verification Suite:
  *   verify job-structure <file>       Check TRD.md/JOB.md structure + tasks
  *   verify objective-completeness <objective>  Check all jobs have summaries
+ *   verify objective-evidence <objective>   Verifier evidence for every TRD in one call (TRD 76-04)
+ *   validate roadmap-coverage           Every v1 requirement maps to exactly one objective
+ *   trd finalize <obj>-<trd>            Post-SUMMARY state/roadmap/requirements bookkeeping
+ *   codebase facts [--focus f]          Language-neutral codebase facts for the mapper
+ *   security sweep [--focus f]          The security auditor's pattern sweep
  *   verify references <file>           Check @-refs + paths resolve
  *   verify commits <h1> [h2] ...      Batch verify commit hashes
  *   verify artifacts <job-file>       Check must_haves.artifacts
@@ -535,6 +540,8 @@ async function main() {
         cmdVerifyJobStructure(cwd, args[2], raw);
       } else if (subcommand === 'objective-completeness') {
         cmdVerifyObjectiveCompleteness(cwd, args[2], raw);
+      } else if (subcommand === 'objective-evidence') {
+        require('./lib/objective-evidence.cjs').cmdVerifyObjectiveEvidence(cwd, args[2], raw);
       } else if (subcommand === 'references') {
         cmdVerifyReferences(cwd, args[2], raw);
       } else if (subcommand === 'commits') {
@@ -549,7 +556,7 @@ async function main() {
         // verify api-contract <trd-path> [--raw]
         cmdVerifyApiContract(cwd, args[2], raw);
       } else {
-        error('Unknown verify subcommand. Available: job-structure, objective-completeness, references, commits, artifacts, key-links, trd-pre, api-contract');
+        error('Unknown verify subcommand. Available: job-structure, objective-completeness, objective-evidence, references, commits, artifacts, key-links, trd-pre, api-contract');
       }
       break;
     }
@@ -856,9 +863,30 @@ async function main() {
         const eq = args.find((a) => a.startsWith('--objective='));
         const objective = eq ? eq.slice('--objective='.length) : (i >= 0 ? args[i + 1] : null);
         cmdValidateRequirements(cwd, { objective }, raw);
+      } else if (subcommand === 'roadmap-coverage') {
+        require('./lib/roadmap-coverage.cjs').cmdValidateRoadmapCoverage(cwd, raw);
       } else {
-        error('Unknown validate subcommand. Available: consistency, health, docs, requirements');
+        error('Unknown validate subcommand. Available: consistency, health, docs, requirements, roadmap-coverage');
       }
+      break;
+    }
+
+    // TRD 76-04: mechanical work the agents used to do by hand, one call each.
+    case 'trd': {
+      if (args[1] === 'finalize') require('./lib/trd-finalize.cjs').cmdTrdFinalize(cwd, args, raw);
+      else error('Usage: aof-tools trd finalize <objective>-<trd> [--duration <d>] [--dry-run]');
+      break;
+    }
+
+    case 'codebase': {
+      if (args[1] === 'facts') require('./lib/codebase-facts.cjs').cmdCodebaseFacts(cwd, args, raw);
+      else error('Usage: aof-tools codebase facts [--focus tech|arch|quality|concerns|all] [--root <dir>]');
+      break;
+    }
+
+    case 'security': {
+      if (args[1] === 'sweep') require('./lib/security-sweep.cjs').cmdSecuritySweep(cwd, args, raw);
+      else error('Usage: aof-tools security sweep [--focus <focus>|all] [--root <dir>]');
       break;
     }
 

@@ -77,64 +77,33 @@ Based on focus, determine which documents you'll write:
 </step>
 
 <step name="explore_codebase">
-Explore the codebase thoroughly for your focus area.
+Explore the codebase thoroughly for your focus area. One call gathers the mechanical facts
+(language-neutral: manifests, languages, config and env-file names, imports, directories, entry
+points, tests, TODO/FIXME/HACK/XXX markers, largest source files, stub returns) for your focus:
+
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs codebase facts --focus <your focus> --raw
+```
+
+Pass `tech`, `arch`, `quality` or `concerns`. Spend your effort on reading and describing: Read
+and Grep the files those facts point at (manifests, config files, entry points, the busiest
+directories, sample test files, the files with the most markers, the largest files, the stubs).
 
 **For tech focus:**
 ```bash
 # Prescriptive stack profile, if the project has one (you describe; STACK.md directs)
 cat .aoforge/STACK.md 2>/dev/null | head -60
-
-# Package manifests
-ls package.json requirements.txt Cargo.toml go.mod pyproject.toml pubspec.yaml Gemfile build.gradle build.gradle.kts settings.gradle.kts Package.swift 2>/dev/null
-cat package.json 2>/dev/null | head -100
-
-# Config files (list only - DO NOT read .env contents)
-ls -la *.config.* tsconfig.json .nvmrc .python-version 2>/dev/null
-ls .env* 2>/dev/null  # Note existence only, never read contents
-
-# Find SDK/API imports
-grep -r "import.*stripe\|import.*supabase\|import.*aws\|import.*@" src/ --include="*.ts" --include="*.tsx" 2>/dev/null | head -50
 ```
+
+Env files are listed by name only: note their existence, **never read `.env` contents**.
 
 Record the commands you find (CI `run:` steps, task-runner targets, manifest scripts) in the `## Commands` table of `codebase/STACK.md` — `aof-tools stack init` drafts `.aoforge/STACK.md` from it.
 
-**For arch focus:**
-```bash
-# Directory structure
-find . -type d -not -path '*/node_modules/*' -not -path '*/.git/*' | head -50
+**For arch focus:** Read the entry points and trace imports through the top directories to find the layers.
 
-# Entry points
-ls src/index.* src/main.* src/app.* src/server.* app/page.* 2>/dev/null
+**For quality focus:** Read the lint/format and test config files, a few test files, and a sample of source files for convention analysis.
 
-# Import patterns to understand layers
-grep -r "^import" src/ --include="*.ts" --include="*.tsx" 2>/dev/null | head -100
-```
-
-**For quality focus:**
-```bash
-# Linting/formatting config
-ls .eslintrc* .prettierrc* eslint.config.* biome.json 2>/dev/null
-cat .prettierrc 2>/dev/null
-
-# Test files and config
-ls jest.config.* vitest.config.* 2>/dev/null
-find . -name "*.test.*" -o -name "*.spec.*" | head -30
-
-# Sample source files for convention analysis
-ls src/**/*.ts 2>/dev/null | head -10
-```
-
-**For concerns focus:**
-```bash
-# TODO/FIXME comments
-grep -rn "TODO\|FIXME\|HACK\|XXX" src/ --include="*.ts" --include="*.tsx" 2>/dev/null | head -50
-
-# Large files (potential complexity)
-find src/ -name "*.ts" -o -name "*.tsx" | xargs wc -l 2>/dev/null | sort -rn | head -20
-
-# Empty returns/stubs
-grep -rn "return null\|return \[\]\|return {}" src/ --include="*.ts" --include="*.tsx" 2>/dev/null | head -30
-```
+**For concerns focus:** Read around the marker-heavy files, the largest files and each stub return to judge which are real gaps.
 
 Read key files identified during exploration. Use Glob and Grep liberally.
 </step>
