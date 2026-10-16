@@ -17,7 +17,7 @@
 // quick issues (`encodeEntityBody` / `decodeEntityBody`).
 //
 // Pure: no fs, no child_process, no gh calls — only `crypto`, plus the name map and the
-// regex escape for the two-namespace readers (TRD 72-11). It deliberately does
+// regex escape for the marker readers. It deliberately does
 // NOT require gh-body or gh-mapping: the id canonicalisation below is duplicated on
 // purpose (as gh-body duplicates gh-mapping's) and a test pins the two to the same
 // output.
@@ -26,13 +26,12 @@
 // over-counts astral characters — conservative, never optimistic.
 
 const crypto = require('crypto');
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 
-// Readers accept the legacy marker namespace as well (TRD 72-11, INST-03: a repository not yet rebranded keeps
-// its TRD, entity, scope and part lines in it); every writer below spells the AOForge namespace only. Non-capturing,
-// so no capture group moves. Removed with the other one-release shims (legacy-names.cjs SHIM_REMOVAL).
-const NS = `(?:${escapeRegExp(NAMES.markerNs)}|${escapeRegExp(LEGACY.markerNs)})`;
+// The marker namespace readers match (regex source): the AOForge one only (TRD 78-03). A TRD, entity, scope or part
+// line in the pre-rename namespace is not parsed; `gh rebrand` (72-16) rewrites it. Writers spell it literally.
+const NS = escapeRegExp(NAMES.markerNs);
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 

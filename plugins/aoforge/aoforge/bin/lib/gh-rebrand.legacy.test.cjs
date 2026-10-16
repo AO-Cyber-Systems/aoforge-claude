@@ -462,13 +462,16 @@ describe('gh rebrand: apply, idempotence and resume (TRD 72-16)', () => {
     seed('46', { issue_number: 1, issue_id: 5001, body_hash: trd.contentHash(oldOne.body), updated_at: oldOne.updated_at, managed_hash: managedHash(oldOne.body) });
     seed('46-01', { issue_number: 2, issue_id: 5002, body_hash: trd.contentHash(oldTwo.body), updated_at: oldTwo.updated_at, frozen: true });
     seed('46#state', { issue_number: 1, issue_id: 5001, body_hash: trd.contentHash(strip(snap.comments[0].body)), updated_at: null });
-    const oldParts = trd.joinParts([strip(snap.comments[1].body), strip(snap.comments[2].body)]);
-    seed('46-01#summary', { issue_number: 2, issue_id: 5002, body_hash: trd.contentHash(oldParts.text), updated_at: null });
+    // The pre-rebrand base of the two-part summary: its legacy parts joined by hand (marker and part line off, part
+    // order kept). No shared reader parses a legacy part line since 78-03; only gh rebrand reads the old namespace.
+    const oldText = strip(strip(snap.comments[1].body)) + strip(strip(snap.comments[2].body));
+    seed('46-01#summary', { issue_number: 2, issue_id: 5002, body_hash: trd.contentHash(oldText), updated_at: null });
     seed('99', { issue_number: 99, issue_id: 9999, body_hash: 'sha256:untouched', updated_at: null });
 
     const stub = fx.stubClient(snap);
     const res = rebrand.runRebrand(repo.root, ['--repo', 'o/r', '--apply'], { client: stub, version: VERSION, runGit: repo.runGit, env });
     assert.equal(res.code, 0, res.prose);
+    assert.deepEqual(res.payload.warnings, [], 'a partly rewritten two-part comment still joins');
 
     const bases = outbox.readBase(repo.root, { env });
     const one = stub.state.issues.find((i) => i.number === 1);
