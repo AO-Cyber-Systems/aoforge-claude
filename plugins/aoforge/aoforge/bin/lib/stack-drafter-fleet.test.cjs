@@ -27,6 +27,8 @@
 //
 // Real environment on purpose: process.env (the real PATH and HOME) reaches `stack init` and the tier
 // resolution, as in the 43-07 dry run. The golden and realshape suites use stubs; this one does not.
+// The drafter and the stack packs are both this checkout's (a dev checkout): useRepoPacks() points
+// AOFORGE_STACKS_DIR at a mirror of plugins/aoforge-stack-* (quick 34); HOME and PATH stay real.
 //
 // Skips, never fails, when: AOFORGE_SKIP_FLEET_HARNESS=1; the fleet root (AOFORGE_FLEET_ROOT, default
 // ~/dev) is absent or holds fewer than half of FLEET; and, per repo, when the repo or its committed
@@ -39,6 +41,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 const golden = require('./__fixtures__/stack-golden-fixtures.cjs');
 const tables = require('./__fixtures__/stack-fleet-tables.cjs');
