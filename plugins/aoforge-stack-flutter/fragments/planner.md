@@ -121,3 +121,45 @@ If `DETECTED == "true"`:
    surfaces (verifier Step 8d). High-priority design debt becomes candidate todos / scope for future
    UI-polish objectives — NEVER a blocker for the current objective. A non-ui objective
    (`enabled:false`) writes NO such section.
+
+## TRD frontmatter for type: ui
+
+The fields steps 1-2 set and require, as they appear in a TRD's frontmatter (core's TRD template
+documents only `type: ui`, `platform`, which core reads, and the core `api_contract` field):
+
+```yaml
+type: ui
+# ── Flutter UI fields (OPTIONAL — present only when type: ui) ──
+# When type: ui, the planner (TRD 10-03) requires all of these via PLANNING INCONCLUSIVE.
+# The validator schema (FRONTMATTER_SCHEMAS.trd) does NOT enforce them — non-UI TRDs are unaffected.
+stack: flutter                 # currently only 'flutter' is meaningful for type: ui
+platform: [mobile, web]        # DEFAULT for Flutter UI TRDs: BOTH platforms are required coverage.
+                               # Allowed: [mobile, web], [mobile], [web]. Default if planner detects Flutter UI scope: [mobile, web].
+state_management: riverpod     # one of: riverpod | bloc | setState | provider | other
+# The per-artifact `states:` and `tests:` sub-fields live under must_haves.artifacts:
+# must_haves:
+#   artifacts:
+#     - path: "lib/screens/user_list_screen.dart"
+#       provides: "User list screen"
+#       contains: "AsyncValue"
+#       states: [loading, data, error, empty]   # NEW: required for type: ui artifacts
+#       tests:                                  # NEW: required for type: ui artifacts
+#         widget: "test/screens/user_list_screen_test.dart"
+#         integration: "integration_test/user_list_flow_test.dart"
+#         maestro: ".maestro/user_list.yaml"
+```
+
+| Field | Required when `type: ui` | Purpose |
+|---|---|---|
+| `stack` | Yes | Stack family. Currently only `flutter` is meaningful. |
+| `platform` | Yes | Array of `mobile`, `web`. **Default `[mobile, web]`**: both platforms are required coverage. Narrow only if a TRD genuinely targets a single platform. |
+| `state_management` | Yes | `riverpod`, `bloc`, `setState` or `other`: what `detect flutter-ui-scope` returns. `provider` is accepted but has no catalogue in `flutter-state-patterns.md`, so state coverage scores it like `other`. Selects the state-coverage regex set. |
+| `must_haves.artifacts[*].states` | Yes (per artifact) | Non-empty list of state names this artifact must render and test. |
+| `must_haves.artifacts[*].tests.widget` | Yes (per artifact) | Path to the widget test file. |
+| `must_haves.artifacts[*].tests.integration` | Yes (per artifact) | Path to the integration_test file: one path, both platforms (step 2). The executor's bootstrap setup task scaffolds the `test_driver/integration_test.dart` driver. |
+| `must_haves.artifacts[*].tests.maestro` | Yes (per artifact) | Path to the Maestro flow YAML, mobile-only (step 2). There is no web opt-in flag: web coverage flows entirely through `tests.integration`. |
+
+A TRD outside this scope omits every field above and still validates. The executor runs
+`tests.integration` twice, once per platform with a different driver: `flutter test` on mobile,
+and on web `flutter drive` against a running chromedriver. `flutter drive` is the web-tier
+black-box verifier because Maestro's web semantics overlay is broken upstream.

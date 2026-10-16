@@ -99,6 +99,18 @@ End-to-end flows are the project's choice, not assumed. Maestro flows live in `.
 with `maestro test .maestro`; Patrol tests live in `patrol_test/`. A drafted STACK.md adds an `e2e`
 command only when one of those directories exists.
 
+- **Layers.** Unit: `flutter test` (widget + unit). Integration: the `integration_test/` driver
+  harness. System: `integration_test/` + Patrol (or Maestro for native flows). Visual:
+  `aof-flutter verify flutter-ui-eval` (golden net + VLM judge; `matchesGoldenFile` where goldens
+  run pinned, as on aodex/eden-biz). Contract/parity for a port: widget-tree behavioral parity.
+- **Outside-in route:** the `integration_test` driver, then widget tests, then service, then repository.
+- **Codegen:** Drift / Floor (SQLite ORMs) schemas generate DAO classes; commit the generated code.
+- **Web gotcha:** on mobile `await tester.pumpAndSettle()` drains pending animations and
+  microtasks; on web it can return before browser-side `requestAnimationFrame` completions, so a
+  test that passes on mobile flakes on web. Prefer Patrol, or add
+  `await Future.delayed(Duration(milliseconds: 100))` after navigation, and note it in the TRD's
+  `<gotchas>`.
+
 ## UI
 
 Accessibility floor: semantic labels on interactive widgets, 48×48 touch targets, contrast per the

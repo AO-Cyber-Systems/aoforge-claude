@@ -166,9 +166,12 @@ test('the scan covers the trees it claims', () => {
   ]) {
     assert.ok(files.includes(rel), `${rel} is in the scan`);
   }
-  assert.deepEqual(files.filter((f) => f.endsWith('.test.cjs')), [], 'tests are not scanned');
-  assert.deepEqual(files.filter((f) => f.includes('/__fixtures__/')), [], 'fixtures are not scanned');
   for (const gone of ['skills/ui-eval/SKILL.md', 'agents/ui-evaluator.md', 'aoforge/bin/lib/flutter-ui-eval.cjs']) {
     assert.ok(!files.includes(gone), `${gone} belongs to the Flutter pack`);
   }
+});
+
+test('the scan skips tests and fixtures', () => {
+  assert.deepEqual(files.filter((f) => f.endsWith('.test.cjs')), [], 'tests are not scanned');
+  assert.deepEqual(files.filter((f) => f.includes('/__fixtures__/')), [], 'fixtures are not scanned');
 });

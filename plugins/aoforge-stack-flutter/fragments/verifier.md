@@ -240,9 +240,11 @@ node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/{objective_dir}/{pha
 ```
 
 The generator produces:
-- State-coverage rows expanded per platform (e.g., `platform: [mobile, web]` doubles state rows — one row per (state, platform) combination)
-- Maestro flow rows (mobile-only by design — Maestro on Flutter web is blocked upstream)
-- Web integration rows (`flutter drive` invocations) — when `web` is in the TRD's `platform` field
+- **State-coverage rows:** one row per `(must_haves.artifacts[*].states[*], platform)` pair across every `type: ui` TRD, so 3 states × `[mobile, web]` = 6 rows per artifact. The per-platform expansion verifies the same UI on both platforms: REQUIRED coverage by default, never opt-in.
+- **Maestro flow rows:** one **mobile-only** row per YAML file in `.maestro/` (Maestro on Flutter web is blocked upstream, mobile-dev-inc/maestro#2591).
+- **Web integration rows:** when `web` is in a TRD's `platform`, one row per artifact telling the user to run `flutter drive --driver=test_driver/integration_test.dart --target=<tests.integration> -d chrome`. The web verifier is `flutter drive`, invoking the same `tests.integration` path mobile runs with `flutter test`, never Maestro (`~/.claude/aoforge/stacks/flutter/references/flutter-state-patterns.md`, "Web verification mechanism").
+
+State text is human-readable for `loading`, `data`, `error`, `empty` and `initial`; a custom state gets "the `<state>` state UI is rendered correctly". The body uses the manually-authored UAT format, `### N. {test name}` / `expected: ...` / `result: [pending]`, a walkthrough of about 5 minutes. Every later edit (walkthrough results, diagnosis) goes through a `planning draft` of that path and `doc put`, never a direct edit of the `.aoforge/` file.
 
 On success, mention the UAT.md path in the verifier's final report. The user runs through the checklist; results feed back into `/aoforge:verify-work` via the existing UAT.md flow (see `templates/UAT.md` lifecycle section).
 
