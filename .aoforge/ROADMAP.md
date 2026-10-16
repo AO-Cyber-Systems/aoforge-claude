@@ -127,6 +127,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration (completed 2026-10-10)
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [x] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped (completed 2026-10-10)
+- [ ] **Objective 78: Remove the rename shims** - The one-release rename shims, migrations 0012/0013, the dual-namespace GitHub readers and the devflow pointer plugin go in 3.1.0, as promised for the release after 3.0.0
 
 ### Objective 65: Release v1.5
 
@@ -374,6 +375,19 @@ TRDs:
 - [x] 75-04-todo-sweep-TRD.md — (W2) every pending todo completed with evidence or re-scoped with disposition fields; 75-TODO-SWEEP.md; SC-4 check
 - [x] 75-05-coverage-and-close-out-TRD.md — (W3) EST-09 coverage over v1.6 beside the verdict; REQUIREMENTS/STATE from evidence; CHANGELOG, CLAUDE.md, USER-GUIDE; full suite
 
+### Objective 78: Remove the rename shims
+
+**Goal**: The one-release compatibility for pre-rename names is gone in 3.1.0, the release after 3.0.0, as `SHIM_REMOVAL` and the migration guide promised. Only names that must stay (PRESERVE, history) remain, and a project still on the old layout gets a clear message naming the 3.0.x upgrade path instead of silent breakage. Numbered 78 because `main` already uses 76 and 77 (objectives 76/77 landed there on 2026-10-16); this branch is stacked on `feat/stack-profile-loader`.
+**Requirements**: none mapped (user decision 2026-10-16: honour the shim-removal promise in 3.1.0)
+**Depends on**: Objective 72 (the rename and its shims), Objective 73 (user-file and watch-state shims)
+**Success Criteria** (what must be TRUE):
+  1. `lib/compat.cjs` keeps no pre-rename reader: no legacy `.planning/` fallback in `planningDirName`/`planningRoot`/`findProjectRoot`, no pre-rename agent namespace in `isOwnAgentType`/`isOwnExecutor`, no legacy dot-dir fallbacks in `userDotFile`/`resolveUserFile`/watch state, no `aliasLegacyEnv` or `DEVFLOW_*` alias; every caller works on the AOForge names alone.
+  2. Migrations 0012 and 0013, the dual-namespace GitHub readers (pre-rename labels and markers), the devflow pointer plugin (directory, marketplace entry, `scripts/gen-pointer-skills*`, package.json test glob) and the rename guard ALLOW entries for them are removed; `legacy-names.cjs` keeps only what is still needed and `SHIM_REMOVAL` says the removal is done.
+  3. Each legacy doctor check (15, 16, 17, 27; W066/W067 in `validate health`) is kept as read-only reporting that names the 3.0.x upgrade path, or removed, with the reason recorded per check.
+  4. A project on the old layout (only `.planning/`, a `devflow{}` stamp, `DEVFLOW_*` env) gets one clear message naming the fix, and no tool silently writes a second planning tree.
+  5. docs/MIGRATING-TO-AOFORGE.md, USER-GUIDE, CHANGELOG and CLAUDE.md describe the removal; the full suite passes (watcher-shell's known fish-shell hang aside) and the rename guard still fails on legacy names outside its trimmed ALLOW list.
+**TRDs**: to be planned
+
 ## Progress
 
 | Objective | Milestone | Plans | Status | Completed |
@@ -395,3 +409,4 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 5/5 | Complete | 2026-10-10 |
+| 78. Remove the rename shims | v1.6 | 0/0 | Not started | - |
