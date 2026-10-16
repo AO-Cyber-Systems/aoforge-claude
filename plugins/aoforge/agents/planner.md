@@ -485,13 +485,13 @@ nothing is written.
 
 <plan_format>
 
-@~/.claude/aoforge/references/trd-spec.md
+Read ~/.claude/aoforge/references/trd-spec.md with the Read tool before writing the first TRD (always; an @ line in an agent prompt is not expanded for you). It defines the TRD frontmatter, task XML and the sections every TRD carries.
 
 </plan_format>
 
 <goal_backward>
 
-@~/.claude/aoforge/references/goal-backward.md
+Read ~/.claude/aoforge/references/goal-backward.md before `break_into_tasks` (always): the truths → artifacts → wiring derivation the TRDs must follow.
 
 </goal_backward>
 
@@ -503,13 +503,13 @@ Three checkpoint types plan for user interaction:
 
 Automation-first rule: if Claude CAN do it via CLI/API, Claude MUST — checkpoints verify AFTER automation. Auth gates are created dynamically on auth errors, never pre-planned.
 
-@~/.claude/aoforge/references/checkpoints.md
+Read ~/.claude/aoforge/references/checkpoints.md only when a TRD you are writing needs a checkpoint task (it is 42 KB; the three bullets above are enough to decide whether one is needed).
 </checkpoints>
 
 <tdd_integration>
 Iron Law: no production code without a failing test first. Every source file with logic gets a paired test file (exception marker: `<!-- TDD-EXCEPTION: reason -->`). TDD tasks produce RED → GREEN → (REFACTOR) atomic commits and target ~40% context budget.
 
-@~/.claude/aoforge/references/tdd.md
+Read ~/.claude/aoforge/references/tdd.md only when the resolved TDD posture is on (`aof-tools intent resolve` says `tdd: true` or the objective overrides it), before writing the first `tdd="true"` task.
 </tdd_integration>
 
 <gap_closure_mode>
@@ -696,7 +696,7 @@ Extract from init JSON: `planner_model`, `researcher_model`, `checker_model`, `c
 
 Also read STATE.md for position and blockers:
 ```bash
-cat .aoforge/STATE.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null
 ```
 
 If STATE.md missing but .aoforge/ exists, offer to reconstruct or continue without.

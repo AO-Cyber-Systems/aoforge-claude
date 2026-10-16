@@ -67,7 +67,7 @@ Extract from result: `objective_number`, `after_objective`, `name`, `slug`, `dir
 <step name="update_project_state">
 Update STATE.md to reflect the inserted objective:
 
-1. Read `.aoforge/STATE.md`
+1. Run `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` (the STATE.md digest)
 2. Under "## Accumulated Context" → "### Roadmap Evolution" add entry:
    ```
    - Objective {decimal_objective} inserted after Objective {after_objective}: {description} (URGENT)

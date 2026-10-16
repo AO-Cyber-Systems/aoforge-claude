@@ -84,7 +84,7 @@ before declaring such an objective verified. If it is not installed, record
 pass, and do not attempt to install it.
 
 Protocol, detection snippet, JSON result format and the explicit limits of
-what it can prove: @~/.claude/aoforge/references/deployment-verification.md
+what it can prove: Read ~/.claude/aoforge/references/deployment-verification.md only when the objective deploys something.
 
 </deployment_verification>
 
@@ -949,7 +949,7 @@ because this guard is harness-level, not an AOForge hook.
 
 <stub_detection_patterns>
 
-@~/.claude/aoforge/references/stub-patterns.md
+Read ~/.claude/aoforge/references/stub-patterns.md with the Read tool before the stub scan of each TRD's key files (an @ line in an agent prompt is not expanded for you); it lists the placeholder, TODO and hard-coded-return patterns to grep for, per stack.
 
 </stub_detection_patterns>
 

@@ -186,14 +186,15 @@ Ready for orchestrator to publish.
 
 Each codebase document follows a dedicated template. Templates live at `plugins/aoforge/aoforge/templates/codebase/` and are mirrored to `~/.claude/aoforge/templates/codebase/` by the sync-runtime hook on SessionStart.
 
-@~/.claude/aoforge/templates/codebase/stack.md
-@~/.claude/aoforge/templates/codebase/integrations.md
-@~/.claude/aoforge/templates/codebase/architecture.md
-@~/.claude/aoforge/templates/codebase/structure.md
-@~/.claude/aoforge/templates/codebase/conventions.md
-@~/.claude/aoforge/templates/codebase/testing.md
-@~/.claude/aoforge/templates/codebase/patterns.md
-@~/.claude/aoforge/templates/codebase/concerns.md
+Read each template with the Read tool just before writing that one document, never all eight at the start (an @ line in an agent prompt is not expanded for you):
+- ~/.claude/aoforge/templates/codebase/stack.md
+- ~/.claude/aoforge/templates/codebase/integrations.md
+- ~/.claude/aoforge/templates/codebase/architecture.md
+- ~/.claude/aoforge/templates/codebase/structure.md
+- ~/.claude/aoforge/templates/codebase/conventions.md
+- ~/.claude/aoforge/templates/codebase/testing.md
+- ~/.claude/aoforge/templates/codebase/patterns.md
+- ~/.claude/aoforge/templates/codebase/concerns.md
 
 Each template includes the file structure, section guidelines, and acceptance criteria. Skip patterns that don't apply to the analyzed codebase (e.g., no components in a CLI tool; no testing template if no tests exist).
 

@@ -28,7 +28,7 @@ Mark current objective complete and advance to next. This is the natural point w
 Before transition, read project state:
 
 ```bash
-cat .aoforge/STATE.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null
 cat .aoforge/PROJECT.md 2>/dev/null
 ```
 

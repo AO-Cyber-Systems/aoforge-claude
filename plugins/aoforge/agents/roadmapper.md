@@ -562,7 +562,7 @@ When files are written and returning to orchestrator:
 
 User can review actual files:
 - `cat .aoforge/ROADMAP.md`
-- `cat .aoforge/STATE.md`
+- `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` (the digest; `state get` for the whole file)
 
 {If gaps found during creation:}
 
