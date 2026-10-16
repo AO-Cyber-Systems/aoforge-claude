@@ -176,6 +176,8 @@ const PROBES = {
   'state patch': ['state', 'patch', '--Status', 'Building'],
   'state advance-job': ['state', 'advance-job', '--objective', '1'],
   'state update-progress': ['state', 'update-progress'],
+  'state digest': ['state', 'digest', '--decisions', '3'],
+  'state rotate-decisions': ['state', 'rotate-decisions', '--keep', '10', '--dry-run'],
   'state record-metric': ['state', 'record-metric', '--objective', '1', '--job', '01', '--duration', '5min', '--tasks', '2', '--files', '3'],
   'state add-decision': ['state', 'add-decision', '--objective', '1', '--summary', 'Use the guard'],
   'state add-blocker': ['state', 'add-blocker', '--text', 'A blocker'],

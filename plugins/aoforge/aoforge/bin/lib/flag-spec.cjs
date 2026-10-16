@@ -39,6 +39,8 @@ const FLAG_SPEC = deepFreeze({
       get: {},
       update: {},
       'update-progress': {},
+      digest: { values: ['--decisions'] },
+      'rotate-decisions': { values: ['--keep'], bools: ['--dry-run'] },
       patch: {
         anyFlags: true,
         reason: '`state patch --<field> <value>` pairs name arbitrary STATE.md fields, so every --x is a field name',

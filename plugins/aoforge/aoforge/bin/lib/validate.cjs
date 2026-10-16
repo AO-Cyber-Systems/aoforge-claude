@@ -834,6 +834,27 @@ function cmdValidateHealth(cwd, options, raw) {
     if (issue) addIssue('warning', issue.code, issue.message, issue.fix, false);
   }
 
+  // ─── Check 23: STATE.md decision log size (context budget) ─────────────────
+  // W068: `## Recent Decisions` holds more than DEFAULT_KEEP entries. STATE.md is a digest (templates/state.md); every
+  // skill that reads it on entry pays for the whole log. `state advance-job` rotates on every advance and
+  // `--repair` rotates now (state.cjs rotateDecisionsOnDisk); migration 0015 does the same once at upgrade. Store
+  // mode is silent: STATE.md is a generated view there.
+  try {
+    const statePath23 = path.join(planningDir, 'STATE.md');
+    if (fs.existsSync(statePath23) && !require('./planning-mode.cjs').isStoreMode(cwd)) {
+      const sd = require('./state-digest.cjs');
+      const n = sd.decisionEntries(fs.readFileSync(statePath23, 'utf-8')).length;
+      if (n > sd.DEFAULT_KEEP) {
+        addIssue('warning', 'W068',
+          `decision-log-oversized: STATE.md "Recent Decisions" has ${n} entries (digest keeps ${sd.DEFAULT_KEEP})`,
+          'Run `aof-tools state rotate-decisions` (or /aoforge:status check --repair) to move the older ones to STATE_ARCHIVE.md', true);
+        repairs.push('rotateDecisions');
+      }
+    }
+  } catch (e) {
+    addIssue('warning', 'W068', `decision-log-check-failed: ${e.message}`, 'Run `aof-tools state rotate-decisions --dry-run` to see why', false);
+  }
+
   // ─── Perform repairs if requested ─────────────────────────────────────────
   const repairActions = [];
   if (options.repair && repairs.length > 0) {
@@ -874,6 +895,11 @@ function cmdValidateHealth(cwd, options, raw) {
             // Rename JOB.md -> TRD.md and log it in STATE.md via migration 0002.
             const res = m0002.apply(migrationCtx);
             repairActions.push({ action: repair, success: true, migrated: res.notes.migrated });
+            break;
+          }
+          case 'rotateDecisions': {
+            const res = require('./state.cjs').rotateDecisionsOnDisk(cwd, require('./state-digest.cjs').DEFAULT_KEEP);
+            repairActions.push({ action: repair, success: true, moved: res.moved, kept: res.kept, path: 'STATE.md' });
             break;
           }
           case 'repairSkillMarker': {

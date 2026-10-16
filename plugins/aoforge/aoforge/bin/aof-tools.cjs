@@ -19,6 +19,9 @@
  *   state load                         Load project config + state
  *   state update <field> <value>       Update a STATE.md field
  *   state get [section]                Get STATE.md content or section
+ *   state digest [--decisions N]       Compact STATE.md: position, blockers, newest decisions
+ *   state rotate-decisions [--keep N] [--dry-run]
+ *                                      Move decisions beyond the newest N to STATE_ARCHIVE.md
  *   state patch --field val ...        Batch update STATE.md fields
  *   state rekey --from <old> [--to <new>] [--dry-run]
  *                                      Copy repo-keyed runtime state from a moved
@@ -234,7 +237,7 @@ require('./lib/compat.cjs').aliasLegacyEnv();
 const { error, parseIncludeFlag } = require('./lib/helpers.cjs');
 const { cmdConfigEnsureSection, cmdConfigSet, cmdConfigGet } = require('./lib/config.cjs');
 const {
-  cmdStateLoad, cmdStateGet, cmdStatePatch, cmdStateUpdate, cmdStateAdvanceJob,
+  cmdStateLoad, cmdStateDigest, cmdStateRotateDecisions, cmdStateGet, cmdStatePatch, cmdStateUpdate, cmdStateAdvanceJob,
   cmdStateRecordMetric, cmdStateUpdateProgress, cmdStateAddDecision, cmdStateAddBlocker,
   cmdStateResolveBlocker, cmdStateRecordSession, cmdStateSnapshot,
 } = require('./lib/state.cjs');
@@ -419,6 +422,12 @@ async function main() {
         }, raw);
       } else if (subcommand === 'update-progress') {
         cmdStateUpdateProgress(cwd, raw);
+      } else if (subcommand === 'digest') {
+        const decIdx = args.indexOf('--decisions');
+        cmdStateDigest(cwd, { decisions: decIdx !== -1 ? args[decIdx + 1] : null }, raw);
+      } else if (subcommand === 'rotate-decisions') {
+        const keepIdx = args.indexOf('--keep');
+        cmdStateRotateDecisions(cwd, { keep: keepIdx !== -1 ? args[keepIdx + 1] : null, dryRun: args.includes('--dry-run') }, raw);
       } else if (subcommand === 'add-decision') {
         const objectiveIdx = args.indexOf('--objective');
         const summaryIdx = args.indexOf('--summary');
