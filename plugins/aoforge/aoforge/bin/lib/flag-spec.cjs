@@ -124,7 +124,7 @@ const FLAG_SPEC = deepFreeze({
   summary: {
     subcommands: {
       post: { values: ['--from', '--file'], bools: FLUSH },
-      checkpoint: { values: ['--from', '--file'], bools: FLUSH },
+      checkpoint: { values: ['--from', '--file', '--tick', '--hash'], bools: FLUSH },
     },
   },
 
