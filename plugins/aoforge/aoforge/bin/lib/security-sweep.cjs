@@ -19,6 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
 const { PLANNING_DIR_NAMES } = require('./compat.cjs');
+const { escapeRegExp } = require('./text-escape.cjs');
 
 const FOCI = Object.freeze(['secrets-and-code', 'auth-and-access', 'config-and-deps']);
 
@@ -144,7 +145,7 @@ const SECRET_FILES = [
 const SECRET_DIRS = ['.secrets', 'config/secrets', 'secrets'];
 
 function globRe(glob) {
-  const src = glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.');
+  const src = glob.split('*').map((part) => part.split('?').map(escapeRegExp).join('.')).join('.*');
   return new RegExp('^' + src + '$');
 }
 const SECRET_FILE_RES = SECRET_FILES.map(globRe);
