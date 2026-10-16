@@ -36,6 +36,36 @@ const ALLOW = {
   'aoforge/workflows/map-codebase.md': 'the drafted-profile confirm step uses the gopls/dart MCP servers when present',
 };
 
+// Tool grants a pack needs on a core agent and cannot add itself. Only these exact tokens, and only on the
+// file's frontmatter `tools:` line, are skipped; every other line stays under PATTERN.
+const GRANT_ALLOW = {
+  'agents/executor.md': {
+    tokens: [
+      'mcp__plugin_playwright_playwright__browser_close',
+      'mcp__plugin_playwright_playwright__browser_console_messages',
+      'mcp__plugin_playwright_playwright__browser_navigate',
+      'mcp__plugin_playwright_playwright__browser_snapshot',
+      'mcp__plugin_playwright_playwright__browser_wait_for',
+    ],
+    reason: "the web pack's executor self-check loads a route and reads it: read-only browser tools only (quick 38)",
+  },
+};
+
+/** The index of the frontmatter line starting `tools:` (before the second `---`), or -1. */
+function toolsLineIndex(lines) {
+  if (lines[0] !== '---') return -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i] === '---') return -1;
+    if (lines[i].startsWith('tools:')) return i;
+  }
+  return -1;
+}
+
+/** The tools line with each exactly-listed token removed; any other grant on it stays. */
+function scrubGrants(line, tokens) {
+  return line.split(',').filter((part) => !tokens.includes(part.trim())).join(',');
+}
+
 function walk(rel) {
   const abs = path.join(PLUGIN, rel);
   if (!fs.existsSync(abs)) return [];
@@ -58,9 +88,37 @@ test('no core file names a pack-owned stack outside ALLOW', () => {
   for (const rel of files) {
     if (ALLOW[rel]) continue;
     const lines = fs.readFileSync(path.join(PLUGIN, rel), 'utf8').split('\n');
-    lines.forEach((line, i) => { if (PATTERN.test(line)) offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`); });
+    const grant = GRANT_ALLOW[rel];
+    const toolsAt = grant ? toolsLineIndex(lines) : -1;
+    lines.forEach((line, i) => {
+      const scanned = i === toolsAt ? scrubGrants(line, grant.tokens) : line;
+      if (PATTERN.test(scanned)) offenders.push(`${rel}:${i + 1}: ${line.trim().slice(0, 120)}`);
+    });
   }
   assert.deepEqual(offenders, [], 'move stack-specific content to a stack pack (plugins/aoforge-stack-*), or add a data-only ALLOW entry with a reason');
+});
+
+test('every GRANT_ALLOW entry is exactly the PATTERN-matching grant set on its tools line', () => {
+  for (const [rel, { tokens, reason }] of Object.entries(GRANT_ALLOW)) {
+    assert.ok(reason.length >= 20, `${rel}: give a reason`);
+    assert.deepEqual([...tokens].sort(), tokens, `${rel}: keep the tokens sorted`);
+    const abs = path.join(PLUGIN, rel);
+    assert.ok(fs.existsSync(abs), `${rel}: stale GRANT_ALLOW entry (file gone)`);
+    const lines = fs.readFileSync(abs, 'utf8').split('\n');
+    const at = toolsLineIndex(lines);
+    assert.ok(at > 0, `${rel}: no frontmatter tools: line`);
+    const grants = lines[at].split(',').map((p) => p.trim()).filter((p) => PATTERN.test(p)).sort();
+    assert.deepEqual(grants, tokens, `${rel}: the tools line's pack-stack grants must be exactly GRANT_ALLOW's tokens`);
+  }
+});
+
+test('the tools-line scrub removes only the exact listed tokens', () => {
+  const tokens = GRANT_ALLOW['agents/executor.md'].tokens;
+  const line = `tools: Read, ${tokens.join(', ')}`;
+  assert.ok(!PATTERN.test(scrubGrants(line, tokens)), 'the five listed grants are skipped');
+  assert.ok(PATTERN.test(scrubGrants(`${line}, mcp__plugin_playwright_playwright__browser_click`, tokens)), 'a sixth grant is not');
+  assert.ok(PATTERN.test(scrubGrants(`${line}, mcp__plugin_playwright_playwright__*`, tokens)), 'a wildcard grant is not');
+  assert.equal(toolsLineIndex(['---', 'name: x', '---', 'tools: body text']), -1, 'a body line is never the tools line');
 });
 
 test('every ALLOW entry still matches and carries a reason', () => {

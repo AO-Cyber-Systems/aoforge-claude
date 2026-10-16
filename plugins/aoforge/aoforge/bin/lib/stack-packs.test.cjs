@@ -718,3 +718,64 @@ describe('soft dependencies: Flutter web selects the web pack (quick 38)', () =>
     assert.deepEqual(packs.projectPlatforms({ projectRoot: makeProject({}), resolved: null }), []);
   });
 });
+
+// quick 38: objective 77 (1cce9f50) removed the executor's browser check for UI tasks and restored it in no pack. The
+// web pack now ships an executor fragment: load the route, count console errors, take one snapshot, record the result.
+describe('web pack executor self-check (quick 38)', () => {
+  const REPO = path.join(__dirname, '..', '..', '..', '..', '..');
+  const WEB_PACK = path.join(REPO, 'plugins', 'aoforge-stack-web');
+  const WEB_TRD = 'objective: 01\ntrd: 01\ntype: ui\nplatform: [mobile, web]';
+  const POINTER = /web: Read `[^`]*web\/fragments\/executor\.md`/;
+
+  test('11. stack context executor points at the web executor fragment whenever the web pack is active', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const flutterWeb = makeProject({ stack: 'schema: 1\nextends: flutter' });
+    writeTrd(flutterWeb, '01-ui', '01-01', WEB_TRD);
+    const cases = [
+      ['extends: flutter with a web TRD (soft dependency)', flutterWeb],
+      ['verification.runtime: web with no extends', makeProject({ stack: 'schema: 1\nverification:\n  runtime: web' })],
+      ['config stacks.enabled ["web"] with no STACK.md', makeProject({ config: { stacks: { enabled: ['web'] } } })],
+    ];
+    for (const [label, proj] of cases) {
+      const r = run(['stack', 'context', 'executor', '--raw'], { cwd: proj, stacksDir: stacks });
+      assert.equal(r.status, 0, `${label}: ${r.stderr}`);
+      assert.match(r.stdout, POINTER, label);
+    }
+  });
+
+  test('12. no web executor fragment for mobile-only Flutter, extends go, or no STACK.md', () => {
+    const stacks = repoStacks('flutter', 'web');
+    const mobile = makeProject({ stack: 'schema: 1\nextends: flutter' });
+    writeTrd(mobile, '01-ui', '01-01', 'objective: 01\ntrd: 01\ntype: ui\nplatform: [mobile]');
+    const go = makeProject({ stack: 'schema: 1\nextends: go' });
+    writeTrd(go, '01-ui', '01-01', WEB_TRD);
+    const bare = makeProject({});
+    writeTrd(bare, '01-ui', '01-01', WEB_TRD);
+    for (const [label, proj] of [['mobile-only Flutter', mobile], ['extends: go', go], ['no STACK.md', bare]]) {
+      const r = run(['stack', 'context', 'executor', '--raw'], { cwd: proj, stacksDir: stacks });
+      assert.equal(r.status, 0, `${label}: ${r.stderr}`);
+      assert.doesNotMatch(r.stdout, /web\/fragments\/executor\.md/, label);
+    }
+    const r = run(['stack', 'context', 'executor', '--raw'], { cwd: bare, stacksDir: stacks });
+    assert.doesNotMatch(r.stdout, /## Stack packs/);
+  });
+
+  test('13. the fragment uses only the five read-only browser tools, skips with a reason, records its result, binds 8091', () => {
+    const text = fs.readFileSync(path.join(WEB_PACK, 'fragments', 'executor.md'), 'utf8');
+    for (const tool of ['browser_navigate', 'browser_wait_for', 'browser_console_messages', 'browser_snapshot', 'browser_close']) {
+      assert.ok(text.includes(tool), `names ${tool}`);
+    }
+    assert.doesNotMatch(text, /browser_(click|fill_form|type|evaluate|take_screenshot)/, 'read-only: no interaction or capture tools');
+    for (const s of ['## Browser self-check', 'SKIPPED (no browser tools', 'SKIPPED (no dev server', '8091']) {
+      assert.ok(text.includes(s), `contains ${s}`);
+    }
+    assert.doesNotMatch(text, /(localhost|127\.0\.0\.1|0\.0\.0\.0):8080|--port[ =]8080|PORT=8080/);
+    const m = JSON.parse(fs.readFileSync(path.join(WEB_PACK, 'aoforge-stack.json'), 'utf8'));
+    assert.equal(m.fragments.executor, 'fragments/executor.md');
+  });
+
+  test('14. the web verifier fragment reads the executor\'s Browser self-check record', () => {
+    const text = fs.readFileSync(path.join(WEB_PACK, 'fragments', 'verifier.md'), 'utf8');
+    assert.match(text, /Browser self-check/);
+  });
+});
