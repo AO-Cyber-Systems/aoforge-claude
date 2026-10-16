@@ -127,6 +127,24 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   passes to web-ui-verifier. No click, fill or type tool is granted. `stack-neutrality.repo.test.cjs` exempts exactly
   those tokens on that one frontmatter line (`GRANT_ALLOW`), so a sixth grant fails CI.
 
+### Stack packs: the rest of the web and Flutter procedure leaves core (quick 39)
+
+- **verify-work, `checkpoints.md` and `verification-patterns.md` no longer instruct browser tool calls.** verify-work
+  had told the orchestrator to call tools its skill no longer grants. UI pre-verification now reuses the evidence the
+  active packs recorded (VERIFICATION.md runtime rows, SUMMARY self-check tables), or spawns the agent
+  `stack context verifier --raw` lists under `packs.subagents`; with neither, a UI test is presented without a
+  Pre-verified block. A checkpoint's pre-check comes from the active pack's executor fragment.
+- **The TRD template's Flutter UI fields, the UAT template's auto-generated section and the Flutter cells of
+  `testing-strategy.md` moved to the Flutter pack** (planner fragment, verifier fragment Step 9, profile `## Testing`).
+  Core now documents only the pack-defined `stack` and `platform` fields and its own `api_contract`.
+- **Neutral wording** in `defaults-table.md` (the app cells name UI flow drivers, not tools), `model-profiles`
+  (a stack pack's vision judge reads `models{}`) and the STACK.md template (profile lookup is user, then an enabled
+  pack's, then bundled).
+- **`stack-neutrality.repo.test.cjs` now scans all of core** (`.claude-plugin`, agents, skills, hooks and all of
+  `aoforge/`: templates, references, schemas and stack-profiles included) and matches `browser_*` tool names from any
+  MCP server. The executor's five-token exemption is unchanged. ALLOW gains seven data and design-set entries, with
+  `design-stack-flutter.md` marked as known debt.
+
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 
 - **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and

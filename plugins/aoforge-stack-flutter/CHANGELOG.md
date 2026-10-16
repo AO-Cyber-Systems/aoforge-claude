@@ -10,3 +10,8 @@ All notable changes to the aoforge-stack-flutter stack pack. Released with tags 
 - The pack declares the web pack as a soft dependency for platform `web` (`soft_depends`), so a Flutter project whose
   runtime or TRD `platform` includes `web` also selects aoforge-stack-web. When the web pack is not active, the
   verifier fragment records Flutter web surfaces as `? SKIPPED` and sends them to human verification (quick 38).
+- Moved from core (quick 39): the planner fragment's `## TRD frontmatter for type: ui` (the YAML example and field
+  table core's TRD template used to carry; `provider` is accepted and scored like `other`), Step 9's complete UAT
+  generation rules in the verifier fragment (row sources, per-platform expansion, state text, format, refusal and
+  later edits), and the profile's `## Testing` layer cells, outside-in route, codegen note and web `pumpAndSettle`
+  gotcha.
