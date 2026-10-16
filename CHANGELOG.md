@@ -110,6 +110,23 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   no rules-for-a-tag endpoint, so it reads the tag-target rulesets and matches their ref_name patterns locally.
 - **Release dates.** 3.1.0 and the stack packs' 1.0.0 are dated 2026-10-16.
 
+### Stack packs: Flutter web selects the web pack; web executor self-check (quick 38)
+
+- **Soft dependencies.** A pack manifest can declare `soft_depends: [{ pack, platforms }]`. When the declaring pack is
+  active and the resolved `verification.runtime`, or any `platform` / `must_haves.platform` of a TRD under the
+  objectives tree, includes a listed platform, the named pack is selected too. `stacks.disabled` wins, and the rule is
+  not transitive. The Flutter pack declares web for platform `web`, so a Flutter project with web TRDs now gets the web
+  verifier fragment and web-ui-verifier. Before, only the Flutter pack was active and Flutter web coverage fell
+  silently to human verification.
+- **`stack doctor` warns on an absent soft dependency.** Its result gains `warnings` (`pack`, `wants`, `platform`,
+  `reason`, `install_hint`) for a soft dependency that is not installed, not enabled or broken, and `--raw` prints a
+  `warn:` line for each. It never fails on them: `ok` and the exit code ignore warnings.
+- **The executor holds five read-only browser tools again** (navigate, wait_for, console_messages, snapshot, close),
+  which 1cce9f50 had removed, for the web pack's new executor self-check: load up to three routes, count console
+  errors, take one accessibility snapshot and record a `## Browser self-check` table that the web verifier fragment
+  passes to web-ui-verifier. No click, fill or type tool is granted. `stack-neutrality.repo.test.cjs` exempts exactly
+  those tokens on that one frontmatter line (`GRANT_ALLOW`), so a sixth grant fails CI.
+
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 
 - **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and

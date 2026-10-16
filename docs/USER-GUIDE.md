@@ -562,18 +562,22 @@ adds one.
 | Pack | Install | What it adds |
 |---|---|---|
 | `aoforge-stack-flutter` | `/plugin install aoforge-stack-flutter@aocyber` | The `flutter` and `dart` stack profiles; the executor's Flutter UI bootstrap, per-task and post-task gates; the planner's Flutter UI scope rules; the verifier's state coverage, Maestro run, visual eval and design review; auto-generated UAT; `/aoforge-stack-flutter:ui-eval` and `/aoforge-stack-flutter:design-review`; the `ui-evaluator` agent; the `aof-flutter` CLI |
-| `aoforge-stack-web` | `/plugin install aoforge-stack-web@aocyber` | The verifier's browser drive for web UIs, run by its `web-ui-verifier` agent through the Playwright plugin |
+| `aoforge-stack-web` | `/plugin install aoforge-stack-web@aocyber` | The verifier's browser drive for web UIs, run by its `web-ui-verifier` agent through the Playwright plugin, and an executor self-check before handoff |
 
 **A pack only acts in a project that selects it.** Installing it is not enough:
 
 - `extends: flutter` (or `dart`) in `.aoforge/STACK.md` selects the Flutter pack.
 - `verification.runtime: web` in the profile selects the web pack.
+- A Flutter project also selects the web pack when its `verification.runtime` is `web` or a TRD's
+  `platform` includes `web`: the Flutter pack lists it as a soft dependency (`soft_depends`). If the
+  web pack is not installed, `aof-tools stack doctor` warns (it never fails on this) and the verifier
+  sends Flutter web surfaces to human verification. `stacks.disabled` still wins.
 - `"stacks": { "enabled": ["flutter"] }` in `.aoforge/config.json` selects a pack by name, and
   `"disabled"` turns one off.
 
 `aof-tools stack discover` lists the installed packs, which are active and why, and which the repo
 evidence proposes (a `pubspec.yaml` proposes the Flutter pack, but never activates it).
-`aof-tools stack doctor` checks an active pack's tools. Each pack's SessionStart hook mirrors it to
+`aof-tools stack doctor` checks an active pack's tools and warns on an absent soft dependency. Each pack's SessionStart hook mirrors it to
 `~/.claude/aoforge/stacks/<name>/`, where core reads it.
 
 **Upgrading a Flutter or web project to 3.1.** Core no longer has the in-core Flutter and Playwright
