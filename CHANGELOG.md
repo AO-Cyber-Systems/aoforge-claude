@@ -19,6 +19,12 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   packs (`dependency-version-unsatisfied`). A repo test in stack-packs.test.cjs keeps the release files, every pack's
   range and this heading in step. An `extends: flutter` or `extends: dart` that cannot be resolved now names the pack
   and its install command (`lib/stack-pack-hints.cjs`). The `devflow` pointer stays at 3.0.0, its final release.
+- **Prefixed release tags.** release.yml runs on `v*` and `*--v*` tags through `scripts/release-tag.cjs`: a `vX.Y.Z`
+  release first pushes `aoforge--vX.Y.Z` at the same commit (the tag the packs resolve core from), a
+  `<pack>--vX.Y.Z` tag creates that pack's release from `plugins/<pack>/CHANGELOG.md` with `--latest=false`, and an
+  `aoforge--v*` push creates nothing. The changelog gate's hint for `aoforge--vX.Y.Z` now runs `changelog update
+  --version vX.Y.Z` (it wrote `## [aoforge--vX.Y.Z]`), and `changelog update` takes the previous release from `v*`
+  tags only, so a pack tag between releases no longer shortens the range.
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 

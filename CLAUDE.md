@@ -24,7 +24,7 @@ There is no lint command. Tests are `*.test.cjs` / `*.test.js` files beside thei
 
 ## Publishing
 
-Distribution is the Claude Code plugin marketplace: `.claude-plugin/marketplace.json` and `plugins/aoforge/.claude-plugin/plugin.json` declare the plugin; users add the marketplace by repo slug (`AO-Cyber-Systems/aoforge-claude`). No npm publish. Tags follow `v*` so the changelog gate works.
+Distribution is the Claude Code plugin marketplace: `.claude-plugin/marketplace.json` and `plugins/aoforge/.claude-plugin/plugin.json` declare the plugin; users add the marketplace by repo slug (`AO-Cyber-Systems/aoforge-claude`). No npm publish. Tags follow `v*` so the changelog gate works. A `v*` release also pushes `aoforge--vX.Y.Z`, the tag the stack packs resolve core from, and a pack releases from `<pack>--vX.Y.Z` with its own CHANGELOG, never marked Latest (`scripts/release-tag.cjs`).
 
 ## Architecture
 

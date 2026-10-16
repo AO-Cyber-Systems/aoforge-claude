@@ -31,9 +31,13 @@ function git(args, cwd) {
   return { ok: r.status === 0, stdout: (r.stdout || '').trim(), stderr: (r.stderr || '').trim() };
 }
 
+// Only core release tags (vX.Y.Z) bound a range: a pack tag (`<pack>--vX.Y.Z`) between two
+// releases must not become the previous release (quick 34).
+const CORE_TAG_MATCH = ['--match', 'v[0-9]*'];
+
 function previousTag(cwd, ref) {
-  // Find the tag immediately before `ref` (default HEAD). Returns null if none.
-  const args = ref ? ['describe', '--tags', '--abbrev=0', `${ref}^`] : ['describe', '--tags', '--abbrev=0', 'HEAD^'];
+  // Find the core tag immediately before `ref` (default HEAD). Returns null if none.
+  const args = ['describe', '--tags', '--abbrev=0', ...CORE_TAG_MATCH, ref ? `${ref}^` : 'HEAD^'];
   const r = git(args, cwd);
   return r.ok ? r.stdout : null;
 }
@@ -145,7 +149,7 @@ function cmdChangelogUpdate(cwd, opts, raw) {
     if (toRef !== 'HEAD' && tagExists(cwd, toRef)) {
       fromRef = previousTag(cwd, toRef);
     } else {
-      const latest = git(['describe', '--tags', '--abbrev=0'], cwd);
+      const latest = git(['describe', '--tags', '--abbrev=0', ...CORE_TAG_MATCH], cwd);
       fromRef = latest.ok ? latest.stdout : null;
     }
   }

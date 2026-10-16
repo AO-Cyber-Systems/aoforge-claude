@@ -273,7 +273,8 @@ function main() {
     deny([
       `CHANGELOG.md has no entry for ${tag}${at}.`,
       `Run before tagging:`,
-      `  node ~/.claude/aoforge/bin/aof-tools.cjs changelog update --version ${tag}`,
+      // The bare version, not the tag: `--version aoforge--vX.Y.Z` would write `## [aoforge--vX.Y.Z]` (quick 34).
+      `  node ~/.claude/aoforge/bin/aof-tools.cjs changelog update --version v${version}`,
       `Then commit the CHANGELOG update, then re-run the tag command.`,
       `Escape hatch: AOFORGE_SKIP_CHANGELOG_GATE=1`,
     ].join(' '));

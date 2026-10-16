@@ -1,8 +1,15 @@
 name: Release on tag
 
+# Three tag kinds start this workflow; scripts/release-tag.cjs handles each (quick 34):
+#   vX.Y.Z            core release: also pushes aoforge--vX.Y.Z at the same commit, the tag the
+#                     stack packs' `aoforge >=X.Y.Z` dependency resolves core from
+#   <pack>--vX.Y.Z    a plugin's own release from plugins/<pack>/CHANGELOG.md, never marked Latest
+#   aoforge--vX.Y.Z   the alias the core release pushed: nothing to do (a push made with
+#                     GITHUB_TOKEN does not start another run in any case)
+
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '*--v*']
 
 jobs:
   release:
@@ -18,37 +25,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-
-          # Idempotency: skip if release already exists
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release for $TAG already exists, skipping"
-            exit 0
-          fi
-
-          # Title: annotated tag subject, fall back to tag name.
-          # actions/checkout materializes the pushed tag as a lightweight ref,
-          # so %(contents:subject) would fall through to the COMMIT subject.
-          # Re-fetch the real tag object before reading its message.
+          # actions/checkout materializes the pushed tag as a lightweight ref, so
+          # %(contents:subject) would fall through to the COMMIT subject. Re-fetch the
+          # real tag objects before the script reads the tag message for the title.
           git fetch --tags --force --quiet
-          TITLE="$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG")"
-          if [ -z "$TITLE" ]; then
-            TITLE="$TAG"
-          fi
-
-          # Body: CHANGELOG section if present, else auto-generate
-          NOTES_FILE="$(mktemp)"
-          if [ -f CHANGELOG.md ]; then
-            awk -v ver="$VERSION" '
-              $0 ~ "^## \\[" ver "\\]" { flag=1; next }
-              flag && /^## \[/ { flag=0 }
-              flag { print }
-            ' CHANGELOG.md > "$NOTES_FILE"
-          fi
-
-          if [ -s "$NOTES_FILE" ]; then
-            gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
-          else
-            gh release create "$TAG" --title "$TITLE" --generate-notes
-          fi
+          node scripts/release-tag.cjs "$GITHUB_REF_NAME"
