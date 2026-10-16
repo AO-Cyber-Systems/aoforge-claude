@@ -359,7 +359,7 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     fs.copyFileSync(path.join(EVENTS, `${name}.json`), file);
     return file;
   };
-  // The AOForge statuses on `sha`. Each verdict is also posted under its legacy twin for one release (TRD 72-11).
+  // The AOForge statuses on `sha` (since TRD 78-03 the only ones posted).
   const own = (sha) => (fake.statuses[sha] || []).filter((x) => x.context.startsWith('aoforge/'));
   const runnerEnv = (file) => ({
     GITHUB_EVENT_PATH: file,
@@ -373,7 +373,7 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     const r = checkCli.main({ argv: ['linked-issue'], env: runnerEnv(eventFile('pull_request-no-closes')) });
     assert.equal(r.code, 1);
     assert.equal(r.state, 'failure');
-    assert.equal(fake.statuses['2'.repeat(40)].length, 2, 'the AOForge context and its legacy twin');
+    assert.equal(fake.statuses['2'.repeat(40)].length, 1, 'one status, under the AOForge context only (TRD 78-03)');
     const posted = own('2'.repeat(40));
     assert.equal(posted.length, 1);
     assert.equal(posted[0].state, 'failure');
@@ -406,7 +406,7 @@ describe('SC3: the check runner on a pull_request event (test 6)', () => {
     assert.match(r.stderr, /failure: /, 'a failure is reported on stderr');
 
     const posts = shim.readCalls().filter((c) => c.includes('POST'));
-    assert.equal(posts.length, 2, 'one status per context namespace, AOForge then legacy (TRD 72-11)');
+    assert.equal(posts.length, 1, 'one status, under the AOForge context only (TRD 78-03)');
     for (const post of posts) assert.equal(post[post.indexOf('POST') + 1], `repos/o/r/statuses/${'2'.repeat(40)}`);
   });
 });
