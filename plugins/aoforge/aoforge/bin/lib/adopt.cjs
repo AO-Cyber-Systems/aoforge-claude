@@ -29,15 +29,13 @@ const upgrade = require('./upgrade.cjs');
 const backupPrune = require('./backup-prune.cjs');
 const { mdCell } = require('./text-escape.cjs');
 const { planningRoot, planningRel, PLANNING_DIR_NAMES } = require('./compat.cjs');
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 
+// The one adopt branch and marker. An adopt begun before the rename (its own branch and marker) is
+// not read (TRD 78-04): adopt is a one-shot bootstrap, so one left unfinished across two releases
+// starts again on ADOPT_BRANCH, and the old branch and marker are never touched, so nothing is lost.
 const ADOPT_BRANCH = NAMES.adoptBranch;
 const MARKER_NAME = `${NAMES.slug}-adopt.json`;
-// One release (objective 72, INST-03; removed in SHIM_REMOVAL): an adopt begun before the rename
-// sits on the legacy branch with the legacy marker. Both are read, so it resumes on that branch
-// (never renamed, never a second branch); the marker is written under MARKER_NAME only.
-const LEGACY_ADOPT_BRANCH = LEGACY.adoptBranch;
-const LEGACY_MARKER_NAME = `${LEGACY.slug}-adopt.json`;
 // both planning-directory names: a project that still has the legacy one owns it too
 const OWNED_PATHS = [...PLANNING_DIR_NAMES, 'CLAUDE.md'];
 // Stack-draft notes carried in the marker and turned into report rows (TRD 42-07); bounded so a
@@ -59,7 +57,7 @@ const BUSY_MARKERS = [
 const EMPTY_GIT_FACTS = Object.freeze({
   is_repo: false, toplevel: null, branch: null, head_sha: null,
   detached: false, unborn: false, busy: null, dirty: [],
-  branch_exists: false, legacy_branch_exists: false, roadmap_tracked: false,
+  branch_exists: false, roadmap_tracked: false,
 });
 
 // ─── git plumbing ───────────────────────────────────────────────────────────
@@ -98,7 +96,7 @@ function isOwnedPath(rel) {
 
 /**
  * gitFacts(root, { env }) -> { is_repo, toplevel, branch, head_sha, detached,
- *   unborn, busy, dirty, branch_exists, legacy_branch_exists, roadmap_tracked }
+ *   unborn, busy, dirty, branch_exists, roadmap_tracked }
  *
  * IO-only. Returns EMPTY_GIT_FACTS (is_repo:false, everything else null/false)
  * when `root` is not inside a git work tree.
@@ -133,22 +131,20 @@ function gitFacts(root, { env = process.env } = {}) {
 
   const branchExistsRes = git(root, env, ['show-ref', '--verify', '--quiet', `refs/heads/${ADOPT_BRANCH}`]);
   const branch_exists = branchExistsRes.ok;
-  const legacyBranchRes = git(root, env, ['show-ref', '--verify', '--quiet', `refs/heads/${LEGACY_ADOPT_BRANCH}`]);
-  const legacy_branch_exists = legacyBranchRes.ok;
 
   const roadmapRes = git(root, env, ['ls-files', '--error-unmatch', planningRel(root, 'ROADMAP.md')]);
   const roadmap_tracked = roadmapRes.ok;
 
   return {
     is_repo, toplevel, branch, head_sha, detached, unborn, busy, dirty,
-    branch_exists, legacy_branch_exists, roadmap_tracked,
+    branch_exists, roadmap_tracked,
   };
 }
 
 // ─── marker (out-of-tree, at the git-dir path) ─────────────────────────────
 
-function markerPath(root, env, name = MARKER_NAME) {
-  const r = git(root, env, ['rev-parse', '--git-path', name]);
+function markerPath(root, env) {
+  const r = git(root, env, ['rev-parse', '--git-path', MARKER_NAME]);
   if (!r.ok) return null;
   return path.resolve(root, r.out.trim());
 }
@@ -156,19 +152,13 @@ function markerPath(root, env, name = MARKER_NAME) {
 /**
  * readMarker(root, env) -> { marker: object|null, warning: string|null }
  *
- * Reads MARKER_NAME, else (one release) the legacy marker an adopt begun before the
- * rename wrote; writeMarker only ever writes MARKER_NAME, so after a resumed step the
- * new file is read and the legacy one is left as it was.
+ * Reads MARKER_NAME only.
  *
  * A bad/unparseable marker is treated as "no marker" plus a warning — it is
  * never deleted (adopt never destroys anything it did not create this call).
  */
 function readMarker(root, env) {
-  let p = markerPath(root, env);
-  if (p && !fs.existsSync(p)) {
-    const legacy = markerPath(root, env, LEGACY_MARKER_NAME);
-    if (legacy && fs.existsSync(legacy)) p = legacy;
-  }
+  const p = markerPath(root, env);
   if (!p || !fs.existsSync(p)) return { marker: null, warning: null };
   try {
     const data = JSON.parse(fs.readFileSync(p, 'utf-8'));
@@ -219,7 +209,7 @@ function nextForResume(steps) {
 //
 // facts: { target, isDirectory, git: {is_repo, toplevel, isTopLevel, branch,
 //   head_sha, detached, unborn, busy, dirty}, state, marker, branchExists,
-//   legacyBranchExists, roadmapTracked }
+//   roadmapTracked }
 //
 // Rule order (must_haves):
 //   1. not a directory -> refuse not-a-directory
@@ -227,24 +217,17 @@ function nextForResume(steps) {
 //   3. not the repo root -> refuse not-repo-root
 //   4. a rebase/merge/etc in progress -> refuse operation-in-progress
 //   5. detached HEAD -> refuse detached-head
-//   6. an in-progress adopt marker -> resume on the marker's branch (the legacy
-//      adopt branch for an adopt begun before the rename), or refuse
-//      adopt-branch-conflict (both adopt branches exist) /
+//   6. an in-progress adopt marker -> resume on the marker's branch, or refuse
 //      adopt-in-progress-elsewhere / dirty-tree (owned paths exempt)
 //   7. dirty tree (tracked or untracked), no marker -> refuse dirty-tree
 //   8. .aoforge/ present -> upgrade
 //   9. greenfield (no code, no manifest) -> new-project
 //   10. no commits yet -> refuse no-commits
-//   11. both adopt branches exist -> refuse adopt-branch-conflict; either one
-//       exists with no marker -> refuse adopt-branch-exists (naming it)
+//   11. a stale aoforge/adopt branch with no marker -> refuse adopt-branch-exists
+//       (a branch left by an adopt begun before the rename is not looked at)
 //   12. otherwise -> adopt
 function decideRoute(facts) {
-  const { isDirectory, git: g, state, marker, branchExists, legacyBranchExists, roadmapTracked, target } = facts;
-  const branchConflict = () => ({
-    route: 'refuse', reason: 'adopt-branch-conflict',
-    message: `both '${ADOPT_BRANCH}' and '${LEGACY_ADOPT_BRANCH}' exist; adopt cannot tell which one holds the adopt`,
-    next: 'keep the branch your adopt is on, delete the other yourself, then re-run /aoforge:adopt',
-  });
+  const { isDirectory, git: g, state, marker, branchExists, roadmapTracked, target } = facts;
 
   if (!isDirectory) {
     return {
@@ -288,7 +271,6 @@ function decideRoute(facts) {
 
   const activeMarker = (marker && !roadmapTracked) ? marker : null;
   if (activeMarker && activeMarker.status === 'in_progress') {
-    if (branchExists && legacyBranchExists) return branchConflict();
     if (g.branch !== activeMarker.branch) {
       return {
         route: 'refuse', reason: 'adopt-in-progress-elsewhere',
@@ -343,13 +325,11 @@ function decideRoute(facts) {
     };
   }
 
-  if (branchExists && legacyBranchExists) return branchConflict();
-  if (branchExists || legacyBranchExists) {
-    const stale = branchExists ? ADOPT_BRANCH : LEGACY_ADOPT_BRANCH;
+  if (branchExists) {
     return {
       route: 'refuse', reason: 'adopt-branch-exists',
-      message: `branch '${stale}' already exists with no in-progress marker`,
-      next: `delete the stale '${stale}' branch yourself, then re-run /aoforge:adopt`,
+      message: `branch '${ADOPT_BRANCH}' already exists with no in-progress marker`,
+      next: `delete the stale '${ADOPT_BRANCH}' branch yourself, then re-run /aoforge:adopt`,
     };
   }
 
@@ -391,13 +371,11 @@ function preflight(root, opts = {}) {
     state: repoState.state,
     marker,
     branchExists: gf.branch_exists,
-    legacyBranchExists: gf.legacy_branch_exists,
     roadmapTracked: gf.roadmap_tracked,
   };
 
   const decision = decideRoute(facts);
-  // The branch this adopt runs on: the marker's when resuming (the legacy branch for an adopt
-  // begun before the rename), else the one begin() creates.
+  // The branch this adopt runs on: the marker's when resuming, else the one begin() creates.
   const adoptBranch = decision.route === 'resume' && marker && typeof marker.branch === 'string'
     ? marker.branch
     : ADOPT_BRANCH;
@@ -423,7 +401,6 @@ function preflight(root, opts = {}) {
     adopt: {
       branch: adoptBranch,
       branch_exists: gf.branch_exists,
-      legacy_branch_exists: gf.legacy_branch_exists,
       marker,
       steps,
     },

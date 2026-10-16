@@ -13,11 +13,14 @@
 //   Q5 — no telemetry env claims. A managed entry's env is exactly the ownership marker
 //        `{ AOFORGE_MANAGED: 'stack' }`; any `env` a profile entry carries is ignored.
 //
-// Ownership: an entry is AOForge's iff `env.AOFORGE_MANAGED === 'stack'`, or, for one release
-// (objective 72, INST-03; removed in SHIM_REMOVAL), the legacy prefix's `..._MANAGED === 'stack'` that
-// earlier versions wrote. Only those are ever replaced or removed: a rewritten entry carries the
-// AOForge key alone, so the legacy key is dropped. Every other entry is carried over untouched, in its
-// original position.
+// Ownership: an entry is AOForge's iff `env.AOFORGE_MANAGED === 'stack'`. Only those are ever
+// replaced or removed; every other entry is carried over untouched, in its original position.
+//
+// An entry owned through the pre-rename prefix's `..._MANAGED === 'stack'` (and no AOForge key) is
+// written by versions before 3.0.0. Since TRD 78-04 it is no longer ours: it is left exactly as it is
+// (under a name the profile wants it is a foreign clash), and the result carries one `warnings` line
+// per such entry naming the fix (rename the key to AOFORGE_MANAGED, or delete the entry). The report
+// keeps visible an entry that would otherwise silently stop being refreshed; it never rewrites it.
 //
 // Deterministic and offline: no MCP server is started or called here. Confirming a draft through
 // the gopls/dart MCP tools is agent-side workflow text (`confirm_stack_profile`).
@@ -30,10 +33,11 @@ const { resolveBinary } = require('./stack-verify.cjs');
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
 
 const MANAGED_VALUE = 'stack';
-// The key a managed entry is written with, and every key that marks an entry as owned (the legacy
-// one read for one release only).
+// The one key that marks an entry as owned, and the one a managed entry is written with.
 const MANAGED_KEY = `${NAMES.envPrefix}MANAGED`;
-const OWNED_KEYS = Object.freeze([MANAGED_KEY, `${LEGACY.envPrefix}MANAGED`]);
+// The key versions before 3.0.0 wrote. Never read as ownership: only legacyOwnedEntries looks at it,
+// to report the entry (TRD 78-04).
+const PRE_RENAME_KEY = `${LEGACY.envPrefix}MANAGED`;
 const MCP_FILE = '.mcp.json';
 // The probe file a component view is resolved at (the same idiom stack-verify uses): any path
 // under the component prefix selects the component's layer.
@@ -43,13 +47,34 @@ const PROBE_FILE = '__probe__';
 const PLUGIN_SCAN_DEPTH = 5;
 const SKIP_DIRS = new Set(['node_modules', '.git']);
 
-/** True when a `.mcp.json` server entry is owned by `stack mcp` (under the AOForge key or the legacy one). */
+/** True when a `.mcp.json` server entry is owned by `stack mcp`: `env.AOFORGE_MANAGED === 'stack'`. */
 function isManaged(entry) {
   return Boolean(entry && typeof entry === 'object' && entry.env && typeof entry.env === 'object'
-    && OWNED_KEYS.some((key) => entry.env[key] === MANAGED_VALUE));
+    && entry.env[MANAGED_KEY] === MANAGED_VALUE);
 }
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * legacyOwnedEntries(doc) -> [name]
+ *
+ * The `.mcp.json` servers owned through the pre-rename key (`env.<pre-rename prefix>MANAGED === 'stack'`) that carry
+ * no AOForge key, in file order. Read-only: these entries are never managed, only reported.
+ */
+function legacyOwnedEntries(doc) {
+  const servers = isPlainObject(doc) && isPlainObject(doc.mcpServers) ? doc.mcpServers : {};
+  return Object.keys(servers).filter((name) => {
+    const env = isPlainObject(servers[name]) && isPlainObject(servers[name].env) ? servers[name].env : null;
+    return Boolean(env) && env[PRE_RENAME_KEY] === MANAGED_VALUE
+      && !Object.prototype.hasOwnProperty.call(env, MANAGED_KEY);
+  });
+}
+
+/** The one-line report for an entry legacyOwnedEntries found. */
+function legacyOwnerWarning(name) {
+  return `${MCP_FILE} entry "${name}" is owned through the pre-rename key ${PRE_RENAME_KEY}, which AOForge no longer `
+    + `reads: rename it to ${MANAGED_KEY} (or delete the entry) to have \`stack mcp --write\` manage it`;
+}
 
 // ─── Plugin scan ──────────────────────────────────────────────────────────────
 
@@ -302,20 +327,32 @@ function writeAtomic(fs, file, text) {
   fs.renameSync(tmp, file);
 }
 
+/** The parsed `.mcp.json` for a preview's report: null when absent or unreadable (a preview never refuses). */
+function readMcpLenient(fs, file) {
+  try {
+    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf-8')) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * stackMcp({ projectRoot, userHome, write, env, which, fs })
- *   -> { servers, skipped, action: 'preview'|'written'|'unchanged', path }
+ *   -> { servers, skipped, warnings, action: 'preview'|'written'|'unchanged', path }
  *
- * Preview (the default) reads only the profile and writes nothing. `--write` reads `.mcp.json`,
- * refuses (McpFileError, file untouched) when it is not a JSON object, and writes only when the
- * merged result differs from what is on disk. No servers and no file -> nothing is created.
+ * Preview (the default) writes nothing; it reads `.mcp.json` only to fill `warnings` (an absent or
+ * unparseable file gives none). `--write` reads `.mcp.json`, refuses (McpFileError, file untouched)
+ * when it is not a JSON object, and writes only when the merged result differs from what is on
+ * disk. No servers and no file -> nothing is created. `warnings` holds one line per entry owned
+ * through the pre-rename key (legacyOwnedEntries); such an entry is never rewritten or removed.
  */
 function stackMcp({ projectRoot, userHome = null, write = false, env = process.env, which = null, fs = nodeFs } = {}) {
   const root = path.resolve(String(projectRoot));
   const file = path.join(root, MCP_FILE);
   const { servers, skipped } = buildServers(collectViews(root, userHome), { which, env, userHome, fs });
+  const warningsFor = (doc) => legacyOwnedEntries(doc).map(legacyOwnerWarning);
 
-  if (!write) return { servers, skipped, action: 'preview', path: file };
+  if (!write) return { servers, skipped, warnings: warningsFor(readMcpLenient(fs, file)), action: 'preview', path: file };
 
   let existing = null;
   if (fs.existsSync(file)) {
@@ -329,6 +366,7 @@ function stackMcp({ projectRoot, userHome = null, write = false, env = process.e
       throw new McpFileError(`${file} is not a JSON object; fix or remove it — refusing to write`);
     }
   }
+  const warnings = warningsFor(existing);
 
   for (const name of foreignClashes(existing, servers)) {
     skipped.push({ name, reason: 'foreign_entry', note: `${MCP_FILE} already has a '${name}' server AOForge does not own; left as-is` });
@@ -336,14 +374,14 @@ function stackMcp({ projectRoot, userHome = null, write = false, env = process.e
   }
 
   if (existing === null && Object.keys(servers).length === 0) {
-    return { servers, skipped, action: 'unchanged', path: file };
+    return { servers, skipped, warnings, action: 'unchanged', path: file };
   }
   const next = mergeMcpJson(existing, servers);
   if (existing !== null && JSON.stringify(next) === JSON.stringify(existing)) {
-    return { servers, skipped, action: 'unchanged', path: file };
+    return { servers, skipped, warnings, action: 'unchanged', path: file };
   }
   writeAtomic(fs, file, `${JSON.stringify(next, null, 2)}\n`);
-  return { servers, skipped, action: 'written', path: file };
+  return { servers, skipped, warnings, action: 'written', path: file };
 }
 
 /**
@@ -368,6 +406,7 @@ module.exports = {
   MANAGED_VALUE,
   MANAGED_KEY,
   isManaged,
+  legacyOwnedEntries,
   findPluginServers,
   buildServers,
   mergeMcpJson,

@@ -9,6 +9,9 @@
 //     devflow-watch.pid), next to the devflowops product's devflow.sqlite and sessions.json
 //   - a half-finished adopt on the devflow/adopt branch with its devflow-adopt.json marker
 //
+// Since TRD 78-04 the `.mcp.json` key, the todo key and the adopt branch/marker are inputs AOForge must
+// ignore (or, for the `.mcp.json` key, report); the user dot-directory files are 78-05's and 78-11's.
+//
 // Naming convention (enforced by the 72-04 repo test): a legacy name may be spelled only in
 // bin/lib/legacy-names.cjs, in bin/lib/__fixtures__/legacy-*.cjs (this file) and in
 // *.legacy.test.* files. Factory functions with explicit inputs, not generated data.
@@ -186,10 +189,12 @@ function git(root, home, args) {
  * @param {object} [opts]
  * @param {boolean} [opts.withNewBranch=false] also create an aoforge/adopt branch at the base commit
  * @param {boolean} [opts.mapped=true]         write the 8 codebase docs under .planning/codebase/
+ * @param {boolean} [opts.planning=true]       create .planning/ at all; false leaves only the branch and the
+ *                                             marker, so the repo's state comes from its code alone (TRD 78-04)
  * @returns {{ root: string, home: string, parent: string, markerPath: string, marker: object,
  *             baseSha: string, cleanup: () => void }}
  */
-function legacyAdoptRepo({ withNewBranch = false, mapped = true } = {}) {
+function legacyAdoptRepo({ withNewBranch = false, mapped = true, planning = true } = {}) {
   const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-adopt-parent-'));
   const home = makeFakeHome();
   const root = makeFixture('go-service', { parent, home });
@@ -198,8 +203,8 @@ function legacyAdoptRepo({ withNewBranch = false, mapped = true } = {}) {
   git(root, home, ['switch', '-q', '-c', LEGACY_ADOPT_BRANCH]);
   if (withNewBranch) git(root, home, ['branch', NEW_ADOPT_BRANCH, baseSha]);
 
-  fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
-  if (mapped) {
+  if (planning) fs.mkdirSync(path.join(root, '.planning'), { recursive: true });
+  if (planning && mapped) {
     for (const name of CODEBASE_DOC_NAMES) {
       const body = [`# ${name}`, '', `Mapped by the legacy adopt before the rename (${name.toLowerCase()}).`, ''];
       writeTree(path.join(root, '.planning', 'codebase'), { [`${name}.md`]: body.join('\n') });

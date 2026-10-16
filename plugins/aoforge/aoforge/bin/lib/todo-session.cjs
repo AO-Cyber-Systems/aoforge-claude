@@ -19,13 +19,13 @@
 //   TodoWrite   result { oldTodos, newTodos }  (oldTodos forgets an all-completed list, so it is never read)
 
 const { generateSlugInternal } = require('./helpers.cjs');
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 
 const TODO_PREFIX = 'Todo: '; // case-sensitive
-// TaskCreate metadata keys that carry a todo's stem, in precedence order: the AOForge key, then (for
-// one release, objective 72 INST-03, removed in SHIM_REMOVAL) the legacy key that transcripts written
-// before the rename carry. Only read here; nothing writes metadata back.
-const TODO_META_KEYS = Object.freeze([`${NAMES.slug}_todo`, `${LEGACY.slug}_todo`]);
+// The TaskCreate metadata key that carries a todo's stem: the AOForge key alone. The pre-rename key is not read
+// (TRD 78-04): only a session started under the pre-rename skills wrote it. A `Todo: ` subject still makes such a task
+// a todo, with its stem taken from the subject or derived. Only read here; nothing writes metadata back.
+const TODO_META_KEYS = Object.freeze([`${NAMES.slug}_todo`]);
 const STEM_RE = /^\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const SUFFIX_RE = /\s*\[todo:([^\]\s]+)\]\s*$/;
 const CREATED_TEXT_RE = /^Task #(\S+) created successfully/;

@@ -333,6 +333,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-02: LEGACY_AGENT_EXEMPT and the 44-08 agent-path gate stay (pre-plugin agent paths, not the 3.0 rename); coexistence.cjs pointer-version handling stays for 78-06 (installed pointer copies remain on users' machines)
 - [Objective 78]: 78-03: gh rebrand (72-16) KEPT in 3.1.0 as the explicit converter; it owns its legacy patterns now that gh-body/gh-trd/gh-cache read the aoforge namespace only
 - [Objective 78]: 78-03: checks-pin pre-rename caller detection (W062 legacy:true, fix gh rebrand) KEPT as a detector; gh setup refuses a pre-rename PR-template block (conflict, reason legacy-pr-template)
+- [Objective 78]: 78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector
 
 ## Performance Metrics
 
@@ -550,4 +551,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P01 | 17min | 3 tasks | 14 files |
 | Objective 78 P02 | 17min | 3 tasks | 64 files |
 | Objective 78 P03 | 21min | 3 tasks | 11 files |
+| Objective 78 P04 | 14min | 3 tasks | 12 files |
 

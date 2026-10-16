@@ -82,6 +82,10 @@ describe('63-01 host contract: a finished list that the model then clears', () =
 });
 
 describe('63-01 task tools (TaskCreate / TaskUpdate)', () => {
+  test('3a: aoforge_todo is the one metadata key read (TRD 78-04)', () => {
+    assert.deepEqual([...session.TODO_META_KEYS], ['aoforge_todo']);
+  });
+
   test('3: a TaskCreate with metadata.aoforge_todo gives one pending item with the id and time of its result', () => {
     fx.resetIds();
     const group = fx.taskCreate({

@@ -1730,6 +1730,11 @@
       "objective": "78",
       "summary": "78-03: checks-pin pre-rename caller detection (W062 legacy:true, fix gh rebrand) KEPT as a detector; gh setup refuses a pre-rename PR-template block (conflict, reason legacy-pr-template)",
       "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector",
+      "rationale": null
     }
   ],
   "blockers": [
