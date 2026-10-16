@@ -193,6 +193,29 @@ describe('12-hooks-registry check', () => {
     assert.deepEqual(r.details.drafts, ['hooks/d.js']);
   });
 
+  test('10c2. a hook whose header says DISPATCHED-BY a registered hook is registered through it: ok', () => {
+    const { home } = installWith({
+      'hooks/hooks.json': hooksJson(['pre-bash.js']),
+      'hooks/pre-bash.js': '// dispatcher\n',
+      'hooks/gate-x.js': '#!/usr/bin/env node\n// DISPATCHED-BY: pre-bash.js — runs inside the dispatcher\n',
+    });
+    const r = hooksRegistry.run(ctxFor(home));
+    assert.equal(r.severity, 'ok', r.finding);
+    assert.deepEqual(r.details.unregistered, []);
+    assert.deepEqual(r.details.dispatched, ['hooks/gate-x.js via hooks/pre-bash.js']);
+  });
+
+  test('10c3. DISPATCHED-BY an unregistered file does not vouch: the hook is unregistered', () => {
+    const { home } = installWith({
+      'hooks/hooks.json': hooksJson(['a.js']),
+      'hooks/a.js': '// hook a\n',
+      'hooks/gate-x.js': '// DISPATCHED-BY: nobody.js\n',
+    });
+    const r = hooksRegistry.run(ctxFor(home));
+    assert.equal(r.severity, 'warn');
+    assert.deepEqual(r.details.unregistered, ['hooks/gate-x.js']);
+  });
+
   test('10d. a DRAFT marker deeper than the first 40 lines does not count', () => {
     const body = '// filler\n'.repeat(45) + '// DRAFT way too late\n';
     const { home } = installWith({

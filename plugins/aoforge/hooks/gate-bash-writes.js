@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// DISPATCHED-BY: pre-bash.js — registered through hooks/pre-bash.js for PreToolUse(Bash); still runs standalone.
 
 /**
  * AOForge Bash Write Gate (PreToolUse, Bash) — TRD 60-04, DECISION-001
@@ -188,4 +189,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { run };
+module.exports = { run, main };

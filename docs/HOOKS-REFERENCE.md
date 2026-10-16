@@ -4,6 +4,16 @@ The per-hook detail that used to sit in the root `CLAUDE.md` `### Hooks` section
 `plugins/aoforge/hooks/hooks.json` (and `plugin.json` for the status line); `CLAUDE.md` keeps one line per hook and
 the hook-inventory test pins that list to the registrations.
 
+**One process for PreToolUse(Bash).** `hooks/pre-bash.js` is the only registration for the event: it reads stdin
+once and runs `gate-commits.js`, `changelog-on-tag.js`, `gate-interactive.js`, `gate-bash-writes.js` and
+`guard-no-progress.js` in-process, each through its exported `main()`, then merges the outputs the way Claude Code
+merges parallel hooks (exit 2 wins, then deny over ask with every reason kept, additionalContext concatenated,
+stderr passed through). Each of those files still runs standalone (its own tests spawn it) and carries a
+`DISPATCHED-BY: pre-bash.js` line in its first 40 lines, the marker doctor check 12, the hook inventory test and the
+docs generator read to count it as registered. guard-no-progress keeps its own registration for every tool but
+Bash, so a Bash call is counted once. Measured: five processes (~435 ms CPU, ~130 ms wall on Linux) became one
+(~80 ms).
+
 Node.js hooks declared in `plugins/aoforge/hooks/hooks.json` and auto-registered when the plugin is enabled. All hook commands use `${CLAUDE_PLUGIN_ROOT}` for path resolution.
 
 **Runtime sync:**

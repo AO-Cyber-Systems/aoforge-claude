@@ -529,28 +529,13 @@ const RUNS = {
     env: noToolsOnPath,
     payload: fx.preTool('Skill', { skill: 'aoforge:gh-sync' }),
   },
-  'gate-commits.js@PreToolUse': {
-    label: 'raw git commit',
+  // The PreToolUse(Bash) gates (gate-commits, changelog-on-tag, gate-interactive, gate-bash-writes, and
+  // guard-no-progress for Bash) run inside hooks/pre-bash.js in one process; each still has its own
+  // test file. The matrix exercises the dispatcher on the raw-commit path.
+  'pre-bash.js@PreToolUse': {
+    label: 'raw git commit through the PreToolUse(Bash) dispatcher',
     expect: 'deny',
     payload: fx.preTool('Bash', { command: 'git commit -m "wip"' }),
-  },
-  'changelog-on-tag.js@PreToolUse': {
-    label: 'annotated release tag with no CHANGELOG entry',
-    expect: 'deny',
-    world: { changelog: true },
-    payload: fx.preTool('Bash', { command: 'git tag -a v9.9.9 -m "release"' }),
-  },
-  'gate-interactive.js@PreToolUse': {
-    label: 'TTY-only command',
-    expect: 'deny',
-    // The handoff id in the reason is minted per run.
-    normalize: (s) => s.replace(/handoff id: \S+/g, 'handoff id: <ID>').replace(/pending\/[^\s"]+?\.json/g, 'pending/<ID>.json'),
-    payload: fx.preTool('Bash', { command: 'npm login' }),
-  },
-  'gate-bash-writes.js@PreToolUse': {
-    label: 'ambient Bash write to a tracked file',
-    expect: 'ask',
-    payload: fx.preTool('Bash', { command: "sed -i 's/1/2/' src/x.js" }),
   },
   'gate-edits.js@PreToolUse': {
     label: 'ambient edit, no marker',
@@ -917,7 +902,8 @@ describe('coexistence matrix', () => {
     });
 
     test('9. registrations are read from hooks.json and every script exists', () => {
-      assert.ok(REGS.length >= 20, `only ${REGS.length} registrations were read from hooks.json`);
+      // 19 since the PreToolUse(Bash) gates run inside hooks/pre-bash.js (one registration for five hooks).
+      assert.ok(REGS.length >= 16, `only ${REGS.length} registrations were read from hooks.json`);
       assert.ok(REGS.every((r) => fs.existsSync(path.join(HOOKS_DIR, r.script))), 'a registered script is missing');
     });
   });

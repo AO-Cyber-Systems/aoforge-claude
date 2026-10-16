@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// DISPATCHED-BY: pre-bash.js — registered through hooks/pre-bash.js for PreToolUse(Bash); still runs standalone.
 
 /**
  * AOForge No-Progress Guard (PreToolUse, all tools) — TRD 28-04
@@ -123,4 +124,4 @@ function main() {
 
 if (require.main === module) main();
 
-module.exports = { findPlanningDir, IGNORED_TOOLS, SESSION_TTL_MS };
+module.exports = { main, findPlanningDir, IGNORED_TOOLS, SESSION_TTL_MS };

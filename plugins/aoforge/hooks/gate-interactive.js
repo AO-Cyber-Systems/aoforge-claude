@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// DISPATCHED-BY: pre-bash.js — registered through hooks/pre-bash.js for PreToolUse(Bash); still runs standalone.
 
 /**
  * AOForge Interactive Command Gate (PreToolUse, Bash)
@@ -306,6 +307,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  main,
   detectInteractive,
   INTERACTIVE_PATTERNS,
   CMD_POS,

@@ -104,13 +104,14 @@ YAML frontmatter (`name`, `description`, `argument-hint`, `allowed-tools`) and a
 - Retry and resume markers live under `~/.claude/aoforge/state/hook-markers/<repo-key>/`; `hooks/planning-writes.audit.test.js` fails CI if a hook writes a runtime dotfile into `.aoforge/` beyond `.skill-active`, `.edit-override`, `.aoforge-notices.json`.
 
 **Enforcement (active gates):**
-- `gate-commits.js` — PreToolUse(Bash); blocks raw commits (invocation-aware; merge/rebase completion and the inline `AOFORGE_ALLOW_RAW_COMMIT=1` prefix pass).
+- `pre-bash.js` — PreToolUse(Bash); the one registration for the event. Runs the five Bash hooks below in one process with the same stdin and merges their decisions (deny over ask, every reason kept; a throwing hook is skipped). Each dispatched hook carries `DISPATCHED-BY: pre-bash.js` in its header, which doctor check 12 and the hook inventory read.
+- `gate-commits.js` — PreToolUse(Bash) via pre-bash; blocks raw commits (invocation-aware; merge/rebase completion and the inline `AOFORGE_ALLOW_RAW_COMMIT=1` prefix pass).
 - `gate-edits.js` — PreToolUse(Edit/Write/MultiEdit); strict deny in ambient mode unless a live `.aoforge/.skill-active` marker (local or main checkout), an `aoforge:` agent, an override phrase or `AOFORGE_SKIP_EDIT_GATE=1`. Severity `gates.editGate`: strict | warn | off. Store mode denies cache paths for everyone.
-- `gate-bash-writes.js` — PreToolUse(Bash); the same gate for Bash writes to tracked source files; default `warn` (`gates.bashEditGate`).
+- `gate-bash-writes.js` — PreToolUse(Bash) via pre-bash; the same gate for Bash writes to tracked source files; default `warn` (`gates.bashEditGate`).
 - `gate-skill-requires.js` — UserPromptExpansion + PreToolUse(Skill); refuses a skill whose `requires:` tool is missing. Escape `AOFORGE_SKIP_SKILL_REQUIRES=1`.
-- `gate-interactive.js` — PreToolUse(Bash); routes TTY-requiring commands to the handoff watcher.
-- `guard-no-progress.js` — PreToolUse(Bash/Edit/Write/MultiEdit/Read/Grep/Glob/Task); warns at 3 identical calls, asks at 5. Escape `AOFORGE_SKIP_PROGRESS_GUARD=1`.
-- `changelog-on-tag.js` — PreToolUse(Bash); blocks `git tag -a vX.Y.Z` without a `## [X.Y.Z]` entry. Escape `AOFORGE_SKIP_CHANGELOG_GATE=1`.
+- `gate-interactive.js` — PreToolUse(Bash) via pre-bash; routes TTY-requiring commands to the handoff watcher.
+- `guard-no-progress.js` — PreToolUse on every tool (Bash via pre-bash, the rest registered directly); warns at 3 identical calls, asks at 5. Escape `AOFORGE_SKIP_PROGRESS_GUARD=1`.
+- `changelog-on-tag.js` — PreToolUse(Bash) via pre-bash; blocks `git tag -a vX.Y.Z` without a `## [X.Y.Z]` entry. Escape `AOFORGE_SKIP_CHANGELOG_GATE=1`.
 - `gate-executor-stop.js` — SubagentStop; blocks an executor's natural stop once without a SUMMARY or token stamp. Escape `AOFORGE_SKIP_EXECUTOR_STOP_GATE=1`.
 - `auto-continue.js` — Stop; blocks once when a skill is live and the last sentence announced the model's own next step. Escape `AOFORGE_SKIP_AUTOCONTINUE=1`.
 
