@@ -5,11 +5,12 @@
 //  2. Every NAMES key exists in LEGACY (same key set apart from the LEGACY-only keys).
 //  3. Exact pairs from the 72-CONTEXT name map.
 //  4. SHIM_REMOVAL is the string 'the release after 3.0.0'.
+//  5. SHIM_RELEASE is the string '3.0.x' (objective 78, TRD 78-01).
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { NAMES, LEGACY, SHIM_REMOVAL } = require('./legacy-names.cjs');
+const { NAMES, LEGACY, SHIM_REMOVAL, SHIM_RELEASE } = require('./legacy-names.cjs');
 
 const LEGACY_ONLY = ['commandNsShort', 'commandDash', 'installPrefix'];
 
@@ -71,5 +72,9 @@ describe('legacy-names', () => {
 
   it('4. SHIM_REMOVAL names the release', () => {
     assert.equal(SHIM_REMOVAL, 'the release after 3.0.0');
+  });
+
+  it('5. SHIM_RELEASE is the last release line that carries the shims (TRD 78-01)', () => {
+    assert.equal(SHIM_RELEASE, '3.0.x');
   });
 });
