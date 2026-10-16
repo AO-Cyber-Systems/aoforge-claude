@@ -509,11 +509,9 @@ Task(
 **UAT with diagnoses:**
 @.aoforge/objectives/{objective_dir}/{phase_num}-UAT.md
 
-**Project State:**
-@.aoforge/STATE.md
+**Project State:** run `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` (a Task prompt does not expand @ references).
 
-**Roadmap:**
-@.aoforge/ROADMAP.md
+**Roadmap:** run `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective {objective_number}`.
 
 </planning_context>
 

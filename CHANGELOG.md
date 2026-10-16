@@ -6,6 +6,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Performance and context budget
+
+- **STATE.md is a digest again.** `state rotate-decisions [--keep N] [--dry-run]` keeps the newest 10 entries of
+  `## Recent Decisions` in STATE.md and appends the rest to STATE_ARCHIVE.md, oldest first; `state advance-job` does
+  the same on every advance in local mode and migration 0015 (auto) does it once at upgrade. `validate health`
+  Check 23 reports W068 `decision-log-oversized` (repairable). New `state digest [--decisions N]` prints the compact
+  STATE.md a session needs on entry (Project Reference, Current Position with the objective-complete lines
+  collapsed, blockers, continuity, the newest decision headlines, pending todos); `state load` returns it as
+  `state_digest` in place of `state_raw`, which had no consumers. `lib/state-digest.cjs`.
+- **`roadmap digest`**: one line per objective plus milestones and the current/next pointers (2.3 KB here against
+  a 36 KB ROADMAP.md); `analyzeRoadmap` is the shared reader behind `analyze` and `digest`.
+- **Skills inject digests instead of whole files.** Every `@.aoforge/STATE.md` and `@.aoforge/ROADMAP.md` in a
+  skill is now a !`aof-tools state digest --raw` / `roadmap digest --raw` injection, and the routed skills
+  (status, milestone, workstreams, todo, objective) Read only the workflow `skill-route` resolves instead of inlining
+  every subcommand's. Measured on this repo: `/aoforge:status` 43K -> 5K chars before any work, `/aoforge:milestone`
+  75K -> 13K. Verified on Claude Code 2.1.301: a skill body expands `@` for absolute, `~` and
+  `${CLAUDE_PLUGIN_ROOT}` paths and runs `!` lines under its Bash grant; agent bodies and Task prompts expand
+  neither, so every `@` line in an agent is now an explicit "Read this file when ..." instruction (checkpoints.md
+  only before a checkpoint task, tdd.md only for a TDD TRD), and `cat .aoforge/STATE.md` in agents and workflows
+  became `state digest --raw`.
+- **`summary checkpoint <trd> --tick <n|text> [--hash <short>]`** ticks one `## Progress` item in the SUMMARY draft
+  in place and checkpoints it: one command per task instead of a whole-draft rewrite. With neither `--tick` nor
+  `--from`, `summary checkpoint` and `summary post` take the planning draft of that SUMMARY as the input.
+- **aof-tools loads its lib modules lazily** at dispatch: `--version`, `state get`, `config-get` 125 ms -> ~47 ms
+  (6 modules loaded instead of 52). The backup-prune throttle no longer loads upgrade.cjs before reading its stamp.
+- **One process for the PreToolUse(Bash) hooks.** `hooks/pre-bash.js` runs gate-commits, changelog-on-tag,
+  gate-interactive, gate-bash-writes and guard-no-progress with the same stdin and merges their decisions (deny over
+  ask, every reason kept; a throwing hook is skipped). Each dispatched hook carries `DISPATCHED-BY: pre-bash.js`,
+  which doctor check 12, the hook inventory and the docs generator read. guard-no-progress keeps its own
+  registration for the other tools. Five processes per Bash call became one.
+- **CLAUDE.md** is 146 lines / 15K chars (was 225 / 40K): the command catalog moved to `docs/AOF-TOOLS-REFERENCE.md`
+  and the per-hook detail to `docs/HOOKS-REFERENCE.md`. `context-budget.repo.test.cjs` caps CLAUDE.md, every
+  skill's resolved footprint and every agent body, and rejects a whole-planning-file inline in a skill.
+- **Models**: `claude-haiku-5-5` is priced in `model-rates.json` and is the `haiku` tier pin (was the superseded
+  `claude-haiku-4-5`, which doctor check 13 and W063 could not flag without the rate row).
+
+
 ## [3.0.0] - 2026-10-08
 
 DevFlow is now AOForge. 3.0.0 is objective 72 (INST-01 to INST-06), the rename, together with objectives 68 to 71,

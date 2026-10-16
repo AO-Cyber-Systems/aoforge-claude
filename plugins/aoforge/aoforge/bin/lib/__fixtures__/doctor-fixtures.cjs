@@ -46,7 +46,7 @@ const MODEL_PROFILES_JSON = {
   models: {
     opus: 'claude-opus-5-5',
     sonnet: 'claude-sonnet-5-5',
-    haiku: 'claude-haiku-4-5',
+    haiku: 'claude-haiku-5-5',
   },
   agents: {
     planner: { quality: 'opus', balanced: 'opus', budget: 'sonnet' },
@@ -85,6 +85,10 @@ const MODEL_RATES_JSON = {
     'claude-sonnet-5': {
       input: 2, cache_write_5m: 2.5, cache_write_1h: 4, cache_read: 0.2, output: 10,
       source: RATES_SOURCE, as_of: '2026-10-05',
+    },
+    'claude-haiku-5-5': {
+      input: 0.1, cache_write_5m: 0.125, cache_write_1h: 0.2, cache_read: 0.01, output: 0.5,
+      source: RATES_SOURCE, as_of: '2026-10-16',
     },
     'claude-haiku-4-5-20251001': {
       input: 1, cache_write_5m: 1.25, cache_write_1h: 2, cache_read: 0.1, output: 5,

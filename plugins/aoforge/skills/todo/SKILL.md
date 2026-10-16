@@ -39,8 +39,8 @@ and complete with `node ~/.claude/aoforge/bin/aof-tools.cjs todo complete <filen
 </objective>
 
 <execution_context>
-@~/.claude/aoforge/workflows/add-todo.md
-@~/.claude/aoforge/workflows/check-todos.md
+One workflow is loaded after routing, never all of them: `Read` the `workflow` path the route returns (expand `~`), then follow it.
+The routes are ~/.claude/aoforge/workflows/add-todo.md (add) and ~/.claude/aoforge/workflows/check-todos.md (list).
 @~/.claude/aoforge/references/built-ins.md
 </execution_context>
 
@@ -48,7 +48,8 @@ and complete with `node ~/.claude/aoforge/bin/aof-tools.cjs todo complete <filen
 Subcommand: $ARGUMENTS
 Session: ${CLAUDE_SESSION_ID}
 
-@.aoforge/STATE.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 </context>
 
 <process>
@@ -60,7 +61,7 @@ ROUTE_JSON=$(node ~/.claude/aoforge/bin/aof-tools.cjs skill-route todo $ARGUMENT
 
 Parse JSON. If `error`, display `usage` and stop. Otherwise extract `subcommand`, `args`, and `workflow`.
 
-**2. Follow resolved workflow:**
+**2. Read the resolved workflow (the `workflow` path, `~` expanded) with the Read tool, then follow it:**
 
 Based on `subcommand`:
 - `add` → execute add-todo workflow with residual args

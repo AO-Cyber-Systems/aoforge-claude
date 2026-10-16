@@ -6,13 +6,14 @@ Execute a Task Requirements Document (TRD.md) with integrated TDD enforcement, p
 </purpose>
 
 <required_reading>
-Read STATE.md before any operation to load project context.
-Read config.json for planning behavior settings.
+Load the project digest before any operation (`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw`;
+`state get` prints the whole STATE.md only when the digest is not enough) and config.json for planning behavior.
 
-@~/.claude/aoforge/references/git-integration.md
-@~/.claude/aoforge/references/tdd.md
-@~/.claude/aoforge/references/verification-patterns.md
-@~/.claude/aoforge/references/anti-patterns.md
+References, each read with the Read tool at the moment it is needed, never all up front:
+- ~/.claude/aoforge/references/git-integration.md — before the first `aof-tools commit` if the commit protocol in your prompt leaves a question open
+- ~/.claude/aoforge/references/tdd.md — only for a TDD TRD or task (`type: tdd`, `tdd="true"`)
+- ~/.claude/aoforge/references/verification-patterns.md — only when a task's verify command is not obvious from the TRD and the stack profile
+- ~/.claude/aoforge/references/anti-patterns.md — not needed: the executor prompt carries the quick reference
 </required_reading>
 
 <process>
@@ -174,7 +175,7 @@ After all tasks complete, run a verification loop:
 <step name="create_summary_with_evidence">
 Finish the SUMMARY in a draft (`node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md` prints its path). Stamp your token usage into the draft's frontmatter with `node ~/.claude/aoforge/bin/aof-tools.cjs tokens stamp {objective}-{trd} --draft <draft path>` (its own command; it reads your executor transcript, and if it reports `stamped: false` or is unknown in an older runtime you carry on without the fields; never type token numbers by hand), then publish it once with `node ~/.claude/aoforge/bin/aof-tools.cjs summary post {objective}-{trd} --from <draft path>`. In local mode it lands at `.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md`, as before.
 
-**Use template:** @~/.claude/aoforge/templates/summary.md
+**Use template:** ~/.claude/aoforge/templates/summary.md (Read it once, before the first `summary checkpoint`).
 
 **Additional evidence sections (beyond standard summary):**
 

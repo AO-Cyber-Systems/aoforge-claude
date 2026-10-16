@@ -35,7 +35,7 @@ defect, not a cosmetic one.
 |------|----------|
 | `opus` | `claude-opus-5-5` |
 | `sonnet` | `claude-sonnet-5-5` |
-| `haiku` | `claude-haiku-4-5` |
+| `haiku` | `claude-haiku-5-5` |
 
 Doctor check 13 (`model-profiles`) and `validate health` W063 flag a pin that
 `references/model-rates.json` shows superseded (a newer version of the same

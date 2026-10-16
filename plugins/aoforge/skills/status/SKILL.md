@@ -39,16 +39,16 @@ Use when the user asks: "where are we?", "what's the status?", "show progress", 
 </objective>
 
 <execution_context>
-@~/.claude/aoforge/workflows/progress.md
-@~/.claude/aoforge/workflows/health.md
-@~/.claude/aoforge/workflows/pause-work.md
-@~/.claude/aoforge/workflows/resume-project.md
+One workflow is loaded after routing, never all of them: `Read` the `workflow` path the route returns (expand `~`), then follow it.
+The routes are ~/.claude/aoforge/workflows/progress.md (default), ~/.claude/aoforge/workflows/health.md (check),
+~/.claude/aoforge/workflows/pause-work.md (pause) and ~/.claude/aoforge/workflows/resume-project.md (resume).
 </execution_context>
 
 <context>
 Subcommand: $ARGUMENTS
 
-@.aoforge/STATE.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 </context>
 
 <process>
@@ -60,7 +60,7 @@ ROUTE_JSON=$(node ~/.claude/aoforge/bin/aof-tools.cjs skill-route status $ARGUME
 
 Parse JSON. If `error`, display `usage` and stop. Otherwise extract `subcommand`, `args`, and `workflow`.
 
-**2. Follow resolved workflow:**
+**2. Read the resolved workflow (the `workflow` path, `~` expanded) with the Read tool, then follow it:**
 
 Based on `subcommand`:
 - `null` (default, no subcommand) — execute progress workflow

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// DISPATCHED-BY: pre-bash.js — registered through hooks/pre-bash.js for PreToolUse(Bash); still runs standalone.
 
 /**
  * AOForge Commit Gate (PreToolUse, Bash)
@@ -445,6 +446,7 @@ function run() {
 if (require.main === module) main();
 
 module.exports = {
+  main,
   invokesGitCommit,
   stripHeredocs,
   stripQuoted,

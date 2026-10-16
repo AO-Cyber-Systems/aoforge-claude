@@ -6,7 +6,10 @@
  * The plugin's `hooks/hooks.json` (and `plugin.json` statusLine) name hook scripts as
  * `${CLAUDE_PLUGIN_ROOT}/hooks/<file>.js`. Two drifts break a release silently: a registration whose
  * file is not there (the hook just never runs), and a hook file nobody registered (it ships dead).
- * Draft hooks carry a `DRAFT` header in their first 40 lines and are intentionally unregistered.
+ * Draft hooks carry a `DRAFT` header in their first 40 lines and are intentionally unregistered. A hook
+ * run by another registered hook in one process (hooks/pre-bash.js dispatches the PreToolUse(Bash)
+ * gates) carries `DISPATCHED-BY: <file>.js` in its first 40 lines and counts as registered when that
+ * dispatcher is.
  *
  * The root is the installed plugin's installPath; `AOFORGE_DOCTOR_PLUGIN_ROOT` (test/dev override) is
  * used only when no installed plugin is registered. `*.test.js` files and `hooks/lib/` helpers are not
@@ -74,6 +77,22 @@ function hasDraftHeader(file) {
     return head.some(line => line.includes('DRAFT'));
   } catch {
     return false;
+  }
+}
+
+const DISPATCHED_RE = /DISPATCHED-BY:\s*([a-z0-9-]+\.js)/;
+
+/** The dispatcher a hook file names in its `DISPATCHED-BY: <file>.js` header (first 40 lines), or null. */
+function dispatchedBy(file) {
+  try {
+    const head = fs.readFileSync(file, 'utf-8').split('\n').slice(0, DRAFT_HEAD_LINES);
+    for (const line of head) {
+      const m = DISPATCHED_RE.exec(line);
+      if (m) return `hooks/${m[1]}`;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }
 
@@ -145,8 +164,11 @@ module.exports = {
     const registeredSet = new Set(registered);
     const unregistered = [];
     const drafts = [];
+    const dispatched = [];
     for (const rel of onDisk) {
       if (registeredSet.has(rel)) continue;
+      const via = dispatchedBy(path.join(root, rel));
+      if (via && registeredSet.has(via)) { dispatched.push(`${rel} via ${via}`); continue; }
       if (hasDraftHeader(path.join(root, rel))) drafts.push(rel);
       else unregistered.push(rel);
     }
@@ -162,6 +184,7 @@ module.exports = {
       statusline_missing: statusMissing,
       unregistered,
       drafts,
+      dispatched,
     };
 
     if (issues.length) {

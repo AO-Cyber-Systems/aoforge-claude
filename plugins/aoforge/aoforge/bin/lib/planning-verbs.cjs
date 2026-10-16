@@ -618,6 +618,74 @@ function summaryNameIn(writeRoot, t, file) {
   return summaryFileOf({ ...t, files }, file);
 }
 
+/**
+ * summaryDraftTarget(root, {trd, file?}) -> {rel, draft, live, writeRoot} | {error}: where a TRD's SUMMARY draft and
+ * live file are, so `summary checkpoint --tick` and a `--from`-less verb can find the text without the caller
+ * naming a path. `draft` is the planning-drafts path (may not exist yet); `live` is the file the verb writes.
+ */
+function summaryDraftTarget(root, opts = {}) {
+  const main = mainRoot(root);
+  if (!main) return { error: `no ${planningDirLabel()} directory at or above ${root}` };
+  const t = trdTarget(main, opts.trd);
+  if (t.error) return { error: t.error };
+  const writeRoot = summaryWriteRoot(root, main);
+  const name = summaryNameIn(writeRoot, t, opts.file);
+  const bad = checkFileName(name, 'the SUMMARY file');
+  if (bad) return { error: bad };
+  const rel = `objectives/${t.objective.dir}/${name}`;
+  return {
+    rel,
+    draft: drafts.draftFileFor(main, rel),
+    live: path.join(planningRoot(writeRoot), ...rel.split('/')),
+    writeRoot,
+  };
+}
+
+/**
+ * tickProgress(text, which, {hash?}) -> {text, ticked, item} | {error}: tick one `## Progress` item of a SUMMARY draft
+ * without rewriting the draft by hand. `which` is a 1-based item number or a substring of the item's text (the first
+ * unticked match wins, then any match). The item becomes `- [x] ... — (this commit)` (a commit cannot contain its own
+ * hash) and the earlier `(this commit)` placeholder becomes `hash` when one is given: the executor passes the short
+ * hash of HEAD, the previous task's commit. A `next step:` note on the ticked item is dropped.
+ */
+function tickProgress(text, which, opts = {}) {
+  if (typeof text !== 'string') return { error: 'tickProgress needs the SUMMARY text' };
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => /^##\s+Progress\s*$/i.test(l.replace(/\r$/, '')));
+  if (start === -1) return { error: 'the draft has no `## Progress` section to tick' };
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) if (/^#{1,6}\s/.test(lines[i])) { end = i; break; }
+  const items = [];
+  for (let i = start + 1; i < end; i++) {
+    const m = /^(\s*)- \[( |x|X)\] (.*)$/.exec(lines[i].replace(/\r$/, ''));
+    if (m) items.push({ index: i, indent: m[1], done: m[2] !== ' ', body: m[3] });
+  }
+  if (!items.length) return { error: 'the `## Progress` section has no `- [ ]` items to tick' };
+  const hash = typeof opts.hash === 'string' && opts.hash.trim() ? opts.hash.trim() : null;
+  let target = null;
+  const asNumber = /^\d+$/.test(String(which).trim()) ? parseInt(String(which).trim(), 10) : null;
+  if (asNumber !== null) {
+    target = items[asNumber - 1] || null;
+    if (!target) return { error: `no Progress item ${asNumber} (the section has ${items.length})` };
+  } else {
+    const needle = String(which).trim().toLowerCase();
+    if (!needle) return { error: '--tick needs an item number or a piece of the item text' };
+    target = items.find((it) => !it.done && it.body.toLowerCase().includes(needle))
+      || items.find((it) => it.body.toLowerCase().includes(needle)) || null;
+    if (!target) return { error: `no Progress item matches ${JSON.stringify(which)}` };
+  }
+  const eol = text.includes('\r\n') ? '\r' : '';
+  for (const it of items) {
+    if (hash && it.done && /\(this commit\)/.test(it.body)) {
+      lines[it.index] = `${it.indent}- [x] ${it.body.replace(/\(this commit\)/, hash)}${eol}`;
+    }
+  }
+  let body = target.body.replace(/\s+—\s+next step:.*$/i, '').replace(/\s+—\s+\(this commit\)\s*$/, '').replace(/\s+—\s+[0-9a-f]{7,40}\s*$/i, '');
+  body = `${body} — (this commit)`;
+  lines[target.index] = `${target.indent}- [x] ${body}${eol}`;
+  return { text: lines.join('\n'), ticked: asNumber !== null ? asNumber : items.indexOf(target) + 1, item: body };
+}
+
 // ─── PR hooks of summary post / verification post (objective 49, GPR-03) ─────
 //
 // Every op below is built inside the `enqueue` callback of writeThrough, which local mode never calls: that is what
@@ -1003,6 +1071,8 @@ function draftPath(root, rel) {
 }
 
 module.exports = {
+  summaryDraftTarget,
+  tickProgress,
   DRAFTS_DIR,
   STATUSES,
   writeThrough,

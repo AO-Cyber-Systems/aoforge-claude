@@ -28,18 +28,19 @@ Replaces 4 sibling skills: new-milestone, audit-milestone, complete-milestone, p
 </objective>
 
 <execution_context>
-@~/.claude/aoforge/workflows/new-milestone.md
-@~/.claude/aoforge/workflows/audit-milestone.md
-@~/.claude/aoforge/workflows/complete-milestone.md
-@~/.claude/aoforge/workflows/plan-milestone-gaps.md
+One workflow is loaded after routing, never all of them: `Read` the `workflow` path the route returns (expand `~`), then follow it.
+The routes are ~/.claude/aoforge/workflows/new-milestone.md (new), ~/.claude/aoforge/workflows/audit-milestone.md (audit),
+~/.claude/aoforge/workflows/complete-milestone.md (complete) and ~/.claude/aoforge/workflows/plan-milestone-gaps.md (gaps).
 @~/.claude/aoforge/references/built-ins.md
 </execution_context>
 
 <context>
 Subcommand: $ARGUMENTS
 
-@.aoforge/ROADMAP.md
-@.aoforge/STATE.md
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 @.aoforge/PROJECT.md
 </context>
 
@@ -52,7 +53,7 @@ ROUTE_JSON=$(node ~/.claude/aoforge/bin/aof-tools.cjs skill-route milestone $ARG
 
 Parse the JSON. If it contains `error`, display `usage` and stop. Otherwise extract `subcommand`, `args`, and `workflow`.
 
-**2. Follow the resolved workflow.**
+**2. Read the resolved workflow (the `workflow` path, `~` expanded) with the Read tool, then follow it.**
 
 Based on `subcommand`:
 - `new` → execute new-milestone workflow with residual args (the name, if provided)

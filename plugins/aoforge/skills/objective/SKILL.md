@@ -30,15 +30,17 @@ Note: decimal objectives (insert) were removed in v1.2 (TRD 12-06, I2 survey: 0%
 </objective>
 
 <execution_context>
-@~/.claude/aoforge/workflows/add-objective.md
-@~/.claude/aoforge/workflows/remove-objective.md
+One workflow is loaded after routing, never all of them: `Read` the `workflow` path the route returns (expand `~`), then follow it.
+The routes are ~/.claude/aoforge/workflows/add-objective.md (add) and ~/.claude/aoforge/workflows/remove-objective.md (remove).
 </execution_context>
 
 <context>
 Subcommand: $ARGUMENTS
 
-@.aoforge/ROADMAP.md
-@.aoforge/STATE.md
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 </context>
 
 <process>
@@ -50,10 +52,10 @@ ROUTE_JSON=$(node ~/.claude/aoforge/bin/aof-tools.cjs skill-route objective $ARG
 
 Parse the JSON. If it contains `error`, display the `usage` field to the user and stop. Otherwise extract `subcommand`, `args`, and `workflow`.
 
-**2. Follow the resolved workflow.**
+**2. Read the resolved workflow (the `workflow` path, `~` expanded) with the Read tool, then follow it.**
 
 Based on `subcommand`:
-- `add` → execute the add-objective workflow loaded above with the residual args
+- `add` → execute the add-objective workflow with the residual args
 - `remove` → execute the remove-objective workflow with the residual args
 
 Pass residual `args` to the workflow as if the user had typed them.

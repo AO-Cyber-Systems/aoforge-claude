@@ -97,9 +97,9 @@ INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init execute-objective "${OBJECT
 
 Extract from init JSON: `executor_model`, `commit_docs`, `objective_dir`, `trds` (or legacy `jobs`), `incomplete_trds` (or legacy `incomplete_jobs`).
 
-Also read STATE.md for position, decisions, blockers:
+Also load the project digest (position, blockers, the newest decisions — not the whole file):
 ```bash
-cat .aoforge/STATE.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null
 ```
 
 If STATE.md missing but .aoforge/ exists: offer to reconstruct or continue without.
@@ -180,7 +180,7 @@ For each task:
    - Execute task, apply deviation rules as needed
    - Handle auth errors as authentication gates
    - Run verification, confirm done criteria (see per_task_verification)
-   - Record the `## Progress` checkpoint: tick the task in your SUMMARY draft, then run `aof-tools summary checkpoint` (see below)
+   - Record the `## Progress` checkpoint with one command, `aof-tools summary checkpoint {trd} --tick <task number> --hash <short HEAD>` (see below); never rewrite the whole draft for a tick
    - Commit immediately (see task_commit_protocol, which says when the SUMMARY joins the commit). One task, one commit
    - Track completion + commit hash for Summary
 
@@ -198,11 +198,13 @@ Every task commit leaves a resumable trail. You never put the SUMMARY under `.ao
 node ~/.claude/aoforge/bin/aof-tools.cjs planning draft objectives/XX-name/{objective}-{trd}-SUMMARY.md
 ```
 
-It prints an absolute path outside the project, seeded from the current SUMMARY when one exists. An existing draft is never replaced, so a resumed run picks up its own draft. Note the path down as a literal. Before each task's commit, tick the task in the draft's `## Progress` section, then publish the checkpoint:
+It prints an absolute path outside the project, seeded from the current SUMMARY when one exists. An existing draft is never replaced, so a resumed run picks up its own draft. Write the draft ONCE at the first task: frontmatter, the `## Progress` list with every task of the TRD as `- [ ] Task N: <name>`, and a one-line `next step:` on the first. After every task thereafter, tick the task and checkpoint in ONE command, with no Write of the draft:
 
 ```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs summary checkpoint {objective}-{trd} --from <draft path>
+node ~/.claude/aoforge/bin/aof-tools.cjs summary checkpoint {objective}-{trd} --tick <task number> --hash <short hash of HEAD>
 ```
+
+`--tick` takes the item number or a piece of its text; the item becomes `- [x] ... — (this commit)` and the earlier `(this commit)` placeholder becomes `--hash` (HEAD at checkpoint time is the previous task's commit). The verb updates the draft in place and checkpoints it. With neither `--tick` nor `--from`, the verb takes the draft as it stands; `--from <path|->` still works when you rewrote the draft for another reason (a deviation note, a discovered command).
 
 - **Local mode:** the checkpoint lands at the TRD's output path (`.aoforge/objectives/XX-name/{objective}-{trd}-SUMMARY.md`) in the checkout you are standing in, byte for byte as before. In a worktree that is YOUR worktree, so you commit it on your own branch and the wave merge delivers it. Nothing is written to the main checkout. (A worktree with no `.aoforge/`, because planning is untracked, falls back to the main checkout.)
 - **Store mode:** it lands in the runtime file `.aoforge/.trd-progress/{objective}-{trd}.md` and nothing reaches GitHub. A comment per task would spend GitHub's per-minute rate budget; `summary post` is the single GitHub post per TRD. From a worktree this is still the MAIN checkout's gitignored cache: the journal, ledger and outbox are single-writer files there.
@@ -275,7 +277,7 @@ No user permission needed for Rules 1-3.
 
 **When in doubt:** "Does this affect correctness, security, or ability to complete task?" YES → Rules 1-3. MAYBE → Rule 4.
 
-Full rule definitions, Rule-4 return format, scope boundary, and fix-attempt limit: @~/.claude/aoforge/references/deviation-rules.md
+Full rule definitions, Rule-4 return format, scope boundary, and fix-attempt limit: Read ~/.claude/aoforge/references/deviation-rules.md only when you are about to return a Rule-4 stop or hit the fix-attempt limit.
 </deviation_rules>
 
 <authentication_gates>
@@ -310,7 +312,7 @@ Store the result for checkpoint handling below.
 Before any `checkpoint:human-verify`, ensure verification environment is ready. If TRD lacks server startup before checkpoint, ADD ONE (deviation Rule 3).
 
 For full automation-first patterns, server lifecycle, CLI handling:
-**See @~/.claude/aoforge/references/checkpoints.md**
+**Read ~/.claude/aoforge/references/checkpoints.md only when the TRD has a checkpoint task, just before that task** (it is 42 KB; the quick reference below covers everything else).
 
 **Quick reference:** Users NEVER run CLI commands. Users ONLY visit URLs, click UI, evaluate visuals, provide secrets. Claude does all automation.
 
@@ -502,13 +504,13 @@ After each task (auto or tdd):
    - "Should work" — run the command
    - "Probably passes" — run the command
    - "I believe this works" — run the command
-   - See @~/.claude/aoforge/references/anti-patterns.md
+   - See the anti-patterns table below
 
-**Reference:** @~/.claude/aoforge/references/verification-patterns.md
+**Reference:** Read ~/.claude/aoforge/references/verification-patterns.md only when a task's verify command is not obvious from the TRD and the stack profile.
 </per_task_verification>
 
 <anti_patterns>
-Quick reference — full details at @~/.claude/aoforge/references/anti-patterns.md
+Quick reference (sufficient on its own; ~/.claude/aoforge/references/anti-patterns.md has the long form, read it only if a case here does not match yours)
 
 | Anti-Pattern | Detection | Fix |
 |---|---|---|
@@ -521,7 +523,7 @@ Quick reference — full details at @~/.claude/aoforge/references/anti-patterns.
 </anti_patterns>
 
 <output_completeness>
-Full guidance: @~/.claude/aoforge/references/full-output.md
+Full guidance (read only if the rules below leave a question open): ~/.claude/aoforge/references/full-output.md
 
 A partial output is a broken output. Truncation is not a memory or context
 failure — models retain instructions well across long conversations, and a
@@ -546,7 +548,7 @@ work passes a task list while failing a goal.
 </output_completeness>
 
 <context_discipline>
-Full guidance: @~/.claude/aoforge/references/context-discipline.md
+Full guidance (the two rules below are the whole policy; the file holds the measurements): ~/.claude/aoforge/references/context-discipline.md
 
 Two rules carry almost all of the benefit. Both are measured, not stylistic.
 
@@ -569,7 +571,7 @@ subagent — its reads stay in its own window.
 </context_discipline>
 
 <escalation_protocol>
-Full policy: @~/.claude/aoforge/references/escalation-policy.md
+Full policy (read only when you are about to escalate): ~/.claude/aoforge/references/escalation-policy.md
 
 You cannot change your own model — it is fixed when you are spawned. When you
 are genuinely stuck, **request escalation and stop**; do not keep grinding at
@@ -734,7 +736,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs summary post {objective}-{trd} --from <
 
 **ALWAYS use the Write or Edit tool on the draft path** — never use `Bash(cat << 'EOF')` or heredoc commands to produce it.
 
-**Use template:** @~/.claude/aoforge/templates/summary.md
+**Use template:** Read ~/.claude/aoforge/templates/summary.md before the first `summary checkpoint` (once per TRD).
 
 **Frontmatter:** objective, trd (or legacy job), subsystem, tags, dependency graph (requires/provides/affects), tech-stack (added/patterns), key-files (created/modified), decisions, metrics (duration, completed date), token usage (stamped by `aof-tools tokens stamp`, never typed).
 

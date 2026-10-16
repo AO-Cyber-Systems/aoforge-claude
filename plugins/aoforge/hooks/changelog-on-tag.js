@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// DISPATCHED-BY: pre-bash.js — registered through hooks/pre-bash.js for PreToolUse(Bash); still runs standalone.
 
 /**
  * AOForge Tag Gate (PreToolUse, Bash)
@@ -322,6 +323,7 @@ function main() {
 if (require.main === module) main();
 
 module.exports = {
+  main,
   parseTagCommand,
   makeTreeReader,
   resolveCommit,

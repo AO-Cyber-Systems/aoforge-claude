@@ -49,8 +49,10 @@ regardless of how clean its verdict is. An unrecognised `--judge` value is rejec
 error rather than silently falling through to the offline path. This skill consumes that engine;
 it does not re-implement scoring and does not pick a vision model id.
 
-@.aoforge/STATE.md
-@.aoforge/ROADMAP.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
 </context>
 
 <process>

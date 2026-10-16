@@ -424,13 +424,13 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        </objective>
 
        <execution_context>
-       Read these on demand, at the step that needs them, not up front (an `@` line does not
-       expand across the Task boundary, so listing them here only invited reading ~80 KB):
-       - ~/.claude/aoforge/templates/summary.md: the SUMMARY structure, when you reach `summary post`
-       - ~/.claude/aoforge/references/checkpoints.md: only when the TRD has a checkpoint task
-       - ~/.claude/aoforge/references/tdd.md: only when the TRD is `type: tdd`
-       - ~/.claude/aoforge/references/anti-patterns.md: your prompt carries the quick reference
-       - ~/.claude/aoforge/workflows/execute-trd.md: only if your own prompt leaves a step unclear
+       A Task prompt does not expand @ references: Read these files yourself, each at the moment it is needed,
+       never all of them up front (checkpoints.md alone is 42 KB).
+       - ~/.claude/aoforge/templates/summary.md — before the first `summary checkpoint`
+       - ~/.claude/aoforge/references/checkpoints.md — only if the TRD has a checkpoint task (type checkpoint:human-verify, checkpoint:decision or checkpoint:human-action), before that task
+       - ~/.claude/aoforge/references/tdd.md — only if the TRD frontmatter says type: tdd or a task carries tdd=true
+       - ~/.claude/aoforge/references/anti-patterns.md — not needed: your prompt carries the quick reference
+       - ~/.claude/aoforge/workflows/execute-trd.md — only if your own prompt leaves a step unclear (your prompt is the complete procedure)
        </execution_context>
 
        <plan_content>
@@ -1016,13 +1016,13 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
        </resume_instructions>
 
        <execution_context>
-       Read these on demand, at the step that needs them, not up front (an `@` line does not
-       expand across the Task boundary, so listing them here only invited reading ~80 KB):
-       - ~/.claude/aoforge/templates/summary.md: the SUMMARY structure, when you reach `summary post`
-       - ~/.claude/aoforge/references/checkpoints.md: only when the TRD has a checkpoint task
-       - ~/.claude/aoforge/references/tdd.md: only when the TRD is `type: tdd`
-       - ~/.claude/aoforge/references/anti-patterns.md: your prompt carries the quick reference
-       - ~/.claude/aoforge/workflows/execute-trd.md: only if your own prompt leaves a step unclear
+       A Task prompt does not expand @ references: Read these files yourself, each at the moment it is needed,
+       never all of them up front (checkpoints.md alone is 42 KB).
+       - ~/.claude/aoforge/templates/summary.md — before the first `summary checkpoint`
+       - ~/.claude/aoforge/references/checkpoints.md — only if the TRD has a checkpoint task (type checkpoint:human-verify, checkpoint:decision or checkpoint:human-action), before that task
+       - ~/.claude/aoforge/references/tdd.md — only if the TRD frontmatter says type: tdd or a task carries tdd=true
+       - ~/.claude/aoforge/references/anti-patterns.md — not needed: your prompt carries the quick reference
+       - ~/.claude/aoforge/workflows/execute-trd.md — only if your own prompt leaves a step unclear (your prompt is the complete procedure)
        </execution_context>
 
        <plan_content>

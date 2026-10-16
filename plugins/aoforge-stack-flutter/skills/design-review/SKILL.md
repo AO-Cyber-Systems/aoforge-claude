@@ -47,8 +47,10 @@ prioritized design-debt list, and writes the report next to the manifest. It emi
 ALWAYS and never sets a pass/fail gate. This skill consumes that engine; it does not re-implement the
 critique and does not pick a vision model id.
 
-@.aoforge/STATE.md
-@.aoforge/ROADMAP.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
 </context>
 
 <process>

@@ -301,6 +301,49 @@ describe('aof-tools planning verbs, local project', () => {
   });
 });
 
+describe('summary checkpoint --tick (one command per task, no draft rewrite)', () => {
+  test('7. --tick ticks the draft in place, --hash fills the previous placeholder, no --from takes the draft, errors name the fix', () => {
+    const c = cliProject({ store: false });
+    try {
+      const draftText = '---\nobjective: 7\ntrd: 7-03\n---\n\n## Progress\n- [ ] Task 1: wire — next step: write the test\n- [ ] Task 2: route\n- [ ] Task 3: docs\n';
+      // Before any draft exists the verb says what to run.
+      const none = c.run(['summary', 'checkpoint', '7-03', '--tick', '1', '--raw']);
+      assert.equal(none.status, 1, none.stdout);
+      assert.match(none.stderr + none.stdout, /planning draft objectives\/.*SUMMARY\.md/);
+
+      const d = okRaw(c, ['planning', 'draft', `${D}/07-03-SUMMARY.md`]);
+      fs.writeFileSync(d.path, draftText);
+
+      const t1 = okRaw(c, ['summary', 'checkpoint', '7-03', '--tick', '1']);
+      assert.equal(t1.ticked, 1);
+      assert.equal(t1.draft, d.path);
+      const after1 = fs.readFileSync(d.path, 'utf8');
+      assert.match(after1, /^- \[x\] Task 1: wire — \(this commit\)$/m, 'ticked in the draft, next step dropped');
+      assert.equal(c.p.read(t1.rel), after1, 'the checkpoint carries the ticked text');
+
+      const t2 = okRaw(c, ['summary', 'checkpoint', '7-03', '--tick', 'route', '--hash', 'abc1234']);
+      assert.equal(t2.ticked, 2);
+      const after2 = fs.readFileSync(d.path, 'utf8');
+      assert.match(after2, /^- \[x\] Task 1: wire — abc1234$/m, '--hash replaces the earlier placeholder');
+      assert.match(after2, /^- \[x\] Task 2: route — \(this commit\)$/m);
+      assert.match(after2, /^- \[ \] Task 3: docs$/m);
+
+      // No --from and no --tick: the draft as it stands is the input.
+      const plain = okRaw(c, ['summary', 'checkpoint', '7-03']);
+      assert.equal(c.p.read(plain.rel), after2);
+
+      const missing = c.run(['summary', 'checkpoint', '7-03', '--tick', '9', '--raw']);
+      assert.equal(missing.status, 1);
+      assert.match(missing.stderr + missing.stdout, /no Progress item 9/);
+
+      const bogus = c.run(['summary', 'checkpoint', '7-03', '--tick', '3', '--bogus']);
+      assert.equal(bogus.status, 1, 'unknown flag refused');
+    } finally {
+      c.cleanup();
+    }
+  });
+});
+
 describe('aof-tools planning verbs, store project (offline gh)', { skip: gitAvailable() ? false : 'git is not available' }, () => {
   test('6. plan put-trd queues the hierarchy push and exits 3 (pending); planning mode --raw says store', () => {
     const c = cliProject({ store: true });

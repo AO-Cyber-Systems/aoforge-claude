@@ -6,6 +6,7 @@ const { output, error, findPlanFiles, localDate } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 const { planningRoot, planningRel, planningDirLabel } = require('./compat.cjs');
+const stateDigest = require('./state-digest.cjs');
 
 // ─── State JSON Sidecar ───────────────────────────────────────────────────────
 // state.json holds machine-readable fields alongside the human-readable STATE.md.
@@ -201,9 +202,12 @@ function cmdStateLoad(cwd, raw) {
   const roadmapExists = fs.existsSync(path.join(planningDir, 'ROADMAP.md'));
   const stateExists = stateRaw.length > 0;
 
+  // The digest, not the whole file: STATE.md's decision log can run to tens of kilobytes, and every consumer of
+  // `state load` only ever read the config and the position. `state get` still returns the full text.
   const result = {
     config,
-    state_raw: stateRaw,
+    state_digest: stateExists ? stateDigest.digest(stateRaw) : '',
+    state_bytes: stateRaw.length,
     state_exists: stateExists,
     roadmap_exists: roadmapExists,
     config_exists: configExists,
@@ -231,6 +235,58 @@ function cmdStateLoad(cwd, raw) {
   }
 
   output(result);
+}
+
+/**
+ * `state digest [--decisions N]`: the compact STATE.md a session needs on entry (lib/state-digest.cjs). Skills read
+ * this instead of inlining the whole file; `state get` keeps returning the full text.
+ */
+function cmdStateDigest(cwd, options, raw) {
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  let content;
+  try {
+    content = fs.readFileSync(statePath, 'utf-8');
+  } catch {
+    error('STATE.md not found');
+  }
+  const n = options && options.decisions != null ? parseInt(options.decisions, 10) : undefined;
+  const text = stateDigest.digest(content, { decisions: Number.isInteger(n) ? n : undefined });
+  output({ digest: text, state_bytes: content.length, digest_bytes: text.length }, raw, text);
+}
+
+/**
+ * rotateDecisionsOnDisk(cwd, keep) -> {applies, moved, kept, dry_run?}: keep the newest `keep` entries of STATE.md's
+ * `## Recent Decisions` and append the rest to STATE_ARCHIVE.md `## Decisions`, oldest first. Both files are written
+ * only when something moves. Shared by `state rotate-decisions`, `state advance-job`, migration 0015 and
+ * `validate health --repair`.
+ */
+function rotateDecisionsOnDisk(cwd, keep, { dryRun = false } = {}) {
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  if (!fs.existsSync(statePath)) return { applies: false, moved: 0, kept: 0, reason: 'STATE.md not found' };
+  const content = fs.readFileSync(statePath, 'utf-8');
+  const r = stateDigest.rotateDecisions(content, keep);
+  if (!r.applies) return { applies: false, moved: 0, kept: r.kept };
+  if (!dryRun) {
+    ensureArchive(cwd);
+    const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
+    const archive = fs.readFileSync(archivePath, 'utf-8');
+    fs.writeFileSync(archivePath, stateDigest.appendDecisionsToArchive(archive, r.moved), 'utf-8');
+    fs.writeFileSync(statePath, r.content, 'utf-8');
+  }
+  return { applies: true, moved: r.moved.length, kept: r.kept, dry_run: dryRun };
+}
+
+/** `state rotate-decisions [--keep N] [--dry-run]`. */
+function cmdStateRotateDecisions(cwd, options, raw) {
+  const keepArg = options && options.keep != null ? parseInt(options.keep, 10) : undefined;
+  const keep = Number.isInteger(keepArg) && keepArg >= 0 ? keepArg : stateDigest.DEFAULT_KEEP;
+  const r = rotateDecisionsOnDisk(cwd, keep, { dryRun: !!(options && options.dryRun) });
+  const store = storeMode(cwd);
+  const result = { rotated: r.applies, moved: r.moved, kept: r.kept, keep };
+  if (r.reason) result.reason = r.reason;
+  if (r.dry_run) result.dry_run = true;
+  if (store) result.hint = DECISION_HINT;
+  output(result, raw, r.applies ? String(r.moved) : '0');
 }
 
 function cmdStateGet(cwd, section, raw) {
@@ -369,6 +425,7 @@ function advanceFromDisk(cwd, objective, raw) {
   const statePath = path.join(planningRoot(cwd), 'STATE.md');
   let stateMdUpdated = false;
   if (!store && fs.existsSync(statePath)) {
+    try { rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP); } catch { /* advisory */ }
     const original = fs.readFileSync(statePath, 'utf-8');
     let content = original;
     // Fields are rewritten only where they already exist; none is ever added.
@@ -422,6 +479,12 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
   const statePath = path.join(planningRoot(cwd), 'STATE.md');
   const hasStateMd = fs.existsSync(statePath);
   if (!hasStateMd && !store) { output({ error: 'STATE.md not found' }, raw); return; }
+
+  // Every advance keeps STATE.md a digest: decisions beyond DEFAULT_KEEP move to the archive (local mode only;
+  // in store mode STATE.md is a generated view and is never written here).
+  if (!store && hasStateMd) {
+    try { rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP); } catch { /* advisory: the advance still runs */ }
+  }
 
   // Store mode reads a rendered STATE.md only as the counters' fallback; it never writes it.
   let content = hasStateMd ? fs.readFileSync(statePath, 'utf-8') : '';
@@ -830,6 +893,9 @@ module.exports = {
   stateExtractField,
   stateReplaceField,
   cmdStateLoad,
+  cmdStateDigest,
+  cmdStateRotateDecisions,
+  rotateDecisionsOnDisk,
   cmdStateGet,
   cmdStatePatch,
   cmdStateUpdate,

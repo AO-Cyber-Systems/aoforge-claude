@@ -487,7 +487,7 @@ Plan mode (`EnterPlanMode`, then `ExitPlanMode`) is where AOForge asks you to ap
 ## Getting Help
 
 - Read `.aoforge/PROJECT.md` for project vision
-- Read `.aoforge/STATE.md` for current context
+- Run `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` for current context
 - Check `.aoforge/ROADMAP.md` for objective status
 - Run `/aoforge:status` to check where you're up to
 

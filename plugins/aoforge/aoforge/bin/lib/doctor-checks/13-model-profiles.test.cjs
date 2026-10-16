@@ -118,6 +118,8 @@ describe('13-model-profiles check', () => {
     rates.models = {
       'claude-opus-4-7': row,
       'claude-sonnet-4-5-20250929': row,
+      'claude-haiku-5-5': MODEL_RATES_JSON.models['claude-haiku-5-5'],
+      // the alias table still points at the dated 4.5 row; keep it so the table loads
       'claude-haiku-4-5-20251001': MODEL_RATES_JSON.models['claude-haiku-4-5-20251001'],
     };
     const r = check.run(ctxFor(homeWith({ mirror: doc, mirrorRates: rates })));
