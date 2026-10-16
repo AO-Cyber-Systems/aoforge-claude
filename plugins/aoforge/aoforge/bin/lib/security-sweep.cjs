@@ -18,10 +18,11 @@
 const fs = require('fs');
 const path = require('path');
 const { output, error } = require('./helpers.cjs');
+const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 
 const FOCI = Object.freeze(['secrets-and-code', 'auth-and-access', 'config-and-deps']);
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', '.aoforge', '.planning', '.security-audit-tmp']);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'vendor', 'dist', 'build', ...PLANNING_DIR_NAMES, '.security-audit-tmp']);
 const MAX_FILE_BYTES = 1024 * 1024;
 const TEXT_MAX = 200;
 // The agent dropped `.test.` / `.spec.` lines with `grep -v`; a row with excludeTests skips those files.

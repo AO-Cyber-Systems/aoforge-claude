@@ -366,7 +366,7 @@ TRDs:
 ### Objective 76: Model efficiency and stack-specific content
 
 **Goal**: Each agent spends top-model tokens only on judgment. The configured tier is the tier that runs, mechanical work runs as aof-tools code, each spawn loads only the instructions it needs, and stack-specific procedure lives in the stack profiles rather than in agent prompts.
-**Requirements**: MEF-01, MEF-02, MEF-03, MEF-04, MEF-05, MEF-06, STK-01
+**Requirements**: MEF-01, MEF-02, MEF-03, MEF-04, MEF-05, MEF-06 (the stack-content requirement moved to Objective 77, which delivers it)
 **Depends on**: Objective 72 (renamed tree). Independent of 73-75.
 **Success Criteria** (what must be TRUE):
   1. `resolve-model` and every `init` model field honour the objective's resolved `model_profile`; no agent spawn in a workflow or skill omits `model=` or names a placeholder its init does not emit; the UI judge reads the project profile.
@@ -380,11 +380,11 @@ TRDs:
 - [x] 76-01-model-resolution-wiring-TRD.md — (W1) intent profile binds; build/diagnose/audit spawns get their model; UI judge reads config
 - [x] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
 - [x] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
-- [ ] 76-04-mechanical-verbs-TRD.md — (W2) `trd finalize`, `verify objective-evidence`, `codebase facts`, `validate roadmap-coverage`, `security sweep`
-- [x] 76-05-stack-procedures-in-profiles-TRD.md — (W2) superseded by Objective 77 (stack packs): executor, planner and verifier Flutter/web procedure moved into pack fragments; integration-checker and mapper TS recipes remain
-- [ ] 76-06-per-focus-tiers-and-haiku-eval-TRD.md — (W3) per-focus/dimension tiers; haiku 5.5 eval and re-pin; verdicts at Sonnet+
-- [ ] 76-07-escalation-loop-TRD.md — (W3) debugger and UI judge start cheap; orchestrators act on ESCALATION REQUESTED
-- [ ] 76-08-measure-TRD.md — (W4) before/after `aof-tools context` and `tokens trd` comparison
+- [x] 76-04-mechanical-verbs-TRD.md — (W2) `trd finalize`, `verify objective-evidence`, `codebase facts`, `validate roadmap-coverage`, `security sweep`; executor, verifier, roadmapper, codebase-mapper and security-auditor call them
+- [x] 76-05-stack-procedures-in-profiles-TRD.md — (W2) superseded by Objective 77 (stack packs): executor, planner and verifier Flutter/web procedure moved into pack fragments; the mapper's TS recipes became `codebase facts`; the integration-checker's Next.js probes remain as labelled fallbacks behind the profile's Layout section
+- [ ] 76-06-per-focus-tiers-and-haiku-eval-TRD.md — (W3) done: `focus{}` tiers (mapper concerns, researcher architecture/pitfalls raised), `verdict_floor` (verifier, job-checker at Sonnet+ on every profile), `resolve-model --focus`. Open: the Haiku 5.5 eval (the pin is already claude-haiku-5-5); no tier is lowered until it is recorded
+- [x] 76-07-escalation-loop-TRD.md — (W3) `resolve-model --escalate-from`; execute-objective (5e), /aoforge:debug and diagnose-issues re-spawn one rung up once; the debugger gains the return. Starting tiers unchanged pending 76-08
+- [ ] 76-08-measure-TRD.md — (W4) before/after `aof-tools context` and `tokens trd` comparison; needs real runs after the release, not doable in CI
 
 ### Objective 77: Stack packs: contract and extraction
 
