@@ -364,10 +364,149 @@ describe('stack verify --changed|--all', () => {
     assert.deepEqual(r.json.packs, []);
   });
 
+  // quick 35 (D4): a --task id names a file under <planning dir>/verify/, so it must not carry a path.
+  const PASS = `process.stdout.write(JSON.stringify({ status: 'pass', scope: 'all', findings: [] }));`;
+  function filesNamed(dir, name) {
+    const hits = [];
+    for (const e of fs.readdirSync(dir, { withFileTypes: true, recursive: true })) {
+      if (e.name === name) hits.push(path.join(e.parentPath || e.path, e.name));
+    }
+    return hits;
+  }
+
+  test('--task ../../escaped exits 1, runs nothing and writes no file outside (or inside) the verify dir', () => {
+    const stacks = packWithVerify(PASS);
+    const base = tmp('pack-esc-');
+    const proj = path.join(base, 'proj');
+    fs.mkdirSync(path.join(proj, '.aoforge'), { recursive: true });
+    writeJson(path.join(proj, '.aoforge', 'config.json'), { stacks: { enabled: ['v'] } });
+    const r = run(['stack', 'verify', '--all', '--task', '../../escaped'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /--task needs a task id \(letters, digits, "\.", "_", "-"; no path separators or "\.\."\)/);
+    assert.deepEqual(filesNamed(base, 'escaped.json'), []);
+    assert.equal(fs.existsSync(path.join(proj, '.aoforge', 'verify')), false);
+  });
+
+  test('a path, "..", a dot file, a missing value or a flag as the --task value is a usage error', () => {
+    const stacks = packWithVerify(PASS);
+    const cases = [
+      ['--all', '--task', 'a/b'],
+      ['--all', '--task', '..'],
+      ['--all', '--task', '.hidden'],
+      ['--all', '--task'],
+      ['--task', '--all'],
+    ];
+    for (const args of cases) {
+      const proj = makeProject({ config: { stacks: { enabled: ['v'] } } });
+      const r = run(['stack', 'verify', ...args], { cwd: proj, stacksDir: stacks });
+      assert.equal(r.status, 1, `${args.join(' ')}: ${r.stdout}`);
+      assert.equal(fs.existsSync(path.join(proj, '.aoforge', 'verify')), false, `${args.join(' ')} wrote .aoforge/verify/`);
+    }
+  });
+
+  test('a dotted task id still writes its record', () => {
+    const stacks = packWithVerify(PASS);
+    const proj = makeProject({ config: { stacks: { enabled: ['v'] } } });
+    const r = run(['stack', 'verify', '--all', '--task', 'quick-35.1'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(fs.existsSync(path.join(proj, '.aoforge', 'verify', 'quick-35.1.json')));
+  });
+
   test('mergeStatus orders error > missing > fail > pass', () => {
     assert.equal(packCli.mergeStatus(['pass', 'fail']), 'fail');
     assert.equal(packCli.mergeStatus(['fail', 'missing']), 'missing');
     assert.equal(packCli.mergeStatus(['missing', 'error', 'pass']), 'error');
     assert.equal(packCli.mergeStatus([]), 'pass');
+  });
+});
+
+// quick 35 (D5): a pack the project names in config stacks.enabled but that cannot run (not mirrored, broken manifest,
+// plugin not enabled) used to vanish from activePacks, so `stack verify` printed `pass` and `stack doctor` printed
+// `No active stack packs.`, both with exit 0. "A pack that is expected but cannot run blocks."
+describe('selected packs that cannot run block stack verify and stack doctor (quick 35)', () => {
+  function brokenStacks() {
+    const stacks = tmp('pack-stacks-');
+    mirrorPack({ packRoot: makePack({ name: 'demo', plugin: 'aoforge-stack-demo' }), stacksDir: stacks });
+    fs.renameSync(path.join(stacks, 'demo'), path.join(stacks, 'other'));
+    return stacks;
+  }
+  /** A HOME whose stacks dir mirrors `demo`, with a plugin registry that does not list its plugin. */
+  function homeWithoutPlugin() {
+    const home = tmp('pack-home-');
+    mirrorPack({ packRoot: makePack({ name: 'demo', plugin: 'aoforge-stack-demo' }), stacksDir: path.join(home, '.claude', 'aoforge', 'stacks') });
+    writeJson(path.join(home, '.claude', 'plugins', 'installed_plugins.json'), { version: 2, plugins: { 'other@aocyber': [{ scope: 'user', version: '1' }] } });
+    return home;
+  }
+  function withoutStacksEnv(fn) {
+    const prev = process.env.AOFORGE_STACKS_DIR;
+    delete process.env.AOFORGE_STACKS_DIR;
+    try { return fn(); } finally {
+      if (prev !== undefined) process.env.AOFORGE_STACKS_DIR = prev;
+    }
+  }
+
+  test('4. a selected pack with no mirror: verify exits 2 (missing, hint names stacks.enabled); doctor exits 1', () => {
+    const proj = makeProject({ config: { stacks: { enabled: ['ghost'] } } });
+    const stacks = tmp('pack-stacks-');
+    const r = run(['stack', 'verify', '--all'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 2, r.stdout);
+    assert.equal(r.json.status, 'missing');
+    assert.equal(r.json.packs[0].pack, 'ghost');
+    assert.equal(r.json.packs[0].status, 'missing');
+    assert.match(r.json.packs[0].install_hint, /stacks\.enabled/);
+    const d = run(['stack', 'doctor', '--raw'], { cwd: proj, stacksDir: stacks });
+    assert.equal(d.status, 1, d.stdout);
+    assert.match(d.stdout, /ghost/);
+    assert.doesNotMatch(d.stdout, /No active stack packs/);
+  });
+
+  test('5. a selected pack with a broken manifest: verify error, exit 2; doctor exits 1', () => {
+    const stacks = brokenStacks();
+    const proj = makeProject({ config: { stacks: { enabled: ['other'] } } });
+    const r = run(['stack', 'verify', '--all'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 2, r.stdout);
+    assert.deepEqual([r.json.packs[0].pack, r.json.packs[0].status], ['other', 'error']);
+    const d = run(['stack', 'doctor'], { cwd: proj, stacksDir: stacks });
+    assert.equal(d.status, 1, d.stdout);
+    assert.equal(d.json.packs[0].reason, 'broken');
+  });
+
+  test('6. a selected pack whose plugin the registry does not list: verify missing, exit 2', () => {
+    const home = homeWithoutPlugin();
+    const proj = makeProject({ config: { stacks: { enabled: ['demo'] } } });
+    const r = run(['stack', 'verify', '--all'], { cwd: proj, home });
+    assert.equal(r.status, 2, r.stdout);
+    assert.deepEqual([r.json.packs[0].pack, r.json.packs[0].status], ['demo', 'missing']);
+    assert.match(r.json.packs[0].install_hint, /aoforge-stack-demo/);
+  });
+
+  test('7. the same name in stacks.enabled and stacks.disabled: nothing reported, exit 0 (disabled wins)', () => {
+    const proj = makeProject({ config: { stacks: { enabled: ['ghost'], disabled: ['ghost'] } } });
+    const stacks = tmp('pack-stacks-');
+    const r = run(['stack', 'verify', '--all'], { cwd: proj, stacksDir: stacks });
+    assert.equal(r.status, 0, r.stdout);
+    assert.deepEqual(r.json.packs, []);
+    assert.equal(run(['stack', 'doctor'], { cwd: proj, stacksDir: stacks }).status, 0);
+  });
+
+  test('8. unavailableSelectedPacks gives the reason for each case and [] when everything selected is active', () => {
+    assert.equal(typeof packs.unavailableSelectedPacks, 'function');
+    const ghost = makeProject({ config: { stacks: { enabled: ['ghost'] } } });
+    const [g] = withStacksDir(tmp('pack-stacks-'), () => packs.unavailableSelectedPacks({ projectRoot: ghost }));
+    assert.deepEqual([g.name, g.reason], ['ghost', 'not_installed']);
+
+    const broken = makeProject({ config: { stacks: { enabled: ['other'] } } });
+    const [b] = withStacksDir(brokenStacks(), () => packs.unavailableSelectedPacks({ projectRoot: broken }));
+    assert.deepEqual([b.name, b.reason], ['other', 'broken']);
+    assert.ok(b.issues.some((i) => /does not match/.test(i)));
+
+    const off = makeProject({ config: { stacks: { enabled: ['demo'] } } });
+    const [o] = withoutStacksEnv(() => packs.unavailableSelectedPacks({ projectRoot: off, userHome: homeWithoutPlugin() }));
+    assert.deepEqual([o.name, o.reason, o.plugin], ['demo', 'plugin_not_enabled', 'aoforge-stack-demo']);
+
+    const stacks = tmp('pack-stacks-');
+    mirrorPack({ packRoot: makePack({ name: 'demo', plugin: 'aoforge-stack-demo' }), stacksDir: stacks });
+    const fine = makeProject({ config: { stacks: { enabled: ['demo'] } } });
+    assert.deepEqual(withStacksDir(stacks, () => packs.unavailableSelectedPacks({ projectRoot: fine })), []);
   });
 });
