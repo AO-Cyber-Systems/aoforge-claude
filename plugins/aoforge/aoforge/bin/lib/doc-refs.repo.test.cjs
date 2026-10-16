@@ -44,9 +44,9 @@
 // namespace's dash form (`/<short>-<known command>`), so test 2 above now fails on any of them in
 // the scan set. These tests spell no legacy name: samples come from the legacy-command fixture and
 // paths are built from LEGACY.
-// 15. Sensitivity (c): the legacy sample "/<short>:quick /<legacy>:health /aoforge:update
-//     /aoforge:nope /aoforge:status /<legacy>:quick" -> kinds [prefix, renamed, removed, unknown,
-//     prefix] (status ok, filtered), and the dash-form sample yields exactly one finding.
+// 15. Sensitivity (c), reworked by TRD 78-02: a legacy form is not a command reference. The legacy
+//     samples (every legacy namespace and the dash form, with live, renamed, removed and unknown
+//     names) yield zero findings; the current-namespace control yields [renamed, removed, unknown].
 // 16. Sibling plugins (plugins/eden-ui-*, monorepo-standards, aosentry-mcp, social-media-generator,
 //     minus EXEMPT): zero prefix/renamed/removed findings. Unknown names there are those plugins'
 //     own commands and are ignored. The sibling scan set is non-empty and covers each sibling.
@@ -527,20 +527,15 @@ describe('doc-refs.repo.test.cjs', { skip: IS_AOFORGE_CHECKOUT ? false : 'not an
   describe('LEGACY COMMAND FORMS (TRD 72-13, INST-01)', () => {
     const T = legacyCommandText();
 
-    test('15: (c) sensitivity — the legacy namespaces and the dash form in hand-built samples', () => {
+    test('15: (c) a legacy form is not a command reference: zero findings (TRD 78-02)', () => {
       const liveSkills = liveSkillNames(path.join(REPO_ROOT, 'plugins/aoforge/skills'));
-      const results = scanText(T.sensitivity, { liveSkills });
-      assert.deepStrictEqual(results.map((r) => r.kind), [...T.sensitivityKinds]);
-      assert.deepStrictEqual(results.map((r) => r.replacement), [
-        `${NAMES.commandNs}quick`,
-        `${NAMES.commandNs}status check`,
-        null,
-        null,
-        `${NAMES.commandNs}quick`,
-      ]);
-
-      const dash = scanText(T.dashMix, { liveSkills });
-      assert.deepStrictEqual(dash.map((r) => [r.col, r.token, r.kind]), [[T.dashMixFindingCol, 'quick', 'prefix']]);
+      for (const text of [T.legacyLine, ...T.legacyForms]) {
+        assert.deepStrictEqual(scanText(text, { liveSkills }), [], `no finding: ${text}`);
+      }
+      // Not vacuous: the same kinds of name under the current namespace are still findings.
+      const control = scanText(T.currentLine, { liveSkills });
+      assert.deepStrictEqual(control.map((r) => r.kind), [...T.currentKinds]);
+      assert.deepStrictEqual(control.map((r) => r.replacement), [`${NAMES.commandNs}status check`, null, null]);
     });
 
     test('16: the sibling plugins carry no legacy or stale AOForge command form', () => {
