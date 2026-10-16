@@ -100,7 +100,9 @@ function doctor(projectRoot, { userHome }) {
   for (const u of packs.unavailableSelectedPacks({ projectRoot, userHome, active })) {
     results.push({ pack: u.name, ok: false, reason: u.reason, issues: u.issues, tools: [], command: null, install_hint: u.install_hint });
   }
-  return { ok: results.every((r) => r.ok), packs: results };
+  // An absent soft dependency is a warning (quick 38): it never changes `ok` or the exit code.
+  const warnings = packs.softDependencyWarnings({ projectRoot, userHome, resolved, active });
+  return { ok: results.every((r) => r.ok), packs: results, warnings };
 }
 
 function mergeStatus(statuses) {
@@ -201,7 +203,10 @@ function doctorCli(cwd, args, raw, { userHome }) {
     const why = p.reason ? `: selected in config stacks.enabled but ${UNAVAILABLE_TEXT[p.reason] || p.reason}` : '';
     return `${p.pack}: not ready${why}${p.install_hint ? ` (${p.install_hint})` : ''}`;
   };
-  const text = r.packs.length ? r.packs.map(line).join('\n') : 'No active stack packs.';
+  const warn = (w) => `warn: ${w.pack} soft-depends on ${w.wants} for platform ${w.platform}, but ` +
+    `${UNAVAILABLE_TEXT[w.reason] || w.reason} (${w.install_hint}); its ${w.platform} checks fall to human verification`;
+  const lines = [...r.packs.map(line), ...r.warnings.map(warn)];
+  const text = lines.length ? lines.join('\n') : 'No active stack packs.';
   output(r, raw, text, r.ok ? 0 : 1);
 }
 

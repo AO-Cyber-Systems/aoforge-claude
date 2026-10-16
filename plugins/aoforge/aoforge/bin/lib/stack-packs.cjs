@@ -8,8 +8,9 @@
 // `~/.claude/aoforge/stacks/<name>/` (lib/pack-mirror.cjs). This module is the core side:
 //
 //   discoverPacks  every mirrored pack, its manifest validated, and whether its plugin is enabled
-//   activePacks    the enabled packs a project selects: config stacks.enabled, or a profile id the
-//                  project's resolved extends chain names. Detection only PROPOSES a pack.
+//   activePacks    the enabled packs a project selects: config stacks.enabled, a profile id the
+//                  project's resolved extends chain names, a select.runtime match, or another active
+//                  pack's soft_depends platform rule. Detection only PROPOSES a pack.
 //   packProfilePath  the pack tier of profile lookup (user tier, then packs, then bundled)
 //
 // Core names no stack here. Neutral by construction: everything stack-specific is pack data.
@@ -151,31 +152,135 @@ function chainIds(resolved) {
   return ids;
 }
 
+/** The resolved profile's verification.runtime, or null. A scalar: `stack validate` rejects a list (STK001). */
+function resolvedRuntime(resolved) {
+  const v = resolved && resolved.frontmatter && resolved.frontmatter.verification;
+  return v && typeof v.runtime === 'string' && v.runtime ? v.runtime : null;
+}
+
+/** A manifest's soft dependencies: [{ pack, platforms }], or []. */
+function softDepends(pack) {
+  const list = pack && pack.manifest && pack.manifest.soft_depends;
+  return Array.isArray(list) ? list : [];
+}
+
 /**
- * activePacks({ projectRoot, userHome, resolved }) -> [{ ...pack, reason }]
- * Selected by intent, never by detection: config `stacks.enabled`, an extends chain naming one of
- * the pack's profile ids, or a `select.runtime` matching the profile's verification.runtime.
- * `stacks.disabled` wins over all three.
+ * projectPlatforms({ projectRoot, resolved }) -> string[] (sorted, unique)
+ * The platforms a project declares: the resolved verification.runtime, then every string (or string item) of
+ * `platform` and `must_haves.platform` in each `<planning dir>/objectives/<dir>/*-TRD.md`. Explicit values only: a TRD
+ * with no `platform` adds nothing, because core does not know any stack's default. A TRD that cannot be read or has
+ * no frontmatter is skipped; with no objectives directory the result is the runtime alone.
+ */
+function projectPlatforms({ projectRoot, resolved = null } = {}) {
+  const out = new Set();
+  const runtime = resolvedRuntime(resolved);
+  if (runtime) out.add(runtime);
+  const add = (v) => {
+    if (typeof v === 'string' && v.trim()) out.add(v.trim());
+    else if (Array.isArray(v)) for (const item of v) if (typeof item === 'string' && item.trim()) out.add(item.trim());
+  };
+  if (projectRoot) {
+    const { planningRoot } = require('./compat.cjs');
+    const { extractFrontmatter } = require('./frontmatter.cjs');
+    const objectives = path.join(planningRoot(projectRoot), 'objectives');
+    let dirs = [];
+    try {
+      dirs = fs.readdirSync(objectives, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+    } catch { /* no objectives directory: the runtime alone */ }
+    for (const dir of dirs) {
+      let names = [];
+      try { names = fs.readdirSync(path.join(objectives, dir)).filter((n) => n.endsWith('-TRD.md')); } catch { continue; }
+      for (const name of names) {
+        let fm;
+        try { fm = extractFrontmatter(fs.readFileSync(path.join(objectives, dir, name), 'utf8')); } catch { continue; }
+        if (!fm || typeof fm !== 'object') continue;
+        add(fm.platform);
+        if (fm.must_haves && typeof fm.must_haves === 'object') add(fm.must_haves.platform);
+      }
+    }
+  }
+  return [...out].sort();
+}
+
+/**
+ * activePacks({ projectRoot, userHome, resolved }) -> [{ ...pack, reason, soft_dependency_of? }]
+ * Selected by intent, never by detection, in two passes over one discoverPacks call:
+ *   1. config `stacks.enabled`, an extends chain naming one of the pack's profile ids, or a `select.runtime`
+ *      matching the profile's verification.runtime.
+ *   2. for each pack pass 1 selected, each `soft_depends` entry whose platforms meet projectPlatforms() selects
+ *      the named enabled pack (`soft_dependency_of` names the host). One level only: a pack selected here does not
+ *      bring in its own soft dependencies. The platform scan runs only when a pass-1 pack declares soft_depends.
+ * `stacks.disabled` wins over every rule. The result is in discoverPacks order (by name), not selection order.
  */
 function activePacks({ projectRoot, userHome = require('os').homedir(), resolved = null } = {}) {
   const cfg = readStacksConfig(projectRoot);
   const ids = chainIds(resolved);
-  const out = [];
-  for (const pack of discoverPacks({ userHome })) {
+  const runtime = resolvedRuntime(resolved);
+  const discovered = discoverPacks({ userHome });
+  const selected = new Map();
+  for (const pack of discovered) {
     if (!pack.enabled || cfg.disabled.includes(pack.name)) continue;
     let reason = null;
     if (cfg.enabled.includes(pack.name)) reason = 'config stacks.enabled';
     else {
       const hit = Object.keys(pack.profiles).find((id) => ids.has(id));
       if (hit) reason = `profile extends ${hit}`;
-      const runtime = resolved && resolved.frontmatter && resolved.frontmatter.verification
-        ? resolved.frontmatter.verification.runtime : null;
       const sel = (pack.manifest && pack.manifest.select) || {};
       if (!reason && runtime && (sel.runtime || []).includes(runtime)) reason = `verification.runtime ${runtime}`;
     }
-    if (reason) out.push({ ...pack, reason });
+    if (reason) selected.set(pack.name, { reason });
   }
-  return out;
+  // Pass 2 reads the pass-1 hosts captured here, so a pack it selects never becomes a host itself.
+  const hosts = discovered.filter((p) => selected.has(p.name));
+  let platforms = null;
+  for (const host of hosts) {
+    for (const dep of softDepends(host)) {
+      if (selected.has(dep.pack) || cfg.disabled.includes(dep.pack)) continue;
+      if (platforms === null) platforms = projectPlatforms({ projectRoot, resolved });
+      const hit = (dep.platforms || []).find((p) => platforms.includes(p));
+      if (!hit) continue;
+      // Not installed, broken or not enabled: softDependencyWarnings reports it; selection skips it.
+      if (!discovered.some((p) => p.name === dep.pack && p.enabled)) continue;
+      selected.set(dep.pack, { reason: `soft dependency of ${host.name} for platform ${hit}`, host: host.name });
+    }
+  }
+  return discovered.filter((p) => selected.has(p.name)).map((p) => {
+    const s = selected.get(p.name);
+    return s.host ? { ...p, reason: s.reason, soft_dependency_of: s.host } : { ...p, reason: s.reason };
+  });
+}
+
+/**
+ * Why the pack `name` cannot run, as { name, reason, plugin, issues, install_hint }, or null when it is enabled.
+ * `remedy` ends the not-installed hint: the config change that stops asking for the pack.
+ *   not_installed       no mirror under the stacks dir
+ *   broken              the mirror's manifest has issues
+ *   plugin_not_enabled  the mirror is valid but its plugin is not installed or is disabled
+ */
+function unavailableEntry(name, discovered, userHome, remedy) {
+  const pack = discovered.find((p) => p.name === name);
+  if (!pack) {
+    return {
+      name,
+      reason: 'not_installed',
+      plugin: null,
+      issues: [],
+      install_hint: `no stack pack "${name}" is mirrored under ${stacksDir(userHome)}: install and enable its plugin ` +
+        `(for AOForge's packs: /plugin install aoforge-stack-${name}@${MARKETPLACE}), or ${remedy}`,
+    };
+  }
+  if (pack.issues.length) {
+    return { name, reason: 'broken', plugin: pack.plugin, issues: pack.issues, install_hint: pack.issues.join('; ') };
+  }
+  if (pack.enabled) return null;
+  const extra = pack.manifest && pack.manifest.install_hint ? `; ${pack.manifest.install_hint}` : '';
+  return {
+    name,
+    reason: 'plugin_not_enabled',
+    plugin: pack.plugin,
+    issues: [],
+    install_hint: `enable the ${pack.plugin} plugin${extra}`,
+  };
 }
 
 /**
@@ -183,10 +288,8 @@ function activePacks({ projectRoot, userHome = require('os').homedir(), resolved
  * The packs a project names in config `stacks.enabled` (and not in `stacks.disabled`: disabled wins) that are not
  * active, so they cannot run (quick 35). Without this they silently dropped out of activePacks and `stack verify`
  * passed. A pack selected only through an extends chain or `select.runtime` is out of scope: profile resolution
- * reports those. `active` (activePacks' result) may be passed to skip recomputing it.
- *   not_installed       no mirror under the stacks dir
- *   broken              the mirror's manifest has issues
- *   plugin_not_enabled  the mirror is valid but its plugin is not installed or is disabled
+ * reports those, and an absent soft dependency is a softDependencyWarnings warning. `active` (activePacks' result)
+ * may be passed to skip recomputing it. Reasons as unavailableEntry gives them.
  */
 function unavailableSelectedPacks({ projectRoot, userHome = require('os').homedir(), active = null } = {}) {
   const cfg = readStacksConfig(projectRoot);
@@ -198,28 +301,36 @@ function unavailableSelectedPacks({ projectRoot, userHome = require('os').homedi
   const out = [];
   for (const name of wanted) {
     if (activeNames.has(name)) continue;
-    const pack = discovered.find((p) => p.name === name);
-    if (!pack) {
-      out.push({
-        name,
-        reason: 'not_installed',
-        plugin: null,
-        issues: [],
-        install_hint: `no stack pack "${name}" is mirrored under ${stacksDir(userHome)}: install and enable its plugin ` +
-          `(for AOForge's packs: /plugin install aoforge-stack-${name}@${MARKETPLACE}), or remove "${name}" from ` +
-          'config.json stacks.enabled',
-      });
-    } else if (pack.issues.length) {
-      out.push({ name, reason: 'broken', plugin: pack.plugin, issues: pack.issues, install_hint: pack.issues.join('; ') });
-    } else {
-      const extra = pack.manifest && pack.manifest.install_hint ? `; ${pack.manifest.install_hint}` : '';
-      out.push({
-        name,
-        reason: 'plugin_not_enabled',
-        plugin: pack.plugin,
-        issues: [],
-        install_hint: `enable the ${pack.plugin} plugin${extra}`,
-      });
+    const entry = unavailableEntry(name, discovered, userHome, `remove "${name}" from config.json stacks.enabled`);
+    if (entry) out.push(entry);
+  }
+  return out;
+}
+
+/**
+ * softDependencyWarnings({ projectRoot, userHome, resolved, active }) -> [{ pack, wants, platform, reason, install_hint }]
+ * For each pack pass 1 of activePacks selected, each `soft_depends` entry that meets the project's platforms and
+ * names a pack that is neither active nor in config `stacks.disabled`: that pack is not installed, broken or not
+ * enabled (`reason` as unavailableEntry gives it). A warning, never a failure: `stack doctor` lists it and its `ok`
+ * and exit code ignore it. `active` (activePacks' result) may be passed to skip recomputing it.
+ */
+function softDependencyWarnings({ projectRoot, userHome = require('os').homedir(), resolved = null, active = null } = {}) {
+  const act = active || activePacks({ projectRoot, userHome, resolved });
+  const hosts = act.filter((p) => !p.soft_dependency_of && softDepends(p).length);
+  if (!hosts.length) return [];
+  const cfg = readStacksConfig(projectRoot);
+  const activeNames = new Set(act.map((p) => p.name));
+  const platforms = projectPlatforms({ projectRoot, resolved });
+  let discovered = null;
+  const out = [];
+  for (const host of hosts) {
+    for (const dep of softDepends(host)) {
+      if (activeNames.has(dep.pack) || cfg.disabled.includes(dep.pack)) continue;
+      const hit = (dep.platforms || []).find((p) => platforms.includes(p));
+      if (!hit) continue;
+      if (discovered === null) discovered = discoverPacks({ userHome });
+      const entry = unavailableEntry(dep.pack, discovered, userHome, `add "${dep.pack}" to config.json stacks.disabled`);
+      if (entry) out.push({ pack: host.name, wants: dep.pack, platform: hit, reason: entry.reason, install_hint: entry.install_hint });
     }
   }
   return out;
@@ -290,8 +401,10 @@ module.exports = {
   discoverPacks,
   packProfilePath,
   readStacksConfig,
+  projectPlatforms,
   activePacks,
   unavailableSelectedPacks,
+  softDependencyWarnings,
   proposedPacks,
   agentExtras,
   renderExtras,

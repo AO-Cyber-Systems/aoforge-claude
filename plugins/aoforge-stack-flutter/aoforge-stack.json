@@ -20,6 +20,14 @@
     "executor": "fragments/executor.md",
     "verifier": "fragments/verifier.md"
   },
+  "soft_depends": [
+    {
+      "pack": "web",
+      "platforms": [
+        "web"
+      ]
+    }
+  ],
   "models": {
     "ui-evaluator": {
       "quality": "opus",

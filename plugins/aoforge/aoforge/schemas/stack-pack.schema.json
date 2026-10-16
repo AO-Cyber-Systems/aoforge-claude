@@ -250,6 +250,32 @@
         }
       }
     },
+    "soft_depends": {
+      "description": "Packs this pack wants for some platforms without requiring them. When this pack is active and the project's platforms (the resolved verification.runtime, and every TRD's platform / must_haves.platform) include one listed here, the named pack is selected too, unless config stacks.disabled names it. A named pack that is not installed, not enabled or broken is a `stack doctor` warning, never a failure. Not followed transitively.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "pack",
+          "platforms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pack": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
     "gate_policy": {
       "description": "A module exporting the pack's run-guard policy for `stack verify --run`: guardedTools, deny, binDirs, rewrite(command, {cwdAbs, root, fs}).",
       "$ref": "#/$defs/relPath"

@@ -8,7 +8,8 @@ and `stack: flutter`; for any other TRD, skip it.
 ## Runtime mapping (Step 8)
 
 - `mobile` runtime, or TRD `must_haves.platform: mobile` → Step 8b below (Maestro via its CLI).
-- Flutter web smoke-only → the web pack's Playwright check against a `flutter build web --release` bundle served statically, with `?enable-semantics=true`. Never `flutter run -d web-server`/`-d chrome` for capture: DWDS wedges into a blank page with no console error.
+- `web` runtime, or a TRD whose `platform` (or `must_haves.platform`) includes `web` → the web pack's verifier fragment and its `aoforge-stack-web:web-ui-verifier` agent, run against a `flutter build web --release` bundle served statically on port 8091 (never 8080), with `?enable-semantics=true`. This pack lists the web pack in `soft_depends`, so `stack context verifier` lists it for such a project whenever it is installed and not in `stacks.disabled`. Never `flutter run -d web-server`/`-d chrome` for capture: DWDS wedges into a blank page with no console error.
+- **Web pack not active.** If `stack context verifier` lists no `web` pack, record each Flutter web surface as `? SKIPPED (web pack not active: /plugin install aoforge-stack-web@aocyber, or remove "web" from stacks.disabled)` and put it on the Step 9 human-verification list. This happens when aoforge-stack-web is not installed or not enabled (`aof-tools stack doctor` warns) or when `stacks.disabled` names it. Never report Flutter web coverage as passed without the web pack. Pack selection reads only explicit `platform` values, but a `type: ui` TRD with no `platform` still counts as `[mobile, web]` for these gates: handle its web half the same way when the web pack is not listed.
 
 ## Step 4: artifact state coverage
 
