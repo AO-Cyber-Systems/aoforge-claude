@@ -47,7 +47,7 @@ const COMMANDS = {
     ],
   },
   'resolve-model': {
-    usage: 'aof-tools resolve-model <agent-type> [--objective N] [--focus <focus>] [--raw]',
+    usage: 'aof-tools resolve-model <agent-type> [--objective N] [--focus <focus>] [--escalate-from <tier|model>] [--raw]',
     summary: 'Resolve the model for an agent from the configured profile.',
     details: [
       'Profile precedence: an OBJECTIVE.md/TRD model_profile override, then config.json',
@@ -56,6 +56,8 @@ const COMMANDS = {
       '--focus names a spawn focus (codebase-mapper tech|arch|quality|concerns, project-researcher',
       'stack|features|architecture|pitfalls) whose tiers in model-profiles.json focus{} apply.',
       'verifier and job-checker never resolve below the verdict_floor tier (TRD 76-06).',
+      '--escalate-from names the tier (or inherit, or a model id) an attempt ran on and returns the',
+      'next rung up (haiku -> sonnet -> opus); ceiling: true at opus means escalate to the human (TRD 76-07).',
     ],
   },
   'find-objective': {

@@ -367,6 +367,19 @@ function resolveProfile(cwd, objective) {
 
 const TIER_RANK = { haiku: 0, sonnet: 1, opus: 2 };
 
+// The escalation ladder, cheapest first (TRD 76-07).
+const RUNGS = ['haiku', 'sonnet', 'opus'];
+
+/** The rung a spawn ran on, from a tier, the `inherit` alias (opus) or a concrete model id; else null. */
+function escalationRung(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'inherit') return 'opus';
+  if (RUNGS.includes(v)) return v;
+  for (const [tier, id] of Object.entries(MODEL_IDS)) if (id === v) return tier;
+  const family = RUNGS.find((t) => v.startsWith(`claude-${t}`));
+  return family || null;
+}
+
 /** One model per project-research dimension (TRD 76-06), for new-project and new-milestone. */
 function researcherModels(cwd) {
   return Object.fromEntries(['stack', 'features', 'architecture', 'pitfalls']
@@ -404,7 +417,7 @@ function resolveModelInternal(cwd, agentType, objective, focus) {
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-function cmdResolveModel(cwd, agentType, raw, objective, focus) {
+function cmdResolveModel(cwd, agentType, raw, objective, focus, escalateFrom) {
   if (!agentType) {
     error('agent-type required');
   }
@@ -427,12 +440,23 @@ function cmdResolveModel(cwd, agentType, raw, objective, focus) {
     return;
   }
 
-  const tier = profileTier(agentModels, profile, key);
+  let tier = profileTier(agentModels, profile, key);
+  let escalation = null;
+  if (escalateFrom !== undefined) {
+    // TRD 76-07: an agent that returned `## ESCALATION REQUESTED` is re-spawned one rung above the
+    // model its attempt ran on. At the top rung there is nowhere to go: `ceiling` sends it to the human.
+    const from = escalationRung(escalateFrom);
+    if (!from) error(`--escalate-from needs a tier (haiku|sonnet|opus), inherit, or a model id; got "${escalateFrom}"`);
+    const next = RUNGS[RUNGS.indexOf(from) + 1];
+    tier = next || from;
+    escalation = { escalated_from: from, ceiling: !next };
+  }
   const model = tier === 'opus' ? 'inherit' : tier;
   // Report the tier and the concrete id alongside the alias so a resolution can
   // actually be audited (TRD 28-02) — "inherit" alone hid which model ran.
   const result = { model, profile, profile_source, agent: key, tier, model_id: MODEL_IDS[tier] || null };
   if (focus) result.focus = focus;
+  if (escalation) Object.assign(result, escalation);
   output(result, raw, model);
 }
 

@@ -327,3 +327,36 @@ describe('TRD 76-06 — per-focus tiers and the verdict floor', () => {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 });
+
+describe('TRD 76-07 — escalation re-spawns one rung up', () => {
+  function esc(from) {
+    const r = spawnSync(process.execPath, [DF_TOOLS, 'resolve-model', 'debugger', '--escalate-from', from], { cwd: REPO, encoding: 'utf8' });
+    return { status: r.status, out: r.status === 0 ? JSON.parse(r.stdout) : null, stderr: r.stderr };
+  }
+
+  test('each rung escalates to the next; opus (or inherit, or its id) is the ceiling', () => {
+    assert.deepEqual([esc('haiku').out.tier, esc('haiku').out.ceiling], ['sonnet', false]);
+    assert.deepEqual([esc('sonnet').out.tier, esc('sonnet').out.model], ['opus', 'inherit']);
+    for (const top of ['opus', 'inherit', profiles.models.opus]) {
+      const r = esc(top).out;
+      assert.equal(r.ceiling, true, top);
+      assert.equal(r.escalated_from, 'opus', top);
+    }
+    assert.equal(esc(profiles.models.haiku).out.tier, 'sonnet');
+  });
+
+  test('an unrecognised rung is refused, not guessed', () => {
+    const r = esc('gpt-9');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /--escalate-from/);
+  });
+
+  test('the orchestrators act on ESCALATION REQUESTED instead of failing it', () => {
+    const PLUGIN = path.join(__dirname, '..', '..', '..');
+    const read = (rel) => fs.readFileSync(path.join(PLUGIN, rel), 'utf8');
+    for (const rel of ['aoforge/workflows/execute-objective.md', 'skills/debug/SKILL.md', 'aoforge/workflows/diagnose-issues.md']) {
+      assert.match(read(rel), /ESCALATION REQUESTED[\s\S]*--escalate-from/, `${rel} must re-spawn one rung up`);
+    }
+    assert.match(read('agents/debugger.md'), /## ESCALATION REQUESTED/);
+  });
+});

@@ -26,7 +26,7 @@
  *   state rekey --from <old> [--to <new>] [--dry-run]
  *                                      Copy repo-keyed runtime state from a moved
  *                                      checkout's old key to its new key
- *   resolve-model <agent-type> [--focus f]  Get model for agent based on profile
+ *   resolve-model <agent-type> [--focus f] [--escalate-from t]  Get model for agent based on profile
  *   find-objective <objective>                 Find objective directory by number
  *   commit <message> [--files f1 f2]   Commit planning docs. A message starting
  *                                      with `--` is refused; with no --files the
@@ -446,8 +446,10 @@ async function main() {
     case 'resolve-model': {
       const objIdx = args.indexOf('--objective');
       const focusIdx = args.indexOf('--focus');
+      const escIdx = args.indexOf('--escalate-from');
       cmdResolveModel(cwd, args[1], raw, objIdx !== -1 ? args[objIdx + 1] : undefined,
-        focusIdx !== -1 ? args[focusIdx + 1] : undefined);
+        focusIdx !== -1 ? args[focusIdx + 1] : undefined,
+        escIdx !== -1 ? (args[escIdx + 1] || '') : undefined);
       break;
     }
 

@@ -19,7 +19,7 @@ Your job: Find the root cause through hypothesis testing, maintain debug file st
 **Core responsibilities:**
 - Investigate autonomously (user reports symptoms, you find cause)
 - Maintain persistent debug file state (survives context resets)
-- Return structured results (ROOT CAUSE FOUND, DEBUG COMPLETE, CHECKPOINT REACHED)
+- Return structured results (ROOT CAUSE FOUND, DEBUG COMPLETE, CHECKPOINT REACHED, ESCALATION REQUESTED)
 - Handle checkpoints when user input is unavoidable
 </role>
 
@@ -565,6 +565,34 @@ Orchestrator presents checkpoint to user, gets response, spawns fresh continuati
 ## CHECKPOINT REACHED
 
 See <checkpoint_behavior> section for full format.
+
+## ESCALATION REQUESTED
+
+You start on a cheaper rung and cannot change your own model (TRD 76-07). When the investigation is
+not converging at this tier — **3 hypotheses tested and eliminated with no new lead**, or the
+no-progress guard reports `stuck` — save the debug file, then return this and stop. Do not escalate on
+a single tool error (`~/.claude/aoforge/references/escalation-policy.md`). The orchestrator re-spawns
+you one rung up with this block and the debug file, so the next attempt starts from your evidence.
+
+```markdown
+## ESCALATION REQUESTED
+
+**Debug Session:** .aoforge/debug/{slug}.md
+**Trigger:** hypotheses-exhausted | no-progress-stuck
+**Attempts:** {hypotheses tested}
+
+### What was tried
+{one line per hypothesis — the test and its result}
+
+### Why it is not converging
+{the specific blocker, with the evidence}
+
+### What a higher rung should do differently
+{concrete — not "think harder"}
+```
+
+If you cannot fill in the last section, return INVESTIGATION INCONCLUSIVE instead: a bigger model
+will not find what the evidence cannot show.
 
 </structured_returns>
 

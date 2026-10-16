@@ -600,6 +600,7 @@ Return this and stop:
 **TRD:** {objective}-{trd}
 **Trigger:** tests-red-after-2 | verifier-fail | no-progress-stuck
 **Attempts:** {n}
+**Committed:** {git log lines for this TRD, or none}
 
 ### What was tried
 {one line per attempt — what changed, what the result was}
