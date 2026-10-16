@@ -580,20 +580,37 @@ function cmdStateRecordMetric(cwd, options, raw) {
   if (metricsMatch) {
     const tableHeader = metricsMatch[1];
     let tableBody = metricsMatch[2].trimEnd();
-    const newRow = `| Objective ${objective} P${job} | ${duration} | ${tasks || '-'} tasks | ${files || '-'} files |`;
+    const rowKey = `Objective ${objective} P${job}`;
+    const newRow = `| ${rowKey} | ${duration} | ${tasks || '-'} tasks | ${files || '-'} files |`;
 
-    if (tableBody.trim() === '' || tableBody.includes('None yet')) {
+    // Upsert (quick 36): a re-run for the same objective and job replaces its row, so `trd finalize`
+    // is a safe retry. The first cell is compared as an exact string; numbers are not normalised.
+    const bodyLines = tableBody.split('\n');
+    const existing = bodyLines.findIndex((line) => {
+      const cell = /^\|([^|]*)\|/.exec(line);
+      return cell !== null && cell[1].trim() === rowKey;
+    });
+    if (existing !== -1) {
+      bodyLines[existing] = newRow;
+      tableBody = bodyLines.join('\n');
+    } else if (tableBody.trim() === '' || tableBody.includes('None yet')) {
       tableBody = newRow;
     } else {
       tableBody = tableBody + '\n' + newRow;
     }
 
-    content = content.replace(metricsPattern, `${tableHeader}${tableBody}\n`);
+    // A table that ends the file keeps exactly one trailing newline: the match stops before the
+    // final `\n`, which used to survive as an extra blank line on every later write.
+    const start = metricsMatch.index;
+    const after = content.slice(start + metricsMatch[0].length);
+    content = content.slice(0, start) + `${tableHeader}${tableBody}\n` + (/^\n*$/.test(after) ? '' : after);
     fs.writeFileSync(archivePath, content, 'utf-8');
     if (store) {
-      // STATE_ARCHIVE.md is runtime in store mode; state.json carries the same row.
-      const metrics_log = [...(stateJsonOrDefaults(cwd).metrics_log || []),
-        { objective, job, duration, tasks: tasks || null, files: files || null }];
+      // STATE_ARCHIVE.md is runtime in store mode; state.json carries the same row, one per objective and job.
+      const entry = { objective, job, duration, tasks: tasks || null, files: files || null };
+      const log = stateJsonOrDefaults(cwd).metrics_log || [];
+      const at = log.findIndex((m) => m && String(m.objective) === String(objective) && String(m.job) === String(job));
+      const metrics_log = at === -1 ? [...log, entry] : log.map((m, i) => (i === at ? entry : m));
       writeStateJson(cwd, { metrics_log });
       storeOutput({ recorded: true, objective, job, duration }, raw, 'true');
       return;
@@ -670,6 +687,13 @@ function cmdStateAddDecision(cwd, options, raw) {
   const match = content.match(sectionPattern);
 
   if (match) {
+    // Idempotent (quick 36): the exact entry line already in Decisions is a no-op, so a retried
+    // `trd finalize` writes neither the archive nor state.json again. A different rationale is a
+    // different line and is added.
+    if (match[2].split('\n').some((line) => line.trimEnd() === entry)) {
+      output({ added: false, duplicate: true, decision: entry }, raw, 'false');
+      return;
+    }
     let sectionBody = match[2];
     // Remove placeholders
     sectionBody = sectionBody.replace(/None yet\.?\s*\n?/gi, '').replace(/No decisions yet\.?\s*\n?/gi, '').replace(/\*\(none yet\)\*\s*\n?/gi, '');

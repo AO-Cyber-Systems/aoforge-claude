@@ -77,6 +77,13 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   objective complete. Evidence now flags `checkpoint` per SUMMARY, counts final SUMMARYs only, lists `checkpoints` and
   `no_self_check`, and its raw output ends in a newline. Completeness needs a final SUMMARY per plan, lists
   `checkpoint_summaries` and adds the error `Plans with only a checkpoint SUMMARY`.
+- **`trd finalize` is a safe retry.** A re-run appended every decision and the metrics row to STATE_ARCHIVE.md again.
+  `state record-metric` now replaces the row for the same objective and job (and, in store mode, its `metrics_log`
+  entry), and an identical `state add-decision` is a no-op that exits 0 with `duplicate: true`. A table that ends the
+  archive no longer gains a blank line on every write. Decisions keep their rationale: `Cookie sessions: simpler than
+  JWT here` passes `--summary` and `--rationale`, and `Use https://example.com docs` stays whole. `--duration=99min`
+  is read, and `--duration` with no value (or followed by a flag) exits 1 before anything runs. A checkpoint SUMMARY is
+  refused, and `01-1` or `1-1` resolves to TRD 01-01.
 
 ### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
 

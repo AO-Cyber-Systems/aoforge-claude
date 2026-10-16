@@ -8,6 +8,11 @@
 //
 // It composes the existing verbs as subprocesses rather than re-implementing them: each verb keeps
 // its own store-mode handling, and `output()` exits, so in-process calls could not continue.
+//
+// A safe retry (quick 36): the verbs are idempotent (record-metric replaces the row for the same
+// objective and job, an identical add-decision is a no-op), so re-running after a failure or a
+// success leaves one copy of each decision and metric. A decision `Summary: rationale` passes both
+// parts; a checkpoint SUMMARY (## Progress, no ## Self-Check) is refused; `01-1` is `01-01`.
 
 const fs = require('fs');
 const path = require('path');
@@ -15,13 +20,37 @@ const { spawnSync } = require('child_process');
 const { output, error, trdKey } = require('./helpers.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
+const { isCheckpointOnlySummary } = require('./misc.cjs');
 
 const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 
-/** `76-04` -> { objective: '76', trd: '04' }; decimal objectives (`72.1-03`) keep their dot. */
+/**
+ * `76-04` -> { objective: '76', trd: '04' }; decimal objectives (`72.1-03`) keep their dot. The TRD
+ * number is zero-padded to at least two digits (`01-1` and `1-1` -> trd '01'; `01-100` stays '100').
+ */
 function parseTrdId(id) {
   const m = String(id || '').match(/^(\d+(?:\.\d+)?)-(\d+)$/);
-  return m ? { objective: m[1], trd: m[2] } : null;
+  return m ? { objective: m[1], trd: m[2].padStart(2, '0') } : null;
+}
+
+/**
+ * A SUMMARY key-decision -> { summary, rationale? }. `Summary: rationale` splits at the first colon
+ * followed by whitespace, so `Use https://example.com docs` stays whole. No such colon: all summary.
+ */
+function splitDecision(text) {
+  const s = String(text);
+  const m = /^(.+?):\s+(\S[\s\S]*)$/.exec(s);
+  if (!m) return { summary: s.trim() };
+  return { summary: m[1].trim(), rationale: m[2].trim() };
+}
+
+/** `--flag v` or `--flag=v` (planning-verbs-cli.cjs rule): '' for a flag with nothing after it. */
+function flagValue(args, flag) {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) return i + 1 < args.length ? args[i + 1] : '';
+    if (args[i].startsWith(`${flag}=`)) return args[i].slice(flag.length + 1);
+  }
+  return undefined;
 }
 
 function countList(v) {
@@ -55,14 +84,14 @@ function plan(cwd, id, { duration } = {}) {
 
   const trdText = fs.readFileSync(path.join(dir, trdFile), 'utf-8');
   const summaryText = fs.readFileSync(path.join(dir, summaryFile), 'utf-8');
+  if (isCheckpointOnlySummary(summaryText)) {
+    throw new Error(`SUMMARY for ${key} is a mid-run checkpoint (## Progress, no ## Self-Check): finish the TRD and post the final SUMMARY with \`summary post\` first`);
+  }
   const trdFm = extractFrontmatter(trdText);
   const sumFm = extractFrontmatter(summaryText);
   const tasks = (trdText.match(/<task(?:\s[^>]*)?>/g) || []).length;
   const fileCount = countList(sumFm['key-files']);
-  const decisions = asList(sumFm['key-decisions']).map((d) => {
-    const i = d.indexOf(':');
-    return i > 0 ? d.slice(0, i).trim() : d;
-  });
+  const decisions = asList(sumFm['key-decisions']).map(splitDecision);
   const requirements = asList(trdFm.requirements);
   const dur = duration || (sumFm.duration ? String(sumFm.duration) : null);
   const N = obj.objective_number;
@@ -77,7 +106,11 @@ function plan(cwd, id, { duration } = {}) {
   } else {
     skipped.push({ step: 'record-metric', reason: 'no --duration and no SUMMARY duration' });
   }
-  for (const d of decisions) steps.push({ step: 'add-decision', argv: ['state', 'add-decision', '--objective', N, '--summary', d] });
+  for (const d of decisions) {
+    const argv = ['state', 'add-decision', '--objective', N, '--summary', d.summary];
+    if (d.rationale) argv.push('--rationale', d.rationale);
+    steps.push({ step: 'add-decision', argv });
+  }
   steps.push({ step: 'record-session', argv: ['state', 'record-session', '--stopped-at', `Completed ${trdFile}`] });
   steps.push({ step: 'roadmap-progress', argv: ['roadmap', 'update-job-progress', N] });
   if (requirements.length) steps.push({ step: 'requirements', argv: ['requirements', 'mark-complete', ...requirements] });
@@ -112,8 +145,12 @@ function run(cwd, planned) {
 
 function cmdTrdFinalize(cwd, args, raw) {
   const id = args[2];
-  const durIdx = args.indexOf('--duration');
-  const duration = durIdx !== -1 ? args[durIdx + 1] : undefined;
+  // Checked before plan(), so a bad value runs nothing, not even a dry run. The flag guard consumes
+  // the token after `--duration` even when it is a flag, hence the `-` check.
+  const duration = flagValue(args, '--duration');
+  if (duration !== undefined && (duration === '' || duration.startsWith('-'))) {
+    error('trd finalize: --duration needs a value (e.g. --duration 12min)');
+  }
   const dryRun = args.includes('--dry-run');
   let planned;
   try {
@@ -136,4 +173,4 @@ function cmdTrdFinalize(cwd, args, raw) {
   output(result, raw, text);
 }
 
-module.exports = { parseTrdId, plan, run, cmdTrdFinalize };
+module.exports = { parseTrdId, plan, run, cmdTrdFinalize, splitDecision };
