@@ -195,6 +195,7 @@ const PROBES = {
   'config-set': ['config-set', 'mode', 'yolo'],
   'roadmap get-objective': ['roadmap', 'get-objective', '1'],
   'roadmap analyze': ['roadmap', 'analyze'],
+  'roadmap digest': ['roadmap', 'digest'],
   'roadmap update-job-progress': ['roadmap', 'update-job-progress', '1'],
   'requirements mark-complete': ['requirements', 'mark-complete', 'PROBE-01'],
   'objective next-decimal': ['objective', 'next-decimal', '1'],

@@ -170,7 +170,7 @@ const COMMANDS = {
     summary: 'List objectives with their on-disk status.',
   },
   'roadmap': {
-    usage: 'aof-tools roadmap <get-objective <N>|analyze|update-job-progress <N>> [--raw]',
+    usage: 'aof-tools roadmap <get-objective <N>|analyze|digest|update-job-progress <N>> [--raw]',
     summary: 'Read or update ROADMAP.md.',
     mutates: true,
   },

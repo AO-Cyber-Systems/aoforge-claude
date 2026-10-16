@@ -83,6 +83,7 @@ const FLAG_SPEC = deepFreeze({
     subcommands: {
       'get-objective': {},
       analyze: {},
+      digest: {},
       'update-job-progress': {},
     },
   },

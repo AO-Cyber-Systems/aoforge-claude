@@ -26,7 +26,8 @@ Idempotent: running twice produces zero second-run changes.
 </objective>
 
 <execution_context>
-@.aoforge/ROADMAP.md
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
 </execution_context>
 
 <process>

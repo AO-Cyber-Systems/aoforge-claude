@@ -249,7 +249,7 @@ const {
   cmdObjectiveAdd, cmdObjectiveInsert, cmdObjectiveRemove, cmdObjectiveComplete,
 } = require('./lib/objective.cjs');
 const {
-  cmdRoadmapGetObjective, cmdRoadmapAnalyze, cmdRoadmapUpdateJobProgress,
+  cmdRoadmapGetObjective, cmdRoadmapAnalyze, cmdRoadmapDigest, cmdRoadmapUpdateJobProgress,
   cmdMilestoneComplete, cmdProgressRender,
 } = require('./lib/roadmap.cjs');
 const { cmdTemplateSelect, cmdTemplateFill } = require('./lib/templates.cjs');
@@ -817,6 +817,8 @@ async function main() {
         cmdRoadmapGetObjective(cwd, args[2], raw);
       } else if (subcommand === 'analyze') {
         cmdRoadmapAnalyze(cwd, raw);
+      } else if (subcommand === 'digest') {
+        cmdRoadmapDigest(cwd, raw);
       } else if (subcommand === 'update-job-progress') {
         cmdRoadmapUpdateJobProgress(cwd, args[2], raw);
       } else {

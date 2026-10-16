@@ -111,8 +111,7 @@ Task(
 **Directory:** ${QUICK_DIR}
 **Description:** ${DESCRIPTION}
 
-**Project State:**
-@.aoforge/STATE.md
+**Project State:** run `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` (the digest; `state get` prints the full file).
 
 </planning_context>
 
@@ -303,7 +302,7 @@ Task(
 Execute quick task ${next_num}.
 
 Job: @${QUICK_DIR}/${next_num}-JOB.md
-Project state: @.aoforge/STATE.md
+Project state: run `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` if you need it (a Task prompt does not expand @ references).
 
 <repo_and_base>
 Before anything else, prove you are in the right repository on the right base:

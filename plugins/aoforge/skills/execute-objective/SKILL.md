@@ -36,8 +36,10 @@ Objective: $ARGUMENTS
 **Flags:**
 - `--gaps-only` — Execute only gap closure plans (plans with `gap_closure: true` in frontmatter). Use after verify-work creates fix plans.
 
-@.aoforge/ROADMAP.md
-@.aoforge/STATE.md
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 </context>
 
 <process>

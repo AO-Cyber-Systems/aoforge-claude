@@ -27,17 +27,18 @@ Manage parallel feature development using git worktrees. Routes by first argumen
 
 <execution_context>
 @~/.claude/aoforge/references/ui-brand.md
-@~/.claude/aoforge/workflows/workstreams-setup.md
-@~/.claude/aoforge/workflows/workstreams-status.md
-@~/.claude/aoforge/workflows/workstreams-merge.md
-@~/.claude/aoforge/workflows/workstreams-run.md
+One workflow is loaded after routing, never all of them: `Read` the `workflow` path the route returns (expand `~`), then follow it.
+The routes are ~/.claude/aoforge/workflows/workstreams-setup.md (setup), ~/.claude/aoforge/workflows/workstreams-status.md (status),
+~/.claude/aoforge/workflows/workstreams-merge.md (merge) and ~/.claude/aoforge/workflows/workstreams-run.md (run).
 </execution_context>
 
 <context>
 Subcommand: $ARGUMENTS
 
-@.aoforge/ROADMAP.md
-@.aoforge/STATE.md
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 @.aoforge/config.json
 </context>
 
@@ -50,7 +51,7 @@ ROUTE_JSON=$(node ~/.claude/aoforge/bin/aof-tools.cjs skill-route workstreams $A
 
 Parse JSON. If `error`, display `usage` and stop.
 
-**2. Follow resolved workflow** based on `subcommand`:
+**2. Read the resolved workflow (the `workflow` path, `~` expanded) with the Read tool, then follow it** based on `subcommand`:
 - `setup` → workstreams-setup.md with residual args
 - `status` → workstreams-status.md
 - `merge` → workstreams-merge.md

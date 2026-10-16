@@ -31,7 +31,8 @@ Cost target: ~2k tokens (skill body + aof-tools output). For changes that exceed
 </execution_context>
 
 <context>
-@.aoforge/STATE.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 $ARGUMENTS
 </context>
 
