@@ -137,6 +137,7 @@ See: .planning/PROJECT.md (updated 2026-10-08 after v1.5 milestone)
 | 36 | Verb correctness: roadmap-coverage on the shared parser, checkpoint SUMMARYs not done, trd finalize safe retry, planning verbs write the running worktree | 2026-10-16 | 98948a16 | Done | [36-verb-correctness-roadmap-coverage-trd-fi](./quick/36-verb-correctness-roadmap-coverage-trd-fi/) |
 | 37 | Sonnet 5.5 cache rate 0.05x, 3.1.0 and pack 1.0.0 dated 2026-10-16, release dry run + explicit permissions + tag-rules inspector | 2026-10-16 | 51c29758 | Done | [37-sonnet-cache-rate-release-dates-release-](./quick/37-sonnet-cache-rate-release-dates-release-/) |
 | 38 | Flutter projects with a web platform select the web pack (soft_depends); web pack executor browser self-check | 2026-10-16 | 6e29a60a | Done | [38-flutter-web-selects-web-pack-web-pack-ex](./quick/38-flutter-web-selects-web-pack-web-pack-ex/) |
+| 39 | Core neutrality sweep: web/Flutter procedure leaves verify-work, checkpoints, templates; guard scans all of core and browser_ tools | 2026-10-16 | 68dab58c | Done | [39-move-remaining-web-and-flutter-procedure](./quick/39-move-remaining-web-and-flutter-procedure/) |
 
 ## Accumulated Context
 
