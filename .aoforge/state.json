@@ -1,10 +1,10 @@
 {
-  "current_objective": "75",
-  "current_job": 5,
-  "total_jobs": 5,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
-  "last_activity": "2026-10-10",
+  "current_objective": "78",
+  "current_job": 1,
+  "total_jobs": 12,
+  "progress_pct": 98,
+  "status": "executing",
+  "last_activity": "2026-10-16",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -1705,6 +1705,11 @@
       "objective": "75",
       "summary": "EST-11 not met on 68-71 (72 unscored); EST-09 met at 90/92 = 0.97826; 4 todos completed, 9 re-scoped, 1 follow-up opened",
       "rationale": "The rule pre-registered before any scoring decided it (a five-objective criterion cannot be met by four scored objectives), and nothing was tuned or backfilled."
+    },
+    {
+      "objective": "78",
+      "summary": "78-01: doctor check 27 and validate W066/W067 KEPT as report-only, naming AOForge 3.0.x or the manual step (never --only 0012/0013); legacy-only W066 is validate's one broken result; new W069 legacy-claude-md-block (W068 is taken on main)",
+      "rationale": null
     }
   ],
   "blockers": [
