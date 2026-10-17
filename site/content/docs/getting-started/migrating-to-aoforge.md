@@ -1,7 +1,7 @@
 ---
 title: "Migrating to AOForge"
 weight: 15
-lede: "3.0.0 renames the plugin. What moves by itself, what you do, and how to check it."
+lede: "3.0.0 renamed the plugin and 3.1.0 stopped reading the old names. What moves by itself, what you do, and how to check it."
 ---
 
 <!-- rename-guard:ignore-start -->

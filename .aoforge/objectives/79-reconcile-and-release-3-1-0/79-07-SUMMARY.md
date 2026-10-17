@@ -32,5 +32,5 @@ metrics:
 # Objective 79 TRD 07: CLAUDE.md within main's context budget, and the guides on 3.1 facts Summary
 
 ## Progress
-- [x] Task 1: CLAUDE.md on main's structure, within budget, carrying the 3.1 facts — (this commit)
-- [ ] Task 2: USER-GUIDE, the migration guide and site pages on 3.1 facts — next step: run the TRD's sweep (`rg -n -e "for one release" -e "only 0012" ... docs/USER-GUIDE.md docs/MIGRATING-TO-AOFORGE.md site/content/docs`), rewrite each present-tense shim claim to the 78-12 decision, then compare the migration guide body with its site mirror by node script and run `validate docs --raw`
+- [x] Task 1: CLAUDE.md on main's structure, within budget, carrying the 3.1 facts — fe0efcac
+- [x] Task 2: USER-GUIDE, the migration guide and site pages on 3.1 facts — (this commit)
