@@ -8,6 +8,6 @@ status: checkpoint
 # Objective 78 TRD 09: GitHub label lookups use one label; an un-rebranded repository stops with the fix Summary
 
 ## Progress
-- [x] Task 1: RED + GREEN — the rebrand check module — (this commit)
-- [ ] Task 2: RED + GREEN — store and mirror lookups — next step: rewrite the 72-11 twin cases in gh-issue.test.cjs (SCAN_LISTS 1, twin -> refusal), gh-markers.legacy.test.cjs section 7 and gh-outbox.test.cjs to cases 1, 2, 3, 5, add the `repos/o/r/labels/<name>` GET route to __fixtures__/gh-fake.cjs, commit RED, then call checkRebranded in gh-issue/gh-cache/gh-hierarchy/gh-outbox-flush
-- [ ] Task 3: RED + GREEN — checks lookup, in-progress label, gh-body helpers removed
+- [x] Task 1: RED + GREEN — the rebrand check module — 1f6c8dc4 (RED), 5abc90b0 (GREEN)
+- [x] Task 2: RED + GREEN — store and mirror lookups — a0a721eb (RED), (this commit)
+- [ ] Task 3: RED + GREEN — checks lookup, in-progress label, gh-body helpers removed — next step: flip gh-markers.legacy.test.cjs section 8 and planning-verbs-pr.test.cjs IN_PROGRESS_FORMS to `[aoforge:in-progress]`, add a gh-check-cli findObjectiveIssue twin case (gh-checks.legacy.test.cjs) and a gh-body "no twin helpers" case, commit RED, then switch gh-check-cli/planning-verbs to checkRebranded / `[label]` and delete the gh-body label helpers

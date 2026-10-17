@@ -737,7 +737,7 @@ describe('findOrCreateObjectiveIssue: create details', () => {
     assert.ok(!create.includes('--milestone'));
     assert.equal(fake.issues[0].milestone, null);
     assert.match(r.warnings.join('\n'), /no milestone/);
-    assert.equal(callsMatching('api').length, 0, 'no milestone API call');
+    assert.deepEqual(callsMatching('api'), [TWIN_GET], 'no milestone API call (the one api call is the 78-09 twin check)');
     assert.deepEqual(fake.milestones, []);
   });
 

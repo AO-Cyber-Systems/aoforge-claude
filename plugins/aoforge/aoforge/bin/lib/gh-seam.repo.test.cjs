@@ -70,6 +70,9 @@ const GUARDED = [
   // through gh-client.ghWrite, like the setup apply), so it is guarded but not in NO_DIRECT_WRITE. It spawns neither gh
   // nor git: wiki pushes and the local `git mv` go through gh-wiki's git seam.
   'gh-rebrand.cjs',
+  // objective 78 (TRD 78-09): the "is this repository rebranded" check. One label GET through gh-client.ghRead; it
+  // spawns nothing and never writes.
+  'gh-legacy-labels.cjs',
   // objective 51 (TRD 51-03): the backfill core. Pure: it reads local files and the journal, returns ops, and never
   // spawns gh or git, enqueues, flushes or writes to GitHub.
   'gh-backfill.cjs',
@@ -90,6 +93,7 @@ const NO_DIRECT_WRITE = [
   'gh-setup-cli.cjs',
   'gh-backfill.cjs', // objective 51 (TRD 51-03)
   MIGRATION_0011, // objective 51 (TRD 51-08)
+  'gh-legacy-labels.cjs', // objective 78 (TRD 78-09): a detector, reads only
   ...PLANNING_MODULES,
 ];
 

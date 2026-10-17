@@ -17,6 +17,7 @@ const path = require('path');
 const gh = require('./gh.cjs');
 const client = require('./gh-client.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 
 const MAPPING = (root) => path.join(root, '.aoforge', '.gh-mapping.json');
 
@@ -126,11 +127,28 @@ describe('gh sync [--all|<objective>]', () => {
     assert.deepStrictEqual(res.results.map((x) => x.id), ['2', '2.1', '3']);
     assert.ok(res.results.every((x) => x.ok === true && Number.isInteger(x.issue_number)), JSON.stringify(res.results));
     assert.strictEqual(res.failed, 0);
-    // One marker scan per run: one list per label form, the default label and its legacy twin (TRD 72-11).
-    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 2, 'one marker scan per run');
+    // One marker scan per run: one list, under the AOForge label only (TRD 78-09 removed the 72-11 twin list).
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 1, 'one marker scan per run');
     assert.strictEqual(callsOf(fake, 'label', 'create').length, 1, 'one label bootstrap per run');
     const mapping = json(fs.readFileSync(MAPPING(root), 'utf-8'));
     assert.deepStrictEqual(Object.keys(mapping.objectives).sort(), ['2', '2.1', '3']);
+  });
+
+  test('1b (78-09): the pre-rename objective label still exists: every objective fails with the fix, nothing is created, exit 1', () => {
+    install();
+    fake.seedIssue({ title: '[Objective 2] old', body: 'old', labels: [`${LEGACY.markerNs}:objective`] });
+    const r = capture(() => gh.cmdGhSync(root, ['--all'], false));
+    assert.strictEqual(r.code, 1, r.stdout);
+    const res = json(r.stdout);
+    assert.strictEqual(res.failed, 3, JSON.stringify(res.results));
+    for (const x of res.results) {
+      assert.strictEqual(x.ok, false);
+      assert.strictEqual(x.error, 'legacy-namespace');
+      assert.match(x.message, /aof-tools gh rebrand --apply/, 'each failure names the fix');
+    }
+    assert.strictEqual(callsOf(fake, 'issue', 'create').length, 0, 'no duplicate issue');
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 0, 'the AOForge label alone is not listed');
+    assert.strictEqual(fake.issues.length, 1);
   });
 
   test('2: bare gh sync behaves like --all', () => {
@@ -139,7 +157,7 @@ describe('gh sync [--all|<objective>]', () => {
     assert.strictEqual(r.code, 0, r.stderr);
     const res = json(r.stdout);
     assert.deepStrictEqual(res.results.map((x) => x.id), ['2', '2.1', '3']);
-    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 2, 'one scan: the default label and its legacy twin');
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 1, 'one scan, under the AOForge label only');
   });
 
   test('3: one failing objective does not stop the rest; the failure is listed and the exit is 1', () => {
@@ -166,7 +184,7 @@ describe('gh sync [--all|<objective>]', () => {
     assert.strictEqual(r.stderr.trim().split('\n').length, 1, 'exactly one deprecation line');
     const res = json(r.stdout);
     assert.deepStrictEqual(res.results.map((x) => x.id), ['2', '2.1', '3']);
-    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 2, 'one scan: the default label and its legacy twin');
+    assert.strictEqual(callsOf(fake, 'issue', 'list').length, 1, 'one scan, under the AOForge label only');
   });
 
   test('6: gh sync --help prints usage on stdout, exits 0 and makes no gh calls', () => {
