@@ -35,7 +35,10 @@ const path = require('path');
 const crypto = require('crypto');
 const { planningRoot, planningRel } = require('./compat.cjs');
 const { NAMES, SHIM_RELEASE } = require('./legacy-names.cjs');
-const { isLegacyPlanning, legacyLayoutMessage, MIGRATION_GUIDE } = require('./planning-layout.cjs');
+
+// planning-layout.cjs is loaded on first use by apply/check/--only, never at require time: repoKey reaches the status
+// line through estimate-run-store.cjs, and that path must keep needing only compat.cjs and legacy-names.cjs.
+const layout = () => require('./planning-layout.cjs');
 
 const STAMP_KEY = NAMES.configKey;
 
@@ -343,7 +346,7 @@ function normalizeOnly(only) {
 /** The one line `--only <id>` gives for a retired id the registry no longer carries. */
 function retiredMessage(id) {
   return `migration ${id} (${RETIRED_MIGRATIONS[id]}) was retired after ${NAMES.product} ${SHIM_RELEASE}: `
-    + `run it with ${NAMES.product} ${SHIM_RELEASE}, or do it by hand (${MIGRATION_GUIDE}, "Upgrading from 2.x")`;
+    + `run it with ${NAMES.product} ${SHIM_RELEASE}, or do it by hand (${layout().MIGRATION_GUIDE}, "Upgrading from 2.x")`;
 }
 
 function assertKnownIds(registry, only) {
@@ -362,7 +365,7 @@ function assertKnownIds(registry, only) {
  * `legacy_layout` and in `failed`, so a caller that reads only `failed` still treats the run as not done.
  */
 function legacyLayoutReport(root, from, to) {
-  const message = legacyLayoutMessage(root);
+  const message = layout().legacyLayoutMessage(root);
   const report = emptyReport(from, to);
   report.failed.push({ id: 'layout', phase: 'layout', error: message });
   report.legacy_layout = message;
@@ -427,7 +430,7 @@ function check({ projectRoot, userHome, pluginVersion, registryDir, only, option
   const ids = normalizeOnly(only);
   let registry = loadRegistry({ registryDir });
   assertKnownIds(registry, ids);
-  if (isLegacyPlanning(root)) return legacyLayoutReport(root, null, pluginVersion);
+  if (layout().isLegacyPlanning(root)) return legacyLayoutReport(root, null, pluginVersion);
   if (ids) registry = registry.filter((m) => ids.includes(m.id));
 
   const conf = readConfig(root);
@@ -470,7 +473,7 @@ function apply({
   const ids = normalizeOnly(only);
   const registry = loadRegistry({ registryDir });
   assertKnownIds(registry, ids);
-  if (isLegacyPlanning(root)) return legacyLayoutReport(root, null, pluginVersion);
+  if (layout().isLegacyPlanning(root)) return legacyLayoutReport(root, null, pluginVersion);
 
   const initialConf = readConfig(root);
   const stamp = readStamp(root);
