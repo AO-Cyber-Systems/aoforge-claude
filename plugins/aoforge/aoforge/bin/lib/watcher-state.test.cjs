@@ -485,6 +485,11 @@ describe('watcher-state — interimDaemon() reports a daemon AOForge 3.0.0 start
     assert.equal(lib.interimDaemon(), null, 'a non-numeric pid');
     fs.writeFileSync(interimPidFile(h.dir), JSON.stringify(null));
     assert.equal(lib.interimDaemon(), null, 'JSON null');
+    // kill(0, 0) and kill(-n, 0) probe process groups and would always read "live": never probe them.
+    for (const pid of [0, -1, 1.5]) {
+      fs.writeFileSync(interimPidFile(h.dir), JSON.stringify({ pid, version: '3.0.0' }));
+      assert.equal(lib.interimDaemon(), null, `pid ${pid} is not a process`);
+    }
   });
 
   test('14e. with AOFORGE_HANDOFF_PID_FILE set, nothing in the home is read -> null', () => {
