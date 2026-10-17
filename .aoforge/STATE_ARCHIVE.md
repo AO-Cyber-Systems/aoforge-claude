@@ -633,6 +633,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 79]: 79-01: pre-rename runtime leftovers on this machine (.devflow-handoff/, .aoforge/.devflow-notices.json, objective 37's .devflow-handoff/) are excluded in .git/info/exclude; .gitignore keeps no legacy line
 - [Objective 79]: 79-02: compat references are resolved by module (lexer plus regex), not by name; reconcile-guard.repo.test.cjs fails on a compat export that does not exist, on the five removed names and on a tracked pre-rename planning path
 - [Objective 79]: 79-03: pre-bash one-process dispatch is equivalent to the five spawned hooks on a 51-case corpus and two five-call sequences; no hook changed; a dispatcher without gate-interactive diverges on the 6 gated interactive cases
+- [Objective 79]: 79-04: quick 36's cross-layout worktree cases are reworked onto a same-layout (.aoforge/) worktree; the pre-rename worktree is proven refused in planning-verbs-worktree.legacy.test.cjs. No resolver or compat change.
 
 ## Performance Metrics
 
@@ -862,3 +863,4 @@ STATE.md stays lean; this file grows over time.
 | Objective 79 P01 | 24min | 3 tasks | 19 files |
 | Objective 79 P02 | 12min | 3 tasks | 2 files |
 | Objective 79 P03 | 15min | 3 tasks | 2 files |
+| Objective 79 P04 | 10min | 2 tasks | 4 files |
