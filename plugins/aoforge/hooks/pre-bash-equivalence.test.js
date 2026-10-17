@@ -27,6 +27,8 @@
 //  1. registration: hooks.json registers pre-bash.js once for PreToolUse `Bash`; none of the five dispatched hooks
 //     is registered directly on a matcher that fires for Bash; guard-no-progress's matcher fires on every tool but
 //     Bash (Claude Code's matcher rule, __fixtures__/claude-matcher.js)
+//  1b. no hook command fires twice for one event and tool (hooks.json has no duplicate registration), with a
+//      synthetic doubled registration as the sensitivity control
 //  2. equivalence, one test per CORPUS entry: dispatcher vs chain give equal
 //     {exit, decision, reasons (set), context, text, stderr lines, handoffs, guard, overrideLeft}, the decision is the
 //     one the corpus entry expects (and the reason count, where given), and the guard counted the call once
@@ -164,6 +166,28 @@ async function compareCase(c, { dispatcherHooksDir = HOOKS_DIR } = {}) {
   }
 }
 
+// Tool events match on the tool name; the others fire every group they list.
+const TOOL_EVENTS = new Set(['PreToolUse', 'PostToolUse', 'PostToolUseFailure', 'PermissionRequest']);
+const PROBE_TOOLS = ['Bash', 'BashOutput', 'Read', 'Edit', 'Write', 'MultiEdit', 'Skill', 'Task', 'mcp__gopls__x'];
+
+/** `<event>(<tool>): <command>` for every command that would run twice for one event (and tool). */
+function duplicateRegistrations(hooks) {
+  const dups = [];
+  for (const [event, groups] of Object.entries(hooks)) {
+    for (const tool of TOOL_EVENTS.has(event) ? PROBE_TOOLS : [null]) {
+      const seen = new Set();
+      for (const g of groups) {
+        if (tool !== null && !matcherFires(g.matcher, tool)) continue;
+        for (const h of g.hooks || []) {
+          if (seen.has(h.command)) dups.push(`${event}${tool ? `(${tool})` : ''}: ${h.command}`);
+          seen.add(h.command);
+        }
+      }
+    }
+  }
+  return [...new Set(dups)];
+}
+
 function divergence(r) {
   return `${r.id}: dispatcher ${JSON.stringify(r.dispatcher, null, 2)}\nchain ${JSON.stringify(r.chain, null, 2)}`;
 }
@@ -193,6 +217,16 @@ describe('pre-bash equivalence: registration', () => {
     assert.ok(!matcherFires(guard[0].matcher, 'Bash'), 'its matcher excludes Bash');
     const others = ['Read', 'Edit', 'Write', 'BashOutput', 'Monitor', 'Task', 'Skill', 'mcp__gopls__x'];
     assert.deepEqual(others.filter((t) => !matcherFires(guard[0].matcher, t)), [], 'and only Bash');
+  });
+
+  test('1b. no hook command fires twice for one event and tool (hooks.json has no duplicate registration)', () => {
+    const hooks = JSON.parse(fs.readFileSync(path.join(HOOKS_DIR, 'hooks.json'), 'utf8')).hooks;
+    assert.deepEqual(duplicateRegistrations(hooks), []);
+    // Sensitivity control: the check finds a doubled tool registration and a doubled plain one.
+    assert.deepEqual(duplicateRegistrations({
+      PreToolUse: [{ matcher: 'Bash', hooks: [{ command: 'a' }] }, { matcher: '*', hooks: [{ command: 'a' }] }],
+      Stop: [{ hooks: [{ command: 'x' }, { command: 'x' }] }],
+    }), ['PreToolUse(Bash): a', 'Stop: x']);
   });
 });
 
