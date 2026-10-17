@@ -20,35 +20,75 @@
  *     caller that writes the result never writes on the malformed path.
  *   - `v` is the TEMPLATE version (the template's `template_version`), not the plugin version.
  *
- * Pre-rename markers (TRD 72-09, INST-03): until the shims go (legacy-names SHIM_REMOVAL) a block under
- * the legacy tag (LEGACY.blockTag) is read exactly like an AOFORGE one, so an upsert replaces it in place
- * and never adds a second block. `read` reports which tag it found as `tag`; `render` writes only
- * NAMES.blockTag, and `isStale` is true for any block under the legacy tag. One block under each tag is
- * the ordinary "multiple blocks" error.
+ * Pre-rename markers (objective 78, TRD 78-08, SC-2/SC-4): a block is read only under NAMES.blockTag. A
+ * text holding a START marker under the pre-rename tag (LEGACY_START_RE, the same pattern as
+ * planning-layout's hasLegacyBlockMarker) is refused, never parsed: `read`, and so `upsert` and `isStale`
+ * on text, throws ManagedBlockError with code ELEGACYBLOCK whose message is the W069 text
+ * (planning-layout.legacyBlockMessage for the caller's `label`: the problem, then `fix:` and the fix) and
+ * whose `fix` is the fix. No writer can therefore add a second block beside it. Moving such a block was
+ * AOForge 3.0.x's job (migration 0014, the global upgrade); 3.1 names the fix instead.
  *
- * Deliberately generic: no CLAUDE.md knowledge lives here (objective 38 reuses it). Its only
- * dependencies are ./legacy-names.cjs and ./text-escape.cjs (neither requires anything), which
- * sync-runtime's test copies into its fake plugin root beside it (36-06).
+ * Deliberately generic: no CLAUDE.md knowledge lives here beyond the default label (objective 38 reuses
+ * it). Its only eager dependencies are ./legacy-names.cjs and ./text-escape.cjs (neither requires
+ * anything), which sync-runtime's test copies into its fake plugin root beside it (36-06).
+ * ./planning-layout.cjs is required lazily, only on the refusal path; without it (a copied closure) the
+ * refusal carries a built-in one-line text.
  */
 
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 
-// Capturing alternation of both block tags: group 1 of every marker regex is the tag found.
-const TAGS = `(${escapeRegExp(NAMES.blockTag)}|${escapeRegExp(LEGACY.blockTag)})`;
+const TAG = escapeRegExp(NAMES.blockTag);
 
-const START_RE = new RegExp(`<!--\\s*${TAGS}:START\\b([^>]*?)\\s*-->`, 'g');
-const END_RE = new RegExp(`<!--\\s*${TAGS}:END\\s*-->`, 'g');
+// Group 1 of the START regexes is the marker's attribute text.
+const START_RE = new RegExp(`<!--\\s*${TAG}:START\\b([^>]*?)\\s*-->`, 'g');
+const END_RE = new RegExp(`<!--\\s*${TAG}:END\\s*-->`, 'g');
 const V_ATTR_RE = /(?:^|\s)v=([^\s>]+)/;
 const SRC_ATTR_RE = /(?:^|\s)src=([^\s>]+)/;
-const SINGLE_START_RE = new RegExp(`^<!--\\s*${TAGS}:START\\b([^>]*?)\\s*-->$`);
+const SINGLE_START_RE = new RegExp(`^<!--\\s*${TAG}:START\\b([^>]*?)\\s*-->$`);
 const ATTR_VALUE_RE = /^[^\s>]+$/;
 
+// A START marker under the pre-rename tag. A detector only: such a block is refused, never read. Same
+// pattern as planning-layout's LEGACY_BLOCK_START_RE (managed-block.legacy.test pins them equal). No `g`
+// flag, so `test` keeps no state between calls.
+const LEGACY_START_RE = new RegExp(`<!--\\s*${escapeRegExp(LEGACY.blockTag)}:START\\b`);
+const LEGACY_BLOCK_CODE = 'ELEGACYBLOCK';
+const DEFAULT_LABEL = 'CLAUDE.md';
+
 class ManagedBlockError extends Error {
-  constructor(message) {
+  /**
+   * @param {string} message
+   * @param {{code?: string, fix?: string}} [extra]  ELEGACYBLOCK refusals carry `code` and `fix`
+   */
+  constructor(message, { code, fix } = {}) {
     super(message);
     this.name = 'ManagedBlockError';
+    if (code) this.code = code;
+    if (fix) this.fix = fix;
   }
+}
+
+/**
+ * The W069 text for `label`: planning-layout.legacyBlockMessage, required lazily so that loading this
+ * module never loads planning-layout. When it is absent (sync-runtime's fixed lib closure), a built-in
+ * one-line text.
+ * @returns {{message: string, fix: string}}
+ */
+function legacyBlockText(label) {
+  try {
+    return require('./planning-layout.cjs').legacyBlockMessage(label);
+  } catch (err) {
+    if (!err || err.code !== 'MODULE_NOT_FOUND') throw err;
+    return {
+      message: `${label} holds a managed block under the pre-rename ${LEGACY.blockTag} markers, which ${NAMES.product} no longer reads`,
+      fix: `rename both markers to ${NAMES.blockTag}`,
+    };
+  }
+}
+
+function legacyBlockError(label) {
+  const { message, fix } = legacyBlockText(label);
+  return new ManagedBlockError(`${message}; fix: ${fix}`, { code: LEGACY_BLOCK_CODE, fix });
 }
 
 function metaFromAttrs(attrs) {
@@ -59,13 +99,13 @@ function metaFromAttrs(attrs) {
 }
 
 /**
- * Parse a single START marker string. Returns `{v, src, legacy}` or null when the string is not a
- * START marker (under either tag). A marker without `v=` is legacy.
+ * Parse a single START marker string. Returns `{v, src, legacy}` or null when the string is not an
+ * AOFORGE START marker. A marker without `v=` is legacy (the pre-v1 format, not the rename).
  */
 function parseStartMarker(marker) {
   if (typeof marker !== 'string') return null;
   const m = SINGLE_START_RE.exec(marker.trim());
-  return m ? metaFromAttrs(m[2]) : null;
+  return m ? metaFromAttrs(m[1]) : null;
 }
 
 function allMatches(re, text) {
@@ -79,20 +119,24 @@ function allMatches(re, text) {
 /**
  * Locate the managed block in `text`.
  *
- * @returns {null | {start:number, end:number, content:string, meta:{v, src, legacy}, tag:string}}
+ * @param {string} text
+ * @param {{label?: string}} [opts]  `label` names the file in an ELEGACYBLOCK refusal (default CLAUDE.md)
+ * @returns {null | {start:number, end:number, content:string, meta:{v, src, legacy}}}
  *   `start` is the index of the START marker, `end` the index just past the END marker.
  *   `content` is the text between the markers minus exactly one leading and one trailing newline
- *   (`\n` or `\r\n`). `tag` is the START marker's tag: NAMES.blockTag, or LEGACY.blockTag for a block
- *   written before the rename.
- * @throws {ManagedBlockError} on more than one START (either tag), or a START with no END after it.
+ *   (`\n` or `\r\n`).
+ * @throws {ManagedBlockError} code ELEGACYBLOCK when the text holds a START marker under the pre-rename
+ *   tag (checked first, so it wins over every other error); otherwise on more than one START, or a START
+ *   with no END after it.
  */
-function read(text) {
+function read(text, { label = DEFAULT_LABEL } = {}) {
   if (typeof text !== 'string') throw new TypeError('managed-block read: text must be a string');
+  if (LEGACY_START_RE.test(text)) throw legacyBlockError(label);
   const starts = allMatches(START_RE, text);
   if (starts.length === 0) return null; // an END with no START is not a block
   if (starts.length > 1) {
     throw new ManagedBlockError(
-      `multiple ${NAMES.blockTag} blocks (${starts.length} START markers, legacy ${LEGACY.blockTag} ones included); refusing to edit`,
+      `multiple ${NAMES.blockTag} blocks (${starts.length} START markers); refusing to edit`,
     );
   }
   const s = starts[0];
@@ -100,7 +144,7 @@ function read(text) {
   const endRx = new RegExp(END_RE.source, 'g');
   endRx.lastIndex = innerStart; // only an END after the START closes it
   const e = endRx.exec(text);
-  if (!e) throw new ManagedBlockError(`unterminated ${s[1]} block (START marker without a following END)`);
+  if (!e) throw new ManagedBlockError(`unterminated ${NAMES.blockTag} block (START marker without a following END)`);
 
   let content = text.slice(innerStart, e.index);
   if (content.startsWith('\r\n')) content = content.slice(2);
@@ -108,7 +152,7 @@ function read(text) {
   if (content.endsWith('\r\n')) content = content.slice(0, -2);
   else if (content.endsWith('\n')) content = content.slice(0, -1);
 
-  return { start: s.index, end: e.index + e[0].length, content, meta: metaFromAttrs(s[2]), tag: s[1] };
+  return { start: s.index, end: e.index + e[0].length, content, meta: metaFromAttrs(s[1]) };
 }
 
 function attrValue(name, value, required) {
@@ -148,16 +192,17 @@ function appendSeparator(text) {
  * @param {string} text
  * @param {string} content
  * @param {{v:string, src?:string}} meta
- * @param {{position?: 'append'|'prepend'}} [opts]
- * @throws {ManagedBlockError} when the existing text is malformed (rethrown from read)
+ * @param {{position?: 'append'|'prepend', label?: string}} [opts]  `label` as for read
+ * @throws {ManagedBlockError} when the existing text is malformed or holds a pre-rename block (rethrown
+ *   from read)
  */
-function upsert(text, content, meta, { position = 'append' } = {}) {
+function upsert(text, content, meta, { position = 'append', label } = {}) {
   if (typeof text !== 'string') throw new TypeError('managed-block upsert: text must be a string');
   if (position !== 'append' && position !== 'prepend') {
     throw new ManagedBlockError(`upsert: position must be 'append' or 'prepend' (got ${JSON.stringify(position)})`);
   }
   const block = render(content, meta);
-  const existing = read(text); // throws on malformed; never falls through to a second block
+  const existing = read(text, { label }); // throws on malformed or pre-rename; never adds a second block
   if (existing) return text.slice(0, existing.start) + block + text.slice(existing.end);
   if (text === '') return `${block}\n`;
   if (position === 'prepend') return `${block}\n\n${text}`;
@@ -181,14 +226,13 @@ function compareVersions(a, b) {
 }
 
 /**
- * True when the block is legacy (unversioned, or under the pre-rename tag) or its `v` is lower than
- * `ver`. Accepts a block object (from `read`) or raw text. No block → false (there is nothing stale to
- * rewrite).
+ * True when the block is legacy (unversioned, the pre-v1 marker) or its `v` is lower than `ver`. Accepts
+ * a block object (from `read`) or raw text (read, so a pre-rename block throws ELEGACYBLOCK). No block →
+ * false (there is nothing stale to rewrite).
  */
 function isStale(blockOrText, ver) {
   const block = typeof blockOrText === 'string' ? read(blockOrText) : blockOrText;
   if (!block) return false;
-  if (block.tag === LEGACY.blockTag) return true;
   if (!block.meta || block.meta.legacy || block.meta.v == null) return true;
   return compareVersions(block.meta.v, ver) < 0;
 }
@@ -203,4 +247,6 @@ module.exports = {
   ManagedBlockError,
   START_RE,
   END_RE,
+  LEGACY_START_RE,
+  LEGACY_BLOCK_CODE,
 };

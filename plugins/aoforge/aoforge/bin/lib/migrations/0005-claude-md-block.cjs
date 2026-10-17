@@ -11,10 +11,14 @@
 // slicing (inserting it as the first section when absent), restamps the start marker
 // `v=<template_version> src=claude-md`, and routes the write through managed-block.upsert so every
 // byte outside the block is preserved.
+//
+// A CLAUDE.md block under the pre-rename markers (TRD 78-08) is not applicable: managed-block refuses it
+// (ELEGACYBLOCK) and detect reports W069 with its fix, so the runner goes on to every later migration.
 
 const fs = require('fs');
 const path = require('path');
 const managedBlock = require('../managed-block.cjs');
+const { CLAUDE_MD_CODE } = require('../planning-layout.cjs');
 
 const CLAUDE_REL = 'CLAUDE.md';
 const TEMPLATE_SRC = 'claude-md';
@@ -92,6 +96,9 @@ function detect(ctx) {
   try {
     ({ block } = readBlock(claudePath));
   } catch (e) {
+    if (e instanceof managedBlock.ManagedBlockError && e.code === managedBlock.LEGACY_BLOCK_CODE) {
+      return { applies: false, reason: `${CLAUDE_REL} holds a pre-rename managed block (${CLAUDE_MD_CODE}): ${e.fix}` };
+    }
     if (e instanceof managedBlock.ManagedBlockError) {
       return { applies: false, reason: `${CLAUDE_REL}: ${e.message}` };
     }
