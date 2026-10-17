@@ -28,7 +28,7 @@
 const fs = require('fs');
 const path = require('path');
 const helpers = require('./helpers.cjs');
-const { legacyRuntimeHome } = require('./compat.cjs');
+const { legacyRuntimeHome } = require('./coexistence.cjs');
 
 const DEFAULT_CHECKS_DIR = path.join(__dirname, 'doctor-checks');
 const DEFAULT_DF_TOOLS_PATH = path.join(__dirname, '..', 'aof-tools.cjs');
@@ -44,7 +44,8 @@ const SCHEMA_VERSION = 1;
  * @typedef {Object} DoctorPaths
  * @property {string} claudeDir            <home>/.claude
  * @property {string} mirrorDir            <home>/.claude/aoforge
- * @property {string} legacyMirrorDir      the pre-rename runtime home under <home>/.claude (compat.legacyRuntimeHome)
+ * @property {string} legacyMirrorDir      the pre-rename runtime home under <home>/.claude, detected only
+ *                                         (coexistence.legacyRuntimeHome; doctor check 16 reports it)
  * @property {string} installedPluginsJson <home>/.claude/plugins/installed_plugins.json
  * @property {string} pluginCacheRoot      <home>/.claude/plugins/cache/aocyber/aoforge
  * @property {string} progressGuardDir     env.AOFORGE_PROGRESS_GUARD_DIR || <mirrorDir>/state/progress-guard

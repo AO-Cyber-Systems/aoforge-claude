@@ -1,11 +1,18 @@
 'use strict';
 
-// Doctor check: user-dot-dir (objective 73, TRD 73-13, gap G5).
+// Doctor check: user-dot-dir (objective 73, TRD 73-13, gap G5; objective 78, TRD 78-06).
 //
 // AOForge 3.0.0 kept the user's files and the watch daemon's files in ~/.aoforge/, which has the planning
-// directory's name. 73-09 stops $HOME from ever being a project and 73-11/73-12 moved the files to the runtime home,
-// reading the old copies for one release. This check finds a leftover ~/.aoforge/ and, on --fix, moves what AOForge
-// put there:
+// directory's name. 73-09 stops $HOME from ever being a project and 73-11/73-12 moved the files to the runtime home.
+// 3.1 no longer reads the old copies (78-05, 78-11). This check finds a leftover ~/.aoforge/ and, on --fix, moves what
+// AOForge put there.
+//
+// Decision (TRD 78-06): KEEP WITH its fix. ~/.aoforge/ holds files AOForge 3.0.0 itself wrote under the AOForge name;
+// no 3.0.x release moves them (the move is 3.1's own objective-73 change), so there is no 3.0.x path to point at, and
+// with the interim readers removed the move is the only way defaults.json, the Brave key, the watch allowlist and the
+// daemon's files keep effect. The fix is a reversible move that never deletes or overwrites. The file lists (TO_RUNTIME,
+// TO_WATCH) are coexistence.cjs's, shared with the SessionStart notice that points here.
+//
 //
 //   absent                                          -> ok
 //   planning files inside                           -> warn, report-only ($HOME is never a project; yours to move)
@@ -28,16 +35,14 @@ const path = require('path');
 
 const { NAMES } = require('../legacy-names.cjs');
 const { watchStateDir, runtimeHome } = require('../compat.cjs');
+// TO_WATCH: what the watch daemon and its service wrote, moved to the watch state directory.
+// TO_RUNTIME: the user's own files, moved to the runtime home.
+const { TO_WATCH, TO_RUNTIME } = require('../coexistence.cjs');
 const { moveEntry } = require('../global-upgrade.cjs');
 const { servicePaths } = require('../service-installer.cjs');
 
 const DOT_DIR = NAMES.userDotDir;
 const PID_FILE = `${NAMES.watch}.pid`;
-/** What the watch daemon and its service wrote: moved to the watch state directory. */
-const TO_WATCH = [PID_FILE, `${NAMES.watch}.log`, 'launchd-stdout.log', 'launchd-stderr.log',
-  'systemd-stdout.log', 'systemd-stderr.log'];
-/** The user's own files: moved to the runtime home. */
-const TO_RUNTIME = ['defaults.json', 'brave_api_key', `${NAMES.watch}-allow.json`];
 /** Planning files: $HOME is never a project, so they are the user's to move, never the doctor's. */
 const PLANNING = ['STATE.md', 'ROADMAP.md', 'PROJECT.md', 'config.json', 'objectives'];
 const BACKUP_PREFIX = `${NAMES.runtimeDir}-dot-dir-`;
@@ -197,8 +202,8 @@ function judge(ctx, s) {
     commands.push(`${WATCH_CLI} uninstall-service`, `${WATCH_CLI} install-service --project ${project ? shellWord(project) : '<dir>'}`);
   }
   if (blockers.length > 0) {
-    return warn(`${dot} holds files AOForge 3.0.0 wrote, and the fix waits: ${blockers.join('; ')}; `
-      + 'then run doctor --global --fix', false, commands.join(' && '));
+    return warn(`${dot} holds files AOForge 3.0.0 wrote, and AOForge no longer reads them there; the fix waits: `
+      + `${blockers.join('; ')}; then run doctor --global --fix`, false, commands.join(' && '));
   }
 
   if (s.known.length === 0 && s.unknown.length === 0) {
@@ -219,8 +224,9 @@ function judge(ctx, s) {
     return `${k.name} -> ${shown(ctx, k.toDir, true)}`;
   });
   const left = s.unknown.length > 0 ? `; left in place, with the directory: ${s.unknown.join(', ')}` : '';
-  return warn(`${dot} holds files AOForge 3.0.0 wrote: ${moves.join(', ')} (the fix moves them; a file whose `
-    + `destination exists goes to ${backupLabel(ctx)} instead; nothing is deleted or overwritten)${left}`, true, FIX_COMMAND);
+  return warn(`${dot} holds files AOForge 3.0.0 wrote, and AOForge no longer reads them there: ${moves.join(', ')} `
+    + `(the fix moves them; a file whose destination exists goes to ${backupLabel(ctx)} instead; nothing is deleted or `
+    + `overwritten)${left}`, true, FIX_COMMAND);
 }
 
 function run(ctx) {

@@ -1,123 +1,110 @@
 'use strict';
 
-// Doctor check: legacy-plugin-runtime (objective 72, TRD 72-15, INST-03).
+// Doctor check: legacy-plugin-runtime (objective 72, TRD 72-15, INST-03; report-only since objective 78, TRD 78-06).
 //
 // What the rename leaves in the user's home besides legacy skills and agents (check 15). Each is one entry in
-// details.findings; the check's severity is the worst of them, and every one is a warning:
+// details.findings; the check's severity is the worst of them, and every one is a report-only warning:
 //
 //   plugin-enabled        the old plugin (LEGACY.plugin) is installed and enabled beside AOForge, so its hooks may
-//                         run twice. REPORT-ONLY: fix_command is `claude plugin disable <old plugin>`. The doctor
-//                         never edits Claude Code's settings and never runs a `claude plugin` command.
-//   runtime-not-migrated  the old runtime home (ctx.paths.legacyMirrorDir) exists and the new home has no migration
-//                         marker. FIXABLE: the fix runs 72-07's migrateLegacyRuntime, the same one-time migration
-//                         sync-runtime runs on the first AOForge session (copy, never overwrite; marker last).
-//   runtime-leftover      the old runtime home is still there after the migration. FIXABLE only while the old plugin
-//                         is not enabled (an enabled one keeps mirroring into it): the fix moves the whole directory
-//                         into ~/.claude/aoforge/backups/legacy-<old runtime dir>-runtime-<ts>/ through
-//                         global-upgrade.moveLegacy (rename, or a verified copy across devices). Nothing is deleted,
-//                         and backup-prune never enters a legacy-* directory. While the old plugin is enabled the fix
-//                         is refused and names the disable command.
-//   legacy-env            variables with the old prefix are set (ctx.env). AOForge honors them for one release
-//                         (compat.aliasLegacyEnv). REPORT-ONLY: names each and its AOForge form; renaming them is the
-//                         user's shell profile or launch environment, not a file the doctor may edit.
+//                         run twice. fix_command is `claude plugin disable <old plugin>`. The doctor never edits Claude
+//                         Code's settings and never runs a `claude plugin` command.
+//   runtime-not-migrated  the old runtime home exists and no 3.0.x session migrated it (no LEGACY_STATE_MARKER under the
+//                         new home). 3.1 no longer migrates it: the finding names AOForge SHIM_RELEASE (one session
+//                         carries it over) or the manual copy in the migration guide.
+//   runtime-leftover      the old runtime home is still there after a 3.0.x migration. fix_command is the manual move
+//                         into ~/.claude/aoforge/backups/legacy-<old runtime dir>-runtime-<date>/ (backup-prune never
+//                         enters a legacy-* directory), after disabling the old plugin when it is enabled (it keeps
+//                         writing there).
+//   legacy-env            variables with the old prefix are set (ctx.env). They are no longer read since 3.1.0; the
+//                         finding names each with its AOForge form. Renaming them is the user's shell profile or launch
+//                         environment, not a file the doctor may edit.
 //
-// The check is fixable when at least one finding has a fix and every finding that has one is safe now; report-only
-// findings never block it. A fix takes one step per run (migrate, or move the leftover), so after a migration the
-// re-run reports the leftover and the next `doctor --fix` cleans it up.
+// Decision (TRD 78-06): KEEP, report-only (the fix is removed). The old plugin enabled beside AOForge runs its gates
+// twice, the pre-rename runtime home holds calibration and the GitHub outbox that 3.1 no longer carries over, and the
+// old variables now silently stop working: each needs one report. The conversions belong to 3.0.x (a 3.0.x session,
+// or `doctor --global --fix` under 3.0.x) or to the documented manual steps. The SessionStart coexistence-guard notice
+// reports the same findings except the leftover after a migration.
 //
-// Reads only ctx.userHome, ctx.paths and ctx.env. Every legacy name comes from legacy-names.cjs.
+// Detection is coexistence.cjs's (the one module for global pre-rename detection). Reads only ctx.userHome, ctx.paths,
+// ctx.env and ctx.now. Every legacy name comes from legacy-names.cjs.
 
-const fs = require('fs');
 const path = require('path');
 
-const { detectLegacyPlugin, coexistenceMessage } = require('../coexistence.cjs');
-const { migrateLegacyRuntime, migrationPending, MARKER_FILE } = require('../runtime-state-migrate.cjs');
-const globalUpgrade = require('../global-upgrade.cjs');
-const { NAMES, LEGACY, SHIM_REMOVAL } = require('../legacy-names.cjs');
+const coexistence = require('../coexistence.cjs');
+const { NAMES, LEGACY, SHIM_RELEASE } = require('../legacy-names.cjs');
 
-const DOCTOR_FIX = 'node ~/.claude/aoforge/bin/aof-tools.cjs doctor --global --fix';
 const DISABLE_COMMAND = `claude plugin disable ${LEGACY.plugin}`;
 const BACKUP_PREFIX = `legacy-${LEGACY.runtimeDir}-runtime`;
 
-/** Kinds whose finding a fix() can act on. */
-const FIX_KINDS = new Set(['runtime-not-migrated', 'runtime-leftover']);
-
-function isDir(p) {
-  try {
-    return fs.lstatSync(p).isDirectory();
-  } catch {
-    return false;
-  }
+/** A shell word: as is when it holds only safe characters, else single-quoted. */
+function shellWord(s) {
+  return /^[A-Za-z0-9_./,:@%+=-]+$/.test(s) ? s : `'${s.replace(/'/g, `'\\''`)}'`;
 }
 
-/** Legacy-prefixed variables in ctx.env, sorted, each with its AOForge form. The bare prefix is not a variable. */
-function legacyEnvVariables(env) {
-  return Object.keys(env || {})
-    .filter((k) => k.startsWith(LEGACY.envPrefix) && k.length > LEGACY.envPrefix.length && env[k] !== undefined)
-    .sort()
-    .map((name) => ({ name, aoforge: NAMES.envPrefix + name.slice(LEGACY.envPrefix.length) }));
-}
-
-/** The current state of the home: the old plugin, the old runtime home, the marker. */
+/** The current state of the home: the old plugin, the old runtime home and its marker, the old variables. */
 function discover(ctx) {
-  const plugin = detectLegacyPlugin({ userHome: ctx.userHome });
-  const legacyHome = ctx.paths.legacyMirrorDir;
-  const marker = path.join(ctx.paths.mirrorDir, MARKER_FILE);
+  const runtime = coexistence.legacyRuntimeState(ctx.userHome);
   return {
-    plugin,
-    legacyHome,
-    marker,
-    legacyHomePresent: isDir(legacyHome),
-    pending: migrationPending({ userHome: ctx.userHome }),
+    plugin: coexistence.detectLegacyPlugin({ userHome: ctx.userHome }),
+    legacyHome: ctx.paths.legacyMirrorDir,
+    present: runtime.present,
+    migrated: runtime.migrated,
+    variables: coexistence.legacyEnvVariables(ctx.env),
   };
+}
+
+/** The manual move of the leftover old home into the backups directory, dated by ctx.now. */
+function moveCommand(ctx, legacyHome) {
+  const target = path.join(ctx.paths.backupsDir, `${BACKUP_PREFIX}-${ctx.now.toISOString().slice(0, 10)}`);
+  return `mkdir -p ${shellWord(target)} && mv ${shellWord(legacyHome)} ${shellWord(target)}/`;
 }
 
 function findingsFor(ctx, state) {
   const findings = [];
   const { plugin } = state;
+  const enabled = plugin.installed && plugin.enabled;
 
-  if (plugin.installed && plugin.enabled) {
+  if (enabled) {
     findings.push({
       kind: 'plugin-enabled',
       severity: 'warn',
-      message: coexistenceMessage(plugin),
+      message: coexistence.coexistenceMessage(plugin),
       fixable: false,
       fix_command: DISABLE_COMMAND,
     });
   }
 
-  if (state.legacyHomePresent && state.pending) {
+  if (state.present && !state.migrated) {
     findings.push({
       kind: 'runtime-not-migrated',
       severity: 'warn',
-      message: `the ${LEGACY.product} runtime home ${state.legacyHome} has not been migrated to ${ctx.paths.mirrorDir} `
-        + '(calibration, estimates, backups and the outbox); the fix runs the one-time migration',
-      fixable: true,
-      fix_command: DOCTOR_FIX,
+      message: `the ${LEGACY.product} runtime home ${state.legacyHome} was never migrated to ${ctx.paths.mirrorDir} `
+        + `(calibration, estimates, backups and the GitHub outbox); ${NAMES.product} ${coexistence.REMOVED_IN} no longer `
+        + `migrates it: run ${NAMES.product} ${SHIM_RELEASE} once (one session migrates it), or copy what you need by `
+        + `hand (see ${coexistence.MIGRATION_GUIDE})`,
+      fixable: false,
     });
-  } else if (state.legacyHomePresent) {
-    const enabled = plugin.installed && plugin.enabled;
+  } else if (state.present) {
+    const move = moveCommand(ctx, state.legacyHome);
     findings.push({
       kind: 'runtime-leftover',
       severity: 'warn',
-      message: `the ${LEGACY.product} runtime home ${state.legacyHome} is left over after the migration`
-        + (enabled
-          ? `; it cannot be moved while ${LEGACY.plugin} is enabled (it keeps writing there)`
-          : `; the fix moves it whole into ${ctx.paths.backupsDir}/${BACKUP_PREFIX}-<timestamp>/`),
-      fixable: !enabled,
-      fix_command: enabled ? `${DISABLE_COMMAND}, then ${DOCTOR_FIX}` : DOCTOR_FIX,
+      message: `the ${LEGACY.product} runtime home ${state.legacyHome} is left over after a ${SHIM_RELEASE} migration; `
+        + `move it yourself into ${ctx.paths.backupsDir}/${BACKUP_PREFIX}-<date>/ (nothing reads it)`
+        + (enabled ? `, after disabling ${LEGACY.plugin}: it keeps writing there` : ''),
+      fixable: false,
+      fix_command: enabled ? `${DISABLE_COMMAND} && ${move}` : move,
     });
   }
 
-  const variables = legacyEnvVariables(ctx.env);
-  if (variables.length) {
+  if (state.variables.length > 0) {
     findings.push({
       kind: 'legacy-env',
       severity: 'warn',
-      message: `legacy environment variables are set: ${variables.map((v) => `${v.name} (use ${v.aoforge})`).join(', ')}; `
-        + `${NAMES.product} honors them until ${SHIM_REMOVAL}, so rename them where they are set (shell profile or launch environment)`,
+      message: `legacy environment variables are set: ${state.variables.map((v) => `${v.name} (use ${v.aoforge})`).join(', ')}; `
+        + `no longer read since ${coexistence.REMOVED_IN}: rename each where it is set (shell profile or launch environment)`,
       fixable: false,
-      variables,
+      variables: state.variables,
     });
   }
   return findings;
@@ -129,8 +116,8 @@ function run(ctx) {
   const details = {
     findings,
     legacy_home: state.legacyHome,
-    legacy_home_present: state.legacyHomePresent,
-    migrated: !state.pending && fs.existsSync(state.marker),
+    legacy_home_present: state.present,
+    migrated: state.migrated,
     plugin: state.plugin,
   };
 
@@ -143,56 +130,17 @@ function run(ctx) {
     };
   }
 
-  const withFix = findings.filter((f) => FIX_KINDS.has(f.kind));
-  const fixable = withFix.length > 0 && withFix.every((f) => f.fixable);
   const result = {
     severity: findings.some((f) => f.severity === 'error') ? 'error' : 'warn',
     finding: findings.map((f) => f.message).join('; '),
-    fixable,
+    fixable: false,
     details,
   };
-  const manual = [...new Set(findings.filter((f) => !f.fixable && f.fix_command).map((f) => f.fix_command))];
-  if (manual.length) result.fix_command = manual.join('; ');
-  else if (!fixable && withFix.length) result.fix_command = DOCTOR_FIX;
+  // The leftover's command already starts with the disable command when the plugin is enabled: name it once.
+  const commands = findings.map((f) => f.fix_command).filter(Boolean);
+  const manual = commands.filter((c) => !commands.some((other) => other !== c && other.startsWith(`${c} && `)));
+  if (manual.length) result.fix_command = [...new Set(manual)].join('; ');
   return result;
-}
-
-function fix(ctx) {
-  // Re-discover: the home may have changed since run().
-  const state = discover(ctx);
-
-  if (state.legacyHomePresent && state.pending) {
-    const r = migrateLegacyRuntime({ userHome: ctx.userHome, now: ctx.now });
-    if (!r.ran) return { applied: false, notes: `migration did not run (${r.reason})` };
-    return {
-      applied: true,
-      changed: [r.marker],
-      notes: `migrated ${state.legacyHome} to ${ctx.paths.mirrorDir}: ${r.copied.length} copied, ${r.moved.length} moved, `
-        + `${r.skipped.length} skipped; marker ${r.marker}. Run the doctor again to move the old home into the backups`,
-    };
-  }
-
-  if (state.legacyHomePresent) {
-    if (state.plugin.installed && state.plugin.enabled) {
-      return {
-        applied: false,
-        refused: `${LEGACY.plugin} is still enabled and keeps writing ${state.legacyHome}; disable it first: ${DISABLE_COMMAND}`,
-      };
-    }
-    const { moved, backupDir } = globalUpgrade.moveLegacy(ctx.userHome, [LEGACY.runtimeDir], {
-      now: ctx.now,
-      prefix: BACKUP_PREFIX,
-    });
-    if (moved.length === 0) return { applied: false, notes: 'nothing moved' };
-    return {
-      applied: true,
-      changed: [state.legacyHome],
-      backup: backupDir,
-      notes: `moved ${state.legacyHome} into ${backupDir} (nothing deleted; move it back to restore it)`,
-    };
-  }
-
-  return { applied: false, notes: `nothing to fix: no ${LEGACY.product} runtime home` };
 }
 
 module.exports = {
@@ -200,6 +148,4 @@ module.exports = {
   title: 'Legacy plugin, runtime home and environment left by the rename',
   scope: 'global',
   run,
-  fix,
-  legacyEnvVariables,
 };

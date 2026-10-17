@@ -1,6 +1,6 @@
 'use strict';
 
-// Doctor check: legacy-df-install (objective 72, TRD 72-15, INST-01).
+// Doctor check: legacy-df-install (objective 72, TRD 72-15, INST-01; report-only since objective 78, TRD 78-06).
 //
 // The pre-plugin installer copied skills and agents named with the legacy install prefix into
 // ~/.claude/skills and ~/.claude/agents. The global upgrade (TRD 36-06, run by sync-runtime after a good mirror) moves
@@ -8,23 +8,27 @@
 // Claude Code then loads a second, stale set of commands beside the plugin's. INST-01 asks the doctor to flag that.
 //
 //   no legacy-prefixed entry under skills/ or agents/   -> ok
-//   one or more                                          -> warn, fixable
+//   one or more                                          -> warn, report-only
 //
-// Discovery and the fix are global-upgrade's findLegacy / moveLegacy: there is no second mover. Every entry is MOVED
-// into ~/.claude/aoforge/backups/legacy-<ts>/{skills,agents}/ (a rename, or a verified copy across devices), never
-// deleted, so the fix is reversible by moving it back. Entries without the prefix (the user's own skills) are never
-// listed or touched. findLegacy also reports a stuck runtime VERSION file; that is the global upgrade's own business
-// and is not part of this check's skills-and-agents question.
+// Decision (TRD 78-06): KEEP, report-only (the fix is removed). Pre-plugin `df-*` skills and agents shadow AOForge
+// commands for any 2.x user, and detection is one readdir per directory. The move itself remains in the global
+// upgrade (objective 36, not a rename shim): it runs at session start after a plugin update and on demand with
+// `aof-tools upgrade --global --apply`, so a doctor fix only duplicated it. The finding names that path and the
+// manual move; fix_command is the on-demand global upgrade.
+//
+// Discovery is global-upgrade's findLegacy. Entries without the prefix (the user's own skills) are never listed.
+// findLegacy also reports a stuck runtime VERSION file; that is the global upgrade's own business and is not part of
+// this check's skills-and-agents question.
 //
 // Reads the home only through ctx.userHome. The install prefix comes from LEGACY (legacy-names.cjs).
 
-const path = require('path');
-
 const globalUpgrade = require('../global-upgrade.cjs');
-const { LEGACY } = require('../legacy-names.cjs');
+const { NAMES, LEGACY } = require('../legacy-names.cjs');
 
 const DIRS = ['skills', 'agents'];
-const FIX_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs doctor --global --fix';
+const UPGRADE_COMMAND = `${NAMES.cli} upgrade --global --apply`;
+const FIX_COMMAND = `node ~/.claude/${NAMES.runtimeDir}/bin/${NAMES.cli}.cjs upgrade --global --apply`;
+const BACKUP_LABEL = `~/.claude/${NAMES.runtimeDir}/backups/legacy-<timestamp>/`;
 
 /** Legacy-prefixed skills and agents, relative to ~/.claude (posix), in findLegacy's order. */
 function legacyEntries(ctx) {
@@ -47,27 +51,12 @@ function run(ctx) {
   }
   return {
     severity: 'warn',
-    finding: `legacy ${LEGACY.installPrefix}* skills or agents under ~/.claude load beside the plugin: ${entries.join(', ')} `
-      + '(the fix moves them into ~/.claude/aoforge/backups/legacy-<timestamp>/, nothing is deleted)',
-    fixable: true,
+    finding: `legacy ${LEGACY.installPrefix}* skills or agents under ~/.claude load beside the plugin: ${entries.join(', ')}; `
+      + `the global upgrade moves them into ${BACKUP_LABEL} (nothing is deleted): it runs at session start after a `
+      + `plugin update, or now with \`${UPGRADE_COMMAND}\`; or move them yourself`,
+    fixable: false,
     fix_command: FIX_COMMAND,
     details,
-  };
-}
-
-function fix(ctx) {
-  // Re-discover: the home may have changed since run().
-  const entries = legacyEntries(ctx);
-  if (entries.length === 0) return { applied: false, notes: 'nothing to move: no legacy skills or agents found' };
-
-  const { moved, backupDir } = globalUpgrade.moveLegacy(ctx.userHome, entries, { now: ctx.now });
-  // Absolute: the engine treats a relative `changed` entry as a project path (ctx.changedThisRun).
-  const changed = moved.map((rel) => path.join(ctx.paths.claudeDir, ...rel.split('/')));
-  return {
-    applied: moved.length > 0,
-    changed,
-    backup: backupDir,
-    notes: `moved ${moved.length} legacy entr${moved.length === 1 ? 'y' : 'ies'} to ${backupDir}: ${moved.join(', ')}`,
   };
 }
 
@@ -76,5 +65,4 @@ module.exports = {
   title: 'Legacy skills and agents from the pre-plugin installer',
   scope: 'global',
   run,
-  fix,
 };
