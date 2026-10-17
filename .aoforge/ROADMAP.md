@@ -128,6 +128,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [x] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped (completed 2026-10-10)
 - [x] **Objective 78: Remove the rename shims** - The one-release rename shims, migrations 0012/0013, the dual-namespace GitHub readers and the devflow pointer plugin go in 3.1.0, as promised for the release after 3.0.0 (completed 2026-10-17)
+- [ ] **Objective 79: Reconcile and release 3.1.0** - The fix branch (main + quick 34-39), PR #129 and objective 78 meet in one integration branch, the merged tree passes every guard, and 3.1.0 ships through one PR after per-step approval
 
 ### Objective 65: Release v1.5
 
@@ -402,6 +403,19 @@ TRDs:
 - [x] 78-11-compat-single-name-TRD.md — (W4, TDD, after 78-10) compat.cjs AOForge-only: planning dir, project root, agent namespace, user files; legacy exports deleted
 - [x] 78-12-docs-and-close-out-TRD.md — (W5, TDD) aliasLegacyEnv deleted, SHIM_REMOVAL done, legacy-names trimmed, SC-4 end to end, guide (+ site mirror), USER-GUIDE, CHANGELOG, CLAUDE.md, full suite
 
+### Objective 79: Reconcile and release 3.1.0
+
+**Goal**: `main` (objectives 76/77, perf #133), `fix/post-77-verification` (quick 34-39, 3.1.0 version), PR #129 (`feat/stack-profile-loader`: 72-19..75 and the `.aoforge/` move) and objective 78 (shim removal) are one tree on `integrate/3.1.0` (branched from `feat/remove-rename-shims`, merging `fix/post-77-verification` with a merge commit, no rebase), proven green, and released as 3.1.0 through a single PR that supersedes #129. Every push, PR, merge, tag and PR close is a checkpoint that runs only on explicit per-action approval (user decision 2026-10-17).
+**Requirements**: none mapped (user decision 2026-10-17: one integration PR, run as a build objective)
+**Depends on**: Objective 78
+**Success Criteria** (what must be TRUE):
+  1. `integrate/3.1.0` contains every commit of `fix/post-77-verification` and `feat/remove-rename-shims` through one merge commit; the 15 text conflicts (ROADMAP, STATE, REQUIREMENTS, CHANGELOG, CLAUDE.md, USER-GUIDE, package.json, marketplace.json, site/data/aoforge.json, aof-tools.cjs, help.cjs, planning-mode.test.cjs, ui-metrics.cjs, aoforge-stack-flutter flutter-ui-setup and its test) are resolved as unions that keep both sides' behaviour; versions are 3.1.0 in all three files and CHANGELOG has one `## [3.1.0] - 2026-10-16` section carrying both sides.
+  2. No `.planning/` path remains tracked (objectives 76/77 and quick 34-39 moved with `git mv`), the legacy .gitignore lines and their rename-guard entry are gone, and no code calls a compat export objective 78 removed (`aliasLegacyEnv`, `bothPlanningDirs`, `isLegacyPlanning`, `legacyRuntimeHome`, `resolveUserFile`) — a repo test fails if one returns.
+  3. The merged tree passes: the full suite (watcher-shell's known fish-shell hang excluded and named), the CI-gated set, the rename and stack-neutrality guards, the pre-bash one-process equivalence corpus re-run against the merged per-hook chain, `validate health` and `doctor` on this repo, and the local fleet STACK.md drafter test. The two pre-existing requirements-agreement failures are fixed at their source (objective 75 records).
+  4. Quick 36's worktree resolver, quick 35's model precedence, objective 76's focus tiers/escalation and objective 78's single-name compat coexist, each with its tests passing on the merged tree.
+  5. After approval of each step: the branch is pushed, one PR to `main` is open with green CI, #129 is closed with a link to it, the PR is merged through the ruleset, `v3.1.0` (and `aoforge--v3.1.0` by the release workflow) is tagged on the merge commit, and the release workflow's run is verified.
+**TRDs**: to be planned
+
 ## Progress
 
 | Objective | Milestone | Plans | Status | Completed |
@@ -424,3 +438,4 @@ TRDs:
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 5/5 | Complete | 2026-10-10 |
 | 78. Remove the rename shims | v1.6 | 12/12 | Complete | 2026-10-17 |
+| 79. Reconcile and release 3.1.0 | v1.6 | 0/0 | Not started | - |
