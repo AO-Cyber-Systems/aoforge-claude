@@ -5,17 +5,27 @@
 //     apply(ctx) -> {changed: [relative posix paths], notes, deferred?: <reason code>} }.
 // ctx = { projectRoot, userHome, pluginVersion, dryRun, options, changedSoFar }.
 // `changedSoFar` (TRD 72-08): the paths earlier migrations of this run changed, so a migration that refuses to run on
-// a dirty tree (0012) can tell the run's own changes from the user's.
+// a dirty tree can tell the run's own changes from the user's.
 //
-// An apply that returns `deferred` did not run and wrote nothing (0012 on a dirty or busy tree): the migration stays
+// An apply that returns `deferred` did not run and wrote nothing (say, on a dirty or busy tree): the migration stays
 // pending, later writes are held as after a failure, the stamp is not advanced, and `report.deferred` names it. A
 // backup the runner claimed only for it is removed.
 //
-// Migrations are detection-based and idempotent: `detect` reads the files and decides; the
-// config.json `aoforge` stamp is only a record of what ran. For one release (until SHIM_REMOVAL) the stamp is also
-// read from the legacy key (LEGACY.configKey) when the new one is absent; every stamp write leaves only the new key
-// (migration 0013 renames it outright). The planning directory is never cached: every migration, and the final stamp
-// write, resolves it afresh, so after 0012 moves a legacy directory everything lands in `.aoforge/`.
+// Migrations are detection-based and idempotent: `detect` reads the files and decides; the config.json `aoforge`
+// stamp is only a record of what ran. The stamp is read and written under that key only; any other key in
+// config.json, the pre-rename stamp key included, is left exactly as it is (validate health W067 reports that one).
+// A config with only the pre-rename key therefore reads as "no stamp", which is safe because every migration
+// detects for itself. The planning directory is never cached: every migration, and the final stamp write, resolves
+// it afresh.
+//
+// Retired ids (TRD 78-07): 0012 (planning-dir move), 0013 (config-key rename) and 0014 (CLAUDE.md rebrand) ended
+// with AOForge SHIM_RELEASE. Their ids stay reserved in RETIRED_MIGRATIONS, so `--only 0012` names the 3.0.x path
+// and the manual step instead of "unknown migration id"; an id the registry still carries resolves normally.
+//
+// A legacy-only project (planning-layout.isLegacyPlanning: only the pre-rename planning directory) is never
+// migrated: apply and check return the usual report with nothing considered, `legacy_layout` holding
+// legacyLayoutMessage(root) and one `failed` entry with the same text, and write nothing. The CLI refuses earlier
+// (legacy-layout-guard.cjs); this is the same answer for any other caller.
 //
 // `userHome` is always injected by the caller (CLI, hook, tests). This module never resolves the
 // operator's home directory itself, so a test can never touch the real one.
@@ -24,10 +34,17 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { planningRoot, planningRel } = require('./compat.cjs');
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES, SHIM_RELEASE } = require('./legacy-names.cjs');
+const { isLegacyPlanning, legacyLayoutMessage, MIGRATION_GUIDE } = require('./planning-layout.cjs');
 
 const STAMP_KEY = NAMES.configKey;
-const LEGACY_STAMP_KEY = LEGACY.configKey;
+
+/** Migration ids that shipped through AOForge SHIM_RELEASE and were removed after it: id -> title. */
+const RETIRED_MIGRATIONS = Object.freeze({
+  '0012': 'planning-dir move',
+  '0013': 'config-key rename',
+  '0014': 'CLAUDE.md rebrand',
+});
 
 const DEFAULT_REGISTRY_DIR = path.join(__dirname, 'migrations');
 
@@ -166,19 +183,16 @@ function readConfig(projectRoot) {
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/**
- * The stamp object in a parsed config: the `aoforge` object, else (for one release) the legacy key's object, else null.
- */
+/** The stamp object in a parsed config: the `aoforge` object, else null. No other key is read. */
 function stampObject(config) {
   if (!config) return null;
   if (isPlainObject(config[STAMP_KEY])) return config[STAMP_KEY];
-  if (isPlainObject(config[LEGACY_STAMP_KEY])) return config[LEGACY_STAMP_KEY];
   return null;
 }
 
 /**
  * readStamp(projectRoot) -> null | { version, migrations_applied, upgraded_at }
- * null when config.json is absent, unreadable, or carries no stamp object under either key (`aoforge` first).
+ * null when config.json is absent, unreadable, or carries no `aoforge` stamp object.
  */
 function readStamp(projectRoot) {
   const { config } = readConfig(projectRoot);
@@ -194,25 +208,13 @@ function readStamp(projectRoot) {
 /**
  * writeStamp(projectRoot, stamp) — sets config.json `aoforge` to `stamp`, preserving every other
  * key and the key order; 2-space JSON + trailing newline. Creates `{ "aoforge": ... }` when
- * config.json is absent. Throws when config.json exists but is not a JSON object. A legacy stamp key is removed; when
- * it was the only one, the new key takes its place in the key order.
+ * config.json is absent. Throws when config.json exists but is not a JSON object. The `aoforge` key is set in place
+ * (appended when absent); no other key is read, moved or deleted.
  */
 function writeStamp(projectRoot, stamp) {
   const { exists, config, error } = readConfig(projectRoot);
   if (error) throw new Error(error);
-  const current = exists ? config : {};
-  let next = current;
-  if (Object.prototype.hasOwnProperty.call(current, LEGACY_STAMP_KEY)) {
-    const inPlace = !Object.prototype.hasOwnProperty.call(current, STAMP_KEY);
-    next = {};
-    for (const key of Object.keys(current)) {
-      if (key === LEGACY_STAMP_KEY) {
-        if (inPlace) next[STAMP_KEY] = null;
-        continue;
-      }
-      next[key] = current[key];
-    }
-  }
+  const next = exists ? config : {};
   next[STAMP_KEY] = stamp;
   fs.mkdirSync(path.dirname(configPath(projectRoot)), { recursive: true });
   fs.writeFileSync(configPath(projectRoot), JSON.stringify(next, null, 2) + '\n', 'utf-8');
@@ -283,7 +285,7 @@ function backupDirFor({ projectRoot, userHome, now = new Date() }) {
 
 /**
  * backup({ projectRoot, userHome, now }) -> absolute backup dir
- * Copies the planning directory (`.aoforge/`, or a legacy one, under its own name) and `CLAUDE.md` (when present). The dir is claimed with a non-recursive
+ * Copies the planning directory (under its own name) and `CLAUDE.md` (when present). The dir is claimed with a non-recursive
  * mkdir, so two runs racing for the same timestamp still get distinct dirs.
  */
 function backup({ projectRoot, userHome, now = new Date() }) {
@@ -338,11 +340,33 @@ function normalizeOnly(only) {
   return ids.length ? ids : null;
 }
 
+/** The one line `--only <id>` gives for a retired id the registry no longer carries. */
+function retiredMessage(id) {
+  return `migration ${id} (${RETIRED_MIGRATIONS[id]}) was retired after ${NAMES.product} ${SHIM_RELEASE}: `
+    + `run it with ${NAMES.product} ${SHIM_RELEASE}, or do it by hand (${MIGRATION_GUIDE}, "Upgrading from 2.x")`;
+}
+
 function assertKnownIds(registry, only) {
   if (!only) return;
   const known = new Set(registry.map((m) => m.id));
   const unknown = only.filter((id) => !known.has(id));
-  if (unknown.length) throw new RegistryError(unknown.map((id) => `unknown migration id ${id}`));
+  if (unknown.length) {
+    throw new RegistryError(unknown.map((id) => (
+      Object.prototype.hasOwnProperty.call(RETIRED_MIGRATIONS, id) ? retiredMessage(id) : `unknown migration id ${id}`
+    )));
+  }
+}
+
+/**
+ * The report for a legacy-only project: nothing considered or written, the one legacy-layout line in
+ * `legacy_layout` and in `failed`, so a caller that reads only `failed` still treats the run as not done.
+ */
+function legacyLayoutReport(root, from, to) {
+  const message = legacyLayoutMessage(root);
+  const report = emptyReport(from, to);
+  report.failed.push({ id: 'layout', phase: 'layout', error: message });
+  report.legacy_layout = message;
+  return report;
 }
 
 function errorText(e) {
@@ -395,7 +419,7 @@ function runApply(migration, ctx) {
 
 /**
  * check(opts) -> report. Never writes. `only` narrows the migrations considered.
- * detect() receives ctx with dryRun: true.
+ * detect() receives ctx with dryRun: true. A legacy-only project gets legacyLayoutReport.
  */
 function check({ projectRoot, userHome, pluginVersion, registryDir, only, options } = {}) {
   assertAbsolute('userHome', userHome);
@@ -403,6 +427,7 @@ function check({ projectRoot, userHome, pluginVersion, registryDir, only, option
   const ids = normalizeOnly(only);
   let registry = loadRegistry({ registryDir });
   assertKnownIds(registry, ids);
+  if (isLegacyPlanning(root)) return legacyLayoutReport(root, null, pluginVersion);
   if (ids) registry = registry.filter((m) => ids.includes(m.id));
 
   const conf = readConfig(root);
@@ -433,7 +458,8 @@ function check({ projectRoot, userHome, pluginVersion, registryDir, only, option
  * `confirm` migrations named in `only` or allowed by `confirm: true`, in id order, each detected
  * immediately before it runs. Backs up outside the repo before the first write, then stamps
  * config.json. The first failure halts every later write. Only RegistryError (and a missing or
- * relative userHome) throws; migration failures are reported.
+ * relative userHome) throws; migration failures are reported. A legacy-only project gets legacyLayoutReport and
+ * nothing is written, no backup either.
  */
 function apply({
   projectRoot, userHome, pluginVersion, registryDir, only, confirm = false, dryRun = false,
@@ -444,6 +470,7 @@ function apply({
   const ids = normalizeOnly(only);
   const registry = loadRegistry({ registryDir });
   assertKnownIds(registry, ids);
+  if (isLegacyPlanning(root)) return legacyLayoutReport(root, null, pluginVersion);
 
   const initialConf = readConfig(root);
   const stamp = readStamp(root);
@@ -559,7 +586,7 @@ function apply({
     }
   }
 
-  // A path under a directory the run moved (0012 lists both directory names) is covered by that directory.
+  // A path under a directory a migration reported as changed (a moved or created directory) is covered by it.
   report.changed_files = collapseUnderDirectories([...changed]).sort();
   report.up_to_date = report.failed.length === 0 && report.pending.length === 0 &&
     report.pending_confirm.length === 0 && versionAfter === pluginVersion &&
@@ -577,5 +604,6 @@ module.exports = {
   check,
   apply,
   RegistryError,
+  RETIRED_MIGRATIONS,
   DEFAULT_REGISTRY_DIR,
 };

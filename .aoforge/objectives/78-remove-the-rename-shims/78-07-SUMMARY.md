@@ -8,6 +8,6 @@ status: checkpoint
 # Objective 78 TRD 07: Retire planning migrations and guard Summary
 
 ## Progress
-- [ ] Task 1: retire 0012/0013, stamp key, retired ids, legacy refusal in upgrade.cjs — RED (this commit); next step: delete migrations 0012/0013 with their tests and legacy-migration-fixtures.cjs, then change upgrade.cjs (stampObject/writeStamp, RETIRED_MIGRATIONS in assertKnownIds, legacy_layout in apply/check) and the git-busy.cjs comment
-- [ ] Task 2: the SessionStart hook tells a legacy-only project once
+- [x] Task 1: retire 0012/0013, stamp key, retired ids, legacy refusal in upgrade.cjs — RED b7a8dad1, GREEN (this commit)
+- [ ] Task 2: the SessionStart hook tells a legacy-only project once — next step: rewrite hooks/upgrade-project.legacy.test.js as cases 1-2 (global notice key `legacy-layout:<realpath>` from the root and a subdir; pre-rename-only stamp upgraded in place), commit RED, then change upgrade-project.js main() (legacy root -> global notice, fast path `stamp === to`)
 - [ ] Task 3: the aof-tools guard
