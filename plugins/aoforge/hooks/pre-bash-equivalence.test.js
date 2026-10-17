@@ -10,8 +10,9 @@
 // Both sides are spawned, never run in this process: an in-process runHook would share module state across cases
 // and hide exactly the divergence this test exists to find.
 //   dispatcher side  spawn `node hooks/pre-bash.js` once
-//   chain side       spawn each hook of DISPATCHED_HOOKS with the same stdin (in parallel, as Claude Code runs the
-//                    hooks of an event), then merge their results with pre-bash's own merge()
+//   chain side       spawn each hook of DISPATCHED_HOOKS with the same stdin, one by one in that order, then merge
+//                    their results with pre-bash's own merge() (what Claude Code makes of five parallel hooks)
+// Cases run CONCURRENCY at a time; each case has its own projects, so nothing is shared between them.
 // Each side gets its own fixture project, scratch HOME and progress-guard dir (handoff queue files and repeat
 // counters would otherwise cross-talk). The child env is process.env minus every AOFORGE_* and GIT_* variable.
 //
@@ -81,12 +82,17 @@ async function dispatcherSide(input, project, hooksDir = HOOKS_DIR) {
   return spawnHook(path.join(hooksDir, 'pre-bash.js'), { ...input, cwd: project.root });
 }
 
-/** Five processes, one per dispatched hook of the REAL tree, merged with pre-bash's own merge(). */
+/**
+ * Five processes, one per dispatched hook of the REAL tree, spawned one by one in DISPATCHED_HOOKS order and merged
+ * with pre-bash's own merge(). One by one keeps the chain deterministic; no two of the five hooks touch the same file
+ * in one call, so Claude Code's parallel start would decide the same.
+ */
 async function chainSide(input, project) {
-  const results = await Promise.all(pre.DISPATCHED_HOOKS.map(async (file) => {
+  const results = [];
+  for (const file of pre.DISPATCHED_HOOKS) {
     const r = await spawnHook(path.join(HOOKS_DIR, file), { ...input, cwd: project.root });
-    return { file, stdout: r.stdout, stderr: r.stderr, code: r.code, error: null };
-  }));
+    results.push({ file, stdout: r.stdout, stderr: r.stderr, code: r.code, error: null });
+  }
   return pre.merge(results);
 }
 
