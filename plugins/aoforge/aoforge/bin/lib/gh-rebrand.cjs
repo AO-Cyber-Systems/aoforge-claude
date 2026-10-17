@@ -6,8 +6,8 @@
 // namespace, legacy hidden markers and wording in the issues, pull requests and comments AOForge manages, legacy names
 // in the wiki, legacy required-check contexts (and the legacy ruleset name), and in its checkout the legacy managed
 // caller workflow, a legacy docs-backend directory, the legacy pull request template block and legacy label values in
-// config.json. 72-11 keeps all of that readable for one release; this verb renames it, one repository at a time, after
-// a full preview.
+// config.json. 3.0.0 (TRD 72-11) kept all of that readable for one release; 3.1 no longer reads the label and
+// check-context twins (TRDs 78-03, 78-09), so this verb renames it, one repository at a time, after a full preview.
 //
 //   snapshotRepo(client, repo)    GitHub reads only -> labels, issues (PRs included), comments, rulesets, wiki
 //   snapshotLocal(root, opts)     local reads only  -> the legacy caller, PR template, docs backend, config.json

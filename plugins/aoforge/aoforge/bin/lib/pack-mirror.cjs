@@ -4,7 +4,7 @@
 // Stack pack mirror (objective 77; docs/PROPOSAL-stack-packs.md §5A.2).
 //
 // Core cannot read another plugin's files, so every stack pack ships this file as its
-// SessionStart hook (`hooks/sync-pack.cjs`, a byte-identical copy: pack-mirror.repo.test.cjs
+// SessionStart hook (`hooks/sync-pack.cjs`, a byte-identical copy: stack-packs.test.cjs
 // fails CI on drift). It copies the pack's runtime files from ${CLAUDE_PLUGIN_ROOT} to
 // `~/.claude/aoforge/stacks/<name>/`, where `aof-tools stack discover` finds them.
 //
