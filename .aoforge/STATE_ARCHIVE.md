@@ -336,6 +336,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector
 - [Objective 78]: 78-05: a live AOForge 3.0.0 watch daemon is detected, not adopted (interimDaemon, signal 0); aoforge-watch start refuses beside it and status warns, because the 3.0.0 pid/log readers are removed and a second daemon would otherwise start next to it
 - [Objective 78]: 78-05: interimDaemon reads nothing while AOFORGE_HANDOFF_PID_FILE is set, and stop/add-project/remove-project ignore the 3.0.0 pid file; a stale one is left for doctor check 17
+- [Objective 78]: 78-06: doctor checks 15 legacy-df-install and 16 legacy-plugin-runtime KEEP report-only (fixes removed); check 17 user-dot-dir KEEP WITH its fix; sync-runtime's pre-rename runtime-state migration REMOVED; coexistence-guard + coexistence.cjs KEEP report-only, extended to one notice per session for every global leftover
 
 ## Performance Metrics
 
@@ -555,4 +556,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P03 | 21min | 3 tasks | 11 files |
 | Objective 78 P04 | 14min | 3 tasks | 12 files |
 | Objective 78 P05 | 12min | 3 tasks | 14 files |
+| Objective 78 P06 | 14min | 3 tasks | 18 files |
 

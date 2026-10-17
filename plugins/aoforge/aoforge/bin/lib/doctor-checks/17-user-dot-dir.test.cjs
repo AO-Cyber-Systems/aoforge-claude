@@ -3,9 +3,10 @@
 // Tests for doctor check 17-user-dot-dir (objective 73, TRD 73-13, gap G5): test list items 5-14.
 //
 // G5: AOForge 3.0.0 kept the watch daemon's files and the user's own files in ~/.aoforge/, which has the planning
-// directory's name. 73-09 stops $HOME from ever being a project and 73-11/73-12 moved those files to the runtime home,
-// reading the old copies for one release. This check reports a leftover ~/.aoforge/ and, on --fix, moves what AOForge
-// put there to its new home. It never deletes and never overwrites.
+// directory's name. 73-09 stops $HOME from ever being a project and 73-11/73-12 moved those files to the runtime home.
+// 3.1 no longer reads the old copies (78-05, 78-11), so this check keeps its fix (TRD 78-06): it reports a leftover
+// ~/.aoforge/ and, on --fix, moves what AOForge put there to its new home. It never deletes and never overwrites.
+// Test 9 (TRD 78-06): the finding says AOForge no longer reads the files there; the lists come from coexistence.cjs.
 //
 // Branches pinned here:
 //   absent                                    -> ok, not fixable                                    (5)
@@ -163,6 +164,35 @@ describe('user-dot-dir: contract', () => {
   test('loaded from the checks directory by the engine', () => {
     const ids = doctor.loadChecks().filter((e) => e.mod).map((e) => e.mod.id);
     assert.ok(ids.includes('user-dot-dir'), ids.join(', '));
+  });
+
+  test('9. one list of 3.0.0\'s files: TO_RUNTIME and TO_WATCH come from coexistence.cjs (TRD 78-06)', () => {
+    const src = fs.readFileSync(require.resolve('./17-user-dot-dir.cjs'), 'utf-8');
+    assert.match(src, /require\('\.\.\/coexistence\.cjs'\)/);
+    assert.equal(/const TO_(WATCH|RUNTIME) = \[/.test(src), false, 'no second copy of the lists');
+    assert.equal(/for one release/i.test(src), false, '3.1 reads nothing there any more');
+  });
+});
+
+// ─── 9. 3.1 no longer reads the files there ──────────────────────────────────
+
+describe('user-dot-dir: the finding says AOForge no longer reads them there (test 9, TRD 78-06)', () => {
+  test('9. known files -> "no longer reads them there"; the fix still moves them', () => {
+    const home = fakeHome({ 'defaults.json': '{"model_profile":"balanced"}\n', brave_api_key: 'k\n' });
+    const r = check.run(ctxFor(home));
+    assert.equal(r.fixable, true, r.finding);
+    assert.match(r.finding, /AOForge no longer reads them there/);
+    const { fix, after } = runFix(home);
+    assert.equal(fix.applied, true, fix.refused || fix.notes);
+    assert.equal(after.severity, 'ok', after.finding);
+    assert.equal(fs.readFileSync(path.join(runtimeDir(home), 'brave_api_key'), 'utf-8'), 'k\n');
+  });
+
+  test('9. a live daemon blocks the fix; the finding still says AOForge no longer reads them there', () => {
+    const home = fakeHome({ [PID]: F.watchPidText(process.pid), [LOG]: 'log\n' });
+    const r = check.run(ctxFor(home));
+    assert.equal(r.fixable, false, r.finding);
+    assert.match(r.finding, /AOForge no longer reads them there/);
   });
 });
 

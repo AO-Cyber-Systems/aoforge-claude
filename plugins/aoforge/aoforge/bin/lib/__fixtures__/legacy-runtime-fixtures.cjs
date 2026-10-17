@@ -1,15 +1,16 @@
 'use strict';
 
 /**
- * legacy-runtime-fixtures.cjs (objective 72, TRD 72-07) — a fake user home whose old runtime home
- * (`<home>/.claude/devflow/`) is populated the way DevFlow 2.15.0 leaves it, for the runtime state migration and
- * `state rekey` tests.
+ * legacy-runtime-fixtures.cjs (objective 72, TRD 72-07; trimmed in objective 78, TRD 78-06) — a fake user home whose
+ * old runtime home (`<home>/.claude/devflow/`) is populated the way DevFlow 2.15.0 leaves it, and the repo-keyed state
+ * writer the `state rekey` tests use.
+ *
+ * Users: hooks/sync-runtime.legacy.test.js (3.1 carries none of this state over), legacy-doctor-fixtures.cjs
+ * leftoverHome({ legacyRuntime: true }) (doctor check 16 and the coexistence-guard notice), state-rekey.test.cjs
+ * (writeKeyedState). The 3.0.x runtime state migration these homes were built for is gone (TRD 78-06).
  *
  *   const h = legacyRuntimeHome();                       // repo key 'demo-1a2b3c4d'
  *   h.home; h.legacy; h.aoforge; h.key; h.files; h.cleanup();
- *
- *   legacyRuntimeHome({ withAoforge: { 'calibration.json': '{"mine":true}\n' } })   // pre-existing new-home file
- *   legacyRuntimeHome({ withAoforge: { 'backups/demo-1a2b3c4d/': null } })          // pre-existing new-home dir
  *
  * Layout written under `<home>/.claude/devflow/` (every content a short typed-out literal, see LEGACY_FILES):
  *   calibration.json, audit.log, transcript-index.jsonl, stacks/go.md          the user's data at the top level
@@ -22,8 +23,7 @@
  *   schemas/x.json, stack-profiles/x.md                                       the old plugin's mirror, not state
  *   .plugin-version, .devflow-notices.json                                     old runtime markers, not state
  *
- * `withAoforge` maps a path relative to `<home>/.claude/aoforge/` to its content. A key ending in `/` creates an
- * empty directory (its value is ignored). Parent directories are created.
+ * Nothing is written under `<home>/.claude/aoforge/`.
  *
  * writeKeyedState(runtimeRoot, key, { projectPath }) writes only the repo-keyed entries (estimates, history,
  * awareness, hook markers, outbox journal + sidecars + lock, backups and the registry entry) into any runtime root,
@@ -104,13 +104,13 @@ function writeKeyedState(runtimeRoot, key, { projectPath = path.join(os.tmpdir()
 }
 
 /**
- * A fake home with a populated old runtime home and, optionally, entries already under the new one.
+ * A fake home with a populated old runtime home (the new one is only named, never created).
  *
- * @param {{repoKey?: string, withAoforge?: Record<string, string|null>}} [opts]
+ * @param {{repoKey?: string}} [opts]
  * @returns {{home: string, legacy: string, aoforge: string, key: string, files: Record<string, string>,
  *            cleanup: () => void}}
  */
-function legacyRuntimeHome({ repoKey = DEFAULT_KEY, withAoforge = {} } = {}) {
+function legacyRuntimeHome({ repoKey = DEFAULT_KEY } = {}) {
   const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'aof-legacy-rt-')));
   const legacy = path.join(home, '.claude', LEGACY.runtimeDir);
   const aoforge = path.join(home, '.claude', NAMES.runtimeDir);
@@ -121,14 +121,6 @@ function legacyRuntimeHome({ repoKey = DEFAULT_KEY, withAoforge = {} } = {}) {
   Object.assign(files, keyedFiles(repoKey, projectPath));
   writeKeyedState(legacy, repoKey, { projectPath });
   fs.mkdirSync(path.join(legacy, 'locks'), { recursive: true });
-
-  for (const [rel, content] of Object.entries(withAoforge)) {
-    if (rel.endsWith('/')) {
-      fs.mkdirSync(path.join(aoforge, ...rel.split('/').filter(Boolean)), { recursive: true });
-    } else {
-      writeFile(aoforge, rel, content);
-    }
-  }
 
   return {
     home,

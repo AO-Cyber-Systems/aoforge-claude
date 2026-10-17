@@ -1,16 +1,18 @@
 'use strict';
 
 /**
- * legacy-doctor-fixtures.cjs (objective 72, TRD 72-15) — fake user homes and projects carrying what the rename left
- * behind, for the doctor's legacy checks (15 legacy-df-install, 16 legacy-plugin-runtime, 27 legacy-planning-layout).
+ * legacy-doctor-fixtures.cjs (objective 72, TRD 72-15; objective 78, TRD 78-06) — fake user homes and projects carrying
+ * what the rename left behind, for the doctor's legacy checks (15 legacy-df-install, 16 legacy-plugin-runtime,
+ * 27 legacy-planning-layout) and the coexistence-guard notice.
  *
  *   const h = leftoverHome({ dfSkills: ['df-quick'], dfAgents: ['df-planner'] });
- *   h.home; h.claudeDir; h.skillsDir; h.agentsDir; h.legacyHome; h.runtimeHome; h.cleanup();
+ *   h.home; h.claudeDir; h.skillsDir; h.agentsDir; h.legacyHome; h.runtimeHome; h.dotDir; h.cleanup();
  *
  *   leftoverHome({ legacyRuntime: true })                          // old runtime home, no migration marker
- *   leftoverHome({ legacyRuntime: true, migrated: true })          // old runtime home left after the migration
+ *   leftoverHome({ legacyRuntime: true, migrated: true })          // old runtime home left after a 3.0.x migration
  *   leftoverHome({ devflowEnabled: true })                         // the old plugin installed and enabled
  *   leftoverHome({ devflowEnabled: false })                        // installed, disabled in settings.json
+ *   leftoverHome({ interimFiles: ['defaults.json'] })              // files AOForge 3.0.0 left in ~/.aoforge/
  *
  *   const p = leftoverProject({ layout: 'legacy', configKey: 'legacy' });   // W066 + W067
  *   p.root; p.home; p.cleanup();
@@ -23,7 +25,12 @@
  *   otherSkills     non-legacy skill directories under `<home>/.claude/skills/` (default `['synced']`, the one this
  *                   machine has), which must never be reported or moved
  *   legacyRuntime   true: the old runtime home `<home>/.claude/devflow/`, populated by 72-07's legacyRuntimeHome
- *   migrated        true (needs legacyRuntime): run 72-07's migration once, so the new home holds its marker
+ *   migrated        true (needs legacyRuntime): the new home holds the marker a 3.0.x migration wrote
+ *                   (`<home>/.claude/aoforge/.legacy-state-migrated.json`, a hand-written record; 3.1 runs no
+ *                   migration, so nothing is copied)
+ *   interimFiles    names written into `<home>/.aoforge/` (each a short hand-written file), as AOForge 3.0.0 left
+ *                   them: 'defaults.json', 'brave_api_key', 'aoforge-watch.log', ... A name ending in `/` is created
+ *                   as a directory instead.
  *   devflowEnabled  null (default): the old plugin is not installed. true: installed 2.15.0 with no enabledPlugins
  *                   entry (Claude Code's default for an installed plugin is enabled). false: installed 2.15.0 and
  *                   disabled in settings.json. AOForge 3.0.0 is installed and enabled in every case (72-10's
@@ -51,9 +58,10 @@ const { NAMES, LEGACY } = require('../legacy-names.cjs');
 const { legacyRuntimeHome } = require('./legacy-runtime-fixtures.cjs');
 const { writePluginState } = require('./legacy-plugin-fixtures.cjs');
 const { planningProject } = require('./legacy-layout-fixtures.cjs');
-const { migrateLegacyRuntime } = require('../runtime-state-migrate.cjs');
 
 const FIXED_NOW = new Date('2026-10-09T03:00:00.000Z');
+/** The marker a 3.0.x runtime-state migration wrote under the new runtime home (TRD 72-07). */
+const MIGRATION_MARKER = '.legacy-state-migrated.json';
 const PLUGIN_VERSION = '3.0.0';
 const LEGACY_PLUGIN_VERSION = '2.15.0';
 
@@ -87,11 +95,19 @@ function pluginStateFor(devflowEnabled) {
   throw new Error(`leftoverHome: devflowEnabled must be null, true or false (got ${JSON.stringify(devflowEnabled)})`);
 }
 
+/** The hand-written content of a file AOForge 3.0.0 left in `~/.aoforge/`. */
+function interimFileContent(name) {
+  if (name.endsWith('.json')) return `{"left_by":"${NAMES.product} 3.0.0","name":"${name}"}\n`;
+  if (name.endsWith('.pid')) return '{"pid":999999999}\n';
+  return `${name} written by ${NAMES.product} 3.0.0\n`;
+}
+
 /**
  * A fresh fake home with the leftovers `opts` describes. See the header for the options.
  *
  * @returns {{home: string, claudeDir: string, skillsDir: string, agentsDir: string, legacyHome: string,
- *            runtimeHome: string, files: Record<string, string>, migration: object|null, cleanup: () => void}}
+ *            runtimeHome: string, dotDir: string, files: Record<string, string>, migration: object|null,
+ *            cleanup: () => void}}
  */
 function leftoverHome({
   dfSkills = [],
@@ -99,6 +115,7 @@ function leftoverHome({
   otherSkills = ['synced'],
   legacyRuntime = false,
   migrated = false,
+  interimFiles = [],
   devflowEnabled = null,
 } = {}) {
   if (migrated && !legacyRuntime) throw new Error('leftoverHome: migrated needs legacyRuntime');
@@ -136,15 +153,29 @@ function leftoverHome({
 
   writePluginState(home, { ...pluginStateFor(devflowEnabled), aoforge: { version: PLUGIN_VERSION } });
 
-  const migration = migrated ? migrateLegacyRuntime({ userHome: home, now: FIXED_NOW }) : null;
+  const legacyHome = path.join(claudeDir, LEGACY.runtimeDir);
+  const runtimeHome = path.join(claudeDir, NAMES.runtimeDir);
+  let migration = null;
+  if (migrated) {
+    // The record a 3.0.x session left; written by hand, because 3.1 carries no migration to run.
+    migration = { from: legacyHome, at: FIXED_NOW.toISOString(), copied: ['calibration.json'], moved: [], skipped: [] };
+    writeFile(path.join(runtimeHome, MIGRATION_MARKER), `${JSON.stringify(migration, null, 2)}\n`);
+  }
+
+  const dotDir = path.join(home, NAMES.userDotDir);
+  for (const name of interimFiles) {
+    if (name.endsWith('/')) fs.mkdirSync(path.join(dotDir, name.slice(0, -1)), { recursive: true });
+    else writeFile(path.join(dotDir, name), interimFileContent(name));
+  }
 
   return {
     home,
     claudeDir,
     skillsDir,
     agentsDir,
-    legacyHome: path.join(claudeDir, LEGACY.runtimeDir),
-    runtimeHome: path.join(claudeDir, NAMES.runtimeDir),
+    legacyHome,
+    runtimeHome,
+    dotDir,
     files,
     migration,
     cleanup() {
@@ -189,6 +220,7 @@ module.exports = {
   doctorCtx,
   configWithKey,
   FIXED_NOW,
+  MIGRATION_MARKER,
   PLUGIN_VERSION,
   LEGACY_PLUGIN_VERSION,
   CONFIG_KEYS,

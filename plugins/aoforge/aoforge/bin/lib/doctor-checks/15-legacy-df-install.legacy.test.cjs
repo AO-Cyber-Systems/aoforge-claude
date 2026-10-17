@@ -1,10 +1,14 @@
 'use strict';
 
-// Tests for doctor check 15-legacy-df-install (objective 72, TRD 72-15, INST-01), tests 1-3 and the CLI case 12.
+// Tests for doctor check 15-legacy-df-install (objective 72, TRD 72-15, INST-01; report-only since objective 78,
+// TRD 78-06, SC-3), tests 1-3, 7 and the CLI case 12.
 //
-// INST-01: no legacy `df-*` skill or agent stays under ~/.claude, and the doctor flags one that reappears. The fix is
-// global-upgrade's mover (findLegacy/moveLegacy): every entry is moved into ~/.claude/aoforge/backups/legacy-<ts>/,
-// never deleted.
+// INST-01: no legacy `df-*` skill or agent stays under ~/.claude, and the doctor flags one that reappears. 3.1 keeps the
+// report and drops the doctor's own fix: the move is the global upgrade's (objective 36), which runs at session start
+// after a plugin update and on demand with `aof-tools upgrade --global --apply`.
+//
+// 7. `run` warns with the move text (the global upgrade or the manual move); the module exports no `fix`;
+//    `doctor --global --fix` neither reports it fixable nor moves anything.
 //
 // no_llm_test_data: every home is a fresh temp directory from legacy-doctor-fixtures (leftoverHome), with hand-written
 // file contents. The real ~/.claude is never read or written: the check gets ctx.userHome, and the CLI case runs with
@@ -34,19 +38,6 @@ function home(opts) {
   return h;
 }
 
-/** Every file under `dir`, relative and posix, sorted. */
-function listFiles(dir) {
-  const out = [];
-  (function walk(cur, rel) {
-    for (const entry of fs.readdirSync(cur, { withFileTypes: true })) {
-      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) walk(path.join(cur, entry.name), childRel);
-      else out.push(childRel);
-    }
-  })(dir, '');
-  return out.sort();
-}
-
 function runFix(h) {
   return doctor.runDoctor({
     userHome: h.home,
@@ -59,17 +50,40 @@ function runFix(h) {
   });
 }
 
+/** `aof-tools doctor --global [--fix] --json` with HOME on the fake home and no product variable. */
+function cli(h, args) {
+  const env = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (key.startsWith(NAMES.envPrefix) || key.startsWith(LEGACY.envPrefix)) continue;
+    env[key] = value;
+  }
+  env.HOME = h.home;
+  env.USERPROFILE = h.home;
+  const r = spawnSync(process.execPath, [AOF_TOOLS, 'doctor', '--global', ...args, '--json'], {
+    cwd: h.home, env, encoding: 'utf-8', timeout: 60000,
+  });
+  assert.equal(r.status, 0, r.stderr);
+  let text = String(r.stdout || '').trim();
+  if (text.startsWith('@file:')) {
+    const file = text.slice('@file:'.length);
+    text = fs.readFileSync(file, 'utf-8');
+    fs.rmSync(file, { force: true });
+  }
+  return JSON.parse(text);
+}
+
 // ─── contract ────────────────────────────────────────────────────────────────
 
 describe('legacy-df-install: contract', () => {
-  test('a global check with a fix; reads the home only through ctx', () => {
+  test('7. a global, report-only check: no fix export; reads the home only through ctx', () => {
     assert.equal(check.id, 'legacy-df-install');
     assert.equal(check.scope, 'global');
     assert.deepEqual(doctor.contractIssues(check), []);
-    assert.equal(typeof check.fix, 'function');
+    assert.equal(check.fix, undefined, 'report-only: the move belongs to the global upgrade');
     const src = fs.readFileSync(require.resolve('./15-legacy-df-install.cjs'), 'utf-8');
     assert.equal(/os\.homedir|process\.env/.test(src), false, 'never reads os.homedir() or process.env');
     assert.equal(src.includes(`'${LEGACY.installPrefix}'`), false, 'the install prefix comes from LEGACY');
+    assert.equal(/moveLegacy/.test(src), false, 'no second mover');
   });
 
   test('loaded from the checks directory by the engine', () => {
@@ -78,16 +92,24 @@ describe('legacy-df-install: contract', () => {
   });
 });
 
-// ─── 1. reappearance is flagged ──────────────────────────────────────────────
+// ─── 1, 7. reappearance is flagged with the move text ────────────────────────
 
-describe('legacy-df-install: report (test 1)', () => {
-  test('1. a df- skill and a df- agent -> warn naming both, fixable', () => {
+describe('legacy-df-install: report (tests 1, 7)', () => {
+  test('1/7. a df- skill and a df- agent -> warn naming both and the move, not fixable', () => {
     const h = home({ dfSkills: ['df-quick'], dfAgents: ['df-planner'] });
     const r = check.run(F.doctorCtx({ home: h.home }));
     assert.equal(r.severity, 'warn', r.finding);
-    assert.equal(r.fixable, true);
+    assert.equal(r.fixable, false);
     assert.ok(r.finding.includes('skills/df-quick'), r.finding);
     assert.ok(r.finding.includes('agents/df-planner.md'), r.finding);
+    assert.ok(r.finding.includes('load beside the plugin'), r.finding);
+    assert.ok(r.finding.includes('~/.claude/aoforge/backups/legacy-<timestamp>/'), r.finding);
+    assert.match(r.finding, /global upgrade/);
+    assert.match(r.finding, /session start/);
+    assert.ok(r.finding.includes('aof-tools upgrade --global --apply'), r.finding);
+    assert.match(r.finding, /move them yourself/);
+    assert.match(r.fix_command, /upgrade --global --apply$/);
+    assert.doesNotMatch(r.fix_command, /doctor/, 'the doctor no longer fixes this');
     assert.equal(r.finding.includes('\n'), false, 'one line');
     assert.deepEqual(r.details.entries, ['skills/df-quick', 'agents/df-planner.md']);
   });
@@ -109,61 +131,31 @@ describe('legacy-df-install: report (test 1)', () => {
   });
 });
 
-// ─── 2. the fix moves, never deletes ─────────────────────────────────────────
+// ─── 2, 7. --fix moves nothing ───────────────────────────────────────────────
 
-describe('legacy-df-install: fix (test 2)', () => {
-  test('2. --fix moves both into backups/legacy-<ts>/{skills,agents}/ unchanged; re-run is ok', () => {
+describe('legacy-df-install: --fix (tests 2, 7)', () => {
+  test('7. a --fix run attempts nothing: the entries stay, no backup is made, the report still warns', () => {
     const h = home({ dfSkills: ['df-quick'], dfAgents: ['df-planner'] });
     const report = runFix(h);
-
-    assert.equal(report.fixes.length, 1);
-    const [outcome] = report.fixes;
-    assert.equal(outcome.applied, true, outcome.refused || outcome.notes);
-    const backupsDir = path.join(h.runtimeHome, 'backups');
-    assert.equal(path.dirname(outcome.backup), backupsDir);
-    assert.match(path.basename(outcome.backup), /^legacy-2026-10-09T03-00-00-000Z$/);
-
-    // Originals gone, the user's own skill untouched.
-    assert.equal(fs.existsSync(path.join(h.skillsDir, 'df-quick')), false);
-    assert.equal(fs.existsSync(path.join(h.agentsDir, 'df-planner.md')), false);
-
-    // Nothing deleted: the backup holds every byte.
+    assert.deepEqual(report.fixes, [], 'no fix attempted');
+    assert.equal(report.checks[0].severity, 'warn');
+    assert.equal(report.checks[0].fixable, false);
     for (const rel of ['skills/df-quick/SKILL.md', 'agents/df-planner.md']) {
-      assert.equal(fs.readFileSync(path.join(outcome.backup, ...rel.split('/')), 'utf-8'), h.files[rel], rel);
+      assert.equal(fs.readFileSync(path.join(h.claudeDir, ...rel.split('/')), 'utf-8'), h.files[rel], rel);
     }
-    assert.deepEqual(listFiles(outcome.backup), ['agents/df-planner.md', 'skills/df-quick/SKILL.md']);
-
-    // changed paths are absolute: the engine must not take them for project paths.
-    assert.ok(outcome.changed.length > 0 && outcome.changed.every((p) => path.isAbsolute(p)), outcome.changed.join(', '));
-
-    // The post-fix report and a fresh run are ok.
-    assert.equal(report.checks[0].severity, 'ok', report.checks[0].finding);
-    assert.equal(check.run(F.doctorCtx({ home: h.home })).severity, 'ok');
-  });
-
-  test('fix with nothing to move -> not applied, nothing created', () => {
-    const h = home({});
-    const r = check.fix(F.doctorCtx({ home: h.home }), { severity: 'ok', fixable: false });
-    assert.equal(r.applied, false);
-    assert.equal(fs.existsSync(path.join(h.runtimeHome, 'backups')), false);
+    assert.equal(fs.existsSync(path.join(h.runtimeHome, 'backups')), false, 'no backup directory');
   });
 });
 
 // ─── 3. a non-legacy skill is never touched ──────────────────────────────────
 
 describe('legacy-df-install: other skills (test 3)', () => {
-  test('3. the user\'s own skill (synced) is never reported or moved', () => {
+  test('3. the user\'s own skill (synced) is never reported', () => {
     const h = home({ dfSkills: ['df-quick'], otherSkills: ['synced', 'notes'] });
     const r = check.run(F.doctorCtx({ home: h.home }));
     assert.equal(r.finding.includes('synced'), false, r.finding);
     assert.equal(r.finding.includes('notes'), false, r.finding);
     assert.deepEqual(r.details.entries, ['skills/df-quick']);
-
-    runFix(h);
-    for (const name of ['synced', 'notes']) {
-      const rel = `skills/${name}/SKILL.md`;
-      assert.equal(fs.readFileSync(path.join(h.claudeDir, ...rel.split('/')), 'utf-8'), h.files[rel], rel);
-    }
   });
 
   test('3. only synced present -> ok', () => {
@@ -174,32 +166,25 @@ describe('legacy-df-install: other skills (test 3)', () => {
 
 // ─── 12. through the CLI ─────────────────────────────────────────────────────
 
-describe('legacy-df-install: CLI (test 12)', () => {
-  test('12. aof-tools doctor --global --json on a home with df- leftovers lists legacy-df-install as warn', () => {
+describe('legacy-df-install: CLI (tests 7, 12)', () => {
+  test('12. aof-tools doctor --global --json lists legacy-df-install as warn, not fixable', () => {
     const h = home({ dfSkills: ['df-quick'], dfAgents: ['df-planner'] });
-    const env = {};
-    for (const [key, value] of Object.entries(process.env)) {
-      if (key.startsWith(NAMES.envPrefix) || key.startsWith(LEGACY.envPrefix)) continue;
-      env[key] = value;
-    }
-    env.HOME = h.home;
-    env.USERPROFILE = h.home;
-    const r = spawnSync(process.execPath, [AOF_TOOLS, 'doctor', '--global', '--json'], {
-      cwd: h.home, env, encoding: 'utf-8', timeout: 60000,
-    });
-    assert.equal(r.status, 0, r.stderr);
-    let text = String(r.stdout || '').trim();
-    if (text.startsWith('@file:')) {
-      const file = text.slice('@file:'.length);
-      text = fs.readFileSync(file, 'utf-8');
-      fs.rmSync(file, { force: true });
-    }
-    const report = JSON.parse(text);
+    const report = cli(h, []);
     const found = report.checks.find((c) => c.id === 'legacy-df-install');
     assert.ok(found, `legacy-df-install missing: ${report.checks.map((c) => c.id).join(', ')}`);
     assert.equal(found.severity, 'warn', found.finding);
-    assert.equal(found.fixable, true);
-    // Report mode: nothing moved.
+    assert.equal(found.fixable, false);
     assert.ok(fs.existsSync(path.join(h.skillsDir, 'df-quick', 'SKILL.md')));
+  });
+
+  test('7. aof-tools doctor --global --fix --json: not reported fixable, no fix entry, nothing moved', () => {
+    const h = home({ dfSkills: ['df-quick'], dfAgents: ['df-planner'] });
+    const report = cli(h, ['--fix']);
+    const found = report.checks.find((c) => c.id === 'legacy-df-install');
+    assert.ok(found);
+    assert.equal(found.fixable, false);
+    assert.equal(report.fixes.some((f) => f.id === 'legacy-df-install'), false, JSON.stringify(report.fixes));
+    assert.ok(fs.existsSync(path.join(h.skillsDir, 'df-quick', 'SKILL.md')), 'the skill stays');
+    assert.ok(fs.existsSync(path.join(h.agentsDir, 'df-planner.md')), 'the agent stays');
   });
 });

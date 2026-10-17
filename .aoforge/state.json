@@ -1745,6 +1745,11 @@
       "objective": "78",
       "summary": "78-05: interimDaemon reads nothing while AOFORGE_HANDOFF_PID_FILE is set, and stop/add-project/remove-project ignore the 3.0.0 pid file; a stale one is left for doctor check 17",
       "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-06: doctor checks 15 legacy-df-install and 16 legacy-plugin-runtime KEEP report-only (fixes removed); check 17 user-dot-dir KEEP WITH its fix; sync-runtime's pre-rename runtime-state migration REMOVED; coexistence-guard + coexistence.cjs KEEP report-only, extended to one notice per session for every global leftover",
+      "rationale": null
     }
   ],
   "blockers": [
