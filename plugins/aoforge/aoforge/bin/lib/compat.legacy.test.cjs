@@ -3,15 +3,15 @@
 // compat.legacy.test.cjs — compat.cjs reads AOForge names only (objective 78, TRD 78-11, SC-1/SC-4).
 //
 // Until 3.1.0 compat held the one-release shims of the rename (objective 72): the legacy planning directory, the
-// pre-rename agent namespace, the 3.0.0 and pre-rename user dot directories. TRD 78-11 removed them; this file pins
-// that each pre-rename name is now ignored. aliasLegacyEnv is the last shim; TRD 78-12 deletes it with its cases.
+// pre-rename agent namespace, the 3.0.0 and pre-rename user dot directories, and the environment alias. TRD 78-11
+// removed the readers and TRD 78-12 the alias; this file pins that each pre-rename name is now ignored.
 //
 // Test list (written before the implementation; TRD 78-11 test-list numbers in brackets):
-//  5-8. aliasLegacyEnv (TRD 72-02; unchanged, removed by 78-12).
 //  9. [4] planningDirName is `.aoforge` for every layout (aoforge, legacy, both, none); 9b: a FILE named
 //     `.aoforge` beside the legacy directory changes nothing.
 // 10. [4] planningRoot is <root>/.aoforge for every layout; 10b: nothing is cached or resolved from the disk.
-// 11. [4] the deleted exports are undefined: isLegacyPlanning, bothPlanningDirs, legacyRuntimeHome, resolveUserFile.
+// 11. [4] the deleted exports are undefined: isLegacyPlanning, bothPlanningDirs, legacyRuntimeHome, resolveUserFile and
+//     (TRD 78-12) the environment alias; its name is built from parts so a search for it finds no code.
 // 17. [4] planningRel names `.aoforge/...` for every layout.
 // 18. [4] PLANNING_DIR_NAMES deep-equals ['.aoforge'] (frozen); isPlanningDirName accepts `.aoforge` only.
 // 19. [4] planningDirLabel() is `.aoforge/`.
@@ -23,7 +23,9 @@
 // 14. [5] userDotFile(home, name) is <home>/.claude/aoforge/<name> whatever ~/.aoforge/ or the pre-rename dot
 //     directory hold; the old extra arguments (fsImpl, legacyName) change nothing; nothing is created.
 // 15. runtimeHome.
-// 16. Source guard: compat.cjs spells no legacy name, and apart from aliasLegacyEnv it uses nothing from LEGACY.
+// 16. Source guard: compat.cjs spells no legacy name. 16b (TRD 78-12): it requires nothing from legacy-names.cjs and
+//     names no LEGACY; the current names it holds itself equal NAMES (planning directory, agent namespace, runtime
+//     home).
 // 20. [3] CLI in a legacy-only project: `validate health --raw` is broken with W066 (78-01), `state load` is refused
 //     with legacyLayoutMessage (78-07), `doctor --json` carries the note (78-01), and `.aoforge/` never appears.
 
@@ -38,7 +40,11 @@ const { legacyLayoutMessage } = require('./planning-layout.cjs');
 const { projectTree, legacyEnv, fakeHome } = require('./__fixtures__/legacy-fixtures.cjs');
 const { planningProject } = require('./__fixtures__/legacy-layout-fixtures.cjs');
 
+const { NAMES } = require('./legacy-names.cjs');
+
 const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
+/** The deleted environment alias (TRD 78-12), built from parts so a search for the name finds no code. */
+const ENV_ALIAS = ['alias', 'Legacy', 'Env'].join('');
 const LAYOUTS = ['aoforge', 'legacy', 'both', 'none'];
 
 describe('compat.aliasLegacyEnv', () => {
@@ -133,7 +139,7 @@ describe('compat planning directory: .aoforge only (TRD 78-11)', () => {
   });
 
   it('11. the legacy-only exports are gone', () => {
-    for (const name of ['isLegacyPlanning', 'bothPlanningDirs', 'legacyRuntimeHome', 'resolveUserFile']) {
+    for (const name of ['isLegacyPlanning', 'bothPlanningDirs', 'legacyRuntimeHome', 'resolveUserFile', ENV_ALIAS]) {
       assert.equal(name in compat, false, `compat still exports ${name}`);
       assert.equal(compat[name], undefined, name);
     }
@@ -331,16 +337,18 @@ describe('compat source guard', () => {
     }
   });
 
-  it('16b. apart from aliasLegacyEnv (TRD 78-12 removes it), compat.cjs uses nothing from LEGACY', () => {
-    const start = text.indexOf('function aliasLegacyEnv(');
-    assert.notEqual(start, -1, 'aliasLegacyEnv is still defined until 78-12');
-    const end = text.indexOf('\n}\n', start);
-    const rest = `${text.slice(0, start)}${text.slice(end + 3)}`;
-    const uses = rest.split('\n')
-      .filter((line) => /\bLEGACY\b/.test(line))
-      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-      .filter((line) => !/require\('\.\/legacy-names\.cjs'\)/.test(line));
-    assert.deepEqual(uses, [], `LEGACY outside aliasLegacyEnv:\n${uses.join('\n')}`);
+  it('16b. compat.cjs requires nothing from legacy-names.cjs and names no LEGACY (TRD 78-12)', () => {
+    assert.equal(/require\(['"]\.\/legacy-names(\.cjs)?['"]\)/.test(text), false, 'compat.cjs requires legacy-names');
+    assert.equal(/\bLEGACY\b/.test(text), false, 'compat.cjs names LEGACY');
+    assert.equal(text.includes(ENV_ALIAS), false, 'compat.cjs still holds the environment alias');
+  });
+
+  it('16c. the current names compat holds itself equal NAMES', () => {
+    assert.equal(compat.planningDirName('/x'), NAMES.planningDir);
+    assert.deepEqual(compat.PLANNING_DIR_NAMES, [NAMES.planningDir]);
+    assert.equal(compat.runtimeHome('/home/u'), path.join('/home/u', '.claude', NAMES.runtimeDir));
+    assert.equal(compat.isOwnAgentType(`${NAMES.agentNs}planner`), true);
+    assert.equal(compat.isOwnExecutor(`${NAMES.agentNs}executor`), true);
   });
 });
 
