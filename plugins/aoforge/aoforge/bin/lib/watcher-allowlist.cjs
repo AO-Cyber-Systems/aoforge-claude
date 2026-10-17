@@ -5,11 +5,11 @@
  *
  * Default = the curated interactive + shell-flow patterns. Users may extend
  * via aoforge-watch-allow.json in the runtime home, ~/.claude/aoforge/ (override:
- * $AOFORGE_WATCH_ALLOW_FILE). For one release the file is still read from
- * ~/.aoforge/ (AOForge 3.0.0) and the legacy daemon's file from the pre-rename
- * dot directory when the runtime home has none (TRD 73-11). The daemon NEVER
- * runs anything outside the combined allowlist; the deny-list is a
- * belt-and-braces sanity check.
+ * $AOFORGE_WATCH_ALLOW_FILE). Only that file is read (TRD 78-11): a copy in
+ * ~/.aoforge/ (AOForge 3.0.0) or the pre-rename daemon's file is ignored;
+ * doctor check 17 moves 3.0.0's file on request. The daemon NEVER runs anything
+ * outside the combined allowlist; the deny-list is a belt-and-braces sanity
+ * check.
  *
  * NOTE (TRD 73-12): the built-in entries are the same per-invocation matcher
  * gate-interactive uses (interactive-commands.cjs: shell-words segments, flags
@@ -24,7 +24,7 @@
 const fs = require('fs');
 const os = require('os');
 
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 const { userDotFile } = require('./compat.cjs');
 // The matcher gate-interactive uses. It ships beside this file in bin/lib, so a plain require: the daemon cannot
 // validate a command without it.
@@ -122,18 +122,16 @@ function validateCommand(cmd, allowlist) {
 }
 
 /**
- * The user allowlist file (compat.userDotFile, TRD 73-11): the runtime home
- * (~/.claude/aoforge/aoforge-watch-allow.json), then, for one release, ~/.aoforge/
- * (AOForge 3.0.0) and the legacy daemon's file under the pre-rename dot directory
- * (objective 72 INST-03), else the runtime-home path. Read only; the daemon never
- * writes it.
+ * The user allowlist file (compat.userDotFile, TRD 73-11): the runtime home,
+ * ~/.claude/aoforge/aoforge-watch-allow.json, with no fallback (TRD 78-11). Read
+ * only; the daemon never writes it.
  */
 function userAllowFilePath() {
   if (process.env.AOFORGE_WATCH_ALLOW_FILE) {
     return process.env.AOFORGE_WATCH_ALLOW_FILE;
   }
   const home = process.env.HOME || os.homedir();
-  return userDotFile(home, `${NAMES.watch}-allow.json`, fs, `${LEGACY.watch}-allow.json`);
+  return userDotFile(home, `${NAMES.watch}-allow.json`);
 }
 
 /**

@@ -8,7 +8,7 @@
  *   5. reject overlong (>4096)
  *   6. reject deny-list (sudo, su -, rm -rf /, etc.)
  *   7-8. user allowlist via env override; the default file is in the runtime home
- *        (~/.claude/aoforge/), ~/.aoforge/ is still read for one release (TRD 73-11)
+ *        (~/.claude/aoforge/, TRD 73-11); a copy in ~/.aoforge/ (3.0.0) is ignored (TRD 78-11)
  *   9. malformed user file -> degraded mode
  *  10. shell-flow patterns pass
  *  11. interactive patterns pass
@@ -200,16 +200,17 @@ describe('watcher-allowlist — user allowlist file', () => {
     assert.equal(v.ok, true);
   });
 
-  test('a file only at ~/.aoforge/aoforge-watch-allow.json (3.0.0) is still loaded, for one release (TRD 73-11)', () => {
+  test('a file only at ~/.aoforge/aoforge-watch-allow.json (3.0.0) is ignored (TRD 78-11)', () => {
     writeUserFile(h.dir, 'interim', 'aoforge-watch-allow.json', JSON.stringify({
       commands: [{ pattern: '^make interim$', label: 'interim-extra' }],
     }));
     const r = lib.loadAllowlist();
-    assert.equal(r.userPatterns, 1);
-    assert.ok(r.allowlist.some((p) => p.label === 'interim-extra'), 'the 3.0.0 file is loaded');
+    assert.equal(r.userPatterns, 0);
+    assert.equal(r.allowlist.some((p) => p.label === 'interim-extra'), false, 'the 3.0.0 file is not loaded');
+    assert.equal(lib.validateCommand('make interim', r.allowlist).ok, false, 'its pattern does not run');
   });
 
-  test('when the runtime home and ~/.aoforge/ both hold the file, the runtime-home file wins (TRD 73-11)', () => {
+  test('when the runtime home and ~/.aoforge/ both hold the file, only the runtime-home file is read (TRD 73-11, 78-11)', () => {
     writeUserFile(h.dir, 'interim', 'aoforge-watch-allow.json', JSON.stringify({
       commands: [{ pattern: '^make interim$', label: 'interim-extra' }],
     }));

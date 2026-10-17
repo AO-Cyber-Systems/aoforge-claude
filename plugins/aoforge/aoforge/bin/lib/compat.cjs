@@ -12,7 +12,7 @@
 //   - userHomeDir        $HOME as the hooks see it, read per call
 //   - isUserHome         a directory is $HOME, in any symlinked form
 //   - isOwnAgentType     an agent type in the `aoforge:` namespace (isOwnExecutor: the executor role)
-//   - userDotFile        a file AOForge keeps for the user (TRD 73-11)
+//   - userDotFile        a file AOForge keeps for the user, in the runtime home only (TRD 73-11)
 //   - runtimeHome        the runtime mirror, ~/.claude/aoforge
 //   - watchStateDir      the watch daemon's runtime directory under the runtime home
 //   - aliasLegacyEnv     the last pre-rename shim (see below)
@@ -52,11 +52,6 @@ function statOrNull(p, fsImpl) {
 function isDir(p, fsImpl) {
   const st = statOrNull(p, fsImpl);
   return st !== null && st.isDirectory();
-}
-
-function isFile(p, fsImpl) {
-  const st = statOrNull(p, fsImpl);
-  return st !== null && st.isFile();
 }
 
 // ─── environment ──────────────────────────────────────────────────────────────
@@ -248,58 +243,26 @@ function isOwnExecutor(t) {
   return isOwnAgentType(t) && t === NAMES.agentNs + EXECUTOR_AGENT;
 }
 
-// ─── user dot directory and runtime home ──────────────────────────────────────
+// ─── user files and runtime home ──────────────────────────────────────────────
 
-/**
- * Path of a file AOForge keeps for the user (defaults.json, the Brave API key, the watch
- * allowlist): resolveUserFile(home, name).file, so the runtime home first, then the dot
- * directory AOForge 3.0.0 used, then the pre-rename one, else the runtime-home path
- * (TRD 73-11). `legacyName` is the file's name under the pre-rename directory when the
- * name itself was renamed too (the watch daemon's files); it defaults to `name`. A
- * read-path resolver only: it stats, and never creates, copies or moves a file.
- */
-function userDotFile(home, name, fsImpl = fs, legacyName = name) {
-  return resolveUserFile(home, name, { fsImpl, legacyName }).file;
-}
-
+/** The runtime mirror and the home of every file AOForge keeps for the user: <home>/.claude/aoforge. */
 function runtimeHome(home) {
   return path.join(home, '.claude', NAMES.runtimeDir);
 }
 
-function legacyRuntimeHome(home) {
-  return path.join(home, '.claude', LEGACY.runtimeDir);
+/**
+ * Path of a file AOForge keeps for the user (defaults.json, the Brave API key, the watch allowlist):
+ * <home>/.claude/aoforge/<name>, the runtime home (TRD 73-11). There is no fallback (TRD 78-11): a copy left in
+ * ~/.aoforge/ by AOForge 3.0.0 or in the pre-rename dot directory is not read; doctor check 17 moves 3.0.0's files
+ * into the runtime home on request. A path builder only: nothing is read, created, copied or moved.
+ */
+function userDotFile(home, name) {
+  return path.join(runtimeHome(home), name);
 }
 
 /** The watch daemon's runtime directory (pid, log, service logs): <home>/.claude/aoforge/state/watch (TRD 73-11). */
 function watchStateDir(home) {
   return path.join(runtimeHome(home), 'state', 'watch');
-}
-
-/**
- * Where a file AOForge keeps for the user is read from (TRD 73-11). The first existing
- * FILE wins (a directory at a path is skipped):
- *   'current'  <currentDir>/<name>                     default currentDir: the runtime home
- *   'interim'  <home>/<NAMES.userDotDir>/<name>         AOForge 3.0.0 kept user files there; read for one release
- *   'legacy'   <home>/<LEGACY.userDotDir>/<legacyName>  pre-rename; read for one release
- * else the 'current' path, which is the only place a writer writes. Stat only: nothing is
- * created, copied or moved here (moving leftovers is the doctor's job, on request).
- *
- * @param {string} home
- * @param {string} name
- * @param {object} [opts]
- * @param {object} [opts.fsImpl=fs]
- * @param {string} [opts.legacyName=name] the file's name under the pre-rename directory
- * @param {string} [opts.currentDir=runtimeHome(home)] e.g. watchStateDir(home) for the daemon's pid and log
- * @returns {{file: string, which: 'current'|'interim'|'legacy'}}
- */
-function resolveUserFile(home, name, { fsImpl = fs, legacyName = name, currentDir = runtimeHome(home) } = {}) {
-  const current = path.join(currentDir, name);
-  if (isFile(current, fsImpl)) return { file: current, which: 'current' };
-  const interim = path.join(home, NAMES.userDotDir, name);
-  if (isFile(interim, fsImpl)) return { file: interim, which: 'interim' };
-  const legacy = path.join(home, LEGACY.userDotDir, legacyName);
-  if (isFile(legacy, fsImpl)) return { file: legacy, which: 'legacy' };
-  return { file: current, which: 'current' };
 }
 
 module.exports = {
@@ -317,7 +280,5 @@ module.exports = {
   isOwnExecutor,
   userDotFile,
   runtimeHome,
-  legacyRuntimeHome,
   watchStateDir,
-  resolveUserFile,
 };

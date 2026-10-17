@@ -678,8 +678,8 @@ function cmdInitNewProject(cwd, raw, args = []) {
   const branchSpec = _resolveBranch(args, cwd);
   const config = loadConfig(cwd);
 
-  // Detect Brave Search API key availability: the runtime home (~/.claude/aoforge/), then
-  // ~/.aoforge/ (AOForge 3.0.0) and the pre-rename dot directory, for one release (TRD 73-11)
+  // Detect Brave Search API key availability: the runtime home, ~/.claude/aoforge/, only
+  // (compat.userDotFile, TRD 73-11; no fallback since TRD 78-11)
   const homedir = require('os').homedir();
   const braveKeyFile = userDotFile(homedir, 'brave_api_key');
   const hasBraveSearch = !!(process.env.BRAVE_API_KEY || fs.existsSync(braveKeyFile));
