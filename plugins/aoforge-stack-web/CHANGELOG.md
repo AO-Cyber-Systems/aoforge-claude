@@ -15,3 +15,5 @@ All notable changes to the aoforge-stack-web stack pack. Released with tags name
   `checkpoint:human-verify`'s routes before it is presented, and shows the rows as pre-verified evidence. It replaces
   the browser steps core's `checkpoints.md` used to carry; click and screenshot evidence stays with web-ui-verifier,
   since the executor holds no click or screenshot tool (quick 39).
+- The header comment of the vendored `hooks/sync-pack.cjs` names `stack-packs.test.cjs`, the test that keeps it
+  byte-identical across packs (objective 79).
