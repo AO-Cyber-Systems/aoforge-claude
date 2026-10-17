@@ -1,23 +1,46 @@
 'use strict';
 
-// Test list (objective 72, TRD 72-09, INST-03): the managed block recognises the pre-rename markers
-// (DEVFLOW:START / DEVFLOW:END) for one release, and never writes them.
+// Test list (objective 78, TRD 78-08, SC-2/SC-4; replaces the TRD 72-09 list): AOForge 3.1 reads a managed block
+// only under the AOFORGE markers. A START marker under the pre-rename tag is refused with the W069 text: it is never
+// read as a block, so no writer can add a second block beside it.
 //
-//  6.  read() of a legacy-marker block returns the same meta (v, src, legacy) and content as the same
-//      block under AOFORGE markers; `tag` names the marker found. The unversioned map-codebase legacy
-//      marker under the old tag reads as unversioned too; parseStartMarker accepts both tags.
-//  7.  upsert() over a legacy-marker block replaces it in place with AOFORGE markers: bytes outside are
-//      unchanged, exactly one block results and no legacy marker is left.
-//  7b. isStale() is true for a legacy-tag block even at the current version (its markers must move),
-//      and false for the same block under AOFORGE markers.
-//  8.  One legacy and one AOFORGE block -> the existing "multiple" ManagedBlockError from read() and
-//      upsert(), in either order (never silently merged).
+//  5.  read() of a text holding a pre-rename START throws ManagedBlockError with code ELEGACYBLOCK. Its message is
+//      planning-layout's legacyBlockMessage for the label (default CLAUDE.md, or `read(text, { label })`): the
+//      problem, then `fix:` and the fix; `err.fix` is the fix. The unversioned map-codebase marker under the old
+//      tag, CRLF text, and a pre-rename block beside an AOFORGE one (either order) are refused the same way, never
+//      as "multiple". upsert() and isStale(text) rethrow it; parseStartMarker() no longer accepts the old tag. An
+//      AOFORGE block reads as before and carries no tag other than AOFORGE; two AOFORGE blocks are still "multiple".
+//  6.  isStale(block) no longer reads `tag`. LEGACY_START_RE equals planning-layout's LEGACY_BLOCK_START_RE and
+//      agrees with hasLegacyBlockMarker on a fixed sample set (and read refuses exactly those). Loading
+//      managed-block.cjs and global-upgrade.cjs does not load planning-layout.cjs (only a refusal does); a copy of
+//      managed-block with no planning-layout beside it still refuses, with a built-in one-line message.
+//  4.  `aof-tools upgrade --apply` (spawned) in a `.aoforge/` project whose CLAUDE.md holds a pre-rename block: the
+//      same migrations apply as in the same project without CLAUDE.md, 0005 and 0007 are skipped with a reason
+//      naming W069, nothing fails or stays pending, and CLAUDE.md is byte-identical.
+//  7.  The migration registry no longer contains 0014, and its module is gone.
+//
+// Fixtures: __fixtures__/legacy-claude-md-fixtures.cjs (projectClaudeMd) and __fixtures__/legacy-layout-fixtures.cjs
+// (planningProject: a hermetic `.aoforge/` tree and fake HOME). The real home directory is never read or written.
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+// Fence: any accidental home lookup lands in a scratch dir, never the real one.
+process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aof-mb-legacy-fence-home-'));
 
 const mb = require('./managed-block.cjs');
+const pl = require('./planning-layout.cjs');
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const fx = require('./__fixtures__/legacy-claude-md-fixtures.cjs');
+const { planningProject } = require('./__fixtures__/legacy-layout-fixtures.cjs');
+
+const MB_PATH = path.join(__dirname, 'managed-block.cjs');
+const GU_PATH = path.join(__dirname, 'global-upgrade.cjs');
+const MIGRATIONS = path.join(__dirname, 'migrations');
 
 const LEGACY_V3_START = '<!-- DEVFLOW:START v=3 src=global-claude-md -->';
 const LEGACY_END = '<!-- DEVFLOW:END -->';
@@ -29,60 +52,208 @@ const LEGACY_UNVERSIONED_START =
 const PRE = '# HARD RULES\n\n- port 8091 only\n\n';
 const BODY = '# DevFlow Routing\n\n- Quick → `/devflow:quick`';
 const POST = '\n\n## TDD & Quality\n\nTests first.\n';
+const LEGACY_TEXT = `${PRE}${LEGACY_V3_START}\n${BODY}\n${LEGACY_END}${POST}`;
+const NEW_TEXT = `${PRE}${NEW_V3_START}\n${BODY}\n${NEW_END}${POST}`;
 
-describe('managed-block: legacy markers (TRD 72-09)', () => {
-  test('6. a legacy-marker block reads with the same meta and content as an AOFORGE one', () => {
-    const legacyText = `${PRE}${LEGACY_V3_START}\n${BODY}\n${LEGACY_END}${POST}`;
-    const newText = `${PRE}${NEW_V3_START}\n${BODY}\n${NEW_END}${POST}`;
-    const oldBlock = mb.read(legacyText);
-    const newBlock = mb.read(newText);
-    assert.ok(oldBlock, 'the legacy-marker block was not found');
-    assert.deepEqual(oldBlock.meta, newBlock.meta);
-    assert.deepEqual(oldBlock.meta, { v: '3', src: 'global-claude-md', legacy: false });
-    assert.equal(oldBlock.content, BODY);
-    assert.equal(oldBlock.start, PRE.length);
-    assert.equal(legacyText.slice(oldBlock.end), POST);
-    assert.equal(oldBlock.tag, LEGACY.blockTag);
-    assert.equal(newBlock.tag, NAMES.blockTag);
+/** An assert.throws validator for the ELEGACYBLOCK refusal with the W069 text for `label`. */
+function refusal(label = 'CLAUDE.md') {
+  const w = pl.legacyBlockMessage(label);
+  return (err) => {
+    assert.ok(err instanceof mb.ManagedBlockError, `not a ManagedBlockError: ${err && err.stack}`);
+    assert.equal(err.code, 'ELEGACYBLOCK');
+    assert.equal(err.message, `${w.message}; fix: ${w.fix}`);
+    assert.equal(err.fix, w.fix);
+    return true;
+  };
+}
 
-    const unversioned = mb.read(`x\n${LEGACY_UNVERSIONED_START}\nbody\n${LEGACY_END}\n`);
-    assert.deepEqual(unversioned.meta, { v: null, src: null, legacy: true });
+describe('managed-block: pre-rename markers are refused (TRD 78-08)', () => {
+  test('5. read refuses a pre-rename START with the W069 text; the label is the caller\'s', () => {
+    assert.throws(() => mb.read(LEGACY_TEXT), refusal());
+    assert.throws(() => mb.read(LEGACY_TEXT, { label: '~/.claude/CLAUDE.md' }), refusal('~/.claude/CLAUDE.md'));
 
-    assert.deepEqual(mb.parseStartMarker(LEGACY_V3_START), { v: '3', src: 'global-claude-md', legacy: false });
-    assert.deepEqual(mb.parseStartMarker(NEW_V3_START), { v: '3', src: 'global-claude-md', legacy: false });
+    // The text names the markers, the new tag and the 3.0.x path.
+    try {
+      mb.read(LEGACY_TEXT);
+    } catch (err) {
+      assert.ok(err.message.includes(`${LEGACY.blockTag}:START`), err.message);
+      assert.ok(err.message.includes(NAMES.blockTag), err.message);
+      assert.match(err.message, /3\.0\.x/);
+      assert.match(err.message, /; fix: /);
+    }
+
+    // The unversioned map-codebase marker under the old tag, and CRLF text.
+    assert.throws(() => mb.read(`x\n${LEGACY_UNVERSIONED_START}\nbody\n${LEGACY_END}\n`), refusal());
+    assert.throws(() => mb.read(LEGACY_TEXT.replace(/\n/g, '\r\n')), refusal());
+    // An unterminated pre-rename block is the same refusal, not "unterminated".
+    assert.throws(() => mb.read(`${LEGACY_V3_START}\nno end\n`), refusal());
   });
 
-  test('7. upsert replaces a legacy-marker block in place with AOFORGE markers; one block results', () => {
-    const legacyText = `${PRE}${LEGACY_V3_START}\n${BODY}\n${LEGACY_END}${POST}`;
-    const out = mb.upsert(legacyText, 'new body', { v: '4', src: 'global-claude-md' });
-    assert.equal(out, `${PRE}<!-- AOFORGE:START v=4 src=global-claude-md -->\nnew body\n${NEW_END}${POST}`);
-    assert.ok(!out.includes('DEVFLOW:'), 'a legacy marker survived');
-    const again = mb.read(out);
-    assert.equal(again.tag, NAMES.blockTag);
-    assert.equal(again.content, 'new body');
-    assert.equal(out.split('AOFORGE:START').length - 1, 1, 'exactly one START marker');
-  });
-
-  test('7b. isStale is true for a legacy-tag block even at the current version', () => {
-    const legacyText = `${LEGACY_V3_START}\n${BODY}\n${LEGACY_END}\n`;
-    const newText = `${NEW_V3_START}\n${BODY}\n${NEW_END}\n`;
-    assert.equal(mb.isStale(legacyText, '3'), true);
-    assert.equal(mb.isStale(mb.read(legacyText), '3'), true);
-    assert.equal(mb.isStale(newText, '3'), false);
-  });
-
-  test('8. one legacy and one AOFORGE block -> the multiple-blocks error, never merged', () => {
+  test('5b. a pre-rename block beside an AOFORGE one is the refusal, never "multiple"', () => {
     const both = [
       `${LEGACY_V3_START}\nold\n${LEGACY_END}\n\n${NEW_V3_START}\nnew\n${NEW_END}\n`,
       `${NEW_V3_START}\nnew\n${NEW_END}\n\n${LEGACY_V3_START}\nold\n${LEGACY_END}\n`,
     ];
     for (const text of both) {
-      assert.throws(() => mb.read(text), (err) => {
-        assert.ok(err instanceof mb.ManagedBlockError);
-        assert.match(err.message, /multiple/);
-        return true;
-      });
-      assert.throws(() => mb.upsert(text, 'c', { v: '4', src: 'global-claude-md' }), mb.ManagedBlockError);
+      assert.throws(() => mb.read(text), refusal());
+      assert.throws(() => mb.upsert(text, 'c', { v: '4', src: 'global-claude-md' }), refusal());
     }
+  });
+
+  test('5c. upsert and isStale(text) rethrow the refusal; parseStartMarker ignores the old tag', () => {
+    const before = String(LEGACY_TEXT);
+    assert.throws(() => mb.upsert(LEGACY_TEXT, 'new body', { v: '4', src: 'global-claude-md' }), refusal());
+    assert.throws(
+      () => mb.upsert(LEGACY_TEXT, 'new body', { v: '4', src: 'global-claude-md' }, { label: 'docs/X.md' }),
+      refusal('docs/X.md'),
+    );
+    assert.equal(LEGACY_TEXT, before);
+    assert.throws(() => mb.isStale(LEGACY_TEXT, '3'), refusal());
+
+    assert.equal(mb.parseStartMarker(LEGACY_V3_START), null);
+    assert.equal(mb.parseStartMarker(LEGACY_UNVERSIONED_START), null);
+    assert.deepEqual(mb.parseStartMarker(NEW_V3_START), { v: '3', src: 'global-claude-md', legacy: false });
+  });
+
+  test('5d. an AOFORGE block reads as before, with no tag other than AOFORGE', () => {
+    const block = mb.read(NEW_TEXT);
+    assert.ok(block, 'the AOFORGE block was not found');
+    assert.deepEqual(block.meta, { v: '3', src: 'global-claude-md', legacy: false });
+    assert.equal(block.content, BODY);
+    assert.equal(block.start, PRE.length);
+    assert.equal(NEW_TEXT.slice(block.end), POST);
+    assert.ok(!('tag' in block) || block.tag === NAMES.blockTag, `tag: ${block.tag}`);
+
+    const out = mb.upsert(NEW_TEXT, 'new body', { v: '4', src: 'global-claude-md' });
+    assert.equal(out, `${PRE}<!-- AOFORGE:START v=4 src=global-claude-md -->\nnew body\n${NEW_END}${POST}`);
+
+    // A pre-rename END with no START is not a block and is not refused.
+    assert.equal(mb.read(`x\n${LEGACY_END}\n`), null);
+
+    // Two AOFORGE blocks are still "multiple", and the message no longer mentions the old tag.
+    assert.throws(() => mb.read(`${NEW_V3_START}\na\n${NEW_END}\n\n${NEW_V3_START}\nb\n${NEW_END}\n`), (err) => {
+      assert.ok(err instanceof mb.ManagedBlockError);
+      assert.match(err.message, /multiple/);
+      assert.ok(!err.message.includes(LEGACY.blockTag), err.message);
+      return true;
+    });
+  });
+
+  test('6. isStale no longer reads tag', () => {
+    const block = { start: 0, end: 1, content: '', meta: { v: '4', src: 'global-claude-md', legacy: false }, tag: LEGACY.blockTag };
+    assert.equal(mb.isStale(block, '4'), false);
+    assert.equal(mb.isStale({ ...block, meta: { v: '3', src: 'x', legacy: false } }, '4'), true);
+    assert.equal(mb.isStale(NEW_TEXT, '3'), false);
+    assert.equal(mb.isStale(NEW_TEXT, '4'), true);
+  });
+
+  test('6b. LEGACY_START_RE equals planning-layout\'s detector and agrees on a fixed sample set', () => {
+    assert.ok(mb.LEGACY_START_RE instanceof RegExp, 'managed-block does not export LEGACY_START_RE');
+    assert.equal(mb.LEGACY_START_RE.source, pl.LEGACY_BLOCK_START_RE.source);
+    assert.equal(mb.LEGACY_START_RE.flags, pl.LEGACY_BLOCK_START_RE.flags);
+
+    const samples = [
+      ['legacy START with attributes', `${LEGACY_V3_START}\nx\n${LEGACY_END}\n`, true],
+      ['legacy START without attributes', '<!-- DEVFLOW:START -->\nx\n<!-- DEVFLOW:END -->', true],
+      ['legacy START, no spaces, CRLF', 'a\r\n<!--DEVFLOW:START v=1-->\r\nx\r\n<!--DEVFLOW:END-->\r\n', true],
+      ['legacy unversioned map-codebase START', `${LEGACY_UNVERSIONED_START}\nx\n${LEGACY_END}`, true],
+      ['AOFORGE START', `${NEW_V3_START}\nx\n${NEW_END}\n`, false],
+      ['legacy END only', `x\n${LEGACY_END}\n`, false],
+      ['prose mention', 'The old DEVFLOW:START marker is gone; see the migration guide.\n', false],
+      ['lower-case tag', '<!-- devflow:start v=1 -->\nx\n<!-- devflow:end -->\n', false],
+      ['longer word', '<!-- DEVFLOW:STARTED -->\n', false],
+    ];
+    for (const [name, text, legacy] of samples) {
+      assert.equal(mb.LEGACY_START_RE.test(text), legacy, `${name}: LEGACY_START_RE`);
+      assert.equal(pl.hasLegacyBlockMarker(text), legacy, `${name}: hasLegacyBlockMarker`);
+      if (legacy) assert.throws(() => mb.read(text), refusal(), name);
+      else assert.doesNotThrow(() => mb.read(text), name);
+    }
+  });
+
+  test('6c. loading managed-block and global-upgrade does not load planning-layout; a refusal does', () => {
+    const plTail = `${path.sep}planning-layout.cjs`;
+    const code = [
+      `const mb = require(${JSON.stringify(MB_PATH)});`,
+      `require(${JSON.stringify(GU_PATH)});`,
+      `const loaded = () => Object.keys(require.cache).some((k) => k.endsWith(${JSON.stringify(plTail)}));`,
+      'const before = loaded();',
+      `try { mb.read(${JSON.stringify(LEGACY_TEXT)}); } catch (e) { if (e.code !== 'ELEGACYBLOCK') throw e; }`,
+      'process.stdout.write(JSON.stringify({ before, after: loaded() }));',
+    ].join('\n');
+    const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf-8', env: { ...process.env }, timeout: 30000 });
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout), { before: false, after: true });
+  });
+
+  test('6d. without planning-layout beside it, managed-block still refuses with a one-line message', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aof-mb-closure-'));
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    for (const f of ['managed-block.cjs', 'legacy-names.cjs', 'text-escape.cjs']) {
+      fs.copyFileSync(path.join(__dirname, f), path.join(dir, f));
+    }
+    const copy = require(path.join(dir, 'managed-block.cjs'));
+    assert.throws(() => copy.read(LEGACY_TEXT, { label: '~/.claude/CLAUDE.md' }), (err) => {
+      assert.equal(err.name, 'ManagedBlockError');
+      assert.equal(err.code, 'ELEGACYBLOCK');
+      assert.ok(!err.message.includes('\n'), `not one line: ${err.message}`);
+      assert.ok(err.message.includes('~/.claude/CLAUDE.md'), err.message);
+      assert.ok(err.message.includes(LEGACY.blockTag), err.message);
+      assert.ok(err.message.includes(NAMES.blockTag), err.message);
+      assert.ok(typeof err.fix === 'string' && err.fix.length > 0, 'no fix');
+      return true;
+    });
+    assert.ok(copy.read(NEW_TEXT), 'the copy no longer reads an AOFORGE block');
+  });
+});
+
+describe('upgrade --apply with a pre-rename project CLAUDE.md (TRD 78-08, case 4)', () => {
+  function project(t, claudeMd) {
+    const p = planningProject({ layout: 'aoforge' });
+    t.after(() => p.cleanup());
+    if (claudeMd !== null) {
+      fs.writeFileSync(path.join(p.root, 'CLAUDE.md'), claudeMd);
+      p.git(['add', 'CLAUDE.md']);
+      p.git(['commit', '-q', '-m', 'CLAUDE.md']);
+    }
+    return p;
+  }
+
+  function apply(p) {
+    const r = p.run(['upgrade', '--apply']);
+    assert.equal(r.status, 0, r.out);
+    return JSON.parse(r.stdout);
+  }
+
+  const ids = (list) => list.map((e) => e.id);
+
+  test('4. every other migration applies; 0005 and 0007 skip naming W069; CLAUDE.md byte-identical', (t) => {
+    const control = apply(project(t, null));
+    assert.ok(control.applied.length > 0, 'the control project has nothing to apply, so the comparison proves nothing');
+
+    const text = fx.projectClaudeMd();
+    const p = project(t, text);
+    const report = apply(p);
+
+    assert.deepEqual(report.failed, []);
+    assert.deepEqual(report.pending, []);
+    assert.deepEqual(ids(report.applied), ids(control.applied), 'a pre-rename block changed which migrations apply');
+    for (const id of ['0005', '0007']) {
+      const s = report.skipped.find((e) => e.id === id);
+      assert.ok(s, `${id} is not reported as skipped: ${JSON.stringify(report)}`);
+      assert.match(s.reason, /W069/, `${id}: ${s.reason}`);
+    }
+    const all = [...report.applied, ...report.skipped, ...report.pending, ...report.pending_confirm];
+    assert.ok(!all.some((e) => e.id === '0014'), 'migration 0014 still ran');
+    assert.equal(fs.readFileSync(path.join(p.root, 'CLAUDE.md'), 'utf-8'), text, 'CLAUDE.md changed');
+  });
+});
+
+describe('the migration registry (TRD 78-08, case 7)', () => {
+  test('7. 0014 is gone from the registry and from disk', () => {
+    const { loadRegistry } = require('./upgrade.cjs');
+    assert.ok(!loadRegistry().some((m) => m.id === '0014'), 'loadRegistry() still lists 0014');
+    const left = fs.readdirSync(MIGRATIONS).filter((f) => f.startsWith('0014-'));
+    assert.deepEqual(left, []);
   });
 });
