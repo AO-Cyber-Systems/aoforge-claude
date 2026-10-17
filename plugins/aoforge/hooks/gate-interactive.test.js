@@ -1015,9 +1015,9 @@ describe('the daemon is read through watcher-state (TRD 73-10 Task 3)', () => {
 //
 // The hook spawned with HOME = a temp home and the override unset:
 //   - a live pid file in the watch state directory (compat.watchStateDir) -> daemon-live
-//   - a live pid file only where AOForge 3.0.0 kept it (~/.aoforge/) -> daemon-live: the same AOForge daemon,
-//     read for one release
-//   - a pre-rename daemon's pid file only -> daemon-absent, as before
+//   - a live pid file only where AOForge 3.0.0 kept it (~/.aoforge/) -> daemon-absent (TRD 78-05 case 6): that file
+//     is no longer read, so the hook asks for `! cmd` and never tells Claude a daemon took the command
+//   - a pre-rename daemon's pid file only -> daemon-absent: not read either
 
 describe('the daemon is found where watcher-state keeps it (TRD 73-12 item 14)', () => {
   const { watchStateDir } = require('../aoforge/bin/lib/compat.cjs');
@@ -1061,12 +1061,36 @@ describe('the daemon is found where watcher-state keeps it (TRD 73-12 item 14)',
     });
   });
 
-  test('a live pid file only where AOForge 3.0.0 kept it gives the daemon-live reason', () => {
+  test('[78-05 case 6] a live pid file only where AOForge 3.0.0 kept it gives the daemon-absent reason', () => {
     withSandbox(({ home, work }) => {
       writeLivePid(path.join(home, '.aoforge', 'aoforge-watch.pid'), work);
       const reason = reasonFor(home, work);
-      assert.match(reason, /aoforge-watch terminal/, 'the 3.0.0 daemon is the same AOForge daemon');
+      assert.match(reason, /`! npm login`/, 'asks for `! cmd`');
+      assert.match(reason, /not running/);
+      assert.doesNotMatch(reason, /aoforge-watch terminal/, 'never says a daemon took the command');
+      assert.doesNotMatch(reason, new RegExp(`pid ${process.pid}\\b`), 'never names the 3.0.0 daemon as the one');
+    });
+  });
+
+  test('[78-05 case 7] a `legacy` key inside the daemon\'s own pid file changes nothing: daemon-live', () => {
+    withSandbox(({ home, work }) => {
+      const file = path.join(watchStateDir(home), 'aoforge-watch.pid');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, version: '3.1.0', watching: [work], legacy: true }));
+      const reason = reasonFor(home, work);
+      assert.match(reason, /aoforge-watch terminal/, 'no branch is keyed on `legacy`');
       assert.match(reason, new RegExp(`pid ${process.pid}\\b`));
+    });
+  });
+
+  test('[78-05 case 6] the hook\'s own reader returns nothing for a 3.0.0 pid file alone', () => {
+    const hook = require('./gate-interactive.js');
+    withSandbox(({ home, work }) => {
+      writeLivePid(path.join(home, '.aoforge', 'aoforge-watch.pid'), work);
+      withEnv({ HOME: home }, () => {
+        assert.equal(hook.readWatcherInfo(), null);
+        assert.equal(hook.isWatcherLive(), false);
+      });
     });
   });
 

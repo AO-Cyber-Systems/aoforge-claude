@@ -8,7 +8,10 @@
  *   start [--project <path>] [--shell <name>] [--foreground] [--no-attend]
  *     Start the daemon. Default detaches (background); --foreground stays
  *     in this process. Refuses to start if a live PID is already recorded.
- *     Cleans up stale PID files automatically.
+ *     Cleans up stale PID files automatically. Also refuses (exit 2) while a
+ *     daemon AOForge 3.0.0 started is alive (its pid file ~/.aoforge/aoforge-watch.pid,
+ *     which this release no longer reads), naming its pid, `kill <pid>` and
+ *     the service reinstall (TRD 78-05).
  *
  *     Attended terminal (TRD 73-05): `start --foreground` run in a terminal
  *     (stdin and stdout are TTYs) is ATTENDED. While a queued command runs,
@@ -29,12 +32,13 @@
  *   status
  *     Print JSON: { running, pid, version, uptime_ms, project, shell,
  *                   pending_count, done_count, allowlist_size }
+ *     While a daemon AOForge 3.0.0 started is alive, a `warning:` line naming
+ *     it goes to stderr (TRD 78-05).
  *
  *   logs [--tail N]
  *     Print the last N lines of the daemon log (default 100), which lives in
  *     the watch state directory: ~/.claude/aoforge/state/watch/aoforge-watch.log
- *     (TRD 73-12), beside the pid file. For one release, when that log does
- *     not exist yet, the log AOForge 3.0.0 wrote to ~/.aoforge/ is printed.
+ *     (TRD 73-12), beside the pid file. No other log is read (TRD 78-05).
  *
  *   version
  *     Print "aoforge-watch <version>".
@@ -49,7 +53,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { planningRoot, watchStateDir, resolveUserFile } = require('./lib/compat.cjs');
+const { planningRoot, watchStateDir } = require('./lib/compat.cjs');
 require('./lib/compat.cjs').aliasLegacyEnv();
 const { spawn } = require('child_process');
 
@@ -66,11 +70,25 @@ const STOP_TIMEOUT_MS = 5000;
 const SHUTDOWN_DEADLINE_MS = STOP_TIMEOUT_MS;
 
 function homeDir() { return process.env.HOME || os.homedir(); }
-/** The log the daemon writes: in the watch state directory, beside its pid file (TRD 73-12). */
+/** The log the daemon writes and `logs` prints: in the watch state directory, beside its pid file (TRD 73-12). */
 function logFilePath() { return path.join(watchStateDir(homeDir()), LOG_FILE_NAME); }
-/** The log `logs` prints: the watch-directory log, else for one release the 3.0.0 log in ~/.aoforge/. */
-function readableLogFile() {
-  return resolveUserFile(homeDir(), LOG_FILE_NAME, { currentDir: watchStateDir(homeDir()) }).file;
+
+/**
+ * What `start` refuses with and `status` warns with while a daemon AOForge 3.0.0 started is still alive (TRD 78-05).
+ * `d` is a live watcher-state.interimDaemon() result. That daemon keeps serving from its own pid file, which this
+ * release no longer reads, so starting beside it would run two daemons on the same handoff queue.
+ */
+function interimDaemonMessage(d) {
+  return `an aoforge-watch daemon started by AOForge 3.0.0 is still running (pid ${d.pid}, ${d.file}); `
+    + 'this release no longer reads that file. '
+    + `Stop it with \`kill ${d.pid}\` (a login service: run \`aoforge-watch install-service --project <path>\` again), `
+    + 'then run `aoforge-watch start`';
+}
+
+/** The live 3.0.0 daemon, or null (none, or its pid is dead). */
+function liveInterimDaemon() {
+  const d = state.interimDaemon();
+  return d && d.live ? d : null;
 }
 
 function printErr(msg) { process.stderr.write(msg + '\n'); }
@@ -146,6 +164,9 @@ function cmdStatus() {
 
   if (info && !live) result.stale_pid_file = true;
   printOut(JSON.stringify(result, null, 2));
+  // On stderr, so the JSON on stdout stays parseable (TRD 78-05).
+  const interim = liveInterimDaemon();
+  if (interim) printErr(`aoforge-watch: warning: ${interimDaemonMessage(interim)}`);
   return 0;
 }
 
@@ -154,7 +175,7 @@ function cmdStatus() {
 // ---------------------------------------------------------------------------
 
 function cmdLogs(flags) {
-  const file = readableLogFile();
+  const file = logFilePath();
   if (!fs.existsSync(file)) {
     printOut('(no log file yet)');
     return 0;
@@ -226,6 +247,13 @@ function cmdStart(flags) {
   // /systemd handles the actual start via the installed service file).
   if (flags['install-service']) {
     return cmdInstallService(flags);
+  }
+
+  // A daemon AOForge 3.0.0 started still serves from ~/.aoforge/: name it rather than start a second one beside it.
+  const interim = liveInterimDaemon();
+  if (interim) {
+    printErr(`aoforge-watch: ${interimDaemonMessage(interim)}`);
+    return 2;
   }
 
   // Refuse if already running

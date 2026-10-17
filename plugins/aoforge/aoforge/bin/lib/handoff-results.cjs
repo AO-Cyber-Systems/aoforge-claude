@@ -480,10 +480,9 @@ function realOrResolved(p) {
 }
 
 /**
- * Is the AOForge watcher daemon running AND watching `projectRoot`? True only when its pid file exists, is not the
- * pre-rename daemon's (a legacy daemon watches its own handoff directories, so its results would never arrive),
- * names a live pid, and lists the project root. Paths are compared by realpath on both sides (macOS `/var` is a
- * symlink to `/private/var`).
+ * Is the AOForge watcher daemon running AND watching `projectRoot`? True only when its pid file exists, names a live
+ * pid, and lists the project root. Paths are compared by realpath on both sides (macOS `/var` is a symlink to
+ * `/private/var`).
  *
  * @param {string} projectRoot
  * @param {{ env?: object }} [opts]  `env` stands in for process.env's HOME and AOFORGE_HANDOFF_PID_FILE
@@ -493,7 +492,7 @@ function watcherWatching(projectRoot, opts) {
     if (typeof projectRoot !== 'string' || !projectRoot) return false;
     const state = require('./watcher-state.cjs');
     const info = withEnv(opts && opts.env, () => state.readPidFile());
-    if (!info || info.legacy) return false;
+    if (!info) return false;
     if (!Number.isInteger(info.pid) || info.pid <= 0) return false;
     try { process.kill(info.pid, 0); } catch { return false; }
     if (!Array.isArray(info.watching)) return false;

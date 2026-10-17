@@ -415,9 +415,16 @@ describe('watcherWatching', () => {
     assert.equal(L().watcherWatching(project.root, { env: envFor(file) }), false);
   });
 
-  test('14d: the pre-rename daemon\'s pid file never counts', () => {
+  test('14d: the pre-rename daemon\'s pid file is not read (TRD 78-05)', () => {
     writePidFile(scratch, { pid: process.pid, watching: [project.root], legacy: true });
     assert.equal(L().watcherWatching(project.root, { env: { HOME: scratch } }), false);
+  });
+
+  test('14f: a `legacy` key inside the daemon\'s own pid file changes nothing (TRD 78-05 case 7)', () => {
+    const file = writePidFile(scratch, { pid: process.pid, watching: [project.root] });
+    const rec = JSON.parse(fs.readFileSync(file, 'utf8'));
+    fs.writeFileSync(file, JSON.stringify({ ...rec, legacy: true }));
+    assert.equal(L().watcherWatching(project.root, { env: envFor(file) }), true, 'no branch is keyed on `legacy`');
   });
 
   test('14e: a root given through a symlink still matches, whichever side holds the link', () => {

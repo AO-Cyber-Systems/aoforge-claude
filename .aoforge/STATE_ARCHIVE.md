@@ -334,6 +334,8 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-03: gh rebrand (72-16) KEPT in 3.1.0 as the explicit converter; it owns its legacy patterns now that gh-body/gh-trd/gh-cache read the aoforge namespace only
 - [Objective 78]: 78-03: checks-pin pre-rename caller detection (W062 legacy:true, fix gh rebrand) KEPT as a detector; gh setup refuses a pre-rename PR-template block (conflict, reason legacy-pr-template)
 - [Objective 78]: 78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector
+- [Objective 78]: 78-05: a live AOForge 3.0.0 watch daemon is detected, not adopted (interimDaemon, signal 0); aoforge-watch start refuses beside it and status warns, because the 3.0.0 pid/log readers are removed and a second daemon would otherwise start next to it
+- [Objective 78]: 78-05: interimDaemon reads nothing while AOFORGE_HANDOFF_PID_FILE is set, and stop/add-project/remove-project ignore the 3.0.0 pid file; a stale one is left for doctor check 17
 
 ## Performance Metrics
 
@@ -552,4 +554,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P02 | 17min | 3 tasks | 64 files |
 | Objective 78 P03 | 21min | 3 tasks | 11 files |
 | Objective 78 P04 | 14min | 3 tasks | 12 files |
+| Objective 78 P05 | 12min | 3 tasks | 14 files |
 

@@ -81,10 +81,9 @@ function pidFilePath() {
   return watcherState ? watcherState.pidFilePath() : null;
 }
 
-/** The daemon's pid record, or null. A pre-rename daemon's record never serves this hook's handoffs. */
+/** The daemon's pid record, or null. */
 function readWatcherInfo() {
-  const info = watcherState ? watcherState.readPidFile() : null;
-  return info && !info.legacy ? info : null;
+  return watcherState ? watcherState.readPidFile() : null;
 }
 
 function isWatcherLive() {
