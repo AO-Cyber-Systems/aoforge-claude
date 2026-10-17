@@ -27,8 +27,6 @@
 const fs = require('fs');
 const path = require('path');
 
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
-
 /** The hooks this file runs, in order. Each exports `main()`; each reads stdin through fs.readFileSync(0). */
 const DISPATCHED_HOOKS = [
   'gate-commits.js',
