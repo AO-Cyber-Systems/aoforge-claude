@@ -1,6 +1,6 @@
 {
   "current_objective": "79",
-  "current_job": 5,
+  "current_job": 6,
   "total_jobs": 10,
   "progress_pct": 99,
   "status": "executing",
@@ -1849,6 +1849,11 @@
     {
       "objective": "79",
       "summary": "EST-11 corrected in 75-VERIFICATION.md (NOT SATISFIED), never ticked: the record was wrong, the checker was right",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-07: CLAUDE.md rebuilt on main's slim skeleton within 200 lines / 20,000 chars (caps unchanged); integrate-side family and hook detail moved to docs/AOF-TOOLS-REFERENCE.md and docs/HOOKS-REFERENCE.md; Where we left off points at state digest plus standing items only",
       "rationale": null
     }
   ],
