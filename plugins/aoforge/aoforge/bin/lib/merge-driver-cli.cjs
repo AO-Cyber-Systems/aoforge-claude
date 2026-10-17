@@ -38,7 +38,7 @@ const { PLANNING_DIR_NAMES, isPlanningDirName, planningDirLabel } = require('./c
 
 const BEGIN_MARKER = '# >>> aoforge merge drivers (aof-tools merge-driver install)';
 const END_MARKER = '# <<< aoforge merge drivers';
-// One pair of lines per planning-directory name, so a project still on the legacy directory merges the same way.
+// One pair of lines for the planning directory (compat.PLANNING_DIR_NAMES: `.aoforge` only since TRD 78-11).
 const BLOCK_LINES = [
   BEGIN_MARKER,
   ...PLANNING_DIR_NAMES.flatMap((dir) => [
@@ -297,7 +297,7 @@ function cmdStateJson(rest) {
 
 // ── resolve ──────────────────────────────────────────────────────────────────
 
-/** 'json' for <planning dir>/state.json, 'union' for <planning dir>/STATE_ARCHIVE.md (either name), null otherwise. */
+/** 'json' for <planning dir>/state.json, 'union' for <planning dir>/STATE_ARCHIVE.md (`.aoforge/`), null otherwise. */
 function strategyFor(rel) {
   const parts = rel.split('/');
   if (!isPlanningDirName(parts[parts.length - 2])) return null;

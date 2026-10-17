@@ -28,16 +28,13 @@ const TOOLS_PATH = path.join(__dirname, '..', '..', 'aof-tools.cjs');
 const PLUGIN_VERSION = '2.13.0';
 const HAS_GIT = spawnSync('git', ['--version'], { stdio: 'ignore' }).status === 0;
 
-// TRD 72-08: for one release the block also covers the legacy planning directory (built from LEGACY).
-const { planningDir: LEGACY_DIR } = require('../legacy-names.cjs').LEGACY;
+// The block covers `.aoforge/` only (TRD 78-11: the legacy planning directory's lines, added for one release by TRD
+// 72-08, are gone with the shims).
 const BLOCK = [
   '# >>> aoforge store (0010) >>>',
   '.aoforge/*',
   '!.aoforge/config.json',
   '!.aoforge/STACK.md',
-  `${LEGACY_DIR}/*`,
-  `!${LEGACY_DIR}/config.json`,
-  `!${LEGACY_DIR}/STACK.md`,
   '# <<< aoforge store (0010) <<<',
 ].join('\n');
 

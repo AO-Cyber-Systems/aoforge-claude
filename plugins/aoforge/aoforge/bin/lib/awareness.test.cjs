@@ -5,7 +5,8 @@ const assert = require('node:assert');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { planningDirName, PLANNING_DIR_NAMES } = require('./compat.cjs');
+const { planningDirName } = require('./compat.cjs');
+const { LEGACY } = require('./legacy-names.cjs');
 
 const {
   parseStateMd,
@@ -714,7 +715,7 @@ test('gitignore G1: .gitignore contains .awareness-cache.json line', () => {
     return;
   }
   const content = fs.readFileSync(gitignorePath, 'utf-8');
-  // the line names this repository's planning directory, wherever it is (the legacy name until 72-21 moves it, `.aoforge/` after)
+  // the line names this repository's planning directory, `.aoforge/`
   const dir = planningDirName(path.dirname(gitignorePath));
   assert.ok(content.split(/\r?\n/).includes(`${dir}/.awareness-cache.json`), `no ${dir}/.awareness-cache.json line`);
 });
@@ -725,14 +726,14 @@ test('gitignore G2: gitignore line appears exactly once (does not inadvertently 
     return;
   }
   const content = fs.readFileSync(gitignorePath, 'utf-8');
-  // One line per planning-directory name (TRD 72-06: the legacy line keeps its new twin for one release),
-  // each exactly once, and nothing else names the file.
+  // The `.aoforge/` line exactly once. The only other line naming the file is its twin under the pre-rename
+  // planning directory, which this repository's .gitignore keeps until `main` (still on the legacy directory) is
+  // reconciled with 3.1 (TRD 78-12); AOForge itself reads `.aoforge/` only (TRD 78-11).
   const lines = content.split(/\r?\n/).filter((l) => l.includes('.awareness-cache.json'));
-  assert.deepStrictEqual(
-    lines.sort(),
-    PLANNING_DIR_NAMES.map((dir) => `${dir}/.awareness-cache.json`).sort(),
-    'one .awareness-cache.json line per planning directory name in .gitignore',
-  );
+  const allowed = [`${planningDirName(path.dirname(gitignorePath))}/.awareness-cache.json`, `${LEGACY.planningDir}/.awareness-cache.json`];
+  assert.strictEqual(lines.filter((l) => l === allowed[0]).length, 1, 'the .aoforge/ line appears exactly once');
+  assert.deepStrictEqual(lines.filter((l) => !allowed.includes(l)), [], 'nothing else names .awareness-cache.json');
+  assert.ok(lines.filter((l) => l === allowed[1]).length <= 1, 'the legacy twin, if kept, appears at most once');
 });
 
 // ─── Group T: templates/config.json documentation ────────────────────────────

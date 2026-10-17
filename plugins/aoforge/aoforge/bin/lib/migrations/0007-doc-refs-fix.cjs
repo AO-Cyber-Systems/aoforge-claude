@@ -24,7 +24,7 @@ const { planningRel } = require('../compat.cjs');
 const { CLAUDE_MD_CODE } = require('../planning-layout.cjs');
 
 const CLAUDE_REL = 'CLAUDE.md';
-// STATE.md under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// STATE.md under the project's planning directory, `.aoforge/`
 const stateRel = (root) => planningRel(root, 'STATE.md');
 const SESSION_LOG_RE = /^##\s+Session Log[^\n]*$/m;
 const NEXT_H2_RE = /^##[ \t]/m;

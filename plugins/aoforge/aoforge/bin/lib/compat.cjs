@@ -1,29 +1,33 @@
 'use strict';
 
-// One-release shim primitives for the rename to AOForge (objective 72, INST-03).
+// compat.cjs — where AOForge names its planning directory, project root, $HOME, agent types and
+// user files. Every library under bin/ and every hook resolves these here (TRDs 72-05, 72-06).
 //
-// Each primitive keeps one old surface working next to its new name:
-//   - aliasLegacyEnv     the old environment-variable prefix is still honored
-//   - planningDirName    a project's planning directory may be the new one or the legacy one
-//   - findProjectRoot    a project root is a directory holding either planning directory,
-//                        never $HOME (the walk stops there: TRD 73-09, gap G5)
+//   - planningDirName    a project's planning directory: always `.aoforge` (from NAMES)
+//   - planningRoot / planningRel / PLANNING_DIR_NAMES / isPlanningDirName / planningDirLabel
+//                        the same name as an absolute path, a posix relative path, a list,
+//                        a segment test and a "not found" label
+//   - findProjectRoot    a project root is a directory holding `.aoforge/`, never $HOME (the
+//                        walk stops there: TRD 73-09, gap G5)
 //   - userHomeDir        $HOME as the hooks see it, read per call
 //   - isUserHome         a directory is $HOME, in any symlinked form
-//   - isOwnAgentType     gates treat both agent-type namespaces as their own (isOwnExecutor: the executor role)
-//   - userDotFile        a file AOForge keeps for the user is read from the runtime home,
-//                        then the 3.0.0 dot directory, then the pre-rename one (TRD 73-11)
-//   - resolveUserFile    the same resolution with its source ('current' | 'interim' | 'legacy')
-//                        and a configurable current directory (the watch daemon's pid and log)
-//   - runtimeHome        the runtime mirror under ~/.claude, new and old
+//   - isOwnAgentType     an agent type in the `aoforge:` namespace (isOwnExecutor: the executor role)
+//   - userDotFile        a file AOForge keeps for the user (TRD 73-11)
+//   - runtimeHome        the runtime mirror, ~/.claude/aoforge
 //   - watchStateDir      the watch daemon's runtime directory under the runtime home
+//   - aliasLegacyEnv     the last pre-rename shim (see below)
 //
-// The new name always wins: when both exist, the new one is used. Nothing here caches a
-// result (a migration can move the planning directory mid-process, and tests and spawned
-// hooks change HOME per process). The libraries under bin/ resolve their planning paths
-// here (TRD 72-05); hooks and prose follow in 72-06.
+// Why the name stays `compat.cjs`: until AOForge 3.1.0 this module held the one-release shims of
+// the rename (objective 72): a legacy planning directory, the pre-rename agent namespace and the
+// pre-rename and 3.0.0 user dot directories were read beside the new names. Objective 78 (TRD
+// 78-11) removed them; the module keeps its name and every surviving signature because ~80 modules
+// and every hook import it, and renaming it would only multiply conflicts with `main`.
+// `aliasLegacyEnv` is the last shim; TRD 78-12 deletes it. Detecting a pre-rename layout to REPORT
+// it is planning-layout.cjs's job, never this module's.
 //
-// This module spells no old name. Every one is built from LEGACY in legacy-names.cjs,
-// which is also where SHIM_REMOVAL records when the shims go (the release after 3.0.0).
+// Nothing here caches a result: tests and spawned hooks change HOME per process. This module
+// spells no old name: the one it still needs (aliasLegacyEnv's prefix) comes from LEGACY in
+// legacy-names.cjs.
 
 const fs = require('fs');
 const os = require('os');
@@ -83,24 +87,16 @@ function aliasLegacyEnv(env = process.env) {
 // Destructured so the literal-name source guard stays meaningful: a dotted access to the
 // directory key would itself contain the legacy directory's spelling as a substring.
 const { planningDir: NEW_PLAN_DIR } = NAMES;
-const { planningDir: OLD_PLAN_DIR } = LEGACY;
 
 function hasNewPlanDir(root, fsImpl) {
   return isDir(path.join(root, NEW_PLAN_DIR), fsImpl);
 }
 
-function hasOldPlanDir(root, fsImpl) {
-  return isDir(path.join(root, OLD_PLAN_DIR), fsImpl);
-}
-
 /**
- * The name of a project's planning directory: the new one when it is a directory,
- * else the legacy one when that is a directory, else the new one (where a new
- * project is created).
+ * The name of a project's planning directory: always `.aoforge`. `root` and `fsImpl` are kept
+ * so every caller's signature stays (TRD 78-11): nothing is read from the disk.
  */
 function planningDirName(root, fsImpl = fs) {
-  if (hasNewPlanDir(root, fsImpl)) return NEW_PLAN_DIR;
-  if (hasOldPlanDir(root, fsImpl)) return OLD_PLAN_DIR;
   return NEW_PLAN_DIR;
 }
 
@@ -116,27 +112,17 @@ function planningRel(root, ...segments) {
   return path.posix.join(planningDirName(root), ...segments.flatMap((s) => String(s).split(/[\\/]+/)));
 }
 
-/** Both planning-directory names, the new one first: for exclusion lists, scans and attribute lines. */
-const PLANNING_DIR_NAMES = Object.freeze([NEW_PLAN_DIR, OLD_PLAN_DIR]);
+/** The planning-directory name as a list (`['.aoforge']`): for exclusion lists, scans and attribute lines. */
+const PLANNING_DIR_NAMES = Object.freeze([NEW_PLAN_DIR]);
 
-/** True for a path segment that names either planning directory. */
+/** True for a path segment that names the planning directory. */
 function isPlanningDirName(name) {
-  return name === NEW_PLAN_DIR || name === OLD_PLAN_DIR;
+  return name === NEW_PLAN_DIR;
 }
 
 /** The planning directory as a "not found" message names it, when there is none to resolve. */
 function planningDirLabel() {
-  return `${NEW_PLAN_DIR}/ (or legacy ${OLD_PLAN_DIR}/)`;
-}
-
-/** True only for a root that has the legacy planning directory and not the new one. */
-function isLegacyPlanning(root, fsImpl = fs) {
-  return !hasNewPlanDir(root, fsImpl) && hasOldPlanDir(root, fsImpl);
-}
-
-/** True when a root holds both planning directories (an unfinished migration). */
-function bothPlanningDirs(root, fsImpl = fs) {
-  return hasNewPlanDir(root, fsImpl) && hasOldPlanDir(root, fsImpl);
+  return `${NEW_PLAN_DIR}/`;
 }
 
 // ─── $HOME ────────────────────────────────────────────────────────────────────
@@ -208,7 +194,8 @@ function isUserHome(dir, { home = userHomeDir(), fsImpl = fs } = {}) {
 }
 
 /**
- * The nearest directory, from `start` upward, that holds either planning directory.
+ * The nearest directory, from `start` upward, that holds `.aoforge/`. A directory holding only the
+ * pre-rename planning directory is not a project (TRD 78-11): the walk passes it by.
  * `maxUp` bounds how many parents are inspected after `start`.
  *
  * $HOME is never a project root, and nothing above it is searched (TRD 73-09, gap G5): the
@@ -230,7 +217,7 @@ function findProjectRoot(start, { fsImpl = fs, maxUp = 64, home = userHomeDir() 
   for (let i = 0; i <= maxUp; i++) {
     // CRITICAL: $HOME is never a project root, and nothing above it is searched (G5, objective 73).
     if (atHome.stopsAt(dir)) return null;
-    if (hasNewPlanDir(dir, fsImpl) || hasOldPlanDir(dir, fsImpl)) {
+    if (hasNewPlanDir(dir, fsImpl)) {
       // GOTCHA: the stop check misses a home whose symlinked name differs; the candidate check
       // catches it. A candidate that IS $HOME ends the walk: it never continues above $HOME.
       return atHome.isHome(dir) ? null : dir;
@@ -245,26 +232,20 @@ function findProjectRoot(start, { fsImpl = fs, maxUp = 64, home = userHomeDir() 
 // ─── agents ───────────────────────────────────────────────────────────────────
 
 /**
- * True for an agent type in either namespace with a non-empty agent name. The exact, case-sensitive prefix is
- * required: `x:<ns>:y`, an upper-case namespace and a bare namespace are all rejected (gate-edits trusted only a
- * non-empty name before the shim, TRD 72-10).
+ * True for an agent type in the `aoforge:` namespace with a non-empty agent name. The exact, case-sensitive prefix
+ * is required: `x:<ns>:y`, an upper-case namespace and a bare namespace are all rejected (TRD 72-10). The
+ * pre-rename namespace is not ours (TRD 78-11).
  */
 function isOwnAgentType(t) {
   if (typeof t !== 'string') return false;
-  for (const ns of [NAMES.agentNs, LEGACY.agentNs]) {
-    if (t.startsWith(ns) && t.length > ns.length) return true;
-  }
-  return false;
+  return t.startsWith(NAMES.agentNs) && t.length > NAMES.agentNs.length;
 }
 
 const EXECUTOR_AGENT = 'executor';
 
-/**
- * The executor in either namespace (`<ns>executor` exactly): what verify-commits and gate-executor-stop act on
- * (TRD 72-10).
- */
+/** `aoforge:executor` exactly: what verify-commits and gate-executor-stop act on (TRD 72-10). */
 function isOwnExecutor(t) {
-  return isOwnAgentType(t) && (t === NAMES.agentNs + EXECUTOR_AGENT || t === LEGACY.agentNs + EXECUTOR_AGENT);
+  return isOwnAgentType(t) && t === NAMES.agentNs + EXECUTOR_AGENT;
 }
 
 // ─── user dot directory and runtime home ──────────────────────────────────────
@@ -329,8 +310,6 @@ module.exports = {
   PLANNING_DIR_NAMES,
   isPlanningDirName,
   planningDirLabel,
-  isLegacyPlanning,
-  bothPlanningDirs,
   findProjectRoot,
   userHomeDir,
   isUserHome,

@@ -12,8 +12,10 @@
 //      `planning mode` and `commit "x" --files a` each exit 1 with stderr carrying legacyLayoutMessage(root); no
 //      `.aoforge/` appears and the legacy directory is byte-identical.
 //   6. Same cwd: `doctor --raw` (exit 0, the note) and `validate health --raw` (exit 0, status broken, W066) report;
-//      `resolve-model executor`, `current-timestamp`, `generate-slug "a b"`, `upgrade --global --check`,
-//      `config-get workflow.auto_advance` and `state load --help` run (exit 0); still no `.aoforge/`.
+//      `resolve-model executor`, `current-timestamp`, `generate-slug "a b"`, `upgrade --global --check` and
+//      `state load --help` run (exit 0); `config-get workflow.auto_advance` is not guarded either, but since TRD 78-11
+//      it reads `.aoforge/config.json` only, so it exits 1 with its own "No config.json found" error (never the legacy
+//      config); still no `.aoforge/`.
 //   7. An `.aoforge/` project nested below a legacy one: commands run there (the nearer real project wins) and the
 //      outer legacy directory is untouched. A both-layout project: commands run (W066 both is advisory).
 //   8. legacyLayoutGuard, table-driven over every command in help.cjs COMMANDS: the exempt set equals
@@ -61,7 +63,6 @@ const RUN_NORMALLY = [
   ['current-timestamp'],
   ['generate-slug', 'a b'],
   ['upgrade', '--global', '--check'],
-  ['config-get', 'workflow.auto_advance'],
   ['state', 'load', '--help'],
 ];
 
@@ -162,6 +163,13 @@ describe('6. a legacy-only project: doctor and validate report, global commands 
       assert.equal(r.stderr.includes(legacyLayoutMessage(p.root)), false, r.out);
     });
   }
+
+  test('6. config-get workflow.auto_advance is not guarded: no .aoforge/config.json, so its own error (TRD 78-11)', () => {
+    const r = runAt(p, p.root, ['config-get', 'workflow.auto_advance']);
+    assert.equal(r.status, 1, r.out);
+    assert.ok(r.stderr.includes(`No config.json found at ${path.join(p.root, NEW, 'config.json')}`), r.out);
+    assert.equal(r.stderr.includes(legacyLayoutMessage(p.root)), false, r.out);
+  });
 
   test(`6. still no ${NEW}/`, () => {
     assert.deepEqual(newDirsUnder(p.root), []);

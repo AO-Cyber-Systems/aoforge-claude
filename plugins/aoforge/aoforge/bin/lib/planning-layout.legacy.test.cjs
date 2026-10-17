@@ -18,8 +18,10 @@
 // Layout `legacy` (only the legacy directory; TRD 78-07 turned the 3.0 fallback of cases 3-4 into refusals)
 //   3. Read verbs: `state load`, `roadmap analyze`, `init plan-objective 1`, `init execute-objective 1`,
 //      `init progress`, `planning mode`, `stack resolve` exit 1 with legacyLayoutMessage(root) on stderr (the CLI
-//      guard, legacy-layout-guard.cjs); `config-get workflow.auto_advance` (read-only, not guarded) still exits 0;
-//      the new directory is never created. (Layout `aoforge` reads its own directory, as before.)
+//      guard, legacy-layout-guard.cjs); `config-get workflow.auto_advance` (read-only, not guarded) reads
+//      `.aoforge/config.json` only since TRD 78-11, so it exits 1 with its own "No config.json found" error (the
+//      legacy config is never read); the new directory is never created. (Layout `aoforge` reads its own directory,
+//      as before.)
 //   4. Write verbs: `objective add "Second"`, `planning draft PROJECT.md`, `doc put PROJECT.md --from <file>`,
 //      `summary post 01-01 --from <file>`, `state update-progress`, `config-set workflow.x true` and
 //      `commit "docs: x" --files <legacy>/STATE.md` exit 1 with the same message; the legacy directory is
@@ -270,8 +272,19 @@ function refused(p, r, what) {
   return r;
 }
 
-/** config-get is read-only and not guarded: it runs whatever compat resolves (before and after TRD 78-11). */
+/**
+ * config-get is read-only and not guarded: it reads `.aoforge/config.json` (compat, single-name since TRD 78-11), which
+ * a legacy-only project does not have, so it fails with its own missing-config error, never reading the legacy config.
+ */
 const UNGUARDED_READS = new Set(['config-get']);
+
+/** An unguarded read in a legacy-only project: exit 1 with the missing-config error, not the guard's message. */
+function missingConfig(p, r, what) {
+  assert.equal(r.status, 1, `${what} exited ${r.status}\n${r.out}`);
+  assert.ok(r.stderr.includes(`No config.json found at ${path.join(p.root, NEW, 'config.json')}`), `${what}\n${r.out}`);
+  assert.equal(r.stderr.includes(legacyLayoutMessage(p.root)), false, `${what}: the guard does not cover it\n${r.out}`);
+  return r;
+}
 
 describe('3. layout legacy: read verbs refuse with the legacy-layout message', () => {
   let p;
@@ -285,7 +298,7 @@ describe('3. layout legacy: read verbs refuse with the legacy-layout message', (
   for (const args of READ_VERBS) {
     test(args.join(' '), () => {
       const r = p.run(args);
-      if (UNGUARDED_READS.has(args[0])) ok(r, args.join(' '));
+      if (UNGUARDED_READS.has(args[0])) missingConfig(p, r, args.join(' '));
       else refused(p, r, args.join(' '));
     });
   }

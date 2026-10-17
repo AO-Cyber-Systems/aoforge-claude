@@ -282,9 +282,9 @@ const storeModeOn = (config) => Boolean(config && config.github && config.github
 
 /**
  * The parsed planning `config.json` at `ref`, through the contents API: in store mode the planning directory is not
- * in git, but config.json is tracked, and the runner has no checkout of the caller's. The new directory is read
- * first, then the legacy one (a repository not yet migrated, INST-03). null when neither has it (404), it is not a
- * file, or not a JSON object: the check then reads it as store mode off.
+ * in git, but config.json is tracked, and the runner has no checkout of the caller's. Only `.aoforge/config.json` is
+ * read (compat.PLANNING_DIR_NAMES; the legacy directory's fallback, INST-03, was removed by TRD 78-11). null when it is
+ * missing (404), not a file, or not a JSON object: the check then reads it as store mode off.
  */
 function fetchConfig(repo, ref) {
   let got = { missing: true };

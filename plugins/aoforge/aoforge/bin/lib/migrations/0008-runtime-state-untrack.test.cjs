@@ -454,19 +454,20 @@ describe('the dup-detect log (TRD 75-02)', () => {
     assert.ok(fs.existsSync(path.join(p.root, LOG)), 'still on disk');
   });
 
-  test('7b. under both planning directory names, at any depth: the nested log is covered by a `**/<dir>/` entry', (t) => {
+  test('7b. at any depth under .aoforge/ the nested log is covered by a `**/.aoforge/` entry; the legacy directory is not ours (TRD 78-11)', (t) => {
     if (!HAS_GIT) return t.skip('git not installed');
     const p = project({ tracked: [], untrackedPresent: [NESTED_LOG, NESTED_LEGACY_LOG] });
     const det = m0008().detect(ctxFor(p));
     assert.equal(det.applies, true, det.reason);
-    assert.ok(det.reason.includes(NESTED_LOG) && det.reason.includes(NESTED_LEGACY_LOG), det.reason);
+    assert.ok(det.reason.includes(NESTED_LOG), det.reason);
+    assert.equal(det.reason.includes(NESTED_LEGACY_LOG), false, `the legacy directory's file is not runtime state: ${det.reason}`);
 
     m0008().apply(ctxFor(p));
     const lines = readRel(p.root, GITIGNORE).split('\n');
     assert.ok(lines.includes('**/.aoforge/.dup-detect-log.jsonl'), lines.join('|'));
-    assert.ok(lines.includes(`**/${LEGACY_DIR}/.dup-detect-log.jsonl`), lines.join('|'));
+    assert.equal(lines.some((l) => l.includes(`${LEGACY_DIR}/`)), false, `no ${LEGACY_DIR}/ line: ${lines.join('|')}`);
     assert.ok(isIgnored(p, NESTED_LOG), `${NESTED_LOG} is ignored`);
-    assert.ok(isIgnored(p, NESTED_LEGACY_LOG), `${NESTED_LEGACY_LOG} is ignored`);
+    assert.equal(isIgnored(p, NESTED_LEGACY_LOG), false, `${NESTED_LEGACY_LOG} is left alone`);
     assert.equal(m0008().detect(ctxFor(p, { dryRun: true })).applies, false);
   });
 
@@ -475,7 +476,7 @@ describe('the dup-detect log (TRD 75-02)', () => {
     assert.ok(RUNTIME_STATE_BASENAMES.includes('.dup-detect-log.jsonl'), RUNTIME_STATE_BASENAMES.join('|'));
     assert.equal(isRuntimeStatePath(LOG), true);
     assert.equal(isRuntimeStatePath(NESTED_LOG), true);
-    assert.equal(isRuntimeStatePath(NESTED_LEGACY_LOG), true);
+    assert.equal(isRuntimeStatePath(NESTED_LEGACY_LOG), false, 'the legacy directory is not a planning directory (TRD 78-11)');
     assert.equal(isRuntimeStatePath('.aoforge/STATE.md'), false);
     assert.equal(isRuntimeStatePath('.aoforge/sub/.dup-detect-log.jsonl'), false);
     assert.equal(isRuntimeStatePath('.dup-detect-log.jsonl'), false);

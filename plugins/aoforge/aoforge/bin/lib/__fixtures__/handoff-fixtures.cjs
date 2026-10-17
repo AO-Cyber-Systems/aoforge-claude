@@ -97,8 +97,8 @@ function writePending(project, rec) {
  * Write the daemon's pid file under `dir` and return its path.
  *
  * Current daemon: `<dir>/aoforge-watch.pid`; a test points AOFORGE_HANDOFF_PID_FILE at the returned path.
- * `legacy: true` writes the pre-rename daemon's file, `<dir>/<legacy dot dir>/<legacy name>.pid`, which
- * watcher-state reads (and marks `legacy`) only when HOME is `dir` and the override variable is unset.
+ * `legacy: true` writes the pre-rename daemon's file, `<dir>/<legacy dot dir>/<legacy name>.pid`. watcher-state no
+ * longer reads it (TRD 78-05): tests write it to prove it is ignored.
  */
 function writePidFile(dir, { pid = process.pid, watching = [], legacy = false } = {}) {
   const file = legacy

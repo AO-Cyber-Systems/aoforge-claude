@@ -59,7 +59,7 @@ const RUNTIME_STATE_BASENAMES = [
   '.override-log.jsonl',
 ];
 // The default-layout root paths (exported for callers that name them). The migration itself covers the root copies
-// under the project's resolved planning directory (rootRuntimeFiles), and finds nested copies under either name.
+// under the project's planning directory (rootRuntimeFiles), and finds nested copies under `.aoforge/` at any depth.
 const RUNTIME_STATE_FILES = RUNTIME_STATE_BASENAMES.map((b) => `.aoforge/${b}`);
 // `**/` matches zero or more directories, so these also match the root copies. The literal root
 // paths ride along anyway: they make the root answer independent of glob semantics.
@@ -67,7 +67,7 @@ const GLOB_PATHSPECS = PLANNING_DIR_NAMES.flatMap((d) => RUNTIME_STATE_BASENAMES
 const ALL_ROOT_FILES = PLANNING_DIR_NAMES.flatMap((d) => RUNTIME_STATE_BASENAMES.map((b) => `${d}/${b}`));
 const LIST_PATHSPECS = [...ALL_ROOT_FILES, ...GLOB_PATHSPECS];
 
-/** The root runtime-state paths under the project's resolved planning directory (`.aoforge/`, or a legacy one). */
+/** The root runtime-state paths under the project's planning directory, `.aoforge/`. */
 function rootRuntimeFiles(root) {
   return RUNTIME_STATE_BASENAMES.map((b) => planningRel(root, b));
 }
@@ -108,7 +108,7 @@ function isWorkTree(ctx) {
 }
 
 /**
- * True for `<anything>/<planning dir>/<runtime-state basename>` at any depth, root included, under either name. Purely
+ * True for `<anything>/.aoforge/<runtime-state basename>` at any depth, root included (compat.isPlanningDirName). Purely
  * lexical, on a project-relative posix path; whether git tracks or ignores it is a separate question.
  */
 function isRuntimeStatePath(rel) {

@@ -51,12 +51,9 @@
 // beside it. Only a project migration 0012 never moved can still carry one, and that project is on the legacy layout,
 // which is refused before any migration runs (78-07).
 //
-// The legacy planning directory (objective 72, TRD 72-08). For one release (until legacy-names SHIM_REMOVAL):
-//   - the block lists both directory names (`.aoforge/` first), so a branch that still has the legacy directory keeps
-//     its cache ignored, and migration 0012's move leaves the moved cache ignored;
-//   - "current" means the block covers the project's resolved directory, so a store project still on the legacy
-//     directory whose AOForge-marked block already does is not offered a second write before 0012 moves it.
-// 0012 re-upserts the block before it moves the directory.
+// The planning directory: the block lists `.aoforge/` (compat.PLANNING_DIR_NAMES). For one release (TRD 72-08) it also
+// listed the legacy directory; TRD 78-11 removed that with the shims. A 3.0.x block that still lists both still covers
+// `.aoforge/`, so it counts as current and is not rewritten.
 //
 // Exports: `apply` is the upgrade-runner adapter (a refusal THROWS, so the runner reports it as failed, halts later
 // writes and never stamps 0010 as applied). `migrate` returns the full report or `{applied:false, refused, details}`.
@@ -92,8 +89,8 @@ const LOCAL_ONLY_NOTE = 'kept on this machine only after untrack (no GitHub home
 // <objective>`, then the bare command). Still a string constant computed once at load: 0011 dedupes its notes on
 // `tenNotes.includes(m0010().STORE_COMMIT_STEPS)`.
 const STORE_BRANCH = 'aoforge-store-cache';
-// TRD 72-08: the steps name the planning directory the project actually has (a legacy one until 0012 moves it).
-// STORE_COMMIT_STEPS stays the `.aoforge/` form; `storeCommitSteps(root)` equals it for every `.aoforge/` project.
+// The steps name the planning directory, `.aoforge/` (TRD 72-08 named a legacy one until 0012 moved it; TRD 78-11
+// removed that). `storeCommitSteps(root)` equals STORE_COMMIT_STEPS for every project.
 function storeCommitStepsFor(dirName) {
   return branchCommitSteps({
     branch: STORE_BRANCH,

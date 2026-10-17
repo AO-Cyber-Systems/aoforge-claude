@@ -76,7 +76,7 @@ const { spawnSync } = require('child_process');
 const {
   evaluateBashWrites, recommendDefault, realpathDeep, BASH_GATE_CLASSIFIER, FP_THRESHOLD,
 } = require('./bash-write-gate.cjs');
-const { findProjectRoot, isOwnAgentType } = require('./compat.cjs');
+const { findProjectRoot } = require('./compat.cjs');
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 
@@ -84,10 +84,15 @@ const { escapeRegExp } = require('./text-escape.cjs');
 const anyOf = (alts) => alts.map(escapeRegExp).join('|');
 
 /**
- * An agent type or skill name of ours: either namespace with a non-empty name (compat.isOwnAgentType; skills share
- * the agent namespace). History recorded under the pre-rename namespace counts as ours (TRD 72-10).
+ * An agent type or skill name of ours, as a transcript recorded it: either namespace with a non-empty name (skills
+ * share the agent namespace). This module reads history, and everything before objective 72 was recorded under the
+ * pre-rename namespace, so that namespace still counts here (TRD 72-10). The gates trust `aoforge:` alone
+ * (compat.isOwnAgentType, TRD 78-11); this reader keeps its own list on purpose.
  */
-const isAoforgeName = isOwnAgentType;
+const OWN_AGENT_NAMESPACES = Object.freeze([NAMES.agentNs, LEGACY.agentNs]);
+function isAoforgeName(t) {
+  return typeof t === 'string' && OWN_AGENT_NAMESPACES.some((ns) => t.startsWith(ns) && t.length > ns.length);
+}
 
 /**
  * Classifiers, applied ONLY to the content of a failed tool_result.

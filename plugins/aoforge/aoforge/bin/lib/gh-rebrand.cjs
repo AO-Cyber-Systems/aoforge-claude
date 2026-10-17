@@ -57,7 +57,10 @@ const { branchCommitSteps, commitCommand } = require('./commit-steps.cjs');
 const { rewriteLegacyNames, unifiedDiff } = require('./legacy-rewrite.cjs');
 const { NAMES, LEGACY, PRESERVE } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
-const { planningRel, isLegacyPlanning, findProjectRoot } = require('./compat.cjs');
+const { planningRel, findProjectRoot } = require('./compat.cjs');
+// The converter still recognises a checkout on the pre-rename planning directory when it rewrites local files, so
+// it does not turn that directory's name into `.aoforge` in text (planning-layout.cjs: detection, never a reader).
+const { isLegacyPlanning } = require('./planning-layout.cjs');
 
 const EXIT = Object.freeze({ OK: 0, ERROR: 1 });
 const SECTIONS = Object.freeze(['labels', 'issues', 'comments', 'wiki', 'rulesets', 'local']);

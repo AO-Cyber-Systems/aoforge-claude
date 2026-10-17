@@ -16,7 +16,6 @@ const { spawnSync } = require('child_process');
 
 const { driverCommand, driverBinPath } = require('./merge-driver-cli.cjs');
 const { gitAvailable } = require('./__fixtures__/wiki-remote.cjs');
-const { LEGACY } = require('./legacy-names.cjs');
 const { planningDirLabel } = require('./compat.cjs');
 const {
   stateDoc, decision, stateText, archiveText, makeWaveRepo,
@@ -28,13 +27,11 @@ const SKIP_GIT = gitAvailable() ? false : 'git is not available';
 
 const BEGIN = '# >>> aoforge merge drivers (aof-tools merge-driver install)';
 const END = '# <<< aoforge merge drivers';
-// One pair per planning-directory name (TRD 72-05): a project still on the legacy directory merges the same way.
+// One pair for the planning directory, `.aoforge/` (TRD 78-11: the legacy directory's pair is gone with the shims).
 const BLOCK = [
   BEGIN,
   '**/.aoforge/state.json merge=aoforge-state-json',
   '**/.aoforge/STATE_ARCHIVE.md merge=union',
-  `**/${LEGACY.planningDir}/state.json merge=aoforge-state-json`,
-  `**/${LEGACY.planningDir}/STATE_ARCHIVE.md merge=union`,
   END,
 ].join('\n') + '\n';
 
