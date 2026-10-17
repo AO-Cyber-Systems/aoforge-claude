@@ -1,8 +1,8 @@
 {
   "current_objective": "78",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 12,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-16",
   "metrics": {
@@ -1734,6 +1734,16 @@
     {
       "objective": "78",
       "summary": "78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-05: a live AOForge 3.0.0 watch daemon is detected, not adopted (interimDaemon, signal 0); aoforge-watch start refuses beside it and status warns, because the 3.0.0 pid/log readers are removed and a second daemon would otherwise start next to it",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-05: interimDaemon reads nothing while AOFORGE_HANDOFF_PID_FILE is set, and stop/add-project/remove-project ignore the 3.0.0 pid file; a stale one is left for doctor check 17",
       "rationale": null
     }
   ],
