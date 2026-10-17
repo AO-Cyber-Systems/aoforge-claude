@@ -2,12 +2,14 @@
 
 // Migration 0007 — doc-refs-fix (TRD 38-08).
 //
-// Rewrites stale AOForge command references (renamed commands, and bare /df: prefixes) inside the
-// two live, AOForge-authored surfaces a project carries: the CLAUDE.md AOFORGE managed block, and
-// STATE.md outside its Session Log section. Command-rename knowledge is not duplicated here — see
-// doc-refs.cjs (TRD 38-01), the single resolver both this migration and the sibling CI gate call
-// into. A removed command (one with no replacement) is left exactly as written; it never makes
-// this migration applicable and never gets rewritten.
+// Rewrites stale AOForge command references (renamed `/aoforge:` commands) inside the two live,
+// AOForge-authored surfaces a project carries: the CLAUDE.md AOFORGE managed block, and STATE.md
+// outside its Session Log section. Command-rename knowledge is not duplicated here — see doc-refs.cjs
+// (TRD 38-01), the single resolver both this migration and the sibling CI gate call into. A removed
+// command (one with no replacement) is left exactly as written; it never makes this migration
+// applicable and never gets rewritten. Pre-rename command forms are not stale references (TRD 78-02),
+// and a CLAUDE.md block under the pre-rename markers is skipped with W069 (TRD 78-08) while the
+// STATE.md part still runs.
 //
 // Every other project file — SUMMARY/VERIFICATION/TRD/OBJECTIVE, CHANGELOG, milestones, todos,
 // ROADMAP, and the Session Log itself — is a historical record and is never opened for writing
@@ -19,6 +21,7 @@ const path = require('path');
 const managedBlock = require('../managed-block.cjs');
 const docRefs = require('../doc-refs.cjs');
 const { planningRel } = require('../compat.cjs');
+const { CLAUDE_MD_CODE } = require('../planning-layout.cjs');
 
 const CLAUDE_REL = 'CLAUDE.md';
 // STATE.md under the project's resolved planning directory (`.aoforge/`, or a legacy one)
@@ -50,9 +53,10 @@ function locateSessionLog(content) {
  * claudeTargetInfo(ctx) -> { present, skip, count, ... }
  *
  * Reads and scans (never writes) the CLAUDE.md AOFORGE block. `present: false` means there is
- * nothing to rewrite in CLAUDE.md this run (missing file, no block, or a malformed block); `skip`
- * then names why. `count` is the number of renamed/prefix tokens found inside the block region
- * (START marker through END marker, inclusive) — the only bytes this target ever touches.
+ * nothing to rewrite in CLAUDE.md this run (missing file, no block, a malformed block, or a block
+ * under the pre-rename markers, W069); `skip` then names why. `count` is the number of renamed
+ * command tokens found inside the block region (START marker through END marker, inclusive) — the
+ * only bytes this target ever touches.
  */
 function claudeTargetInfo(ctx) {
   const claudePath = path.join(ctx.projectRoot, CLAUDE_REL);
@@ -63,6 +67,9 @@ function claudeTargetInfo(ctx) {
   try {
     block = managedBlock.read(text);
   } catch (e) {
+    if (e instanceof managedBlock.ManagedBlockError && e.code === managedBlock.LEGACY_BLOCK_CODE) {
+      return { present: false, skip: `holds a pre-rename managed block (${CLAUDE_MD_CODE}): ${e.fix}` };
+    }
     if (e instanceof managedBlock.ManagedBlockError) {
       return { present: false, skip: `malformed AOFORGE block (${e.message})` };
     }

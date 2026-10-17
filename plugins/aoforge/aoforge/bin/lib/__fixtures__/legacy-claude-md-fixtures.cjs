@@ -1,11 +1,15 @@
 'use strict';
 
 /**
- * legacy-claude-md-fixtures.cjs (objective 72, TRD 72-09) — CLAUDE.md files written before the rename, and the
- * throwaway homes and projects that hold them.
+ * legacy-claude-md-fixtures.cjs (objective 72, TRD 72-09; objective 78, TRD 78-08) — CLAUDE.md files written before
+ * the rename, and the throwaway homes and projects that hold them. Since 3.1 (TRD 78-08) AOForge refuses a block
+ * under the pre-rename markers and never rewrites any of this text: these files are inputs that must come out of
+ * every upgrade byte-identical.
  *
  *   globalClaudeMd()                         // the user's global file: hand-written sections around a v3 legacy block
  *   globalClaudeMd({ outsideLegacy: false }) // the same, with no legacy name outside the block
+ *   globalClaudeMd({ crlf: true })           // the same bytes with CRLF line endings (TRD 78-08)
+ *   handWrittenRoutingClaudeMd()             // no block: a hand-written "DevFlow Routing" section (the pre-36 shape)
  *   projectClaudeMd()                        // a project file: hand-written intro + legacy-marker block, legacy body
  *   projectClaudeMd({ legacyBlock: false })  // the same intro + an AOFORGE block with no legacy name in its body
  *   projectClaudeMd({ legacyBlock: false, legacyBody: true })  // AOFORGE markers, legacy names still in the body
@@ -13,16 +17,14 @@
  *   const root = projectWith(text);           // <tmp>/CLAUDE.md = text (text null: no CLAUDE.md at all)
  *
  * globalClaudeMd is a typed-out copy of the SHAPE of the real ~/.claude/CLAUDE.md as of 2026-10-08 (never read here):
- *   - "# HARD RULES" and an "Import Paths" section that mentions the devflowops product (a different product: it
- *     must survive every rewrite);
+ *   - "# HARD RULES" and an "Import Paths" section that mentions the devflowops product (a different product);
  *   - a v3 `DEVFLOW:START v=3 src=global-claude-md` block holding "# DevFlow Routing" and the `/devflow:` list;
  *   - after the block, a "## TDD & Quality" section with exactly ONE line naming the legacy product, its runtime
- *     path included (OUTSIDE_LEGACY_LINE), so the outside proposal is one changed line;
+ *     path included (OUTSIDE_LEGACY_LINE);
  *   - a "# Brand Guide" section with no legacy name.
  *
- * projectClaudeMd has a hand-written paragraph ABOVE the block that names the legacy product (it must never be
- * rewritten) and a block body with the product name, `/devflow:quick`, the legacy CLI path and the legacy planning
- * directory.
+ * projectClaudeMd has a hand-written paragraph ABOVE the block that names the legacy product and a block body with
+ * the product name, `/devflow:quick`, the legacy CLI path and the legacy planning directory.
  *
  * Legacy names may be spelled here: this is one of the `__fixtures__/legacy-*` files the rename codemod and the
  * rename guard leave alone. Every value is a hand-written literal.
@@ -59,10 +61,6 @@ const LEGACY_GLOBAL_BLOCK =
 const OUTSIDE_LEGACY_LINE =
   "DevFlow's intent model splits testing rigor by project kind; its defaults table is `~/.claude/devflow/references/defaults-table.md`.";
 
-/** OUTSIDE_LEGACY_LINE as the approved rewrite leaves it. */
-const OUTSIDE_LEGACY_LINE_NEW =
-  "AOForge's intent model splits testing rigor by project kind; its defaults table is `~/.claude/aoforge/references/defaults-table.md`.";
-
 const OUTSIDE_PLAIN_LINE = 'The intent model splits testing rigor by project kind; its defaults table ships with the plugin.';
 
 function globalTail(outsideLegacy) {
@@ -76,10 +74,12 @@ function globalTail(outsideLegacy) {
 }
 
 /**
- * globalClaudeMd({ outsideLegacy = true }) -> the full text of a pre-rename global CLAUDE.md.
+ * globalClaudeMd({ outsideLegacy = true, crlf = false }) -> the full text of a pre-rename global CLAUDE.md.
+ * `crlf` turns every line ending into CRLF.
  */
-function globalClaudeMd({ outsideLegacy = true } = {}) {
-  return `${GLOBAL_HEAD}${LEGACY_GLOBAL_BLOCK}\n${globalTail(outsideLegacy)}`;
+function globalClaudeMd({ outsideLegacy = true, crlf = false } = {}) {
+  const text = `${GLOBAL_HEAD}${LEGACY_GLOBAL_BLOCK}\n${globalTail(outsideLegacy)}`;
+  return crlf ? text.replace(/\n/g, '\r\n') : text;
 }
 
 /**
@@ -160,7 +160,6 @@ module.exports = {
   GLOBAL_HEAD,
   LEGACY_GLOBAL_BLOCK,
   OUTSIDE_LEGACY_LINE,
-  OUTSIDE_LEGACY_LINE_NEW,
   OUTSIDE_PLAIN_LINE,
   PROJECT_INTRO,
   PROJECT_OUTRO,

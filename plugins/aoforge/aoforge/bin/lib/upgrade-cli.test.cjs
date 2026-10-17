@@ -242,6 +242,11 @@ describe('aof-tools upgrade --global', () => {
     const after = fs.readFileSync(claudeMd, 'utf-8');
     assert.ok(after.includes(MANAGED_START), 'managed block present');
     assert.ok(after.includes('## TDD & Quality'), 'text outside the routing section kept');
+
+    // TRD 78-08: the global report carries no outside-text proposal any more.
+    for (const r of [plan, adopt]) {
+      assert.deepEqual(Object.keys(r.json).sort(), ['block', 'dryRun', 'legacy', 'notices']);
+    }
   });
 
   test('10b. --global rejects project-only flags', () => {

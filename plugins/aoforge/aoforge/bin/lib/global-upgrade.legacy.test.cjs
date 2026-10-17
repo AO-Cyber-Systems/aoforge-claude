@@ -1,32 +1,29 @@
 'use strict';
 
 /**
- * global-upgrade.legacy.test.cjs — objective 72, TRD 72-09 (INST-03, INST-06): the global
- * ~/.claude/CLAUDE.md written before the rename.
+ * global-upgrade.legacy.test.cjs — objective 78, TRD 78-08 (SC-2, SC-4; replaces the TRD 72-09 list): AOForge 3.1
+ * no longer moves a block under the pre-rename markers in ~/.claude/CLAUDE.md, and no longer proposes or writes a
+ * rewrite of hand-written text outside the block. A pre-rename block, or a hand-written pre-rename routing heading,
+ * gets one global notice naming the fix, and nothing is written.
  *
  * Test list:
- *  1.  A v3 legacy-marker block, no legacy name outside it: runGlobalUpgrade({ userHome }) rewrites the
- *      block to the v4 template under AOFORGE markers with /aoforge: routing, backs up the old file,
- *      writes exactly one block and proposes nothing outside (outside.lines 0, no outside notice).
- *  2.  The same block plus one hand-written line outside it naming the old product: without confirm the
- *      block is still rewritten (a template bump), the outside line is unchanged, the result carries
- *      outside: { lines: 1, diff } with the -old/+new lines, and an action notice names
- *      `aof-tools upgrade --global --confirm` with the diff as its detail.
- *  3.  Same with confirm: the outside line now names AOForge, the devflowops line (another product) is
- *      unchanged, one backup holds the old file, outside.applied is true, and the pending outside notice
- *      is superseded by an info one (same key).
- *  4.  CLI (fake HOME): `upgrade --global --raw` prints the unified diff (-/+ lines at line start) and
- *      writes nothing; `upgrade --global` (JSON) carries it as outside_diff; `--global --apply` writes
- *      the block but not the outside line; `--global --confirm` writes the outside line.
- *  5.  A hand-written routing section with no block (the pre-36 shape) keeps today's notice-only
- *      behaviour under both the "DevFlow Routing" and the "AOForge Routing" heading: nothing written,
- *      one adopt notice, nothing proposed outside; confirm adopts it into the v4 block.
- *  6.  The real template is version 4 and its routing names only AOForge (/aoforge:, aoforge@aocyber,
- *      aoforge/adopt).
+ *  1.  A v3 pre-rename block with a hand-written legacy line outside it (LF and CRLF): runGlobalUpgrade writes
+ *      nothing (byte-identical, no backup), reports block.action 'pre_rename' and no `outside`, and queues exactly
+ *      one `action` notice (source global-upgrade, key global-claude-md-pre-rename) whose message carries the W069
+ *      text for ~/.claude/CLAUDE.md: the marker rename and AOForge 3.0.x. A second run and a confirm run change
+ *      nothing and still leave one unconsumed notice.
+ *  1b. CLI (fake HOME): `upgrade --global --apply` and `--global --confirm` leave the file byte-identical and print
+ *      JSON with no `outside` and no `outside_diff`; `--global --raw` prints the refusal and no outside section.
+ *  2.  A hand-written "DevFlow Routing" section and no block: byte-identical with and without confirm, block action
+ *      'pre_rename', one notice naming the file, the heading and AOForge 3.0.x, no block added; the CLI agrees.
+ *  3.  A hand-written "AOForge Routing" section keeps today's notice-only behaviour, and confirm adopts it into the
+ *      current block (the adoption path is unchanged).
+ *  6.  The real template routes to AOForge only (/aoforge:, aoforge@aocyber, aoforge/adopt) and never names the old
+ *      product.
  *
- * Every case runs in a throwaway home (legacy-claude-md-fixtures fakeHomeWith). The real ~/.claude is
- * never read or written: the lib takes userHome explicitly, HOME is fenced to a scratch directory
- * before anything loads, and the CLI is spawned with HOME=<fake>.
+ * Every case runs in a throwaway home (legacy-claude-md-fixtures fakeHomeWith). The real ~/.claude is never read or
+ * written: the lib takes userHome explicitly, HOME is fenced to a scratch directory before anything loads, and the
+ * CLI is spawned with HOME=<fake>.
  */
 
 const { test } = require('node:test');
@@ -41,16 +38,17 @@ process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aof-gu-legacy-fence-ho
 
 const fx = require('./__fixtures__/legacy-claude-md-fixtures.cjs');
 const { gitEnv } = require('./__fixtures__/upgrade-fixtures.cjs');
-const managedBlock = require('./managed-block.cjs');
 const notices = require('./notices.cjs');
+const { legacyBlockMessage } = require('./planning-layout.cjs');
 const { runGlobalUpgrade, loadGlobalTemplate } = require('./global-upgrade.cjs');
 
 const REAL_TEMPLATE = path.join(__dirname, '..', '..', 'templates', 'global-claude-md.md');
 const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
-const NOW = new Date('2026-10-08T12:00:00.000Z');
+const NOW = new Date('2026-10-16T12:00:00.000Z');
 const TPL = loadGlobalTemplate(REAL_TEMPLATE);
-const SRC = 'global-claude-md';
-const OUTSIDE_KEY = 'global-claude-md-outside';
+const PRE_RENAME_KEY = 'global-claude-md-pre-rename';
+const DISPLAY = '~/.claude/CLAUDE.md';
+const W069 = legacyBlockMessage(DISPLAY);
 
 function home(t, text) {
   const h = fx.fakeHomeWith(text);
@@ -65,16 +63,7 @@ const unconsumed = (h) => notices.readNotices(notices.globalNoticesPath(h)).filt
 function backups(h) {
   const dir = path.join(h, '.claude', 'aoforge', 'backups');
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir).filter((d) => d.startsWith('global-')).map((d) => path.join(dir, d, 'CLAUDE.md'));
-}
-
-/** The fixture text with the legacy block swapped for the current-template block (and the outside line as given). */
-function expected({ outsideLegacy, outsideRewritten = false }) {
-  const text = fx.globalClaudeMd({ outsideLegacy });
-  const at = text.indexOf(fx.LEGACY_GLOBAL_BLOCK);
-  let tail = text.slice(at + fx.LEGACY_GLOBAL_BLOCK.length);
-  if (outsideRewritten) tail = tail.replace(fx.OUTSIDE_LEGACY_LINE, fx.OUTSIDE_LEGACY_LINE_NEW);
-  return text.slice(0, at) + managedBlock.render(TPL.body, { v: TPL.version, src: SRC }) + tail;
+  return fs.readdirSync(dir).filter((d) => d.startsWith('global-'));
 }
 
 function aofTools(args, h) {
@@ -93,145 +82,119 @@ function aofTools(args, h) {
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
 }
 
-test('1: a v3 legacy-marker block becomes the v4 AOFORGE block; old file backed up; one block', (t) => {
-  const before = fx.globalClaudeMd({ outsideLegacy: false });
-  const h = home(t, before);
+/** Exactly one unconsumed notice, the pre-rename one; returns it. */
+function onePreRenameNotice(h) {
+  const all = unconsumed(h);
+  assert.equal(all.length, 1, `expected one notice, got: ${all.map((n) => n.key).join(', ')}`);
+  const [n] = all;
+  assert.equal(n.key, PRE_RENAME_KEY);
+  assert.equal(n.level, 'action');
+  assert.equal(n.source, 'global-upgrade');
+  assert.ok(n.message.includes(DISPLAY), n.message);
+  assert.match(n.message, /3\.0\.x/);
+  return n;
+}
 
-  const report = runGlobalUpgrade({ userHome: h, now: NOW });
+test('1: a pre-rename block is refused: byte-identical, no backup, no outside, one notice with the W069 fix', (t) => {
+  for (const crlf of [false, true]) {
+    const before = fx.globalClaudeMd({ crlf });
+    const h = home(t, before);
 
-  assert.equal(report.block.action, 'updated');
-  assert.equal(report.block.from, '3');
-  assert.equal(report.block.to, '4');
-  const after = readMd(h);
-  assert.equal(after, expected({ outsideLegacy: false }));
-  assert.ok(after.includes('<!-- AOFORGE:START v=4 src=global-claude-md -->'));
-  assert.ok(after.includes('/aoforge:build') && !after.includes('/devflow:'), 'routing is not AOForge');
-  assert.ok(!after.includes('DEVFLOW:'), 'a legacy marker survived');
-  assert.equal(after.split(':START').length - 1, 1, 'exactly one block');
-  assert.equal(managedBlock.read(after).tag, 'AOFORGE');
+    const report = runGlobalUpgrade({ userHome: h, now: NOW });
+    assert.equal(report.block.action, 'pre_rename', `crlf=${crlf}`);
+    assert.equal(report.block.backup, null);
+    assert.ok(!('outside' in report), 'the report still carries an outside proposal');
+    assert.equal(readMd(h), before, `crlf=${crlf}: CLAUDE.md changed`);
+    assert.deepEqual(backups(h), []);
 
-  const b = backups(h);
-  assert.equal(b.length, 1);
-  assert.equal(fs.readFileSync(b[0], 'utf-8'), before);
+    const n = onePreRenameNotice(h);
+    assert.ok(n.message.includes(W069.message), n.message);
+    assert.ok(n.message.includes(W069.fix), n.message);
 
-  assert.deepEqual({ lines: report.outside.lines, diff: report.outside.diff, applied: report.outside.applied }, {
-    lines: 0,
-    diff: '',
-    applied: false,
-  });
-  assert.ok(!unconsumed(h).some((n) => n.key === OUTSIDE_KEY), 'an outside notice was queued');
+    const again = runGlobalUpgrade({ userHome: h, now: NOW });
+    const confirmed = runGlobalUpgrade({ userHome: h, now: NOW, confirm: true });
+    for (const r of [again, confirmed]) {
+      assert.equal(r.block.action, 'pre_rename');
+      assert.ok(!('outside' in r));
+    }
+    assert.equal(readMd(h), before, 'a later run or --confirm wrote CLAUDE.md');
+    assert.deepEqual(backups(h), []);
+    onePreRenameNotice(h);
+  }
 });
 
-test('2: without confirm the block is rewritten and the outside line is only proposed', (t) => {
-  const h = home(t, fx.globalClaudeMd());
-
-  const report = runGlobalUpgrade({ userHome: h, now: NOW });
-
-  assert.equal(report.block.action, 'updated');
-  const after = readMd(h);
-  assert.equal(after, expected({ outsideLegacy: true }));
-  assert.ok(after.includes(fx.OUTSIDE_LEGACY_LINE), 'the outside line changed without confirm');
-  assert.ok(after.includes('a later devflowops move'), 'the other product changed');
-
-  assert.equal(report.outside.lines, 1);
-  assert.equal(report.outside.applied, false);
-  const diffLines = report.outside.diff.split('\n');
-  assert.ok(diffLines.includes(`-${fx.OUTSIDE_LEGACY_LINE}`), report.outside.diff);
-  assert.ok(diffLines.includes(`+${fx.OUTSIDE_LEGACY_LINE_NEW}`), report.outside.diff);
-  assert.ok(!diffLines.some((l) => /^[-+](?!--|\+\+).*devflowops/.test(l)), 'the other product is proposed for change');
-  assert.ok(!diffLines.some((l) => /^[-+].*:START/.test(l)), 'the block itself is part of the outside diff');
-
-  const pending = unconsumed(h).filter((n) => n.key === OUTSIDE_KEY);
-  assert.equal(pending.length, 1);
-  assert.equal(pending[0].level, 'action');
-  assert.match(pending[0].message, /aof-tools upgrade --global --confirm/);
-  assert.equal(pending[0].detail, report.outside.diff);
-});
-
-test('3: with confirm the outside line is rewritten too; devflowops stays; backup first', (t) => {
-  const before = fx.globalClaudeMd();
-  const h = home(t, before);
-
-  runGlobalUpgrade({ userHome: h, now: NOW }); // queues the pending outside notice
-  const report = runGlobalUpgrade({ userHome: h, now: NOW, confirm: true });
-
-  const after = readMd(h);
-  assert.equal(after, expected({ outsideLegacy: true, outsideRewritten: true }));
-  assert.ok(after.includes(fx.OUTSIDE_LEGACY_LINE_NEW));
-  assert.ok(after.includes('a later devflowops move'), 'the other product changed');
-  assert.equal(report.outside.lines, 1);
-  assert.equal(report.outside.applied, true);
-
-  const b = backups(h);
-  assert.equal(b.length, 2, 'one backup per writing run');
-  assert.ok(b.some((f) => fs.readFileSync(f, 'utf-8') === before), 'no backup holds the original file');
-  assert.ok(report.outside.backup && fs.existsSync(report.outside.backup), 'the confirming run kept a backup');
-
-  const outsideNotices = unconsumed(h).filter((n) => n.key === OUTSIDE_KEY);
-  assert.equal(outsideNotices.length, 1, 'the pending notice was not superseded');
-  assert.equal(outsideNotices[0].level, 'info');
-
-  const again = runGlobalUpgrade({ userHome: h, now: NOW, confirm: true });
-  assert.equal(again.block.action, 'none');
-  assert.equal(again.outside.lines, 0, 'a second confirmed run still proposes a change');
-});
-
-test('4: CLI prints the diff, --apply leaves the outside line, --confirm writes it', (t) => {
+test('1b: CLI --global --apply / --confirm write nothing and print no outside section', (t) => {
   const before = fx.globalClaudeMd();
   const h = home(t, before);
 
   const raw = aofTools(['--global', '--raw'], h);
   assert.equal(raw.status, 0, raw.stderr);
-  const rawLines = raw.stdout.split('\n');
-  assert.ok(rawLines.includes(`-${fx.OUTSIDE_LEGACY_LINE}`), raw.stdout);
-  assert.ok(rawLines.includes(`+${fx.OUTSIDE_LEGACY_LINE_NEW}`), raw.stdout);
-  assert.match(raw.stdout, /aof-tools upgrade --global --confirm/);
-  assert.equal(readMd(h), before, '--global alone wrote CLAUDE.md');
+  assert.ok(raw.stdout.includes('pre_rename'), raw.stdout);
+  assert.ok(raw.stdout.includes(W069.fix), raw.stdout);
+  assert.doesNotMatch(raw.stdout, /outside the (managed )?block/);
+  assert.ok(!raw.stdout.split('\n').some((l) => l.startsWith(`-${fx.OUTSIDE_LEGACY_LINE}`)), 'a diff was printed');
 
-  const plan = aofTools(['--global'], h);
-  assert.equal(plan.status, 0, plan.stderr);
-  assert.equal(plan.json.dryRun, true);
-  assert.ok(plan.json.outside_diff.split('\n').includes(`-${fx.OUTSIDE_LEGACY_LINE}`), plan.stdout);
-  assert.equal(readMd(h), before);
-
-  const apply = aofTools(['--global', '--apply'], h);
-  assert.equal(apply.status, 0, apply.stderr);
-  assert.equal(apply.json.block.action, 'updated');
-  assert.equal(readMd(h), expected({ outsideLegacy: true }), '--apply touched the outside line');
-
-  const confirm = aofTools(['--global', '--confirm'], h);
-  assert.equal(confirm.status, 0, confirm.stderr);
-  assert.equal(confirm.json.outside.applied, true);
-  assert.equal(readMd(h), expected({ outsideLegacy: true, outsideRewritten: true }));
-  assert.equal(backups(h).length, 2, 'each writing run keeps a backup');
+  for (const args of [['--global'], ['--global', '--apply'], ['--global', '--confirm']]) {
+    const r = aofTools(args, h);
+    assert.equal(r.status, 0, `${args.join(' ')}: ${r.stderr}`);
+    assert.ok(r.json, `${args.join(' ')}: not JSON: ${r.stdout}`);
+    assert.equal(r.json.block.action, 'pre_rename', args.join(' '));
+    assert.ok(!('outside' in r.json), `${args.join(' ')}: JSON has outside`);
+    assert.ok(!('outside_diff' in r.json), `${args.join(' ')}: JSON has outside_diff`);
+    assert.equal(readMd(h), before, `${args.join(' ')} wrote CLAUDE.md`);
+  }
+  assert.deepEqual(backups(h), []);
+  onePreRenameNotice(h);
 });
 
-test('5: a hand-written routing section with no block stays notice-only under either heading', (t) => {
-  for (const heading of ['DevFlow Routing', 'AOForge Routing']) {
-    const before = fx.handWrittenRoutingClaudeMd(heading);
-    const h = home(t, before);
+test('2: a hand-written pre-rename routing heading is refused: byte-identical, one notice, no block added', (t) => {
+  const before = fx.handWrittenRoutingClaudeMd('DevFlow Routing');
+  const h = home(t, before);
 
-    const report = runGlobalUpgrade({ userHome: h, now: NOW });
-    assert.equal(report.block.action, 'adopt_pending', heading);
-    assert.equal(readMd(h), before, `${heading}: written without confirm`);
-    assert.deepEqual(backups(h), []);
-    const pending = unconsumed(h);
-    assert.equal(pending.length, 1, `${heading}: ${pending.map((n) => n.key).join(', ')}`);
-    assert.equal(pending[0].key, 'global-claude-md-adopt');
-    assert.ok(pending[0].detail.includes(`- # ${heading}`), 'the routing heading is not proposed for removal');
-    assert.equal(report.outside.lines, 0);
+  const report = runGlobalUpgrade({ userHome: h, now: NOW });
+  assert.equal(report.block.action, 'pre_rename');
+  assert.equal(readMd(h), before);
+  const n = onePreRenameNotice(h);
+  assert.ok(n.message.includes('DevFlow Routing'), n.message);
 
-    const adopted = runGlobalUpgrade({ userHome: h, now: NOW, confirm: true });
-    assert.equal(adopted.block.action, 'adopted', heading);
-    const after = readMd(h);
-    assert.ok(after.includes('<!-- AOFORGE:START v=4 src=global-claude-md -->'));
-    assert.ok(!after.includes(`# ${heading}\n\nThe DevFlow plugin`), 'the hand-written section survived adoption');
-    assert.ok(after.includes(fx.OUTSIDE_PLAIN_LINE), 'text after the routing section was lost');
+  const confirmed = runGlobalUpgrade({ userHome: h, now: NOW, confirm: true });
+  assert.equal(confirmed.block.action, 'pre_rename');
+  assert.equal(readMd(h), before, '--confirm adopted or appended');
+  assert.ok(!readMd(h).includes('AOFORGE:START'), 'a block was added');
+  assert.deepEqual(backups(h), []);
+  onePreRenameNotice(h);
+
+  for (const args of [['--global', '--apply'], ['--global', '--confirm']]) {
+    const r = aofTools(args, h);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.block.action, 'pre_rename', args.join(' '));
+    assert.ok(!('outside' in r.json) && !('outside_diff' in r.json));
+    assert.equal(readMd(h), before, `${args.join(' ')} wrote CLAUDE.md`);
   }
 });
 
-test('6: the real template is version 4 and routes to AOForge only', () => {
-  assert.equal(TPL.version, '4');
+test('3: a hand-written "AOForge Routing" section keeps the notice-only path; confirm adopts it', (t) => {
+  const before = fx.handWrittenRoutingClaudeMd('AOForge Routing');
+  const h = home(t, before);
+
+  const report = runGlobalUpgrade({ userHome: h, now: NOW });
+  assert.equal(report.block.action, 'adopt_pending');
+  assert.equal(readMd(h), before, 'written without confirm');
+  assert.deepEqual(backups(h), []);
+  const pending = unconsumed(h);
+  assert.equal(pending.length, 1, pending.map((n) => n.key).join(', '));
+  assert.equal(pending[0].key, 'global-claude-md-adopt');
+  assert.ok(pending[0].detail.includes('- # AOForge Routing'), 'the routing heading is not proposed for removal');
+
+  const adopted = runGlobalUpgrade({ userHome: h, now: NOW, confirm: true });
+  assert.equal(adopted.block.action, 'adopted');
+  const after = readMd(h);
+  assert.ok(after.includes(`<!-- AOFORGE:START v=${TPL.version} src=global-claude-md -->`));
+  assert.ok(!after.includes('# AOForge Routing\n\nThe DevFlow plugin'), 'the hand-written section survived adoption');
+  assert.ok(after.includes(fx.OUTSIDE_PLAIN_LINE), 'text after the routing section was lost');
+});
+
+test('6: the real template routes to AOForge only', () => {
   for (const s of ['/aoforge:build', '/aoforge:doctor', '`aoforge@aocyber`', 'aoforge/adopt', '# AOForge Routing']) {
     assert.ok(TPL.body.includes(s), `template body lacks ${s}`);
   }

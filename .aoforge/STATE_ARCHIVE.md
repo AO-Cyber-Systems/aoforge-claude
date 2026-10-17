@@ -341,6 +341,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-07: the stamp is read and written under the aoforge key only; the pre-rename key is never touched (W067 reports it)
 - [Objective 78]: 78-07: aof-tools refuses mutating commands and init in a legacy-only project (legacy-layout-guard.cjs); doctor/validate report; 12 exemptions with reasons; tokens guarded
 - [Objective 78]: 78-07: the runner's generic deferred path and the hook's HEAD-only commit handling are kept; the hook tells a legacy-only project through one global notice
+- [Objective 78]: 78-08: migration 0014 (CLAUDE.md rebrand) REMOVED; managed-block refuses pre-rename markers with ELEGACYBLOCK/W069 instead of reading them; id 0014 stays reserved (78-07 RETIRED_MIGRATIONS)
+- [Objective 78]: 78-08: global upgrade's pre-rename block move and outside-text rewrite (outside, outside_diff, --confirm rewrite) REMOVED; a pre-rename block or routing heading yields action pre_rename, no write, one notice (key global-claude-md-pre-rename)
+- [Objective 78]: 78-08: legacy-rewrite.cjs KEPT (only consumer now gh rebrand); meta.legacy (pre-v1 marker) and the df-* move are objective 36's, not the rename, and stay
 
 ## Performance Metrics
 
@@ -562,4 +565,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P05 | 12min | 3 tasks | 14 files |
 | Objective 78 P06 | 14min | 3 tasks | 18 files |
 | Objective 78 P07 | 28min | 3 tasks | 17 files |
+| Objective 78 P08 | 16min | 3 tasks | 13 files |
 
