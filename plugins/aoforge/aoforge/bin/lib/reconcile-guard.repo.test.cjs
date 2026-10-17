@@ -2,8 +2,8 @@
 
 // Test list (TRD 79-02, objective 79-reconcile-and-release-3-1-0, SC-2 and the guard part of SC-3).
 //
-// Why this file exists. Objective 78 deleted compat exports (the environment alias, the two-directory helpers, the
-// legacy-layout predicate, the legacy runtime home, resolveUserFile) while `main` kept writing code that called them.
+// Why this file exists. Objective 78 deleted five compat exports (the environment alias, the two-directory helper, the
+// legacy-layout predicate, the legacy runtime home, the user-file resolver) while `main` kept writing code that called them.
 // Merging the two lines did not flag the clash: git merges text, not imports, so the tree loaded until a caller ran.
 // This guard makes the class impossible to bring back. It reads compat.cjs's real export list from the module (never
 // a hard-coded copy), resolves every reference to compat in the tracked source by the module it comes from, and
@@ -74,6 +74,354 @@ const lines = (rows) => rows.join('\n');
 function tmpDir(prefix) {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }
+
+// ─── the scanner ─────────────────────────────────────────────────────────────────
+
+const REGEX_AFTER_CHARS = '(,=:[!&|?{};+-*%<>~^}';
+const REGEX_AFTER_WORDS = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw', 'case', 'do', 'else', 'yield', 'await',
+]);
+const WORD_CHAR = /[\w$\u0080-￿]/;
+const COMPAT_PATH = /(^|\/)compat\.cjs$/;
+
+/**
+ * Blank the parts of JavaScript source that are not code: comments, string and template bodies, regex literals.
+ * Offsets, newlines and delimiters are kept, so a line number in the result is a line number in the source. The one
+ * body that stays is a string that is the argument of a call and names compat.cjs, because that string is what a
+ * reference is resolved from. `clean` is false when the source ends inside a literal or comment, or a string is
+ * unterminated: the result is then not trustworthy.
+ *
+ * @param {string} text
+ * @returns {{ masked: string, clean: boolean }}
+ */
+function lex(text) {
+  const n = text.length;
+  const out = text.split('');
+  const blank = (from, to) => {
+    for (let k = from; k < to; k++) if (out[k] !== '\n' && out[k] !== '\r') out[k] = ' ';
+  };
+  const openTemplates = []; // the brace depth at which each open `${` closes
+  let depth = 0;
+  let prev = ''; // the last significant code character: '' at the start, 'a' after a value (word, string, regex)
+  let prevWord = '';
+  let clean = true;
+  let i = 0;
+
+  /** Blank a template body from `from`; stop after the closing backtick or after an opening `${`. */
+  const templateBody = (from) => {
+    let k = from;
+    while (k < n) {
+      const c = text[k];
+      if (c === '\\') {
+        k += 2;
+      } else if (c === '`') {
+        blank(from, k);
+        prev = 'a';
+        prevWord = '';
+        return k + 1;
+      } else if (c === '$' && text[k + 1] === '{') {
+        blank(from, k + 2);
+        openTemplates.push(depth);
+        prev = '{';
+        return k + 2;
+      } else {
+        k++;
+      }
+    }
+    clean = false;
+    blank(from, n);
+    return n;
+  };
+
+  if (text.startsWith('#!')) {
+    while (i < n && text[i] !== '\n') i++;
+    blank(0, i);
+  }
+
+  while (i < n) {
+    const c = text[i];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      i++;
+    } else if (c === '/' && text[i + 1] === '/') {
+      let k = i;
+      while (k < n && text[k] !== '\n') k++;
+      blank(i, k);
+      i = k;
+    } else if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      const k = end < 0 ? n : end + 2;
+      if (end < 0) clean = false;
+      blank(i, k);
+      i = k;
+    } else if (c === '/') {
+      const regexAllowed =
+        prev === '' || REGEX_AFTER_CHARS.includes(prev) || (prev === 'a' && REGEX_AFTER_WORDS.has(prevWord));
+      let close = -1;
+      if (regexAllowed) {
+        let k = i + 1;
+        let inClass = false;
+        while (k < n && text[k] !== '\n') {
+          const r = text[k];
+          if (r === '\\') {
+            k += 2;
+            continue;
+          }
+          if (r === '[') inClass = true;
+          else if (r === ']') inClass = false;
+          else if (r === '/' && !inClass) {
+            close = k;
+            break;
+          }
+          k++;
+        }
+      }
+      if (close < 0) {
+        prev = '/';
+        i++;
+      } else {
+        blank(i + 1, close);
+        let k = close + 1;
+        while (k < n && /[a-z]/.test(text[k])) k++;
+        i = k;
+        prev = 'a';
+        prevWord = '';
+      }
+    } else if (c === '"' || c === "'") {
+      let k = i + 1;
+      while (k < n) {
+        const s = text[k];
+        if (s === '\\') {
+          k += 2;
+        } else if (s === c) {
+          break;
+        } else if (s === '\n') {
+          clean = false;
+          break;
+        } else {
+          k++;
+        }
+      }
+      if (k >= n) clean = false;
+      const keep = prev === '(' && COMPAT_PATH.test(text.slice(i + 1, k));
+      if (!keep) blank(i + 1, k);
+      i = k + 1;
+      prev = 'a';
+      prevWord = '';
+    } else if (c === '`') {
+      i = templateBody(i + 1);
+    } else if (c === '{') {
+      depth++;
+      prev = '{';
+      i++;
+    } else if (c === '}') {
+      if (openTemplates.length && openTemplates[openTemplates.length - 1] === depth) {
+        openTemplates.pop();
+        out[i] = ' ';
+        i = templateBody(i + 1);
+      } else {
+        depth--;
+        prev = '}';
+        i++;
+      }
+    } else if (WORD_CHAR.test(c)) {
+      let k = i + 1;
+      while (k < n && WORD_CHAR.test(text[k])) k++;
+      prevWord = text.slice(i, k);
+      prev = 'a';
+      i = k;
+    } else {
+      prev = c;
+      i++;
+    }
+  }
+  return { masked: out.join(''), clean: clean && openTemplates.length === 0 };
+}
+
+/** A way to reach compat: `require('<...>/compat.cjs')`, a pack's `require('<...>/core.cjs')('compat.cjs')` or `core('compat.cjs')`. */
+const SRC = String.raw`(?:require\(\s*['"](?:[^'"\n]*\/)?compat\.cjs['"]\s*\)|(?:require\(\s*['"][^'"\n]*['"]\s*\)|\bcore)\s*\(\s*['"]compat\.cjs['"]\s*\))`;
+const IDENT = String.raw`[A-Za-z_$][\w$]*`;
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Keys of a destructuring pattern body (the left side of `a: b`), each with its offset in the masked text. */
+function patternKeys(body, base) {
+  const keys = [];
+  let pos = 0;
+  for (const part of body.split(',')) {
+    const lead = part.length - part.trimStart().length;
+    const key = new RegExp(`^(${IDENT})`).exec(part.slice(lead));
+    if (key && !part.trimStart().startsWith('...')) keys.push({ name: key[1], offset: base + pos + lead });
+    pos += part.length + 1;
+  }
+  return keys;
+}
+
+/** `typeof compat.x`, `compat.x === undefined`, `assert.equal(compat.x, undefined)`: a probe for absence, not a use. */
+function isAbsenceProbe(masked, start, end) {
+  if (/\btypeof\s*$/.test(masked.slice(Math.max(0, start - 16), start))) return true;
+  const after = masked.slice(end, end + 48);
+  return /^\s*[!=]==?\s*(?:undefined|void\s*0)\b/.test(after) || /^\s*,\s*undefined\s*\)/.test(after);
+}
+
+/**
+ * Every reference to a compat export in `text`, resolved by the module it comes from.
+ * @param {string} text
+ * @returns {{ refs: Array<{line: number, name: string}>, clean: boolean }}
+ */
+function scan(text) {
+  if (!text.includes('compat.cjs')) return { refs: [], clean: true };
+  const { masked, clean } = lex(text);
+  const starts = [0];
+  for (let k = masked.indexOf('\n'); k >= 0; k = masked.indexOf('\n', k + 1)) starts.push(k + 1);
+  const lineAt = (offset) => {
+    let lo = 0;
+    let hi = starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (starts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo + 1;
+  };
+  const found = new Map();
+  const add = (offset, name) => found.set(`${offset}:${name}`, { offset, line: lineAt(offset), name });
+
+  const pattern = (re) => {
+    for (const m of masked.matchAll(re)) {
+      const base = m.index + m[0].indexOf('{') + 1;
+      for (const key of patternKeys(m[1], base)) add(key.offset, key.name);
+    }
+  };
+  pattern(new RegExp(String.raw`\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*${SRC}`, 'g'));
+
+  for (const m of masked.matchAll(new RegExp(`${SRC}\\s*(?:\\?\\.|\\.)\\s*(${IDENT})`, 'g'))) {
+    const offset = m.index + m[0].length - m[1].length;
+    if (!isAbsenceProbe(masked, m.index, m.index + m[0].length)) add(offset, m[1]);
+  }
+
+  const bound = new Set();
+  for (const m of masked.matchAll(new RegExp(String.raw`\b(?:const|let|var)\s+(${IDENT})\s*=\s*${SRC}(?!\s*[.(\[])`, 'g'))) {
+    bound.add(m[1]);
+  }
+  // The module path inside a require is not a use of the identifier named like its file (`compat.cjs`).
+  const uses = bound.size ? masked.replace(new RegExp(SRC, 'g'), (s) => s.replace(/[^\n]/g, ' ')) : masked;
+  for (const id of bound) {
+    const e = escapeRe(id);
+    pattern(new RegExp(String.raw`\b(?:const|let|var)\s*\{([^}]*)\}\s*=\s*${e}(?![\w$.(\[])`, 'g'));
+    for (const m of uses.matchAll(new RegExp(String.raw`(?<![\w$.])${e}\s*(?:\?\.|\.)\s*(${IDENT})`, 'g'))) {
+      const offset = m.index + m[0].length - m[1].length;
+      if (!isAbsenceProbe(uses, m.index, m.index + m[0].length)) add(offset, m[1]);
+    }
+  }
+  const refs = [...found.values()].sort((a, b) => a.offset - b.offset).map(({ line, name }) => ({ line, name }));
+  return { refs, clean };
+}
+
+/** Every reference to a compat export in `text`: `[{ line, name }]`. */
+function compatRefs(text) {
+  return scan(text).refs;
+}
+
+// ─── the tree check ──────────────────────────────────────────────────────────────
+
+/** Tracked regular files under `root` matching `pathspecs`, posix paths; git runs without inherited repository variables. */
+function trackedPaths(root, pathspecs) {
+  const env = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE']) delete env[k];
+  const r = spawnSync('git', ['ls-files', '-z', '--', ...pathspecs], { cwd: root, env, maxBuffer: 1 << 28 });
+  if (r.error || r.status !== 0) {
+    throw new Error(`git ls-files failed in ${root}: ${r.error ? r.error.message : String(r.stderr).trim()}`);
+  }
+  return r.stdout
+    .toString('utf8')
+    .split('\0')
+    .filter(Boolean)
+    .filter((rel) => {
+      try {
+        return fs.lstatSync(path.join(root, rel)).isFile();
+      } catch {
+        return false;
+      }
+    });
+}
+
+/** The export list of the compat.cjs inside `root`, read from the module itself. */
+function compatExports(root) {
+  return Object.keys(require(path.join(root, COMPAT_REL)));
+}
+
+/**
+ * Check a repository's tracked source against compat.cjs's real export list.
+ * `bad`: references to a name compat does not export (and is not one of the five removed names);
+ * `removed`: references to one of the five removed names; `legacyPaths`: tracked paths under the pre-rename planning
+ * directory; `unlexable`: files that mention compat.cjs and that the lexer could not finish (the scan is blind there).
+ *
+ * @param {string} root
+ * @returns {{bad: Array<{file: string, line: number, name: string}>, removed: Array<{file: string, line: number, name: string}>, legacyPaths: string[], unlexable: string[]}}
+ */
+function checkTree(root) {
+  const exported = new Set(compatExports(root));
+  const result = { bad: [], removed: [], legacyPaths: [], unlexable: [] };
+  for (const rel of trackedPaths(root, ['plugins', 'scripts'])) {
+    if (!/\.c?js$/.test(rel)) continue;
+    const { refs, clean } = scan(fs.readFileSync(path.join(root, rel), 'utf8'));
+    if (!clean) result.unlexable.push(rel);
+    for (const { line, name } of refs) {
+      if (REMOVED_NAMES.includes(name)) result.removed.push({ file: rel, line, name });
+      else if (!exported.has(name)) result.bad.push({ file: rel, line, name });
+    }
+  }
+  result.legacyPaths = trackedPaths(root, [LEGACY.planningDir]);
+  return result;
+}
+
+const show = (rows) => rows.map((r) => `  ${r.file}:${r.line} ${r.name}`).join('\n');
+
+// ─── 1-3: the repository ─────────────────────────────────────────────────────────
+
+describe('reconcile guard: the merged tree', { skip: IS_AOFORGE_CHECKOUT ? false : 'not a plugin source checkout' }, () => {
+  /** One scan serves cases 2 and 3. */
+  let tree = null;
+  const scanTree = () => (tree ||= checkTree(REPO_ROOT));
+
+  test('1: no tracked path under the pre-rename planning directory', () => {
+    const paths = scanTree().legacyPaths;
+    assert.deepEqual(
+      paths,
+      [],
+      `${paths.length} tracked path(s) under ${LEGACY.planningDir}/ (planning records live under .aoforge/; move them with git mv):\n  ${paths.slice(0, 20).join('\n  ')}`,
+    );
+  });
+
+  test('2: every compat reference in tracked source names a current compat export', () => {
+    const { bad, unlexable } = scanTree();
+    assert.deepEqual(
+      unlexable,
+      [],
+      `the lexer could not finish ${unlexable.join(', ')}: the compat scan is blind there; fix the lexer or the file`,
+    );
+    assert.deepEqual(
+      bad,
+      [],
+      `${bad.length} reference(s) to a name compat.cjs does not export (call the current name; do not add the export back):\n${show(bad)}`,
+    );
+  });
+
+  test('3: none of the five removed names is a compat export again or is used as one (SC-2)', () => {
+    const exported = compatExports(REPO_ROOT);
+    const back = REMOVED_NAMES.filter((name) => exported.includes(name));
+    assert.deepEqual(
+      back,
+      [],
+      `objective 79 SC-2: compat.cjs exports ${back.join(', ')} again. Objective 78 removed it; fix the caller, not compat.cjs`,
+    );
+    const { removed } = scanTree();
+    assert.deepEqual(
+      removed,
+      [],
+      `objective 79 SC-2: ${removed.length} caller(s) use a compat export objective 78 removed. Fix the caller (the current name, or planning-layout / coexistence if it needs to detect the old layout), not compat.cjs:\n${show(removed)}`,
+    );
+  });
+});
 
 // ─── 5-10: the scanner on hand-written source ───────────────────────────────────
 
