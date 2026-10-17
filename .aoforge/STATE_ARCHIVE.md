@@ -635,6 +635,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 79]: 79-03: pre-bash one-process dispatch is equivalent to the five spawned hooks on a 51-case corpus and two five-call sequences; no hook changed; a dispatcher without gate-interactive diverges on the 6 gated interactive cases
 - [Objective 79]: 79-04: quick 36's cross-layout worktree cases are reworked onto a same-layout (.aoforge/) worktree; the pre-rename worktree is proven refused in planning-verbs-worktree.legacy.test.cjs. No resolver or compat change.
 - [Objective 79]: EST-11 corrected in 75-VERIFICATION.md (NOT SATISFIED), never ticked: the record was wrong, the checker was right
+- [Objective 79]: 79-07: CLAUDE.md rebuilt on main's slim skeleton within 200 lines / 20,000 chars (caps unchanged); integrate-side family and hook detail moved to docs/AOF-TOOLS-REFERENCE.md and docs/HOOKS-REFERENCE.md; Where we left off points at state digest plus standing items only
 
 ## Performance Metrics
 
@@ -867,3 +868,4 @@ STATE.md stays lean; this file grows over time.
 | Objective 79 P04 | 10min | 2 tasks | 4 files |
 | Objective 79 P05 | 3min | 2 tasks | 4 files |
 | Objective 79 P06 | 6min | 2 tasks | 6 files |
+| Objective 79 P07 | 10min | 2 tasks | 5 files |
