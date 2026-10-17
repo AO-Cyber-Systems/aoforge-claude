@@ -36,7 +36,6 @@ const outbox = require('./gh-outbox.cjs');
 const backupPrune = require('./backup-prune.cjs');
 const { DRAFTS_DIR } = require('./planning-drafts.cjs');
 const { findProjectRoot } = require('./compat.cjs');
-const { copyNoClobber } = require('./runtime-state-migrate.cjs');
 
 const USAGE = 'Usage: aof-tools state rekey --from <old checkout path> [--to <new path>] [--dry-run] [--raw]';
 
@@ -112,6 +111,57 @@ function lstatOrNull(p, fsImpl) {
     if (err && (err.code === 'ENOENT' || err.code === 'ENOTDIR')) return null;
     throw err;
   }
+}
+
+/** Walk `src` into `dst` for copyNoClobber; `rel` names `src` in the result lists. */
+function copyTree(src, dst, rel, ctx) {
+  const { fsImpl } = ctx;
+  const st = lstatOrNull(src, fsImpl);
+  if (!st) return;
+  const existing = lstatOrNull(dst, fsImpl);
+
+  if (st.isDirectory()) {
+    if (existing && !existing.isDirectory()) {
+      ctx.skipped.push(rel);
+      return;
+    }
+    fsImpl.mkdirSync(dst, { recursive: true });
+    for (const name of fsImpl.readdirSync(src).sort()) {
+      copyTree(path.join(src, name), path.join(dst, name), `${rel}/${name}`, ctx);
+    }
+    return;
+  }
+  if (existing) {
+    ctx.skipped.push(rel);
+    return;
+  }
+  if (st.isSymbolicLink()) {
+    fsImpl.symlinkSync(fsImpl.readlinkSync(src), dst);
+    ctx.copied.push(rel);
+    return;
+  }
+  if (!st.isFile()) return; // a socket or a fifo is not state
+  try {
+    fsImpl.copyFileSync(src, dst, fs.constants.COPYFILE_EXCL);
+  } catch (err) {
+    if (err && err.code === 'EEXIST') {
+      ctx.skipped.push(rel);
+      return;
+    }
+    throw err;
+  }
+  ctx.copied.push(rel);
+}
+
+/**
+ * Copy `src` (a file, a symlink or a directory) to `dst` without replacing anything already at `dst`; a directory is
+ * merged. Returns the copied and skipped paths, named relative to `src` under `rel`. (Moved here when TRD 78-06
+ * retired the 3.0.x runtime state migration: this module is its only user.)
+ */
+function copyNoClobber(src, dst, { fsImpl = fs, rel = '.' } = {}) {
+  const ctx = { fsImpl, copied: [], skipped: [] };
+  copyTree(src, dst, rel, ctx);
+  return { copied: ctx.copied, skipped: ctx.skipped };
 }
 
 /** True when some file or directory under `src` has no counterpart under `dst`. */
