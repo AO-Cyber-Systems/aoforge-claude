@@ -34,7 +34,8 @@
 // string is data) plus regexes over what is left. Supported reference forms are the ones present in the tree:
 // destructuring, `require(...).name`, a bound identifier and its destructuring, and the pack loader. Not supported (and
 // absent from the tree): a quoted destructuring key, assignment destructuring without a declaration, a template-literal
-// specifier, aliasing the pack loader under another name.
+// specifier, aliasing the pack loader under another name, and aof-tools.cjs's `lazy('<path>', [names])` forwarders
+// (their names are string literals; none points at compat today, so a first one needs this scanner extended).
 //
 // Runtime model: read-only against the repository; test 4 writes only to its own `mkdtemp` directory, in a git
 // repository created with the global and system git configuration turned off and a scratch HOME. A mirror install
