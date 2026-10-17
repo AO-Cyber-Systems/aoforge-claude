@@ -130,10 +130,10 @@ defaults:
   # ─────────────────────────────────────────────────────────────
   app:
     feature:
-      tdd: "strict; outside-in (Maestro/Playwright→integration_test→widget→unit)"
+      tdd: "strict; outside-in (UI flow driver→integration→widget/component→unit)"
       depth: comprehensive
       model_profile: quality
-      verification: "Maestro/Playwright flow + integration + widget render"
+      verification: "UI flow + integration + component render"
       security_isolation: n/a
       back_compat: none
       tdd_default: strict
@@ -141,7 +141,7 @@ defaults:
       fixture_strategy: inline
       outside_in: true
     port:
-      tdd: "build first, test after; verify UI parity via Maestro/Playwright flows"
+      tdd: "build first, test after; verify UI parity via UI flow drivers"
       depth: comprehensive
       model_profile: quality
       verification: "UI parity flows"

@@ -204,6 +204,16 @@ Task(
 - **If "Add more context":** gather more symptoms (step 2), spawn again.
 - **If "Manual investigation":** `TaskUpdate(taskId=investigate_task_id, status="completed", description="Inconclusive; continued manually")` (if available), done.
 
+**If `## ESCALATION REQUESTED`** (TRD 76-07): the debugger is not converging at its tier.
+- Resolve the next rung from the model this round ran on:
+  `node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model debugger --escalate-from "{model this round ran on}" --raw`
+  (the full JSON, without `--raw`, carries `ceiling`).
+- `ceiling: false`, and this session has not escalated yet: spawn a continuation round (step 5) with
+  `model="{the escalated model}"` and the escalation block verbatim in `<prior_attempt>` instead of
+  `<checkpoint_response>`. Later rounds of this session keep the escalated model.
+- `ceiling: true`, or it already escalated once: handle it as `## INVESTIGATION INCONCLUSIVE`, showing
+  the block's "What a higher rung should do differently".
+
 ## 5. Spawn Continuation Agent (After Checkpoint)
 
 Each continuation agent is one hypothesis round. **Progress tracking (if available):** as the round starts, take the hypothesis from the agent's last return or from the `hypothesis:` line under the debug file's Current Focus, and create its task; step 4 completes it when the round returns.

@@ -22,9 +22,9 @@ Schema: `schemas/stack-profile.schema.json`. Full design: `docs/PROPOSAL-stack-p
 ---
 schema: 1
 id: my-service              # this profile's id (kebab-case)
-extends: general            # parent profile: `general` (implicit), or a profile id such as `go`,
-                            # `dart` or `flutter`: ~/.claude/aoforge/stacks/<id>.md first, then the
-                            # bundled aoforge/stack-profiles/<id>.md
+extends: general            # parent profile: `general` (implicit), or a profile id such as `go`:
+                            # ~/.claude/aoforge/stacks/<id>.md first, then an enabled stack pack's
+                            # profile of that id, then the bundled aoforge/stack-profiles/<id>.md
 languages: [go]             # informational; used for detection and telemetry
 
 # versions gate which idioms are allowed (Principle 2)
@@ -128,7 +128,7 @@ sections replace by H2 name unless marked `<!-- inherit -->`. `aof-tools stack r
 shows which tier supplied each field.
 
 **Writing Avoid rows:** name the stale form, the replacement, and the tool that enforces it
-mechanically (`go fix`, `dart fix`, a lint ID). A row with no enforcing tool belongs in Idioms.
+mechanically (`go fix`, a lint ID). A row with no enforcing tool belongs in Idioms.
 
 **When to update:** toolchain or language version bump, new generator, new MCP server or skill set,
 or when an executor SUMMARY records a discovered command that differs from this file.
@@ -136,10 +136,10 @@ or when an executor SUMMARY records a discovered command that differs from this 
 **Components, discover and notes (a drafted STACK.md).** `aof-tools stack init` reads CI, the task
 runner and manifests, verifies each command it would write, and drafts what it can stand behind.
 - `components: [{ path: "go/", profile: go }]`. `path` is a directory relative to the repo root and
-  ends with a trailing slash, so `go/` never matches `golang/`. `profile` is a tier id (`go`, `dart`,
-  `flutter`: user/org profile first, then the bundled one) or a path to a component profile file. A
-  component's commands run from `path`: the command's own `cwd` is joined onto it. Only commands
-  that differ from the parent's are repeated.
+  ends with a trailing slash, so `go/` never matches `golang/`. `profile` is a tier id (`go`, or one a
+  stack pack ships: user/org profile first, then the pack's, then the bundled one) or a path to a
+  component profile file. A component's commands run from `path`: the command's own `cwd` is joined
+  onto it. Only commands that differ from the parent's are repeated.
 - `run: discover` marks a key whose candidates could not be verified, and `run: none` a key that does
   not exist here. The draft also opens the body with a `stack init notes` comment, one line per
   unverified or weak candidate. Replace each `discover` with the real command (or `none`), then
@@ -154,8 +154,8 @@ runner and manifests, verifies each command it would write, and drafts what it c
   CI job runs it with `services:` or such variables, or (`test`, `e2e`) a `.env.test` file naming one,
   is skipped `env_required`; `--allow-services` runs it against whatever is listening. A `build`'s
   new untracked files under `bin/`, `build/`, `dist/`, `out/` or `target/` are removed and listed as
-  `build_outputs`, and do not stop later Flutter or Dart gates, while any other change is put back
-  and does.
+  `build_outputs`, and do not halt the root for later guarded gates (the tools a pack's gate policy
+  guards), while any other change is put back and does.
 - `.mcp.json` is opt-in per repo. `aof-tools stack mcp` previews the servers `agent_tooling.mcp` would
   add; `stack mcp --write` writes them as managed entries and leaves every other entry alone.
   Nothing else (not `stack init`, not `upgrade`) writes it.

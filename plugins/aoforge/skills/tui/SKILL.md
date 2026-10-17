@@ -28,7 +28,8 @@ Composes obj 1 (gh chain) + obj 2 (peer awareness) + obj 5 (initiatives) + obj 6
 </objective>
 
 <execution_context>
-@.aoforge/STATE.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
 </execution_context>
 
 <process>

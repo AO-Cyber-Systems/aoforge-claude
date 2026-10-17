@@ -34,6 +34,10 @@
  *   12. --raw prints the status key.
  *   13. Legacy control: the 48-13 counters (2/4), no --objective -> unchanged result.
  *   14. The pre-59 call shape `cmdStateAdvanceJob(cwd, raw)` still works.
+ *   15. (quick 35) files_changed / archive_updated: (a) --objective with more than DEFAULT_KEEP decisions names
+ *       STATE.md, STATE_ARCHIVE.md and state.json; (b) no archive and nothing to rotate -> the archive is seeded and
+ *       named, so a commit listing it cannot fail on a missing path; (c) store mode writes no STATE.md and seeds no
+ *       archive; (d) the legacy counter path reports the same keys.
  *
  * Fixtures: lib/__fixtures__/state-position-fixtures.cjs. The repo's own .aoforge/ is
  * never touched; aof-tools is spawned with the temp project as cwd under a fake HOME.
@@ -122,6 +126,8 @@ describe('state advance-job --objective: position from disk (PLMB-01)', () => {
       status: 'executing',
       status_text: 'Executing objective 7 — 2/4 TRDs complete',
       state_md_updated: true,
+      files_changed: ['.aoforge/STATE.md', '.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json'],
+      archive_updated: true,
     });
   });
 
@@ -380,7 +386,11 @@ describe('state advance-job without --objective: the legacy counter path is inta
     const p = project({ state, stateJson: COUNTERS, objectives: [{ dir: '07-x', trds: [{ nn: '01' }], summaries: [] }] });
     const r = run(['state', 'advance-job'], p.root);
     assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json, { advanced: true, previous_job: 2, current_job: 3, total_jobs: 4 });
+    assert.deepEqual(r.json, {
+      advanced: true, previous_job: 2, current_job: 3, total_jobs: 4,
+      files_changed: ['.aoforge/STATE.md', '.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json'],
+      archive_updated: true,
+    });
     let want = edit(state, '**Current Job:** 2', '**Current Job:** 3');
     want = edit(want, '**Status:** Planning', '**Status:** Ready to execute');
     assert.equal(mask(p.read('STATE.md')), mask(want));
@@ -391,7 +401,11 @@ describe('state advance-job without --objective: the legacy counter path is inta
     const p = project({ state, stateJson: Object.assign({}, COUNTERS, { current_job: 4 }) });
     const r = run(['state', 'advance-job'], p.root);
     assert.equal(r.status, 0, r.stderr);
-    assert.deepEqual(r.json, { advanced: false, reason: 'last_job', current_job: 4, total_jobs: 4, status: 'ready_for_verification' });
+    assert.deepEqual(r.json, {
+      advanced: false, reason: 'last_job', current_job: 4, total_jobs: 4, status: 'ready_for_verification',
+      files_changed: ['.aoforge/STATE.md', '.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json'],
+      archive_updated: true,
+    });
     assert.match(p.read('STATE.md'), /\*\*Status:\*\* Objective complete — ready for verification/);
   });
 
@@ -402,5 +416,65 @@ describe('state advance-job without --objective: the legacy counter path is inta
     const r = spawnSync(process.execPath, ['-e', script], { env: fakeHomeEnv(), encoding: 'utf-8', timeout: 30000 });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, 'true');
+  });
+});
+
+// quick 35: advance-job rotates decisions into STATE_ARCHIVE.md, and the workflows' commits after it named STATE.md
+// but not the archive, so in a worktree the rotated rows never reached the branch. advance-job now says what it
+// wrote, and seeds the archive whenever it writes STATE.md so a --files list naming the archive cannot fail.
+describe('state advance-job reports the files it wrote (quick 35)', () => {
+  function withDecisions(state, n) {
+    const bullets = [];
+    for (let i = n; i >= 1; i--) bullets.push(`- Decision ${i}: keep fixture entry ${i}.`);
+    return `${state}\n## Recent Decisions\n\n${bullets.join('\n')}\n`;
+  }
+
+  test('15a. --objective with more than DEFAULT_KEEP decisions names STATE.md, the archive and state.json', () => {
+    const p = project({
+      state: withDecisions(narrativeState({}), 12),
+      objectives: [{ dir: '07-alpha', trds: FOUR_TRDS, summaries: ['01', '02'] }],
+    });
+    const r = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.archive_updated, true);
+    for (const f of ['.aoforge/STATE.md', '.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json']) {
+      assert.ok(r.json.files_changed.includes(f), `files_changed names ${f}: ${JSON.stringify(r.json.files_changed)}`);
+    }
+    assert.match(p.read('STATE_ARCHIVE.md'), /Decision 1: keep fixture entry 1/);
+    assert.doesNotMatch(p.read('STATE.md'), /Decision 1: keep fixture entry 1\./);
+  });
+
+  test('15b. no archive and nothing to rotate: the archive is seeded and named', () => {
+    const p = project({ state: narrativeState({}), objectives: [{ dir: '07-alpha', trds: FOUR_TRDS, summaries: ['01'] }] });
+    assert.equal(exists(p, 'STATE_ARCHIVE.md'), false);
+    const r = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(exists(p, 'STATE_ARCHIVE.md'), true);
+    assert.ok(r.json.files_changed.includes('.aoforge/STATE_ARCHIVE.md'), JSON.stringify(r.json.files_changed));
+    assert.equal(r.json.archive_updated, true);
+  });
+
+  test('15c. store mode: STATE.md byte-identical, no archive, files_changed does not name STATE.md', () => {
+    const state = withDecisions(narrativeState({}), 12);
+    const p = project({ state, config: STORE_CONFIG, objectives: [{ dir: '07-alpha', trds: FOUR_TRDS, summaries: ['01', '02'] }] });
+    const r = run(['state', 'advance-job', '--objective', '7'], p.root);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(p.read('STATE.md'), state);
+    assert.equal(exists(p, 'STATE_ARCHIVE.md'), false);
+    assert.ok(Array.isArray(r.json.files_changed), JSON.stringify(r.json));
+    assert.ok(!r.json.files_changed.includes('.aoforge/STATE.md'), JSON.stringify(r.json.files_changed));
+    assert.equal(r.json.archive_updated, false);
+  });
+
+  test('15d. the legacy counter path reports files_changed too', () => {
+    const state = withDecisions(legacyState({ objective: 7, currentJob: 2, totalJobs: 4 }), 12);
+    const counters = { current_objective: '7', current_job: 2, total_jobs: 4, status: 'Planning' };
+    const p = project({ state, stateJson: counters });
+    const r = run(['state', 'advance-job'], p.root);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.json.advanced, true);
+    assert.deepEqual(r.json.files_changed, ['.aoforge/STATE.md', '.aoforge/STATE_ARCHIVE.md', '.aoforge/state.json']);
+    assert.equal(r.json.archive_updated, true);
+    assert.match(p.read('STATE_ARCHIVE.md'), /Decision 1: keep fixture entry 1/);
   });
 });

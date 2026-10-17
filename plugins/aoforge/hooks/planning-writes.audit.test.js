@@ -436,20 +436,25 @@ const RUNS = {
       expectChanged: ['.aoforge-notices.json'],
     },
   ],
-  'gate-commits.js': [
+  'pre-bash.js': [
     {
       label: 'raw git commit',
       payload: preTool('Bash', { command: 'git commit -m "wip"' }),
     },
-  ],
-  'changelog-on-tag.js': [
     {
       label: 'annotated release tag',
       payload: preTool('Bash', { command: 'git tag -a v9.9.9 -m "release"' }),
     },
-  ],
-  'gate-interactive.js': [
     { label: 'TTY-only command', payload: preTool('Bash', { command: 'npm login' }) },
+    {
+      label: 'ambient Bash write to a tracked file',
+      payload: (ctx) => preTool('Bash', { command: "sed -i 's/1/2/' src/x.js" })(ctx),
+    },
+    {
+      label: 'override armed and consumed by a gated write',
+      world: { editOverride: true },
+      payload: (ctx) => preTool('Bash', { command: 'echo 2 > src/x.js' })(ctx),
+    },
   ],
   'gate-edits.js': [
     {
@@ -460,17 +465,6 @@ const RUNS = {
       label: 'edit override armed and consumed',
       world: { editOverride: true },
       payload: (ctx) => preTool('Edit', { file_path: path.join(ctx.world.root, 'src', 'x.js') })(ctx),
-    },
-  ],
-  'gate-bash-writes.js': [
-    {
-      label: 'ambient Bash write to a tracked file',
-      payload: (ctx) => preTool('Bash', { command: "sed -i 's/1/2/' src/x.js" })(ctx),
-    },
-    {
-      label: 'override armed and consumed by a gated write',
-      world: { editOverride: true },
-      payload: (ctx) => preTool('Bash', { command: 'echo 2 > src/x.js' })(ctx),
     },
   ],
   // gate-skill-requires.js (TRD 61-08): read-only, not project-scoped. The audit's PATH may or may not hold `gh`,

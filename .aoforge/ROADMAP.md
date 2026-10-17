@@ -112,7 +112,7 @@ Full archived roadmaps: `.aoforge/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detai
 
 ### 🚧 v1.6 Hardening & Release (In Progress)
 
-Ship v1.5, close what it left open, and clear the backlog. Requirements: `.aoforge/REQUIREMENTS.md` (30 mapped to Objectives 65-75). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; AOForge never enters a secret value.
+Ship v1.5, close what it left open, and clear the backlog. Requirements: `.aoforge/REQUIREMENTS.md` (41 mapped to Objectives 65-77). Every live step (merge, tag, push, repository settings, secrets, Cloudflare) is a checkpoint that runs only on explicit per-action user approval; AOForge never enters a secret value.
 
 Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 code that later objectives build on and measure. 66 (token stamp) needs that runtime. 67 (recalibration) is frozen before it is scored. Objectives 68-72 are the first five executed after 67 and are the objectives EST-11 scores, and each records a run-state estimate (`estimate start`) before it runs. 68-71 are agent-only work; 72 is scored in full, including the wait time of its rollout checkpoints (accepted 2026-10-08). 73 (live handoff demo) and 74 (user-action operations) run after the scored five because their minutes are dominated by human wait time. 75 goes last: it closes EST-11 once 68-72 have executed, and sweeps every pending todo.
 
@@ -376,6 +376,47 @@ TRDs:
 - [x] 75-04-todo-sweep-TRD.md — (W2) every pending todo completed with evidence or re-scoped with disposition fields; 75-TODO-SWEEP.md; SC-4 check
 - [x] 75-05-coverage-and-close-out-TRD.md — (W3) EST-09 coverage over v1.6 beside the verdict; REQUIREMENTS/STATE from evidence; CHANGELOG, CLAUDE.md, USER-GUIDE; full suite
 
+### Objective 76: Model efficiency and stack-specific content
+
+**Goal**: Each agent spends top-model tokens only on judgment. The configured tier is the tier that runs, mechanical work runs as aof-tools code, each spawn loads only the instructions it needs, and stack-specific procedure lives in the stack profiles rather than in agent prompts.
+**Requirements**: MEF-01, MEF-02, MEF-03, MEF-04, MEF-05, MEF-06 (the stack-content requirement moved to Objective 77, which delivers it)
+**Depends on**: Objective 72 (renamed tree). Independent of 73-75.
+**Success Criteria** (what must be TRUE):
+  1. `resolve-model` and every `init` model field honour the objective's resolved `model_profile`; no agent spawn in a workflow or skill omits `model=` or names a placeholder its init does not emit; the UI judge reads the project profile.
+  2. No agent spawn carries `@` references that do not cross the Task boundary; codebase-mapper and project-researcher spawns load only their own templates.
+  3. The orchestrator runs `verify trd-pre` before spawning the job-checker, sends mechanical failures straight to revision, and the checker covers only the judgment dimensions.
+  4. Self-check and state bookkeeping after a TRD, verifier evidence collection, codebase facts, roadmap coverage and the security grep sweep are aof-tools commands the agents call once.
+  5. Tiers are set per focus or dimension where the work differs; the haiku tier is re-pinned after a recorded eval; pass/fail verdicts run at Sonnet or above on every profile.
+  6. The debugger and the UI judge start on a cheaper tier and escalate on a recorded signal; `ESCALATION REQUESTED` re-spawns one rung up instead of FAILED.
+  7. Flutter, Go, Dart and web-specific procedure is delivered through the stack profiles (or on-demand references), so a non-Flutter project's executor, verifier and planner prompts carry none of it.
+**TRDs**: 8 planned
+- [x] 76-01-model-resolution-wiring-TRD.md — (W1) intent profile binds; build/diagnose/audit spawns get their model; UI judge reads config
+- [x] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
+- [x] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
+- [x] 76-04-mechanical-verbs-TRD.md — (W2) `trd finalize`, `verify objective-evidence`, `codebase facts`, `validate roadmap-coverage`, `security sweep`; executor, verifier, roadmapper, codebase-mapper and security-auditor call them
+- [x] 76-05-stack-procedures-in-profiles-TRD.md — (W2) superseded by Objective 77 (stack packs): executor, planner and verifier Flutter/web procedure moved into pack fragments; the mapper's TS recipes became `codebase facts`; the integration-checker's Next.js probes remain as labelled fallbacks behind the profile's Layout section
+- [ ] 76-06-per-focus-tiers-and-haiku-eval-TRD.md — (W3) done: `focus{}` tiers (mapper concerns, researcher architecture/pitfalls raised), `verdict_floor` (verifier, job-checker at Sonnet+ on every profile), `resolve-model --focus`. Open: the Haiku 5.5 eval (the pin is already claude-haiku-5-5); no tier is lowered until it is recorded
+- [x] 76-07-escalation-loop-TRD.md — (W3) `resolve-model --escalate-from`; execute-objective (5e), /aoforge:debug and diagnose-issues re-spawn one rung up once; the debugger gains the return. Starting tiers unchanged pending 76-08
+- [ ] 76-08-measure-TRD.md — (W4) before/after `aof-tools context` and `tokens trd` comparison; needs real runs after the release, not doable in CI
+
+### Objective 77: Stack packs: contract and extraction
+
+**Goal**: Core AOForge names no stack. Flutter, Dart and web procedure ships in stack pack plugins that a project selects through its stack profile, and core reaches them only through the pack contract (`docs/PROPOSAL-stack-packs.md` M0 + M0.5, no compatibility shim).
+**Requirements**: PCK-01, PCK-02, PCK-03, PCK-04, STK-01
+**Depends on**: Objective 76 (spawn-context work it extends)
+**Success Criteria** (what must be TRUE):
+  1. A pack manifest (`schemas/stack-pack.schema.json`) is discovered from its mirror, honoured only while its plugin is enabled, and activated only by the project's selection (extends, config, runtime); detection only proposes.
+  2. `stack context <agent>` points each agent at the active packs' fragments and sub-agents; `stack verify --changed|--all` merges pack results, and `missing` never passes; pack profiles resolve as a tier.
+  3. `aoforge-stack-flutter` and `aoforge-stack-web` ship in the marketplace with the moved modules, agents, skills, profiles and fragments, and their tests pass from the pack.
+  4. `stack-neutrality.repo.test.cjs` passes: no core agent, skill, hook, workflow or lib module names a pack stack outside a data-only allowlist.
+  5. Pack releases tag as `<pack>--vX.Y.Z` and the changelog gate checks them.
+**TRDs**: 5 planned
+- [x] 77-01-pack-contract-TRD.md — (W1) manifest schema, discovery, selection, pack profile tier, `stack discover|doctor|verify --changed`, resolve-model pack tiers
+- [x] 77-02-pack-mirror-TRD.md — (W1) vendored SessionStart mirror, test helper, marketplace entries
+- [x] 77-03-flutter-pack-TRD.md — (W2) Flutter modules, CLI, agent, skills, profiles and executor/planner/verifier fragments move out of core
+- [x] 77-04-web-pack-TRD.md — (W2) the verifier's Playwright drive moves to the web pack's web-ui-verifier agent; core agents lose the Playwright and Maestro grants
+- [x] 77-05-neutrality-and-release-TRD.md — (W3) neutrality guard, `<pack>--vX.Y.Z` tag gate, docs
+
 ### Objective 78: Remove the rename shims
 
 **Goal**: The one-release compatibility for pre-rename names is gone in 3.1.0, the release after 3.0.0, as `SHIM_REMOVAL` and the migration guide promised. Only names that must stay (PRESERVE, history) remain, and a project still on the old layout gets a clear message naming the 3.0.x upgrade path instead of silent breakage. Numbered 78 because `main` already uses 76 and 77 (objectives 76/77 landed there on 2026-10-16); this branch is stacked on `feat/stack-profile-loader`.
@@ -449,5 +490,7 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 5/5 | Complete | 2026-10-10 |
+| 76. Model efficiency and stack-specific content | v1.6 | 4/8 | In Progress | - |
+| 77. Stack packs: contract and extraction | v1.6 | 5/5 | In Progress | - |
 | 78. Remove the rename shims | v1.6 | 12/12 | Complete | 2026-10-17 |
 | 79. Reconcile and release 3.1.0 | v1.6 | 0/0 | Not started | - |

@@ -167,7 +167,7 @@ export const mockUsers = [/* ... */];
 - [Setup: e.g., "use test database, seed data"]
 
 **E2E Tests:**
-- [Framework: e.g., "Playwright for E2E"]
+- [Framework: e.g., "<browser E2E runner> for E2E"]
 - [Scope: e.g., "test full user flows"]
 - [Location: e.g., "e2e/ directory separate from unit tests"]
 

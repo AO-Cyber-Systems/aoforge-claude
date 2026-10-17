@@ -1,8 +1,37 @@
 name: Release on tag
 
+# Three tag kinds start this workflow; scripts/release-tag.cjs handles each (quick 34):
+#   vX.Y.Z            core release: also pushes aoforge--vX.Y.Z at the same commit, the tag the
+#                     stack packs' `aoforge >=X.Y.Z` dependency resolves core from
+#   <pack>--vX.Y.Z    a plugin's own release from plugins/<pack>/CHANGELOG.md, never marked Latest
+#   aoforge--vX.Y.Z   the alias the core release pushed: nothing to do
+#
+# workflow_dispatch runs only the dry run (quick 37): it pushes a throwaway
+# aoforge--v0.0.0-dryrun-<run id> tag with this workflow's GITHUB_TOKEN, checks that origin shows it,
+# deletes it and creates no release. That proves the token can push the alias tag before a real
+# release needs it. A dispatch with dry_run: false exits 1, because a release starts from a tag push.
+# Before dispatching, list the tag rulesets the push meets (read-only):
+#   node scripts/tag-rules.cjs aoforge--v0.0.0-dryrun-1 aoforge--v3.1.0
+# A ruleset that restricts deleting aoforge--v* tags would leave the dry-run tag behind; the step's
+# error then names the cleanup command.
+#
+# A tag pushed with GITHUB_TOKEN starts no workflow run, and no release path depends on one doing so:
+# the alias needs no run (the core run did the work), pack tags are pushed by a person (so their push
+# starts this workflow normally), and no other workflow triggers on tags. The dry-run tag starts no run
+# either; if one ever did, release-tag.cjs would skip it.
+
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '*--v*']
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Push a throwaway aoforge--v0.0.0-dryrun-<run id> tag, check it reached origin, delete it. Creates no release."
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
 
 jobs:
   release:
@@ -14,41 +43,26 @@ jobs:
         with:
           fetch-depth: 0
       - name: Create release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VERSION="${TAG#v}"
-
-          # Idempotency: skip if release already exists
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release for $TAG already exists, skipping"
-            exit 0
-          fi
-
-          # Title: annotated tag subject, fall back to tag name.
-          # actions/checkout materializes the pushed tag as a lightweight ref,
-          # so %(contents:subject) would fall through to the COMMIT subject.
-          # Re-fetch the real tag object before reading its message.
+          # actions/checkout materializes the pushed tag as a lightweight ref, so
+          # %(contents:subject) would fall through to the COMMIT subject. Re-fetch the
+          # real tag objects before the script reads the tag message for the title.
           git fetch --tags --force --quiet
-          TITLE="$(git for-each-ref --format='%(contents:subject)' "refs/tags/$TAG")"
-          if [ -z "$TITLE" ]; then
-            TITLE="$TAG"
+          node scripts/release-tag.cjs "$GITHUB_REF_NAME"
+      - name: Dry run (tag push check)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" != "true" ]; then
+            echo "a release starts from a tag push; workflow_dispatch only runs the dry run (dry_run: true)" >&2
+            exit 1
           fi
-
-          # Body: CHANGELOG section if present, else auto-generate
-          NOTES_FILE="$(mktemp)"
-          if [ -f CHANGELOG.md ]; then
-            awk -v ver="$VERSION" '
-              $0 ~ "^## \\[" ver "\\]" { flag=1; next }
-              flag && /^## \[/ { flag=0 }
-              flag { print }
-            ' CHANGELOG.md > "$NOTES_FILE"
-          fi
-
-          if [ -s "$NOTES_FILE" ]; then
-            gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES_FILE"
-          else
-            gh release create "$TAG" --title "$TITLE" --generate-notes
-          fi
+          # actions/checkout left the GITHUB_TOKEN credential in place, so this push uses it.
+          node scripts/release-tag.cjs --dry-run "$RUN_ID"

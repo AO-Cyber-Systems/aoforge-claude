@@ -51,7 +51,7 @@
  * ── `ok`, `complete`, and what a MISSING row means (read before 34-08's "refuse to compose") ─
  * `ok` counts REAL VIOLATIONS only. A `*000` code carries `status: 'MISSING'`: the check could
  * not run, so the answer is neither pass nor fail, the row is reported so nobody can miss it,
- * and it does NOT flip `ok`. W1b has no pinned eden-ui-flutter release, so EVERY real run
+ * and it does NOT flip `ok`. No active stack pack declares a catalogue yet, so EVERY real run
  * carries one PAT000 row — treating that as a failure would block composition on every surface
  * in the repo, and treating it as a pass is the silent-green class §2 goal 5 forbids. MISSING
  * rows sort after real violations, so `errors[0]` is always the most important thing wrong.
@@ -595,12 +595,13 @@ function patternIdOf(entry) {
  * defaults.
  *
  * `ctx.patterns` has THREE states and the invariant turns on keeping them apart:
- *   undefined (or null)  the pinned eden-ui-flutter release could not be read  -> PAT000
+ *   undefined (or null)  no catalogue could be read (none declared)     -> PAT000
  *   []                   read, and it declares no patterns                     -> PAT001 each
  *   [...]                read                                                  -> PAT001/PAT002
  * Collapsing `undefined` into `[]` reports every pattern of every real spec as unknown;
- * collapsing it into "skip" turns an unreachable catalogue into a silent pass. W1b has no
- * pinned release, so the CLI arm passes `undefined` and every real run carries one MISSING row.
+ * collapsing it into "skip" turns an unreachable catalogue into a silent pass. With no catalogue
+ * from `--patterns` or an active stack pack, the CLI arm passes `undefined` and the run carries one
+ * MISSING row.
  */
 function checkPatterns(spec, catalogue, errors) {
   const referenced = Array.isArray(spec.patterns)
@@ -610,7 +611,7 @@ function checkPatterns(spec, catalogue, errors) {
 
   if (catalogue === undefined || catalogue === null) {
     errors.push(missing('PAT000', 'patterns',
-      `the pattern catalogue is unreachable, so ${referenced.length} referenced pattern(s) could not be resolved and no \`must_not\` defaults could be inherited — §4.5 I5 is UNCHECKED for this spec, which is not the same as passing (supply one with \`--patterns\`)`));
+      `the pattern catalogue is unreachable, so ${referenced.length} referenced pattern(s) could not be resolved and no \`must_not\` defaults could be inherited — §4.5 I5 is UNCHECKED for this spec, which is not the same as passing (supply one with \`--patterns\`, or enable a stack pack that declares \`ui.pattern_catalogue\`)`));
     return;
   }
 
@@ -624,7 +625,7 @@ function checkPatterns(spec, catalogue, errors) {
   spec.patterns.forEach((id, i) => {
     if (typeof id !== 'string' || byId.has(id)) return;
     errors.push(err('PAT001', `patterns[${i}]`,
-      `pattern ${JSON.stringify(id)} is not in the pinned catalogue, which declares ${byId.size === 0 ? 'no patterns at all' : [...byId.keys()].join(', ')} — §4.5 I5 requires every referenced pattern to exist in the pinned eden-ui-flutter release`));
+      `pattern ${JSON.stringify(id)} is not in the pinned catalogue, which declares ${byId.size === 0 ? 'no patterns at all' : [...byId.keys()].join(', ')} — §4.5 I5 requires every referenced pattern to exist in the catalogue`));
   });
 
   // PAT002 — the inherited `must_not` defaults of every REFERENCED pattern, by control kind.

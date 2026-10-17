@@ -17,7 +17,7 @@
  *     never `process.exit()`, which can truncate a buffered write, and never
  *     `helpers.cjs`'s `output()`, which calls `process.exit(0)` UNCONDITIONALLY and would
  *     make this gate structurally incapable of failing. Same decision, same reasoning as
- *     `flutter-ui-eval.cjs`'s `outputRollup()`; `output()` itself is not touched, because a
+ *     a stack pack UI eval engine's `outputRollup()`; `output()` itself is not touched, because a
  *     dozen callers depend on its exit-0 behaviour.
  *   * `exitCodeFor(verdict)` — not the presence of error records — drives the code, and it is
  *     the ONLY thing that does. An arm with its own `ok ? 0 : 1` is a second definition of what
@@ -56,8 +56,9 @@
  *
  * ── The pattern catalogue (I5) ────────────────────────────────────────────────
  * `ctx.patterns` is `undefined` when the catalogue is UNREACHABLE and an array when it is
- * reachable. W1b has no pinned `eden-ui-flutter` release, so the default is `undefined` and
- * I5 reports PAT000/MISSING. Passing `[]` instead would fire PAT001 on every real spec, and
+ * reachable. The default comes from the active stack packs: the first whose manifest names a
+ * `ui.pattern_catalogue` file (relative to the pack root) that reads as a catalogue. No pack
+ * declares one yet, so the default is `undefined` and I5 reports PAT000/MISSING. Passing `[]` instead would fire PAT001 on every real spec, and
  * reporting nothing would turn an unreachable catalogue into a silent pass.
  * `--patterns <file>` supplies one explicitly — a JSON array (or `{patterns: [...]}`) of
  * catalogue entries. It exists so I5's codes are reachable from the REAL binary: without it
@@ -120,6 +121,32 @@ function positionals(args) {
   return out;
 }
 
+/** A catalogue's entries from parsed JSON: an array, or `{patterns: [...]}`; else null. */
+function catalogueList(parsed) {
+  return Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.patterns) ? parsed.patterns : null);
+}
+
+/**
+ * The default catalogue: the first active stack pack whose manifest `ui.pattern_catalogue` names a
+ * readable catalogue file. `undefined` when no pack declares one or none reads (UNREACHABLE, so I5
+ * reports MISSING rather than a silent pass). A pack failure never breaks the gate.
+ */
+function packPatternCatalogue(cwd) {
+  try {
+    const packs = require('./stack-packs.cjs');
+    const resolved = require('./stack-profile.cjs').resolveProfile({ projectRoot: cwd, userHome: require('os').homedir() });
+    for (const p of packs.activePacks({ projectRoot: cwd, resolved })) {
+      const rel = ((p.manifest && p.manifest.ui) || {}).pattern_catalogue;
+      if (!rel) continue;
+      try {
+        const list = catalogueList(JSON.parse(fs.readFileSync(path.join(p.root, rel), 'utf-8')));
+        if (list) return list;
+      } catch (_) { /* unreadable: try the next pack */ }
+    }
+  } catch (_) { /* no packs: unreachable */ }
+  return undefined;
+}
+
 /**
  * The pattern catalogue for I5, or `undefined` when none was supplied (UNREACHABLE).
  * Entries are either a bare id string or `{id, kind?, must_not?}` — `ui-spec-validate.cjs`
@@ -127,7 +154,7 @@ function positionals(args) {
  */
 function readPatternCatalogue(cwd, args) {
   const given = flagValue(args, '--patterns');
-  if (given === undefined) return undefined; // no catalogue -> I5 reports MISSING
+  if (given === undefined) return packPatternCatalogue(cwd); // none declared -> I5 reports MISSING
   if (!given || given.startsWith('--')) {
     error('--patterns needs a path to a JSON pattern catalogue');
   }
@@ -144,7 +171,7 @@ function readPatternCatalogue(cwd, args) {
   } catch (e) {
     error(`--patterns catalogue at ${file} is not valid JSON: ${e.message}`);
   }
-  const list = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.patterns) ? parsed.patterns : null);
+  const list = catalogueList(parsed);
   if (list === null) {
     error(`--patterns catalogue at ${file} must be a JSON array, or an object with a \`patterns\` array`);
   }

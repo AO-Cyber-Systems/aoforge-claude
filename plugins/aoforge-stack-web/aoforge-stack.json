@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "name": "web",
+  "plugin": "aoforge-stack-web",
+  "version": "1.0.0",
+  "contract": 1,
+  "description": "Web UIs: the verifier's browser drive (readiness probe, landmark wait, seeded storage state) through Playwright MCP, run by the pack's web-ui-verifier agent, and an executor self-check before handoff (route load, console errors, one accessibility snapshot).",
+  "select": { "runtime": ["web"] },
+  "detect": { "files": ["package.json", "index.html"] },
+  "fragments": { "executor": "fragments/executor.md", "verifier": "fragments/verifier.md" },
+  "subagents": {
+    "verifier": [ { "agent": "web-ui-verifier", "when": "the runtime check is a web UI drive" } ]
+  },
+  "models": {
+    "web-ui-verifier": { "quality": "sonnet", "balanced": "sonnet", "budget": "haiku" }
+  },
+  "install_hint": "Install the Playwright plugin for Claude Code (playwright@claude-plugins-official) so the web-ui-verifier agent has its browser tools."
+}

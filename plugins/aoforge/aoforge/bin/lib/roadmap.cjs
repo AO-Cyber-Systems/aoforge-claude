@@ -221,12 +221,12 @@ function cmdRoadmapGetObjective(cwd, objectiveNum, raw) {
   }
 }
 
-function cmdRoadmapAnalyze(cwd, raw) {
+/** The `roadmap analyze` result for `cwd` (or `{error, ...}` without a ROADMAP.md); shared with `roadmap digest`. */
+function analyzeRoadmap(cwd) {
   const roadmapPath = path.join(planningRoot(cwd), 'ROADMAP.md');
 
   if (!fs.existsSync(roadmapPath)) {
-    output({ error: 'ROADMAP.md not found', milestones: [], objectives: [], current_objective: null }, raw);
-    return;
+    return { error: 'ROADMAP.md not found', milestones: [], objectives: [], current_objective: null };
   }
 
   const content = fs.readFileSync(roadmapPath, 'utf-8');
@@ -350,7 +350,46 @@ function cmdRoadmapAnalyze(cwd, raw) {
     missing_objective_details: missingDetails.length > 0 ? missingDetails : null,
   };
 
-  output(result, raw);
+  return result;
+}
+
+function cmdRoadmapAnalyze(cwd, raw) {
+  output(analyzeRoadmap(cwd), raw);
+}
+
+/**
+ * `roadmap digest`: the compact ROADMAP a skill needs on entry — one line per objective (number, name, disk status,
+ * SUMMARY/TRD counts, the goal cut to one clause) plus the milestone headings and the current/next pointers.
+ * Skills inline this instead of the whole ROADMAP.md; `roadmap get-objective <N>` still gives one objective in full
+ * and `roadmap analyze` the JSON. Text with --raw, JSON `{digest, ...}` otherwise.
+ */
+function roadmapDigestText(analysis) {
+  const cut = (t, n) => {
+    const one = String(t || '').replace(/\s+/g, ' ').trim();
+    return one.length > n ? `${one.slice(0, n).trimEnd()} …` : one;
+  };
+  const lines = [];
+  lines.push('# Roadmap digest (`aof-tools roadmap get-objective <N>` for one objective in full)');
+  lines.push('');
+  if (analysis.milestones.length) {
+    lines.push(`Milestones: ${analysis.milestones.map((m) => m.version || m.heading.replace(/^#+\s*/, '')).join(', ')}`);
+  }
+  lines.push(`Objectives: ${analysis.completed_objectives}/${analysis.objective_count} complete, ${analysis.total_summaries}/${analysis.total_jobs} TRDs done (${analysis.progress_percent}%); current: ${analysis.current_objective || 'none'}; next: ${analysis.next_objective || 'none'}`);
+  if (analysis.missing_objective_details) lines.push(`Checklist entries without a detail section: ${analysis.missing_objective_details.join(', ')}`);
+  lines.push('');
+  for (const o of analysis.objectives) {
+    const counts = o.job_count ? ` (${o.summary_count}/${o.job_count})` : '';
+    const goal = o.goal ? ` — ${cut(o.goal, 140)}` : '';
+    lines.push(`- ${o.number} ${o.name} — ${o.disk_status}${counts}${o.roadmap_complete ? ' ✓' : ''}${goal}`);
+  }
+  return lines.join('\n') + '\n';
+}
+
+function cmdRoadmapDigest(cwd, raw) {
+  const analysis = analyzeRoadmap(cwd);
+  if (analysis.error) { output(analysis, raw, ''); return; }
+  const text = roadmapDigestText(analysis);
+  output({ digest: text, objective_count: analysis.objective_count, current_objective: analysis.current_objective, next_objective: analysis.next_objective }, raw, text);
 }
 
 function cmdRoadmapUpdateJobProgress(cwd, objectiveNum, raw) {
@@ -876,6 +915,9 @@ module.exports = {
   getRoadmapObjectiveInternal,
   cmdRoadmapGetObjective,
   cmdRoadmapAnalyze,
+  cmdRoadmapDigest,
+  analyzeRoadmap,
+  roadmapDigestText,
   cmdRoadmapUpdateJobProgress,
   planMilestoneComplete,
   applyMilestonePlan,

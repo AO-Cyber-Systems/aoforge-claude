@@ -467,6 +467,11 @@ Verify 100% requirement mapping:
 - Every v1 requirement → exactly one objective
 - No orphans, no duplicates
 
+Once the ROADMAP and REQUIREMENTS drafts are published, check it in code rather than by counting
+(TRD 76-04): `node ~/.claude/aoforge/bin/aof-tools.cjs validate roadmap-coverage --raw` prints the
+coverage and every orphan, duplicate and unknown id, and exits 1 on a gap. Put its line in the
+**Coverage:** field of your return.
+
 If gaps found, include in draft for user decision.
 
 ## Step 7: Persist Files Immediately
@@ -562,7 +567,7 @@ When files are written and returning to orchestrator:
 
 User can review actual files:
 - `cat .aoforge/ROADMAP.md`
-- `cat .aoforge/STATE.md`
+- `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` (the digest; `state get` for the whole file)
 
 {If gaps found during creation:}
 

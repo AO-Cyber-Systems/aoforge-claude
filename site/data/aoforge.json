@@ -1,17 +1,17 @@
 {
-  "generatedAt": "2026-10-10T02:15:58.682Z",
-  "version": "3.0.0",
-  "packageVersion": "3.0.0",
+  "generatedAt": "2026-10-17T02:53:54.284Z",
+  "version": "3.1.0",
+  "packageVersion": "3.1.0",
   "repo": "AO-Cyber-Systems/aoforge-claude",
   "marketplace": "aoforge@aocyber",
   "counts": {
-    "skills": 34,
-    "agents": 13,
-    "hooks": 23,
-    "workflows": 41,
-    "references": 37,
+    "skills": 32,
+    "agents": 12,
+    "hooks": 24,
+    "workflows": 39,
+    "references": 36,
     "templates": 31,
-    "dfToolsCommands": 83
+    "dfToolsCommands": 84
   },
   "skills": [
     {
@@ -172,42 +172,6 @@
         "Bash",
         "Read",
         "AskUserQuestion"
-      ],
-      "agent": null,
-      "userOnly": false
-    },
-    {
-      "name": "design-review",
-      "slug": "design-review",
-      "command": "/aoforge:design-review",
-      "summary": "Run the ADVISORY UI design-critique sweep on a Flutter surface or objective: capture (or reuse) each declared UI state, critique it against the project design system through the design-critic engine, and present a prioritized design-debt list.",
-      "notes": [
-        "This is advisory design critique — it NEVER gates. The heavy first-run produces a ranked design-debt backlog whose high-priority items feed the objective-work loop.",
-        "Use when the user wants a design review, design critique, polish pass, or design-debt audit of a UI surface."
-      ],
-      "triggers": [
-        "design review",
-        "design-review",
-        "critique the design",
-        "design debt",
-        "polish pass",
-        "how's the design",
-        "review the UI design"
-      ],
-      "args": "[objective number, manifest path, or surface]",
-      "tools": [
-        "Read",
-        "Bash",
-        "Glob",
-        "Grep",
-        "Write",
-        "Task",
-        "mcp__plugin_playwright_playwright__browser_navigate",
-        "mcp__plugin_playwright_playwright__browser_snapshot",
-        "mcp__plugin_playwright_playwright__browser_take_screenshot",
-        "mcp__plugin_playwright_playwright__browser_click",
-        "mcp__plugin_playwright_playwright__browser_wait_for",
-        "mcp__plugin_playwright_playwright__browser_close"
       ],
       "agent": null,
       "userOnly": false
@@ -830,40 +794,6 @@
       "userOnly": false
     },
     {
-      "name": "ui-eval",
-      "slug": "ui-eval",
-      "command": "/aoforge:ui-eval",
-      "summary": "Run the UI visual-evaluation pipeline on a Flutter surface or objective: capture each declared UI state and score it. Default (no --judge, or --judge labels) is an ADVISORY offline label-echo lookup (no network, no real vision comparison) — it can never clear a surface from human verification. Only --judge live (a real Anthropic vision call) produces a BINDING gate.",
-      "notes": [
-        "Use when the user wants to visually evaluate, judge, or dogfood a UI surface's rendered states."
-      ],
-      "triggers": [
-        "visual eval",
-        "evaluate the UI",
-        "ui-eval",
-        "judge the screens",
-        "check the visuals",
-        "does this screen look right?"
-      ],
-      "args": "[objective number or manifest path]",
-      "tools": [
-        "Read",
-        "Bash",
-        "Glob",
-        "Grep",
-        "Write",
-        "Task",
-        "mcp__plugin_playwright_playwright__browser_navigate",
-        "mcp__plugin_playwright_playwright__browser_snapshot",
-        "mcp__plugin_playwright_playwright__browser_take_screenshot",
-        "mcp__plugin_playwright_playwright__browser_click",
-        "mcp__plugin_playwright_playwright__browser_wait_for",
-        "mcp__plugin_playwright_playwright__browser_close"
-      ],
-      "agent": null,
-      "userOnly": false
-    },
-    {
       "name": "verify-work",
       "slug": "verify-work",
       "command": "/aoforge:verify-work",
@@ -891,16 +821,7 @@
         "Task",
         "AskUserQuestion",
         "TaskCreate",
-        "TaskUpdate",
-        "mcp__plugin_playwright_playwright__browser_navigate",
-        "mcp__plugin_playwright_playwright__browser_snapshot",
-        "mcp__plugin_playwright_playwright__browser_take_screenshot",
-        "mcp__plugin_playwright_playwright__browser_click",
-        "mcp__plugin_playwright_playwright__browser_fill_form",
-        "mcp__plugin_playwright_playwright__browser_wait_for",
-        "mcp__plugin_playwright_playwright__browser_tabs",
-        "mcp__plugin_playwright_playwright__browser_close",
-        "mcp__maestro__*"
+        "TaskUpdate"
       ],
       "agent": null,
       "userOnly": false
@@ -990,17 +911,13 @@
         "Bash",
         "Grep",
         "Glob",
-        "mcp__plugin_playwright_playwright__browser_navigate",
-        "mcp__plugin_playwright_playwright__browser_snapshot",
-        "mcp__plugin_playwright_playwright__browser_take_screenshot",
-        "mcp__plugin_playwright_playwright__browser_click",
-        "mcp__plugin_playwright_playwright__browser_fill_form",
-        "mcp__plugin_playwright_playwright__browser_wait_for",
-        "mcp__plugin_playwright_playwright__browser_tabs",
-        "mcp__plugin_playwright_playwright__browser_close",
-        "mcp__maestro__*",
         "mcp__gopls__*",
-        "mcp__dart__*"
+        "mcp__dart__*",
+        "mcp__plugin_playwright_playwright__browser_navigate",
+        "mcp__plugin_playwright_playwright__browser_wait_for",
+        "mcp__plugin_playwright_playwright__browser_console_messages",
+        "mcp__plugin_playwright_playwright__browser_snapshot",
+        "mcp__plugin_playwright_playwright__browser_close"
       ],
       "effort": "xhigh",
       "color": "yellow",
@@ -1050,7 +967,7 @@
       "models": {
         "quality": "sonnet",
         "balanced": "sonnet",
-        "budget": "haiku"
+        "budget": "sonnet"
       }
     },
     {
@@ -1186,34 +1103,6 @@
       }
     },
     {
-      "name": "ui-evaluator",
-      "description": "Machine-judges the visual correctness of Flutter UI states by capturing each declared surface, scoring it through the offline visual-eval engine, and writing evidence the verifier consumes.",
-      "tools": [
-        "Read",
-        "Write",
-        "Bash",
-        "Glob",
-        "Grep",
-        "mcp__plugin_playwright_playwright__browser_navigate",
-        "mcp__plugin_playwright_playwright__browser_snapshot",
-        "mcp__plugin_playwright_playwright__browser_take_screenshot",
-        "mcp__plugin_playwright_playwright__browser_click",
-        "mcp__plugin_playwright_playwright__browser_wait_for",
-        "mcp__plugin_playwright_playwright__browser_close",
-        "mcp__maestro__*"
-      ],
-      "effort": "high",
-      "color": "green",
-      "maxTurns": null,
-      "isolation": null,
-      "memory": null,
-      "models": {
-        "quality": "opus",
-        "balanced": "sonnet",
-        "budget": "sonnet"
-      }
-    },
-    {
       "name": "verifier",
       "description": "Verifies that built code actually achieves the objective goal, not just that tasks were completed.",
       "tools": [
@@ -1222,15 +1111,7 @@
         "Bash",
         "Grep",
         "Glob",
-        "mcp__plugin_playwright_playwright__browser_navigate",
-        "mcp__plugin_playwright_playwright__browser_snapshot",
-        "mcp__plugin_playwright_playwright__browser_take_screenshot",
-        "mcp__plugin_playwright_playwright__browser_click",
-        "mcp__plugin_playwright_playwright__browser_fill_form",
-        "mcp__plugin_playwright_playwright__browser_wait_for",
-        "mcp__plugin_playwright_playwright__browser_tabs",
-        "mcp__plugin_playwright_playwright__browser_close",
-        "mcp__maestro__*",
+        "Agent",
         "mcp__gopls__*",
         "mcp__dart__*"
       ],
@@ -1242,7 +1123,7 @@
       "models": {
         "quality": "sonnet",
         "balanced": "sonnet",
-        "budget": "haiku"
+        "budget": "sonnet"
       }
     }
   ],
@@ -1278,7 +1159,7 @@
       "purpose": "Blocks `git tag -a vX.Y.Z` unless CHANGELOG.md has a `## [X.Y.Z]` heading and the three release manifests carry matching versions.",
       "escape": "AOFORGE_SKIP_CHANGELOG_GATE=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1299,7 +1180,7 @@
       "file": "coexistence-guard.js",
       "name": "coexistence-guard",
       "group": "Session context",
-      "purpose": "When the pre-rename plugin is still installed and enabled beside AOForge, queues one notice per session naming its version and the exact `claude plugin disable` command, so the same gate never runs twice. A pointer release gets a softer notice, because it only forwards. Never edits settings, never blocks, fails open.",
+      "purpose": "Queues one notice per session for everything the rename left in your home that AOForge 3.1 no longer reads: the pre-rename plugin still enabled beside AOForge (its version and the exact `claude plugin disable` command, so the same gate never runs twice; a pointer release gets a softer line), pre-rename environment variables (each with its AOFORGE_* name), a pre-rename runtime home that 3.0.x never migrated, and files AOForge 3.0.0 left in ~/.aoforge/. Reports only: never edits settings, never moves a file, never blocks, fails open.",
       "escape": "AOFORGE_SKIP_COEXISTENCE=1",
       "events": [
         "SessionStart"
@@ -1314,7 +1195,7 @@
       "purpose": "Denies a Bash write to a tracked source file in ambient mode (redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv`, inline python/node), the same as Edit/Write. Commands that only mention a write (heredoc bodies, quoted arguments) and writes to `.aoforge/`, `*.md`, untracked files, paths outside the project and unresolvable targets are never gated. Same escapes as the Edit gate (live skill marker, `aoforge:<name>` agent, override phrase, which only a write that would be gated consumes). Severity is the least of `gates.editGate` and `gates.bashEditGate` (`strict` deny, `warn` ask, `off`). With no `bashEditGate` key the default is `warn`, measured at 633/17,957 = 0.035251 of ambient Bash calls (an upper bound, above the 0.02 threshold), so `strict` is opt-in; `gates.editGate` `warn` softens it to ask and `off` disables it. The env escape works only in the environment Claude Code was launched from, never as an inline command prefix. Needs an installed plugin carrying objective 60.",
       "escape": "AOFORGE_SKIP_EDIT_GATE=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1326,7 +1207,7 @@
       "purpose": "Blocks raw `git commit` and redirects to `aof-tools commit`, which preserves objective scope and task IDs and updates STATE.md. Detection is invocation-aware: heredoc bodies and quoted arguments are stripped first, so prose that merely mentions the command is not gated. Merge, rebase and cherry-pick completions are allowed automatically (MERGE_HEAD, REBASE_HEAD, rebase-merge/, rebase-apply/ or CHERRY_PICK_HEAD in the target repo's per-worktree git dir). From inside a session, the only in-command escape is an inline `AOFORGE_ALLOW_RAW_COMMIT=1 git commit …` prefix on every commit invocation: the hook decides before the command runs, so an `export` never reaches it. The env escape works only when set before Claude Code is launched.",
       "escape": "AOFORGE_ALLOW_RAW_COMMIT=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1362,7 +1243,7 @@
       "purpose": "Intercepts TTY-requiring and shell-environment commands (auth logins, passphrase prompts, `nvm use`, `direnv allow`, ...) and queues them to `aoforge-watch` with the session and agent that asked, rather than letting them hang on a prompt no one can answer. With the daemon running, Claude tells you in one line that the command waits in your aoforge-watch terminal, where you answer its prompt, and the result comes back by itself; without it, Claude asks you to run `! cmd`. Detection is invocation-aware: each simple command is matched on its own words, so a quoted argument or heredoc body that mentions a gated command is data, while a heredoc fed to a shell is read as commands. Flags count per call, and a compound command's reason names the call that matched. `ssh-keygen` read-only forms (`-l`, `-F`, `-R`) run directly; a key read with `-y` and no `-P` is handed off. The watch daemon's built-in allowlist is the same matcher, so the daemon runs exactly what the hook hands off. Not matched: a quoted or path-qualified command name, a command behind `env`, `time`, `sudo` or a shell keyword, a `$( )` inside double quotes, backticks and `bash -c` string bodies.",
       "escape": "AOFORGE_SKIP_INTERACTIVE_GATE=1",
       "events": [
-        "PreToolUse (Bash)"
+        "PreToolUse (Bash via pre-bash.js)"
       ],
       "registered": true,
       "note": null
@@ -1400,7 +1281,7 @@
       "purpose": "Detects the same tool being called with identical arguments repeatedly: warns at 3, escalates to `ask` at 5, and resets whenever the agent varies its approach. Step limits cannot catch a stuck loop — they only fire once the whole budget is spent.",
       "escape": "AOFORGE_SKIP_PROGRESS_GUARD=1",
       "events": [
-        "PreToolUse (*)"
+        "PreToolUse (^(?!Bash$).*)"
       ],
       "registered": true,
       "note": null
@@ -1426,6 +1307,18 @@
       "escape": null,
       "events": [],
       "registered": false,
+      "note": null
+    },
+    {
+      "file": "pre-bash.js",
+      "name": "pre-bash",
+      "group": "Enforcement",
+      "purpose": "The PreToolUse(Bash) gates in one process: runs gate-commits, changelog-on-tag, gate-interactive, gate-bash-writes and guard-no-progress with the same stdin and merges their decisions (deny over ask, every reason kept), so a Bash call spawns one `node` instead of five. A hook that throws is skipped, never the event.",
+      "escape": null,
+      "events": [
+        "PreToolUse (Bash)"
+      ],
+      "registered": true,
       "note": null
     },
     {
@@ -1552,6 +1445,10 @@
       "subcommands": []
     },
     {
+      "command": "codebase",
+      "subcommands": []
+    },
+    {
       "command": "commit",
       "subcommands": []
     },
@@ -1601,8 +1498,7 @@
       "command": "detect",
       "subcommands": [
         "novel-domain",
-        "brownfield-map",
-        "flutter-ui-scope"
+        "brownfield-map"
       ]
     },
     {
@@ -1630,27 +1526,12 @@
       "subcommands": []
     },
     {
-      "command": "flutter-ui",
-      "subcommands": [
-        "setup",
-        "eval",
-        "bootstrap",
-        "design-review"
-      ]
-    },
-    {
       "command": "frontmatter",
       "subcommands": [
         "get",
         "set",
         "merge",
         "validate"
-      ]
-    },
-    {
-      "command": "generate",
-      "subcommands": [
-        "uat"
       ]
     },
     {
@@ -1830,11 +1711,16 @@
       "subcommands": [
         "get-objective",
         "analyze",
+        "digest",
         "update-job-progress"
       ]
     },
     {
       "command": "scaffold",
+      "subcommands": []
+    },
+    {
+      "command": "security",
       "subcommands": []
     },
     {
@@ -1862,6 +1748,8 @@
         "advance-job",
         "record-metric",
         "update-progress",
+        "digest",
+        "rotate-decisions",
         "add-decision",
         "add-blocker",
         "resolve-blocker",
@@ -1915,6 +1803,10 @@
       "subcommands": []
     },
     {
+      "command": "trd",
+      "subcommands": []
+    },
+    {
       "command": "trd-tdd",
       "subcommands": [
         "inspect"
@@ -1943,7 +1835,8 @@
         "consistency",
         "health",
         "docs",
-        "requirements"
+        "requirements",
+        "roadmap-coverage"
       ]
     },
     {
@@ -1955,15 +1848,13 @@
       "subcommands": [
         "job-structure",
         "objective-completeness",
+        "objective-evidence",
         "references",
         "commits",
         "artifacts",
         "key-links",
         "trd-pre",
-        "api-contract",
-        "flutter-ui-bootstrap",
-        "flutter-state-coverage",
-        "flutter-ui-eval"
+        "api-contract"
       ]
     },
     {
@@ -2018,10 +1909,6 @@
     },
     {
       "name": "complete-milestone",
-      "status": "active"
-    },
-    {
-      "name": "design-review",
       "status": "active"
     },
     {
@@ -2125,10 +2012,6 @@
       "status": "active"
     },
     {
-      "name": "ui-eval",
-      "status": "active"
-    },
-    {
       "name": "verify-objective",
       "status": "active"
     },
@@ -2172,7 +2055,6 @@
     "design-tells",
     "deviation-rules",
     "escalation-policy",
-    "flutter-state-patterns",
     "full-output",
     "git-integration",
     "git-planning-commit",
@@ -2228,7 +2110,7 @@
   "models": {
     "opus": "claude-opus-5-5",
     "sonnet": "claude-sonnet-5-5",
-    "haiku": "claude-haiku-4-5"
+    "haiku": "claude-haiku-5-5"
   },
   "profiles": [
     "quality",

@@ -24,7 +24,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { parseSurfaceSpec } = require('./ui-spec.cjs');
-const { loadManifest } = require('./flutter-ui-eval.cjs'); // the REAL consumer — not a copy of it
+const { loadManifest } = require('../../../../aoforge-stack-flutter/lib/flutter-ui-eval.cjs'); // the REAL consumer (now in the Flutter stack pack) — not a copy of it
 const {
   renderSurfaceSpec,
   DEFAULT_IDENTITY,

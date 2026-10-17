@@ -105,7 +105,7 @@ const EXEMPT = [
     reason: '"Write no TRDs" forbids the write; the negation follows the verb, past the rule',
   },
   {
-    file: 'plugins/aoforge/agents/verifier.md',
+    file: 'plugins/aoforge-stack-flutter/fragments/verifier.md',
     line_contains: 'refusing to overwrite" — this means',
     reason: 'quotes the UAT generator refusal and says skip, do NOT regenerate; a forbid',
   },

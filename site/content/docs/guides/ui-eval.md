@@ -11,8 +11,8 @@ machine-readable evidence the `verifier` consumes and gates on.
 ## Running it
 
 ```text
-/aoforge:ui-eval 6
-/aoforge:ui-eval path/to/manifest.json
+/aoforge-stack-flutter:ui-eval 6
+/aoforge-stack-flutter:ui-eval path/to/manifest.json
 ```
 
 ## The pipeline
@@ -32,16 +32,16 @@ plan, dispatches it through the handoff daemon (or prints it when the daemon is
 down), and chains the bootstrap:
 
 ```bash
-aof-tools flutter-ui setup
-aof-tools flutter-ui setup --print-only    # just show the plan
-aof-tools flutter-ui setup --auto
+aof-flutter flutter-ui setup
+aof-flutter flutter-ui setup --print-only    # just show the plan
+aof-flutter flutter-ui setup --auto
 ```
 
 Then:
 
 ```bash
-aof-tools flutter-ui bootstrap [project-dir]
-aof-tools flutter-ui eval <manifest|captureResults>
+aof-flutter flutter-ui bootstrap [project-dir]
+aof-flutter flutter-ui eval <manifest|captureResults>
 ```
 
 ## Verification hooks
@@ -49,9 +49,9 @@ aof-tools flutter-ui eval <manifest|captureResults>
 The verifier consumes eval output through dedicated `verify` subcommands:
 
 ```bash
-aof-tools verify flutter-ui-bootstrap <project-dir>     # is the project set up for eval?
-aof-tools verify flutter-ui-eval <manifest>             # did the captured states score green?
-aof-tools verify flutter-state-coverage <trd-path>      # are all declared states covered by tests?
+aof-flutter verify flutter-ui-bootstrap <project-dir>     # is the project set up for eval?
+aof-flutter verify flutter-ui-eval <manifest>             # did the captured states score green?
+aof-flutter verify flutter-state-coverage <trd-path>      # are all declared states covered by tests?
 ```
 
 `flutter-state-coverage` catches the common gap: a widget test that exercises the
@@ -60,7 +60,7 @@ happy path and silently ignores loading, empty and error states.
 ## Scoping
 
 ```bash
-aof-tools detect flutter-ui-scope <objective>
+aof-flutter detect flutter-ui-scope <objective>
 ```
 
 Determines whether an objective has UI surfaces worth evaluating. The planner uses

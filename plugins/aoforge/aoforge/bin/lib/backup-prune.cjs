@@ -7,7 +7,10 @@
 
 const fs = require('fs');
 const path = require('path');
-const upgrade = require('./upgrade.cjs');
+// upgrade.cjs is loaded on first use (registerRepo): every SessionStart runs the throttle check and the
+// 24-hour stamp usually says "not yet", so the ~20 ms module load would be wasted on most sessions.
+let upgradeModule = null;
+const upgrade = { repoKey: (root) => (upgradeModule || (upgradeModule = require('./upgrade.cjs'))).repoKey(root) };
 
 const DEFAULTS = Object.freeze({ retain_days: 14, keep_min: 5 });
 const THROTTLE_MS = 24 * 60 * 60 * 1000;

@@ -54,7 +54,7 @@ Load codebase mapping context:
 INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init map-codebase)
 ```
 
-Extract from init JSON: `mapper_model`, `commit_docs`, `codebase_dir`, `existing_maps`, `has_maps`, `codebase_dir_exists`.
+Extract from init JSON: `mapper_models` (one model per focus: `tech`, `arch`, `quality`, `concerns`), `commit_docs`, `codebase_dir`, `existing_maps`, `has_maps`, `codebase_dir_exists`.
 </step>
 
 <step name="check_existing">
@@ -152,7 +152,7 @@ Continue to spawn_agents.
 <step name="spawn_agents">
 Spawn 4 parallel codebase-mapper agents.
 
-Use Task tool with `subagent_type="codebase-mapper"`, `model="{mapper_model}"`, and `run_in_background=true` for parallel execution.
+Use Task tool with `subagent_type="codebase-mapper"`, `model="{mapper_models.<focus>}"` (the spawn's own focus), and `run_in_background=true` for parallel execution.
 
 **CRITICAL:** Use the dedicated `codebase-mapper` agent, NOT `Explore`. The mapper agent writes its documents to drafts itself; it never publishes them.
 
@@ -161,7 +161,7 @@ Use Task tool with `subagent_type="codebase-mapper"`, `model="{mapper_model}"`, 
 Task tool parameters:
 ```
 subagent_type: "codebase-mapper"
-model: "{mapper_model}"
+model: "{mapper_models.tech}"
 run_in_background: true
 description: "Map codebase tech stack"
 ```
@@ -184,7 +184,7 @@ Explore thoroughly. Write the drafts using templates; do not publish them. Retur
 Task tool parameters:
 ```
 subagent_type: "codebase-mapper"
-model: "{mapper_model}"
+model: "{mapper_models.arch}"
 run_in_background: true
 description: "Map codebase architecture"
 ```
@@ -207,7 +207,7 @@ Explore thoroughly. Write the drafts using templates; do not publish them. Retur
 Task tool parameters:
 ```
 subagent_type: "codebase-mapper"
-model: "{mapper_model}"
+model: "{mapper_models.quality}"
 run_in_background: true
 description: "Map codebase conventions"
 ```
@@ -231,7 +231,7 @@ Explore thoroughly. Write the drafts using templates; do not publish them. Retur
 Task tool parameters:
 ```
 subagent_type: "codebase-mapper"
-model: "{mapper_model}"
+model: "{mapper_models.concerns}"
 run_in_background: true
 description: "Map codebase concerns"
 ```

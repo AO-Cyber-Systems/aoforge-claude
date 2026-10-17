@@ -52,7 +52,7 @@ The document should describe what you want to build.
 INIT=$(node ~/.claude/aoforge/bin/aof-tools.cjs init new-project)
 ```
 
-Parse JSON for: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`.
+Parse JSON for: `researcher_models` (one model per dimension: `stack`, `features`, `architecture`, `pitfalls`), `synthesizer_model`, `roadmapper_model`, `commit_docs`, `project_exists`, `has_codebase_map`, `planning_exists`, `has_existing_code`, `has_package_file`, `is_brownfield`, `needs_codebase_map`, `has_git`.
 
 **If `project_exists` is true:** Error — project already initialized. Use `/aoforge:status`.
 
@@ -524,7 +524,7 @@ Registers this repo for backup pruning; ignore an unknown-flag error from an old
 
 ## 5.5. Resolve Model Profile
 
-Use models from init: `researcher_model`, `synthesizer_model`, `roadmapper_model`.
+Use models from init: `researcher_models.<dimension>`, `synthesizer_model`, `roadmapper_model`.
 
 ## 6. Research Decision
 
@@ -597,7 +597,7 @@ Subsequent: Research what's needed to add [target features] to an existing [doma
 </milestone_context>
 
 <question>
-What's the standard 2025 stack for [domain]?
+What's the current standard stack for [domain]? (Search with the current year, not a remembered one.)
 </question>
 
 <project_context>
@@ -622,7 +622,7 @@ Draft path: `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft research/ST
 Publish: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/STACK.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/aoforge/templates/research-project/STACK.md
 </output>
-", subagent_type="project-researcher", model="{researcher_model}", description="Stack research")
+", subagent_type="project-researcher", model="{researcher_models.stack}", description="Stack research")
 
 Task(prompt="<research_type>
 Project Research — Features dimension for [domain].
@@ -661,7 +661,7 @@ Draft path: `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft research/FE
 Publish: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/FEATURES.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/aoforge/templates/research-project/FEATURES.md
 </output>
-", subagent_type="project-researcher", model="{researcher_model}", description="Features research")
+", subagent_type="project-researcher", model="{researcher_models.features}", description="Features research")
 
 Task(prompt="<research_type>
 Project Research — Architecture dimension for [domain].
@@ -700,7 +700,7 @@ Draft path: `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft research/AR
 Publish: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/ARCHITECTURE.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/aoforge/templates/research-project/ARCHITECTURE.md
 </output>
-", subagent_type="project-researcher", model="{researcher_model}", description="Architecture research")
+", subagent_type="project-researcher", model="{researcher_models.architecture}", description="Architecture research")
 
 Task(prompt="<research_type>
 Project Research — Pitfalls dimension for [domain].
@@ -739,7 +739,7 @@ Draft path: `node ~/.claude/aoforge/bin/aof-tools.cjs planning draft research/PI
 Publish: `node ~/.claude/aoforge/bin/aof-tools.cjs doc put research/PITFALLS.md --from "$DRAFT"` (do not commit)
 Use template: ~/.claude/aoforge/templates/research-project/PITFALLS.md
 </output>
-", subagent_type="project-researcher", model="{researcher_model}", description="Pitfalls research")
+", subagent_type="project-researcher", model="{researcher_models.pitfalls}", description="Pitfalls research")
 ```
 
 After all 4 agents complete:

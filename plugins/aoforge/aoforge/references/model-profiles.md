@@ -16,27 +16,46 @@ Model profiles control which Claude model each AOForge agent uses. This allows b
 | `research-synthesizer` | sonnet | sonnet | haiku | — |
 | `debugger` | opus | sonnet | sonnet | xhigh |
 | `codebase-mapper` | sonnet | haiku | haiku | — |
-| `verifier` | sonnet | sonnet | haiku | — |
-| `job-checker` | sonnet | sonnet | haiku | — |
+| `verifier` | sonnet | sonnet | sonnet | — |
+| `job-checker` | sonnet | sonnet | sonnet | — |
 | `integration-checker` | sonnet | sonnet | haiku | — |
 | `security-auditor` | opus | sonnet | sonnet | xhigh |
-| `ui-evaluator` | opus | sonnet | sonnet | high |
 
 Agent keys are canonical **without** a `df-` prefix. `aof-tools resolve-model`
 normalises either spelling (TRD 28-02) — before that fix, un-prefixed callers
 missed the table entirely and silently fell back to `sonnet`.
 
+## Per-focus tiers and the verdict floor (TRD 76-06)
+
+`focus{}` gives a spawn's focus its own tiers, overlaid on the agent's row when the spawn names it
+(`resolve-model <agent> --focus <f>`; `init map-codebase` emits `mapper_models`, and `init
+new-project` / `init new-milestone` emit `researcher_models`, one model per focus):
+
+| Agent | Focus | `quality` | `balanced` | `budget` |
+|-------|-------|-----------|------------|----------|
+| `codebase-mapper` | `concerns` | sonnet | sonnet | haiku |
+| `project-researcher` | `architecture` | opus | sonnet | sonnet |
+| `project-researcher` | `pitfalls` | opus | sonnet | sonnet |
+
+A focus entry only raises a tier where the focus is judgment work (concerns: security and debt
+calls; architecture and pitfalls: trade-offs). Lowering one waits on a recorded eval;
+`model-profiles.test.cjs` refuses a focus entry below its agent's row.
+
+`verdict_floor` keeps the pass/fail verdicts (`verifier`, `job-checker`) at `sonnet` or above on
+every profile, a project's `agent_models` included: a false pass ships, and a false fail costs two
+gap-closure cycles. `model_overrides` stays the explicit, unfloored escape.
+
 ## Tier → model id
 
-`models{}` is live, not documentation: `flutter-ui-eval.cjs` reads it and sends
-the id to the Messages API for the vision judge. A stale id here is a runtime
-defect, not a cosmetic one.
+`models{}` is live, not documentation: a stack pack's vision judge reads it and
+sends the id to the Messages API. A stale id here is a runtime defect, not a
+cosmetic one.
 
 | Tier | Model id |
 |------|----------|
 | `opus` | `claude-opus-5-5` |
 | `sonnet` | `claude-sonnet-5-5` |
-| `haiku` | `claude-haiku-4-5` |
+| `haiku` | `claude-haiku-5-5` |
 
 Doctor check 13 (`model-profiles`) and `validate health` W063 flag a pin that
 `references/model-rates.json` shows superseded (a newer version of the same
@@ -53,8 +72,10 @@ own frontmatter, so it cannot vary by profile.
 
 **Haiku 4.5 rejects the `effort` parameter.** Any agent that can resolve to the
 `haiku` tier in *any* profile therefore must not declare `effort`, or that run
-fails. Only these six never reach haiku and can carry it: `planner`,
-`roadmapper`, `executor`, `debugger`, `security-auditor`, `ui-evaluator`.
+fails. Only these never reach haiku and can carry it: `planner`,
+`roadmapper`, `executor`, `debugger`, `security-auditor`, and since TRD 76-06 `verifier` and
+`job-checker`. Stack pack agents (a pack's visual judge, for example) take their
+tiers from the pack manifest's `models`, not this table.
 `model-profiles.test.cjs` enforces this.
 
 ## Profile Philosophy
@@ -77,14 +98,26 @@ fails. Only these six never reach haiku and can carry it: `planner`,
 
 ## Resolution Logic
 
-Orchestrators resolve model before spawning:
+Orchestrators resolve the model before spawning, through one resolver (`resolveAgentModel` in `lib/init.cjs`):
+`aof-tools resolve-model <agent> [--objective N] [--focus f] [--escalate-from m] --raw` and every compound init
+command call it, so they cannot disagree. Pass the result as the Task model.
 
-```
-1. Read .aoforge/config.json
-2. Check model_overrides for agent-specific override
-3. If no override, look up agent in profile table
-4. Pass model parameter to Task call
-```
+The profile comes first: OBJECTIVE.md/TRD override > config `model_profile` > `"auto"` → the (kind, work)
+defaults-table cell > `balanced`. Then the tier, highest first (the JSON names the winner in `tier_source`):
+
+1. `--escalate-from <model the attempt ran on>`: one rung above that model, whatever supplied it, an override
+   included. `tier_source: escalation`.
+2. `model_overrides[agent]`: a tier, `inherit` or a concrete model id. It applies on every profile and focus, and
+   to an agent missing from the table too. It is **not floored**. `tier_source: model_overrides`.
+3. The project's `agent_models[agent][profile]`. `tier_source: agent_models`.
+4. The `focus{}` tier for `--focus`. `tier_source: focus`.
+5. The package table row, then its `balanced` entry, then `sonnet`. `tier_source: table`.
+
+Over 3-5 the verdict floor raises `verifier` and `job-checker` to `verdict_floor.tier`
+(`tier_source: verdict_floor`). The `opus` tier resolves to the `inherit` alias.
+
+`"auto"` is opt-in on purpose: neither adopt nor the config template writes `model_profile`, and the
+table puts every feature and port objective on `quality` (TRD 76-01).
 
 ## Per-Agent Overrides
 
@@ -94,15 +127,24 @@ Override specific agents without changing the entire profile using `agent_models
 {
   "model_profile": "balanced",
   "agent_models": {
-    "df-planner": { "quality": "sonnet" },
-    "df-executor": { "balanced": "opus", "budget": "sonnet" }
+    "planner": { "quality": "sonnet" },
+    "executor": { "balanced": "opus", "budget": "sonnet" }
   }
 }
 ```
 
-Overrides take precedence over the package defaults. Valid tier values: `opus`, `sonnet`, `haiku`.
+Keys are the bare agent names; the `df-` prefixed spelling (`"df-planner"`) is still accepted, and the bare key wins
+when both are present. An `agent_models` tier beats the focus tier and the package default, and stays under the
+verdict floor. Valid tier values: `opus`, `sonnet`, `haiku`.
 
-> **Legacy:** `model_overrides` (flat string values) is still supported but `agent_models` is preferred as it supports per-tier granularity.
+`model_overrides` is a flat per-agent pin (a tier, `inherit` or a model id) that wins over the profile and is not
+floored:
+
+```json
+{ "model_overrides": { "debugger": "haiku" } }
+```
+
+`--escalate-from` still goes one rung above it.
 
 ## Switching Profiles
 

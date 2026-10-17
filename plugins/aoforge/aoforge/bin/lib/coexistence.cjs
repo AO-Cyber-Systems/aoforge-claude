@@ -266,6 +266,9 @@ function legacyNotices({ env = {}, userHome, detect, fsImpl = fs } = {}) {
 }
 
 module.exports = {
+  installedVersion,
+  explicitEnabled,
+  readJsonOrNull,
   detectLegacyPlugin,
   coexistenceMessage,
   legacyEnvVariables,

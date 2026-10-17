@@ -16,7 +16,7 @@ allowed-tools:
 Switch the model profile used by AOForge agents. Controls which Claude model each agent uses, balancing quality vs token spend.
 
 Routes to the set-profile workflow which handles:
-- Argument validation (quality/balanced/budget)
+- Argument validation (quality/balanced/budget/auto; auto applies the (kind, work) defaults table per objective)
 - Config file creation if missing
 - Profile update in config.json
 - Confirmation with model table display

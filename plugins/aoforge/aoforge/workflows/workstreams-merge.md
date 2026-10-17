@@ -31,7 +31,7 @@ For each workstream, check its worktree's STATE.md and disk status:
 
 ```bash
 # For each workstream
-cat {worktree_path}/.aoforge/STATE.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs --cwd {worktree_path} state digest --raw 2>/dev/null
 ls {worktree_path}/.aoforge/objectives/XX-*/*-SUMMARY.md 2>/dev/null
 ```
 

@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
-const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, MODEL_PROFILES, MODEL_IDS } = require('./helpers.cjs');
+const { output, error, safeReadFile, generateSlugInternal, pathExistsInternal, MODEL_PROFILES, MODEL_IDS, MODEL_FOCUS, VERDICT_FLOOR } = require('./helpers.cjs');
 const { loadConfig } = require('./config.cjs');
 const { planningMode } = require('./planning-mode.cjs');
 const { findObjectiveInternal } = require('./objective.cjs');
@@ -283,64 +283,243 @@ function normalizeAgentKey(agentType) {
  * Returns null when the agent is genuinely unknown (so callers can be loud
  * rather than silently defaulting).
  */
-function agentTierMap(config, agentType) {
+function agentTierMap(config, agentType, focus) {
   const key = normalizeAgentKey(agentType);
+  // A stack pack's own agent (`<plugin>:<agent>` or bare) takes its tiers from the pack manifest
+  // `models` field (objective 77); core's table names only core agents.
+  let base = MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || null;
+  if (!base) {
+    try {
+      const hit = require('./stack-packs.cjs').packAgentTiers(key);
+      if (hit) base = hit.tiers;
+    } catch (_) { /* no pack mirror: fall through */ }
+  }
+  // A spawn that names its focus (mapper focus, researcher dimension) takes that focus's tiers
+  // over the agent's own (TRD 76-06); an unknown focus changes nothing.
+  const focusTiers = (focus && MODEL_FOCUS[key] && MODEL_FOCUS[key][focus]) || {};
   const merged = Object.assign(
     {},
-    MODEL_PROFILES[key] || MODEL_PROFILES[`df-${key}`] || {},
+    base || {},
+    focusTiers,
     config.agent_models?.[key] || config.agent_models?.[`df-${key}`] || {}
   );
   return Object.keys(merged).length ? merged : null;
 }
 
-function resolveModelInternal(cwd, agentType) {
-  const config = loadConfig(cwd);
-  const key = normalizeAgentKey(agentType);
+/**
+ * Which profile applies, and who supplied it (TRD 76-01).
+ *
+ * The intent resolver derives a model_profile per objective, but resolve-model
+ * used to read only config.model_profile, so an OBJECTIVE.md `overrides:
+ * model_profile` and the (kind, work) defaults table never reached a spawn.
+ * Precedence, highest first:
+ *   1. TRD / OBJECTIVE.md override (explicit, per objective)
+ *   2. config.json model_profile quality|balanced|budget (/aoforge:set-profile)
+ *   3. config.json model_profile "auto": the (kind, work) defaults-table cell
+ *      for the objective (balanced when no objective or no cell resolves)
+ *   4. 'balanced'
+ * The table applies only on "auto". Neither adopt nor the config template
+ * writes model_profile, and the table puts every feature/port objective on
+ * quality, so applying it to an unset key would silently raise those projects'
+ * tiers (TRD 76-01).
+ */
+const _profileCache = new Map();
+function resolveProfile(cwd, objective) {
+  const cacheKey = `${cwd}\0${objective || ''}`;
+  if (_profileCache.has(cacheKey)) return _profileCache.get(cacheKey);
 
-  // Check per-agent override first (legacy key) — accept either spelling
-  const override = config.model_overrides?.[key] ?? config.model_overrides?.[`df-${key}`];
-  if (override) {
-    return override === 'opus' ? 'inherit' : override;
+  let intentProfile = null;
+  let intentProvenance = null;
+  if (objective) {
+    try {
+      const intent = require('./intent.cjs');
+      const r = intent.resolve({ projectRoot: cwd, objectiveId: String(objective) });
+      intentProfile = r.config && r.config.model_profile;
+      intentProvenance = r.provenance && r.provenance.model_profile;
+    } catch (_) {
+      // No PROJECT.md, unknown kind, missing table: fall through to config.
+    }
   }
 
-  const profile = config.model_profile || 'balanced';
-  const agentModels = agentTierMap(config, key);
-  if (!agentModels) return 'sonnet';
-  const resolved = agentModels[profile] || agentModels['balanced'] || 'sonnet';
-  return resolved === 'opus' ? 'inherit' : resolved;
+  let configured;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(path.join(planningRoot(cwd), 'config.json'), 'utf-8'));
+    configured = parsed.model_profile;
+  } catch (_) {
+    configured = undefined;
+  }
+
+  let result;
+  if (intentProfile && (intentProvenance === 'objective_override' || intentProvenance === 'trd_override')) {
+    result = { profile: intentProfile, source: intentProvenance };
+  } else if (configured === 'auto') {
+    result = intentProfile
+      ? { profile: intentProfile, source: 'defaults_table' }
+      : { profile: 'balanced', source: 'default' };
+  } else if (configured) {
+    result = { profile: configured, source: 'config' };
+  } else {
+    result = { profile: 'balanced', source: 'default' };
+  }
+  _profileCache.set(cacheKey, result);
+  return result;
+}
+
+const TIER_RANK = { haiku: 0, sonnet: 1, opus: 2 };
+
+// The escalation ladder, cheapest first (TRD 76-07).
+const RUNGS = ['haiku', 'sonnet', 'opus'];
+
+/** The rung a spawn ran on, from a tier, the `inherit` alias (opus) or a concrete model id; else null. */
+function escalationRung(value) {
+  const v = String(value || '').trim().toLowerCase();
+  if (v === 'inherit') return 'opus';
+  if (RUNGS.includes(v)) return v;
+  for (const [tier, id] of Object.entries(MODEL_IDS)) if (id === v) return tier;
+  const family = RUNGS.find((t) => v.startsWith(`claude-${t}`));
+  return family || null;
+}
+
+/** One model per project-research dimension (TRD 76-06), for new-project and new-milestone. */
+function researcherModels(cwd) {
+  return Object.fromEntries(['stack', 'features', 'architecture', 'pitfalls']
+    .map((f) => [f, resolveModelInternal(cwd, 'df-project-researcher', undefined, f)]));
+}
+
+/**
+ * The tier a profile gives an agent, raised to the verdict floor for pass/fail agents (TRD 76-06):
+ * a verifier or job-checker verdict never runs below `verdict_floor.tier` on any profile, a
+ * project's `agent_models` included. `model_overrides` stays the explicit, unfloored escape.
+ */
+function profileTier(agentModels, profile, key) {
+  let tier = agentModels[profile] || agentModels['balanced'] || 'sonnet';
+  const floor = VERDICT_FLOOR.tier;
+  if (floor && (VERDICT_FLOOR.agents || []).includes(key) && (TIER_RANK[tier] ?? 1) < TIER_RANK[floor]) tier = floor;
+  return tier;
+}
+
+/** The `inherit` alias for opus (the agent keeps the session model); any other tier is its own name. */
+function tierAlias(tier) {
+  return tier === 'opus' ? 'inherit' : tier;
+}
+
+/** A project's model_overrides entry for an agent, either spelling (bare wins); undefined when there is none. */
+function overrideFor(config, key) {
+  const overrides = config.model_overrides || {};
+  for (const k of [key, `df-${key}`]) {
+    const v = overrides[k];
+    if (typeof v === 'string' && v.trim()) return v.trim();
+  }
+  return undefined;
+}
+
+/**
+ * Which layer supplied the tier profileTier picks (quick 35): the project's agent_models entry, the focus entry, or
+ * the package table row (its `balanced` entry and the `sonnet` default included). Mirrors agentTierMap's merge.
+ */
+function tierLayer(config, key, focus, agentModels, profile) {
+  const picked = agentModels[profile] ? profile : agentModels.balanced ? 'balanced' : null;
+  if (!picked) return 'table';
+  const project = config.agent_models?.[key] || config.agent_models?.[`df-${key}`] || {};
+  if (project[picked]) return 'agent_models';
+  const focusTiers = (focus && MODEL_FOCUS[key] && MODEL_FOCUS[key][focus]) || {};
+  if (focusTiers[picked]) return 'focus';
+  return 'table';
+}
+
+/**
+ * resolveAgentModel(cwd, agentType, { objective, focus, escalateFrom }) -> the resolution resolve-model prints
+ * (quick 35, D1). The one model resolver: `aof-tools resolve-model` and every compound init command call it, so the
+ * CLI and init cannot disagree. Precedence, highest first:
+ *   1. --escalate-from <model the attempt ran on>: one rung above it, whatever supplied it      tier_source escalation
+ *   2. model_overrides[agent]: a tier, `inherit` or a model id, on every profile and focus, and
+ *      for an agent missing from the table too. NOT floored: the explicit escape               tier_source model_overrides
+ *   3. the project's agent_models[agent][profile] (bare key wins over `df-`)                   tier_source agent_models
+ *   4. the focus{} tier for --focus                                                             tier_source focus
+ *   5. the package table row, then its `balanced` entry, then `sonnet`                          tier_source table
+ * Over 3-5 the verdict floor raises verifier and job-checker to verdict_floor.tier (tier_source verdict_floor).
+ * An unknown agent with no override resolves to sonnet with `unknown_agent: true`; the caller decides whether to
+ * warn (resolve-model does, loudly; init does not, once per spawn).
+ */
+function resolveAgentModel(cwd, agentType, { objective, focus, escalateFrom } = {}) {
+  const config = loadConfig(cwd);
+  const { profile, source: profile_source } = resolveProfile(cwd, objective);
+  const key = normalizeAgentKey(agentType);
+  const override = overrideFor(config, key);
+
+  let tier;
+  let model;
+  let modelId;
+  let tierSource;
+  if (override !== undefined) {
+    const lower = override.toLowerCase();
+    if (lower === 'inherit' || RUNGS.includes(lower)) {
+      tier = lower === 'inherit' ? 'opus' : lower;
+      model = tierAlias(tier);
+      modelId = MODEL_IDS[tier] || null;
+    } else {
+      // A concrete model id runs as written; its tier is reported where the id is recognisable.
+      tier = escalationRung(override);
+      model = override;
+      modelId = override;
+    }
+    tierSource = 'model_overrides';
+  } else {
+    const agentModels = agentTierMap(config, key, focus);
+    if (!agentModels) {
+      return { model: 'sonnet', profile, profile_source, unknown_agent: true, requested: agentType };
+    }
+    const raw = agentModels[profile] || agentModels.balanced || 'sonnet';
+    tier = profileTier(agentModels, profile, key);
+    tierSource = tier !== raw ? 'verdict_floor' : tierLayer(config, key, focus, agentModels, profile);
+    model = tierAlias(tier);
+    modelId = MODEL_IDS[tier] || null;
+  }
+
+  let escalation = null;
+  if (escalateFrom !== undefined) {
+    // TRD 76-07: an agent that returned `## ESCALATION REQUESTED` is re-spawned one rung above the
+    // model its attempt ran on. At the top rung there is nowhere to go: `ceiling` sends it to the human.
+    const from = escalationRung(escalateFrom);
+    if (!from) error(`--escalate-from needs a tier (haiku|sonnet|opus), inherit, or a model id; got "${escalateFrom}"`);
+    const next = RUNGS[RUNGS.indexOf(from) + 1];
+    tier = next || from;
+    model = tierAlias(tier);
+    modelId = MODEL_IDS[tier] || null;
+    tierSource = 'escalation';
+    escalation = { escalated_from: from, ceiling: !next };
+  }
+
+  // Report the tier and the concrete id alongside the alias so a resolution can
+  // actually be audited (TRD 28-02) — "inherit" alone hid which model ran.
+  const result = { model, profile, profile_source, agent: key, tier, model_id: modelId, tier_source: tierSource };
+  if (focus) result.focus = focus;
+  if (escalation) Object.assign(result, escalation);
+  return result;
+}
+
+function resolveModelInternal(cwd, agentType, objective, focus) {
+  return resolveAgentModel(cwd, agentType, { objective, focus }).model;
 }
 
 // ─── Commands ─────────────────────────────────────────────────────────────────
 
-function cmdResolveModel(cwd, agentType, raw) {
+function cmdResolveModel(cwd, agentType, raw, objective, focus, escalateFrom) {
   if (!agentType) {
     error('agent-type required');
   }
 
-  const config = loadConfig(cwd);
-  const profile = config.model_profile || 'balanced';
-  const key = normalizeAgentKey(agentType);
-  const agentModels = agentTierMap(config, key);
-
-  if (!agentModels) {
+  const result = resolveAgentModel(cwd, agentType, { objective, focus, escalateFrom });
+  if (result.unknown_agent) {
     // Be LOUD. This used to return 'sonnet' silently, which is how a whole-table
     // key mismatch survived unnoticed — every caller looked like it was working.
     process.stderr.write(
       `aof-tools resolve-model: unknown agent "${agentType}" — no entry in ` +
       `references/model-profiles.json. Falling back to 'sonnet'; the configured ` +
-      `profile "${profile}" is NOT being applied.\n`
+      `profile "${result.profile}" is NOT being applied.\n`
     );
-    const result = { model: 'sonnet', profile, unknown_agent: true, requested: agentType };
-    output(result, raw, 'sonnet');
-    return;
   }
-
-  const tier = agentModels[profile] || agentModels['balanced'] || 'sonnet';
-  const model = tier === 'opus' ? 'inherit' : tier;
-  // Report the tier and the concrete id alongside the alias so a resolution can
-  // actually be audited (TRD 28-02) — "inherit" alone hid which model ran.
-  const result = { model, profile, agent: key, tier, model_id: MODEL_IDS[tier] || null };
-  output(result, raw, model);
+  output(result, raw, result.model);
 }
 
 // ─── Objective PR lifecycle (objective 49, GPR-06) ────────────────────────────
@@ -420,8 +599,8 @@ function cmdInitExecuteObjective(cwd, objective, includes, raw, args = []) {
 
   const result = {
     // Models
-    executor_model: resolveModelInternal(cwd, 'df-executor'),
-    verifier_model: resolveModelInternal(cwd, 'df-verifier'),
+    executor_model: resolveModelInternal(cwd, 'df-executor', objective),
+    verifier_model: resolveModelInternal(cwd, 'df-verifier', objective),
 
     // Config flags
     commit_docs: config.commit_docs,
@@ -545,9 +724,9 @@ function cmdInitPlanObjective(cwd, objective, includes, raw, args = []) {
 
   const result = {
     // Models
-    researcher_model: resolveModelInternal(cwd, 'df-objective-researcher'),
-    planner_model: resolveModelInternal(cwd, 'df-planner'),
-    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+    researcher_model: resolveModelInternal(cwd, 'df-objective-researcher', objective),
+    planner_model: resolveModelInternal(cwd, 'df-planner', objective),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker', objective),
 
     // Workflow flags
     research_enabled: config.research,
@@ -697,6 +876,8 @@ function cmdInitNewProject(cwd, raw, args = []) {
   const result = {
     // Models
     researcher_model: resolveModelInternal(cwd, 'df-project-researcher'),
+    // per research dimension (TRD 76-06): the new-project workflow spawns each researcher with its own
+    researcher_models: researcherModels(cwd),
     synthesizer_model: resolveModelInternal(cwd, 'df-research-synthesizer'),
     roadmapper_model: resolveModelInternal(cwd, 'df-roadmapper'),
 
@@ -736,6 +917,7 @@ function cmdInitNewMilestone(cwd, raw, args = []) {
   const result = {
     // Models
     researcher_model: resolveModelInternal(cwd, 'df-project-researcher'),
+    researcher_models: researcherModels(cwd),
     synthesizer_model: resolveModelInternal(cwd, 'df-research-synthesizer'),
     roadmapper_model: resolveModelInternal(cwd, 'df-roadmapper'),
 
@@ -848,8 +1030,8 @@ function cmdInitVerifyWork(cwd, objective, raw, args = []) {
 
   const result = {
     // Models
-    planner_model: resolveModelInternal(cwd, 'df-planner'),
-    checker_model: resolveModelInternal(cwd, 'df-job-checker'),
+    planner_model: resolveModelInternal(cwd, 'df-planner', objective),
+    checker_model: resolveModelInternal(cwd, 'df-job-checker', objective),
 
     // Config
     commit_docs: config.commit_docs,
@@ -1065,6 +1247,9 @@ function cmdInitMapCodebase(cwd, raw, args = []) {
   const result = {
     // Models
     mapper_model: resolveModelInternal(cwd, 'df-codebase-mapper'),
+    // per focus (TRD 76-06): the map-codebase workflow spawns each mapper with its own
+    mapper_models: Object.fromEntries(['tech', 'arch', 'quality', 'concerns']
+      .map((f) => [f, resolveModelInternal(cwd, 'df-codebase-mapper', undefined, f)])),
 
     // Config
     commit_docs: config.commit_docs,
@@ -1253,6 +1438,7 @@ function cmdInitProgress(cwd, includes, raw, args = []) {
 }
 
 module.exports = {
+  resolveAgentModel,
   resolveModelInternal,
   cmdResolveModel,
   cmdInitExecuteObjective,

@@ -5,7 +5,7 @@
  *
  * HAND-WRITTEN, never copied from a real project and never generated (CLAUDE.md habit 4,
  * TRD anti-pattern "do NOT copy a real Flutter project into the fixture"). Every file
- * below is the MINIMUM that makes the REAL `aof-tools verify flutter-ui-bootstrap`
+ * below is the MINIMUM that makes the REAL `aof-flutter verify flutter-ui-bootstrap`
  * detector answer `action: 'skip'` with an absolute `packageDir` ending in `/flutter` —
  * the W0-4 contract `agents/executor.md`'s bootstrap prose depends on.
  *

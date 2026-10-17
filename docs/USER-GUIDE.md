@@ -585,6 +585,46 @@ AOForge's own prompts use Claude Code's built-ins instead of ad hoc text (object
 - **Limits.** Tasks made inside a subagent are ignored. A session that shares a task list through `CLAUDE_CODE_TASK_LIST_ID` does not see a completion of a task created in another session, because the merge reads one transcript at a time; complete that todo with `/aoforge:todo list` or `aof-tools todo complete`.
 - **Needs an installed plugin carrying objective 63.** An older one has no `todo sync` and no hook. The tests show this behaviour on recorded transcripts; the live run in a real session is on the objective's verify-work list.
 
+### Stack packs (`aof-tools stack discover`)
+
+Stack-specific procedure ships in separate plugins, not in core AOForge. Core knows no stack; a pack
+adds one.
+
+| Pack | Install | What it adds |
+|---|---|---|
+| `aoforge-stack-flutter` | `/plugin install aoforge-stack-flutter@aocyber` | The `flutter` and `dart` stack profiles; the executor's Flutter UI bootstrap, per-task and post-task gates; the planner's Flutter UI scope rules; the verifier's state coverage, Maestro run, visual eval and design review; auto-generated UAT; `/aoforge-stack-flutter:ui-eval` and `/aoforge-stack-flutter:design-review`; the `ui-evaluator` agent; the `aof-flutter` CLI |
+| `aoforge-stack-web` | `/plugin install aoforge-stack-web@aocyber` | The verifier's browser drive for web UIs, run by its `web-ui-verifier` agent through the Playwright plugin, and an executor self-check before handoff |
+
+**A pack only acts in a project that selects it.** Installing it is not enough:
+
+- `extends: flutter` (or `dart`) in `.aoforge/STACK.md` selects the Flutter pack.
+- `verification.runtime: web` in the profile selects the web pack.
+- A Flutter project also selects the web pack when its `verification.runtime` is `web` or a TRD's
+  `platform` includes `web`: the Flutter pack lists it as a soft dependency (`soft_depends`). If the
+  web pack is not installed, `aof-tools stack doctor` warns (it never fails on this) and the verifier
+  sends Flutter web surfaces to human verification. `stacks.disabled` still wins.
+- `"stacks": { "enabled": ["flutter"] }` in `.aoforge/config.json` selects a pack by name, and
+  `"disabled"` turns one off.
+
+`aof-tools stack discover` lists the installed packs, which are active and why, and which the repo
+evidence proposes (a `pubspec.yaml` proposes the Flutter pack, but never activates it).
+`aof-tools stack doctor` checks an active pack's tools and warns on an absent soft dependency. Each pack's SessionStart hook mirrors it to
+`~/.claude/aoforge/stacks/<name>/`, where core reads it.
+
+**Upgrading a Flutter or web project to 3.1.** Core no longer has the in-core Flutter and Playwright
+path, and there are no forwarding aliases:
+
+1. Install the pack(s) above.
+2. Make sure the project selects them: `stack init` drafts `extends: flutter` for a Flutter repo;
+   otherwise add the `stacks.enabled` entry.
+3. Replace the old commands: `aof-tools verify flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval`,
+   `aof-tools flutter-ui …`, `aof-tools detect flutter-ui-scope` and `aof-tools generate uat` are now
+   `node ~/.claude/aoforge/stacks/flutter/bin/aof-flutter.cjs <same arguments>`, and
+   the `ui-eval` and `design-review` skills moved from the `aoforge:` namespace to
+   `/aoforge-stack-flutter:ui-eval` and `/aoforge-stack-flutter:design-review`.
+4. UI metrics (`aof-tools ui metrics baseline`) take their default paths from the active pack, so
+   pass `--paths` when no pack is active.
+
 ### Integration & Release (1.28+)
 
 | Command | Purpose | When to Use |
@@ -984,6 +1024,7 @@ AOForge installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 |---|---|---|---|
 | `route-intent.js` | UserPromptSubmit | Detects AOForge projects (`.aoforge/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-AOForge repos and explicit `/aoforge:` invocations |
 | `route-results.js` | UserPromptSubmit | On your next prompt, adds queued notices (from `upgrade-project.js`, `coexistence-guard.js` and others) and every finished handoff result that no other hook delivered yet, whichever session or agent queued it: the catch-all behind `inject-handoff-results.js`. Each result is delivered once, through the same claim as the other hook. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_HANDOFF_RESULTS=1` (handoff results only), `AOFORGE_SKIP_NOTICES=1` (notices only) |
+| `pre-bash.js` | PreToolUse (Bash) | The one registration for the event: runs `gate-commits`, `changelog-on-tag`, `gate-interactive`, `gate-bash-writes` and `guard-no-progress` in one process with the same stdin and merges their decisions (deny over ask, every reason kept; a hook that throws is skipped). Five `node` processes per Bash call became one. The rows below describe the hooks it runs. | each hook's own |
 | `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in AOForge projects; demands `aof-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `AOFORGE_ALLOW_RAW_COMMIT=1 git commit …`, or `AOFORGE_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
 | `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.aoforge/.skill-active` marker exists (executor writes this), the editing agent is an AOForge agent (`agent_type` `aoforge:<name>`; since 3.1.0 the pre-rename namespace is not trusted), user prompt contains an override phrase (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`), or env var is set. Always permits `.aoforge/**` and `*.md` paths. (Prior `AOFORGE_STRICT_EDITS=1` behavior is now the default.) | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
 | `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.aoforge/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
@@ -1365,6 +1406,8 @@ Capabilities are detected per repository and cached under `<AOFORGE_GH_CACHE_DIR
 
 Every planning file has one aof-tools verb that writes it. Skills and agents call the verb; nobody edits the file by hand. Content comes from `--from <path>` (or `-` for stdin), usually a copy made with `planning draft <rel>`, which prints a temp path seeded with the current file.
 
+**One command per task.** The executor writes its SUMMARY draft once, at the first task, with every task listed under `## Progress`. After each task it runs `aof-tools summary checkpoint <trd> --tick <task number> --hash <short HEAD>`: the verb ticks that item in the draft (the earlier `(this commit)` placeholder becomes the hash of the previous task's commit), checkpoints it and never asks for the whole file again. With neither `--tick` nor `--from`, `summary checkpoint` and `summary post` take the draft of that SUMMARY as their input. Skills load the project through `aof-tools state digest --raw` (position, blockers, continuity, the newest decision headlines) and `roadmap digest --raw` rather than the whole files; `state get` and `roadmap get-objective <N>` still print everything. `state rotate-decisions` keeps STATE.md's decision log at the newest 10 entries and moves the rest to STATE_ARCHIVE.md, which `state advance-job` also does on every advance.
+
 **Drafts stay current.** Each draft has a base record beside it (`<draft>.base.json`, the sha256 of the live text it was seeded from). If the live file changes after you seeded the draft, because another verb published it, `planning draft <rel>` rewrites the draft from the live file, keeps the draft it replaced at `<draft>.stale` so none of your edits are lost, and says so on stderr (`planning draft: reseeded ... Your previous draft is at ....stale`). Stdout is still only the path, and `--raw` adds `seeded`, `reseeded` and `stale_copy`. `doc put --from <draft>` checks the same record first. A stale draft is refused with exit 1 (`doc put: refused (stale draft). Nothing was written.`) before anything is written, and the error names the fix, `aof-tools planning draft <rel>`: reseed, re-apply your edits from the `.stale` copy, and run `doc put` again. In store mode a refused draft queues no GitHub write. Publishing the same unchanged draft a second time is not refused. The check has limits: only `doc put` makes it; standard input (`--from -`) and a file outside the drafts tree that has no base record are not checked; and a draft made before objective 69 has no base record, so it is judged by modification time (older than the live file means stale), which cannot catch a legacy draft you edited after the live file changed.
 
 **Store off (the default).** Each verb writes the same `.aoforge/` file, byte for byte, that the old flow wrote, makes no `gh` calls, and `.aoforge/` stays tracked in git. Nothing changes for a project that never sets `github.store`.
@@ -1404,7 +1447,7 @@ node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --apply --only 0010 --confirm
 | `decision open <trd> --question <q>` / `decision answer <trd>-d<k> --from <f>` | a decision on a TRD |
 | `milestone put <v> --from <f>` / `milestone complete <v>` | a milestone (a native GitHub milestone plus a `Milestone-vX_Y` wiki page) |
 
-`summary checkpoint` and `summary post` write the checkout that runs them in local mode, so an executor worktree commits its own SUMMARY with its task commits and it arrives through the wave merge, with no untracked copy left in the main checkout. In store mode they write the main checkout's cache, because the cache, ledger and outbox live there. In store mode STATE.md, ROADMAP.md and MILESTONES.md are generated: STATE.md mutators record into the per-clone `state.json`, and `gh pull --all` regenerates the views. `/aoforge:micro` follows the same rule: `aof-tools micro commit` appends a Quick Tasks row to STATE.md and commits it separately in local mode only. In store mode it makes one commit, the source change, leaves STATE.md alone and reports `state_row: "skipped_store_mode"`, so it raises no W055. It commits through `aof-tools commit`, so store mode refuses it on the default branch, an unlinked branch or a detached HEAD with the same gate message as any other commit (exit 1, nothing committed, the micro marker kept). Switch to the objective's linked branch and run it again, or take the logged `AOFORGE_SKIP_GH_GATE=1` escape.
+Every planning verb (`quick put`, `quick summary`, `doc put`, `summary checkpoint`, `summary post`, `plan put-trd`, `planning draft` and the rest) reads and writes the checkout that runs it in local mode, when that checkout has its own planning directory (`.aoforge/`, or the legacy planning directory), and falls back to the main checkout when it has none. So an executor worktree commits its own SUMMARY with its task commits and it arrives through the wave merge, with no untracked copy left in the main checkout, and a verb run from a worktree whose tree uses the other planning-directory name writes that tree and says so in its `wrote <dir>/<rel>` line. In store mode every verb writes the main checkout's cache, because the cache, ledger and outbox live there. Drafts stay keyed on the main checkout either way. In store mode STATE.md, ROADMAP.md and MILESTONES.md are generated: STATE.md mutators record into the per-clone `state.json`, and `gh pull --all` regenerates the views. `/aoforge:micro` follows the same rule: `aof-tools micro commit` appends a Quick Tasks row to STATE.md and commits it separately in local mode only. In store mode it makes one commit, the source change, leaves STATE.md alone and reports `state_row: "skipped_store_mode"`, so it raises no W055. It commits through `aof-tools commit`, so store mode refuses it on the default branch, an unlinked branch or a detached HEAD with the same gate message as any other commit (exit 1, nothing committed, the micro marker kept). Switch to the objective's linked branch and run it again, or take the logged `AOFORGE_SKIP_GH_GATE=1` escape.
 
 **An objective the verbs do not know.** `objective put`, `plan put-trd`, `verification post` and the other verbs that take an objective id never create an objective. For an id with no ROADMAP entry and no directory under `.aoforge/objectives`, they exit 1 with `objective 9 is not known (no ROADMAP entry or directory under .aoforge/objectives); register a new objective with aof-tools objective add "<description>", then run this again`, and write and queue nothing. `objective add` owns the number, the slug and the directory. In store mode it also creates the objective's issue, titled after the description (`[Objective 2] Goodbye CLI`) with a footer that says the issue is the source of truth and `.aoforge/` a local cache.
 

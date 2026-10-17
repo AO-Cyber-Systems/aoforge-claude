@@ -134,10 +134,15 @@ describe('aof-tools ui metrics baseline', () => {
     assert.strictEqual(json.fix_per_feat, 1);
   });
 
-  test('defaults --since to 2026-06-01 and --paths to flutter/lib, writing to .aoforge/', () => {
+  test('defaults --since to 2026-06-01 and --paths to the active stack packs\' ui.metrics_paths, writing to .aoforge/', () => {
+    // Objective 77: no stack default in core. The Flutter pack, selected by config, names flutter/lib.
+    fs.mkdirSync(path.join(tmp, '.aoforge'), { recursive: true });
+    fs.writeFileSync(path.join(tmp, '.aoforge', 'config.json'), JSON.stringify({ stacks: { enabled: ['flutter'] } }));
+    const { useRepoPacks } = require('./__fixtures__/stack-pack-env.cjs');
     const r = spawnSync(process.execPath, [TOOLS_PATH, 'ui', 'metrics', 'baseline', '--raw'], {
       cwd: tmp,
       encoding: 'utf-8',
+      env: { ...process.env, AOFORGE_STACKS_DIR: useRepoPacks() },
     });
     assert.strictEqual(r.status, 0, r.stderr);
     const outFile = path.join(tmp, '.aoforge', 'ui-metrics-baseline.json');
@@ -145,6 +150,16 @@ describe('aof-tools ui metrics baseline', () => {
     const json = JSON.parse(fs.readFileSync(outFile, 'utf-8'));
     assert.strictEqual(json.since, '2026-06-01');
     assert.deepStrictEqual(json.paths, ['flutter/lib']);
+  });
+
+  test('with no active stack pack and no --paths, asks for --paths instead of guessing a stack', () => {
+    const r = spawnSync(process.execPath, [TOOLS_PATH, 'ui', 'metrics', 'baseline', '--raw'], {
+      cwd: tmp,
+      encoding: 'utf-8',
+      env: { ...process.env, AOFORGE_STACKS_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'no-packs-')) },
+    });
+    assert.strictEqual(r.status, 1);
+    assert.match(r.stderr, /--paths requires a value/);
   });
 
   test('prints only JSON to stdout in non-raw mode', () => {

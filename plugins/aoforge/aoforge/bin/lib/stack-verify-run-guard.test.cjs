@@ -1,4 +1,5 @@
 'use strict';
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-verify-run-guard.test.cjs — the `--run` effect guard, against a REAL spawn (TRD 43-02, SDR-03).
 //
@@ -259,7 +260,7 @@ describe('CLI: stack verify --run with the effect guard (test 12)', { skip: SKIP
     const statusBefore = porcelain(root);
     const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', root, 'stack', 'verify', '--run', ...extra], {
       encoding: 'utf-8',
-      env: { ...envWith(bin), HOME: home },
+      env: { ...envWith(bin), HOME: home, AOFORGE_STACKS_DIR: process.env.AOFORGE_STACKS_DIR },
       timeout: 60000,
     });
     return { root, r, optionsBefore, statusBefore };

@@ -424,11 +424,13 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
        </objective>
 
        <execution_context>
-       @~/.claude/aoforge/workflows/execute-trd.md
-       @~/.claude/aoforge/templates/summary.md
-       @~/.claude/aoforge/references/checkpoints.md
-       @~/.claude/aoforge/references/tdd.md
-       @~/.claude/aoforge/references/anti-patterns.md
+       A Task prompt does not expand @ references: Read these files yourself, each at the moment it is needed,
+       never all of them up front (checkpoints.md alone is 42 KB).
+       - ~/.claude/aoforge/templates/summary.md — before the first `summary checkpoint`
+       - ~/.claude/aoforge/references/checkpoints.md — only if the TRD has a checkpoint task (type checkpoint:human-verify, checkpoint:decision or checkpoint:human-action), before that task
+       - ~/.claude/aoforge/references/tdd.md — only if the TRD frontmatter says type: tdd or a task carries tdd=true
+       - ~/.claude/aoforge/references/anti-patterns.md — not needed: your prompt carries the quick reference
+       - ~/.claude/aoforge/workflows/execute-trd.md — only if your own prompt leaves a step unclear (your prompt is the complete procedure)
        </execution_context>
 
        <plan_content>
@@ -605,7 +607,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    node ~/.claude/aoforge/bin/aof-tools.cjs roadmap update-job-progress "${OBJECTIVE_NUMBER}"
    ```
    ```bash
-   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/state.json
+   node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs(objective-{objective_number}): refresh roadmap and state after wave {N} merges" --files .aoforge/ROADMAP.md .aoforge/STATE.md .aoforge/STATE_ARCHIVE.md .aoforge/state.json
    ```
    <!-- merge-sequence:end -->
 
@@ -654,7 +656,7 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
    After all branches are merged, `git log --all --grep` and the file-existence spot-checks
    in step 6 will see every wave commit.
 
-5c. **Classify each returned executor: COMPLETE / INCOMPLETE / FAILED.**
+5c. **Classify each returned executor: COMPLETE / INCOMPLETE / ESCALATE / FAILED.**
 
    An executor can come back with `<status>completed</status>` and still be unfinished. When a
    run is cut short, the task-notification `<summary>` reads like
@@ -686,11 +688,12 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
    (b) does not apply to a structured stop, which has its own handler and is never resumed as
    INCOMPLETE. These are: a `## CHECKPOINT REACHED` return (go to `<checkpoint_handling>`), a
-   Rule 4 `decision:` return, an `## ESCALATION REQUESTED` return, or a preflight hard stop
-   (`WRONG REPOSITORY`, `BASE NOT VISIBLE`, `SHARED INDEX`). The last three are FAILED.
+   Rule 4 `decision:` return, an `## ESCALATION REQUESTED` return (ESCALATE, item 5e), or a
+   preflight hard stop (`WRONG REPOSITORY`, `BASE NOT VISIBLE`, `SHARED INDEX`), which is FAILED.
 
    **COMPLETE** (not INCOMPLETE, SUMMARY `final`) → go to item 6's spot-checks.
    **INCOMPLETE** → item 5d.
+   **ESCALATE** (`## ESCALATION REQUESTED`) → item 5e.
    **Anything else is FAILED** → item 6/7, as today.
 
 5d. **Resume INCOMPLETE plans.**
@@ -725,6 +728,26 @@ Note the printed `MODE` value as a literal. A shell variable does not survive in
 
    The INCOMPLETE budget is separate from the failure retry. Resumes do not consume the one
    fresh-respawn retry, and a truncation never counts as a failure.
+
+5e. **Escalate one rung (TRD 76-07).**
+
+   An executor cannot change its own model, so `## ESCALATION REQUESTED` asks you to re-spawn the
+   same TRD one rung up. It is not a failure. Resolve the next rung from the model this attempt ran
+   on (`{resolved_executor_model}` for the plan):
+   ```bash
+   node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model executor --escalate-from "{model this attempt ran on}"
+   ```
+   - `ceiling: false` → re-spawn the plan exactly as in step 4 (same worktree rules, same prompt)
+     with `model="{model from the result}"`, and add the escalation block verbatim inside
+     `<prior_attempt>` so the new executor starts from its evidence, not cold. Log
+     `Escalated: executor {from} → {tier} for {plan_id} ({Trigger})`. Re-classify (5c) when it returns.
+   - `ceiling: true`, or the block's last section says it is a planning gap, or this plan already
+     escalated once in this run → FAILED (item 7), with the escalation block as the
+     `<failure_feedback>`: a bigger model will not fix it, the plan or a human must.
+
+   Budget: **one escalation per plan per run** (escalation-policy.md "bounded burst"). An
+   escalation does not consume the INCOMPLETE resumes or the fresh-respawn retry, and the next plan
+   starts on its own resolved tier again (de-escalate as soon as a task completes cleanly).
 
    This happens in EVERY mode, because resuming a truncated run is not a user decision: never
    ask whether to resume. Run the INCOMPLETE resumes for different plans of the same wave in
@@ -1014,11 +1037,13 @@ When executor returns a checkpoint AND `MODE` is not `"autonomous"` AND `AUTO_CF
        </resume_instructions>
 
        <execution_context>
-       @~/.claude/aoforge/workflows/execute-trd.md
-       @~/.claude/aoforge/templates/summary.md
-       @~/.claude/aoforge/references/checkpoints.md
-       @~/.claude/aoforge/references/tdd.md
-       @~/.claude/aoforge/references/anti-patterns.md
+       A Task prompt does not expand @ references: Read these files yourself, each at the moment it is needed,
+       never all of them up front (checkpoints.md alone is 42 KB).
+       - ~/.claude/aoforge/templates/summary.md — before the first `summary checkpoint`
+       - ~/.claude/aoforge/references/checkpoints.md — only if the TRD has a checkpoint task (type checkpoint:human-verify, checkpoint:decision or checkpoint:human-action), before that task
+       - ~/.claude/aoforge/references/tdd.md — only if the TRD frontmatter says type: tdd or a task carries tdd=true
+       - ~/.claude/aoforge/references/anti-patterns.md — not needed: your prompt carries the quick reference
+       - ~/.claude/aoforge/workflows/execute-trd.md — only if your own prompt leaves a step unclear (your prompt is the complete procedure)
        </execution_context>
 
        <plan_content>

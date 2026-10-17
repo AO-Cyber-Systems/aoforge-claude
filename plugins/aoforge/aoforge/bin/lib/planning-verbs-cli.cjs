@@ -10,7 +10,7 @@
  *   aof-tools objective put <id> --from <path|->
  *   aof-tools objective set-status <id> <planned|in_progress|verifying|complete|cancelled|reopened>
  *   aof-tools summary post <trd-id> --from <path|-> [--file <name>]
- *   aof-tools summary checkpoint <trd-id> --from <path|->
+ *   aof-tools summary checkpoint <trd-id> [--from <path|->] [--tick <n|text>] [--hash <short>]   (no --from: the draft)
  *   aof-tools verification post <objective> --from <path|-> [--file <name>]
  *   aof-tools doc put <rel-under-.aoforge> --from <path|-> [--message <text>]
  *   aof-tools decision open <trd-id> --question <text|@path>
@@ -54,7 +54,7 @@ const { planningRoot } = require('./compat.cjs');
 
 // ─── Arguments ───────────────────────────────────────────────────────────────
 
-const VALUE_FLAGS = ['--from', '--file', '--message', '--question', '--text', '--stem', '--name'];
+const VALUE_FLAGS = ['--from', '--file', '--message', '--question', '--text', '--stem', '--name', '--tick', '--hash'];
 const BOOL_FLAGS = new Set(['--raw', '--help', '--no-push', '--no-flush', '--no-wait', '--dry-run', '--archive-objectives']);
 
 /** The value of `--flag v` or `--flag=v`; '' when the flag ends the argv; undefined when absent. */
@@ -255,9 +255,53 @@ function cmdSummary(cwd, args, raw, io = {}) {
   const file = flagValue(rest, '--file');
   if (sub === 'post' || sub === 'checkpoint') {
     const verb = `summary ${sub}`;
-    if (pos.length < 1) return needs(verb, raw, `${verb} <trd-id> --from <path|->${sub === 'post' ? ' [--file <name>]' : ''}`);
+    if (pos.length < 1) return needs(verb, raw, `${verb} <trd-id> [--from <path|->]${sub === 'checkpoint' ? ' [--tick <n|text>] [--hash <short>]' : ' [--file <name>]'}`);
     const fn = sub === 'post' ? verbs.summaryPost : verbs.summaryCheckpoint;
-    return withInput(verb, cwd, rest, raw, io, (text) => fn(cwd, { trd: pos[0], text, file, ...flushOpts(rest) }));
+    const tick = sub === 'checkpoint' ? flagValue(rest, '--tick') : undefined;
+    const hash = sub === 'checkpoint' ? flagValue(rest, '--hash') : undefined;
+    const run = (text) => fn(cwd, { trd: pos[0], text, file, ...flushOpts(rest) });
+
+    // `--tick`: tick one Progress item of the current draft (else the live SUMMARY) and checkpoint the result, so a
+    // per-task checkpoint is one command instead of a whole-file rewrite. With no `--from` and no `--tick`, the draft
+    // planning draft made for this SUMMARY is the input when it exists.
+    if (tick !== undefined || flagValue(rest, '--from') === undefined) {
+      const target = verbs.summaryDraftTarget(cwd, { trd: pos[0], file });
+      if (target.error) return report(verb, { ok: false, error: target.error, exit: 1 }, raw);
+      const explicit = flagValue(rest, '--from');
+      let source = null;
+      let text = null;
+      if (explicit !== undefined) {
+        const input = readFrom(rest, { cwd, ...io });
+        if (input.error) return report(verb, { ok: false, error: input.error, exit: 1, usage: input.usage }, raw);
+        text = input.text; source = input.from;
+      } else if (fs.existsSync(target.draft)) {
+        text = fs.readFileSync(target.draft, 'utf8'); source = target.draft;
+      } else if (tick !== undefined && fs.existsSync(target.live)) {
+        text = fs.readFileSync(target.live, 'utf8'); source = target.live;
+      } else {
+        return report(verb, {
+          ok: false, exit: 1,
+          error: `no draft for ${target.rel}: run \`aof-tools planning draft ${target.rel}\`, write it, then ${verb} (or pass --from <path|->)`,
+        }, raw);
+      }
+      if (tick !== undefined) {
+        const ticked = verbs.tickProgress(text, tick, { hash });
+        if (ticked.error) return report(verb, { ok: false, error: ticked.error, exit: 1 }, raw);
+        text = ticked.text;
+        if (explicit === undefined || source === target.draft) {
+          try {
+            fs.mkdirSync(path.dirname(target.draft), { recursive: true });
+            fs.writeFileSync(target.draft, text, 'utf8');
+          } catch (e) {
+            return report(verb, { ok: false, error: `could not update the draft ${target.draft}: ${e.message}`, exit: 1 }, raw);
+          }
+        }
+        const res = run(text);
+        return report(verb, res.ok ? { ...res, ticked: ticked.ticked, item: ticked.item, draft: target.draft } : res, raw);
+      }
+      return report(verb, run(text), raw);
+    }
+    return withInput(verb, cwd, rest, raw, io, run);
   }
   return unknown('summary', sub, 'post, checkpoint', raw);
 }
@@ -500,7 +544,7 @@ function cmdPlanningVerb(cwd, args, raw) {
       if (res.reseeded) {
         line(
           'stderr',
-          `planning draft: reseeded ${res.path} from ${planningRel(planningMode.resolveMainRoot(cwd) || cwd, pos[0])}: the live file changed after the draft was ` +
+          `planning draft: reseeded ${res.path} from ${planningRel(planningMode.resolveVerbRoot(cwd) || cwd, pos[0])}: the live file changed after the draft was ` +
             `seeded. Your previous draft is at ${res.stale_copy}.`,
         );
       }

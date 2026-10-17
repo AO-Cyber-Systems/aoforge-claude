@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: Verifies that built code actually achieves the objective goal, not just that tasks were completed.
-tools: Read, Write, Bash, Grep, Glob, mcp__plugin_playwright_playwright__browser_navigate, mcp__plugin_playwright_playwright__browser_snapshot, mcp__plugin_playwright_playwright__browser_take_screenshot, mcp__plugin_playwright_playwright__browser_click, mcp__plugin_playwright_playwright__browser_fill_form, mcp__plugin_playwright_playwright__browser_wait_for, mcp__plugin_playwright_playwright__browser_tabs, mcp__plugin_playwright_playwright__browser_close, mcp__maestro__*, mcp__gopls__*, mcp__dart__*
+tools: Read, Write, Bash, Grep, Glob, Agent, mcp__gopls__*, mcp__dart__*
 color: green
 memory: project
 # memory: project — accumulates verification patterns at .claude/agent-memory/verifier/
@@ -25,7 +25,7 @@ When the spawn prompt contains `CHECKPOINT VERIFICATION MODE`, you are NOT perfo
 
 - Skip goal-backward objective verification (Steps 1–7, Step 9–11 of the main flow).
 - Run ONLY checks that prove or disprove the checkpoint's `how-to-verify` steps.
-- Use Step 8a (Playwright MCP) or Step 8b (Maestro MCP) tooling as appropriate for the checkpoint's content.
+- Use the stack pack runtime checks (Step 8) as appropriate for the checkpoint's content.
 - Do NOT re-verify the entire objective.
 
 ### Port rule — hard constraint
@@ -84,7 +84,7 @@ before declaring such an objective verified. If it is not installed, record
 pass, and do not attempt to install it.
 
 Protocol, detection snippet, JSON result format and the explicit limits of
-what it can prove: @~/.claude/aoforge/references/deployment-verification.md
+what it can prove: Read ~/.claude/aoforge/references/deployment-verification.md only when the objective deploys something.
 
 </deployment_verification>
 
@@ -127,11 +127,18 @@ Set `is_re_verification = false`, proceed with Step 1.
 ## Step 1: Load Context (Initial Mode Only)
 
 ```bash
-ls "$OBJECTIVE_DIR"/*-TRD.md "$OBJECTIVE_DIR"/*-JOB.md 2>/dev/null
-ls "$OBJECTIVE_DIR"/*-SUMMARY.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs verify objective-evidence "$OBJECTIVE_NUM"
 node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective "$OBJECTIVE_NUM"
 grep -E "^| $OBJECTIVE_NUM" .aoforge/REQUIREMENTS.md 2>/dev/null
 ```
+
+`verify objective-evidence` (TRD 76-04) is the mechanical evidence in one call: for every TRD, the
+`verify artifacts` and `verify key-links` results (Steps 4 and 5 read them from here instead of
+re-running them), the SUMMARY's Self-Check and key-files with whether each exists (Step 7's file
+list), and the commit count; plus `objective-completeness`. Its `rollup` names the TRDs that need a
+closer look. Your judgment starts there: whether each truth holds, whether a passing artifact is a
+stub, whether a link is real wiring. In an older runtime where the command is unknown, list the
+TRD and SUMMARY files with `ls` and run the per-TRD commands in Steps 4, 5 and 7.
 
 Extract objective goal from ROADMAP.md — this is the outcome to verify, not the tasks.
 
@@ -251,37 +258,9 @@ grep -r "$artifact_name" "${search_path:-src/}" --include="*.ts" --include="*.ts
 | ✓      | ✗           | -     | ✗ STUB      |
 | ✗      | -           | -     | ✗ MISSING   |
 
-### Flutter UI state coverage (REQ-10-05)
+### Stack pack artifact checks
 
-For each `type: ui` + `stack: flutter` TRD, run the state-coverage gate after Levels 1-2 (exists + substantive) and before Level 3 (wiring):
-
-```bash
-STATE_COV=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify flutter-state-coverage "$TRD_PATH" --raw)
-```
-
-Parse JSON shape: `{ trd_path, state_management, artifacts: [{artifact, status, coverage, blockers, advisories}], overall }`.
-
-For each artifact result:
-- `status: 'verified'` → VERIFIED. No action.
-- `status: 'partial'` → record per-state coverage in VERIFICATION.md `partial_state_coverage:` section. blockers go to `gaps:`, advisories go to `notes:`.
-- `status: 'missing'` → all declared states unmet — record as gap (`gaps:` section).
-- `status: 'missing_test_file'` → the artifact's `tests.widget` path doesn't exist on disk. Record as blocker gap.
-- `status: 'skipped'` → `state_management: other`. Advisory only.
-
-Confidence model honored by aof-tools (HIGH-only patterns → blockers; MEDIUM/LOW → advisories). Verifier does not need to re-implement confidence routing.
-
-### Optional: Semantics() wrappers check (REQ-10-05 advisory)
-
-For each `type: ui` artifact:
-```bash
-WIDGET_TEST=<path>
-SOURCE=<artifact.path>
-if [ -f "$SOURCE" ] && ! grep -q "Semantics(" "$SOURCE"; then
-  echo "Advisory: $SOURCE has no Semantics() wrappers — Maestro selectability may be impaired."
-fi
-```
-
-Emit as VERIFICATION.md `notes:` entry, never blocker.
+A stack pack fragment (see Step 8) may add artifact checks for its stack, such as UI state coverage. Run them here.
 
 ## Step 4.5: API Contract Drift (REQ-10-05 / REQ-10-08)
 
@@ -306,7 +285,7 @@ Status:
 
 Drift is ALWAYS advisory — never blocks verification pass/fail. The verifier surfaces it so the user can decide whether the change is intentional.
 
-For non-Flutter TRDs without `api_contract:` block: skip silently.
+For TRDs without an `api_contract:` block: skip silently.
 
 ## Step 5: Verify Key Links (Wiring)
 
@@ -429,21 +408,16 @@ Categorize: 🛑 Blocker (prevents goal) | ⚠️ Warning (incomplete) | ℹ️ 
 
 **When to run:** If the objective involves UI components, web pages, mobile screens, or user-facing features, drive the app programmatically to verify Level 4 (Functional) before flagging items for human verification.
 
-**Skip the UI drive (8a/8b) if** the objective is purely backend. A `cli`/`service` runtime check (below) still runs.
+**Skip the UI drive if** the objective is purely backend. A `cli`/`service` runtime check (below) still runs.
 
 **Select the runtime check** — first match wins:
-1. TRD `must_haves.platform`, if set: web → Step 8a, mobile/Flutter → Step 8b.
+1. TRD `must_haves.platform`, if set: `web` or `mobile` → the stack pack runtime checks below.
 2. The resolved stack profile: `node ~/.claude/aoforge/bin/aof-tools.cjs stack resolve` → `frontmatter.verification.runtime`:
-   - `web` → Step 8a · `mobile` → Step 8b
+   - `web` / `mobile` → the stack pack runtime checks below
    - `cli` / `service` → run `node ~/.claude/aoforge/bin/aof-tools.cjs stack command <verification.runtime_check> --raw` and execute it; no `runtime_check`, or empty output → `not_available (no runtime_check command in STACK.md)`
    - `desktop` → `? SKIPPED (runtime: desktop has no automated check yet)` + human-verify item
    - `none` → `? SKIPPED (no runtime declared in STACK.md; general profile)` when the profile id is `general`, else `? SKIPPED (verification.runtime: none in STACK.md)`
 3. `stack` unavailable (unknown command in an older mirror) → `? SKIPPED (stack profile unavailable: <error line>)`.
-
-Backend mapping detail (unchanged):
-- **Web** (Hugo, Next.js, static, SPA) → Playwright MCP (Step 8a)
-- **Flutter** (mobile or Flutter web) → Maestro MCP (Step 8b)
-- **Flutter web smoke-only** → Playwright MCP against a `flutter build web --release` bundle served statically, with `?enable-semantics=true` (Step 8a, with caveats). Never `flutter run -d web-server`/`-d chrome` for capture — DWDS wedges into a blank page with no console error.
 
 ### Step 8.0: Objective gates (`gates.objective`)
 
@@ -454,111 +428,16 @@ Before any runtime drive, for each key in the resolved `frontmatter.gates.object
 - Status `none` → skipped (deliberate absence).
 Record a `| Gate | Command | Result |` table in VERIFICATION.md. If `stack` is unavailable, record `not_available (stack profile unavailable)` for the objective gates and continue.
 
-### Step 8a: Web — Playwright MCP
+### Step 8a-8d: Stack pack runtime checks
 
-**Reliability fixes — do these every run, in order:**
-
-1. **Readiness probe before navigating.** Never assume the dev server is up.
-   ```bash
-   npm run dev &
-   DEV_PID=$!
-   timeout 30 bash -c 'until curl -sf http://localhost:3000 > /dev/null; do sleep 1; done' \
-     || { echo "dev server failed to start"; kill $DEV_PID 2>/dev/null; exit 1; }
-   ```
-   For Hugo: `hugo server -D &` and probe `http://localhost:1313`.
-
-2. **Wait on network-idle + stable landmark, not fixed sleeps.** After `browser_navigate`, call `browser_wait_for` on a known landmark selector (e.g., `main`, `[role=main]`, a header text) before `browser_snapshot`. Snapshotting mid-hydration returns an empty or partial tree — this is the #1 cause of false "element not found" failures.
-
-3. **Seeded auth via `storageState.json` + verifier-mode fixtures.** If the app has auth, the project should provide `.aoforge/verification/storageState.json` (logged-in session) and a `VERIFIER_MODE=1` env flag that disables animations and uses deterministic fixtures. Load via Playwright's storage state at browser launch. If missing, flag `? UNCERTAIN` and add to human verification.
-
-**Protocol:**
-
-1. Start server with readiness probe (above).
-2. For each UI artifact from Steps 3-5:
-   - `browser_navigate(url=...)`
-   - `browser_wait_for(text="<landmark>")`
-   - `browser_snapshot()` — parse accessibility tree
-   - Click key interactive elements, re-snapshot, verify state change
-   - `browser_take_screenshot()` → save to `.aoforge/objectives/<obj>/evidence/`
-3. **On any failure**, capture both full-page screenshot AND the accessibility snapshot JSON as evidence. The next verifier pass needs this to reason about what actually rendered.
-4. `browser_close()`; `kill $DEV_PID` if started here.
-
-### Step 8b: Flutter — Maestro MCP
-
-`$PACKAGE_DIR` is `.packageDir` from `aof-tools verify flutter-ui-bootstrap . --raw` (repo root in a single-package repo, `flutter/` in a monorepo); run every flutter/adb/maestro command below from `$PACKAGE_DIR` in a subshell — `( cd "$PACKAGE_DIR" && <cmd> )` — while evidence paths stay absolute from the repo root.
-
-**Prereqs (check, do not install):**
-```bash
-command -v maestro >/dev/null || { echo "maestro not installed — skip with SKIPPED status"; }
-# Install hint for user: curl -fsSL "https://get.maestro.mobile.dev" | bash
-```
-
-**Emulator readiness (open-source path):**
-```bash
-# Android
-$ANDROID_HOME/emulator/emulator -avd "$AVD_NAME" -no-snapshot -no-audio -no-window &
-timeout 60 bash -c 'until adb shell getprop sys.boot_completed 2>/dev/null | grep -q 1; do sleep 2; done'
-# iOS (macOS only)
-xcrun simctl boot "iPhone 15" && xcrun simctl bootstatus "iPhone 15" -b
-```
-
-**Build and install the app:**
-```bash
-( cd "$PACKAGE_DIR" && flutter build apk --debug )
-( cd "$PACKAGE_DIR" && adb install -r build/app/outputs/flutter-apk/app-debug.apk )
-# or for iOS: ( cd "$PACKAGE_DIR" && flutter build ios --debug && xcrun simctl install booted build/ios/iphonesimulator/Runner.app )
-```
-
-**Protocol:**
-
-1. Flows live at `.aoforge/objectives/<obj>/verification/*.yaml`. If the agent that planned this objective did not author flows, derive one per truth from Step 3 now and write it.
-
-   Minimal flow:
-   ```yaml
-   appId: com.example.myflutterapp
-   ---
-   - launchApp
-   - assertVisible: "Welcome"
-   - tapOn: "Sign In"
-   - assertVisible: "Dashboard"
-   - takeScreenshot: dashboard
-   ```
-
-2. Run flows via Maestro MCP (invoke `maestro mcp` server, or subprocess `maestro test`):
-   ```bash
-   REPO_ROOT=$(git rev-parse --show-toplevel)
-   ( cd "$PACKAGE_DIR" && maestro test "$REPO_ROOT"/.aoforge/objectives/"$OBJECTIVE_DIR"/verification/ \
-     --format junit --output "$REPO_ROOT"/.aoforge/objectives/"$OBJECTIVE_DIR"/evidence/maestro.xml )
-   ```
-
-3. For state inspection between steps, call `maestro hierarchy` — returns JSON view tree (text, resource-id, bounds, clickable, children). Parse to verify expected elements present.
-
-4. Capture screenshots via `takeScreenshot` steps in the flow; they land in the Maestro output dir — move to `.aoforge/objectives/<obj>/evidence/`.
-
-5. Cleanup: `adb emu kill` or `xcrun simctl shutdown booted` if started here.
-
-**Flutter semantics note:** Maestro reads Flutter's SemanticsNode tree automatically. No extra config needed on mobile. For Flutter web, run `flutter build web --release`, serve `build/web` statically, and append `?enable-semantics=true` to the URL so Playwright sees a real a11y tree. Never `flutter run -d web-server`/`-d chrome` for capture — DWDS wedges into a blank page with no console error.
-
-### Step 8b: Maestro orphan-flow detection (REQ-10-05)
-
-After running Maestro flows, cross-reference the on-disk `.maestro/*.yaml` files against TRD `must_haves.artifacts[*].tests.maestro` references:
-
-```bash
-DECLARED=$(find .aoforge/objectives/$OBJECTIVE_DIR -name '*-TRD.md' -exec grep -h '^\s*maestro:' {} \; | sed -E 's/^\s*maestro:\s*//' | sort -u)
-ACTUAL=$(find .maestro -name '*.yaml' 2>/dev/null | sort -u)
-
-ORPHANS=$(comm -23 <(echo "$ACTUAL") <(echo "$DECLARED"))
-```
-
-For each orphan flow, record an entry under the report's `notes:` section:
-```yaml
-notes:
-  - kind: maestro_orphan_flow
-    path: .maestro/foo.yaml
-    note: "Flow file present but not referenced by any TRD's tests.maestro. Legitimate bootstrap flows (e.g., app_launch.yaml) are expected — review before deleting."
-```
-
-Orphans are advisory, never blocking.
+The UI drive and any stack-specific visual checks come from stack packs. Run
+`node ~/.claude/aoforge/bin/aof-tools.cjs stack context verifier --raw`; under `## Stack packs` it lists
+each active pack's verifier fragment and the pack agents to delegate to. Read each fragment and run its
+sections at the steps they name (a web pack's browser drive is delegated to its agent with the Agent
+tool). When the selected runtime is `web` or `mobile` and no active pack covers it, record
+`? SKIPPED (no stack pack for runtime <runtime>; run aof-tools stack discover)` and add a
+human-verify item. If the Agent tool is not available to you (nesting limit), record the delegated
+drive as a human-verify item with that reason.
 
 ### Shared evidence contract
 
@@ -580,104 +459,9 @@ evidence:
 
 **Important:** Functional verification supplements but does not replace Steps 3-5 (static analysis). A component that passes functional verification but fails wiring checks still has gaps.
 
-### Step 8c: Visual UI eval (P3)
-
-Machine-judge visual correctness of every captured Flutter UI surface BEFORE escalating it to a human. This consumes the already-shipped offline scoring engine (`flutter-ui-eval.cjs`); it does not pick a vision model id or re-implement scoring.
-
-**Gate:** run ONLY when the objective has >=1 TRD with `type: ui` + `stack: flutter`. Otherwise skip silently (mirror the REQ-10-06 non-Flutter skip).
-
-**Call the engine arm:**
-
-```bash
-UI_EVAL=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify flutter-ui-eval "$OBJECTIVE" --raw)
-```
-
-The engine resolves `"$OBJECTIVE"` to a manifest — or explains why it could not — via `resolveUIEvalTarget` (`bin/lib/flutter-ui-eval-resolve.cjs`), and reports one of four honest `resolution` values. **Route by `resolution` first — only a `resolved` result carries a scoreRun rollup at all.**
-
-**Route by `resolution` (the load-bearing contract):**
-
-| `resolution` | Meaning | Action |
-|---|---|---|
-| `not_applicable` | No TRD in this objective is `type: ui` + `stack: flutter` | **Skip silently.** No VERIFICATION.md entry, no note, exit 0. Unchanged behaviour for non-Flutter objectives. |
-| `absent` | UI TRDs exist; no manifest at any location in `searched[]` | **`? MISSING (no ui-eval manifest)`** — append a `notes:` entry naming `searched[]`, **KEEP the surface on the Step 9 `human_verification:` list**, and record a todo to author the manifest. Nothing judged this surface, so a human still must. When `reason: 'unscoped-candidates'`, a repo-root `ui_eval/manifests/*.manifest.json` exists but is **never** auto-picked (W0-3) — name `candidates[]` in the todo instead of assuming one applies to this objective. **Escalate to a `gaps:` entry when the objective declares `visual_gate: true`** (the ratchet: an objective planned after the gate became auto-required has no excuse). |
-| `invalid` | A manifest was found but could not be loaded | **`gaps:` entry** carrying the parse reason. A broken gate is a defect, not an absence — never report it as MISSING. |
-| `resolved` | Manifest loaded and scored | Route the scoreRun rollup per the verdict rules below. |
-
-**Never a hard fail on `not_applicable` or `absent`.** Only `invalid` and a judged `fail` produce gaps.
-
-**Parse the scoreRun rollup (`resolution: 'resolved'` only):**
-
-Rollup shape: `{ verdict: 'pass'|'pass-with-reviews'|'fail', gate: 'binding'|'advisory', counts, reviews[], fails[], unjudged[], known_broken[], states[] }`. `gate` is the run's STANDING — what authority its verdict carries, independent of outcome. `gate: 'binding'` ONLY when the engine ran with `--judge live` (a real vision comparison per state). `gate: 'advisory'` on the default invocation (no `--judge`, or `--judge labels`) — the offline label-echo judge (network:false), which is a labels LOOKUP, not a visual gate, and must never be treated as one regardless of how clean its verdict is. Each `states[]` entry: `{ state_id, verdict: 'pass'|'review'|'fail', is_broken, defects[], errors[], evidence: 'vision'|'label', known_broken?, max_severity? }`.
-
-**Route per verdict (the load-bearing contract, `resolution: 'resolved'` only):**
-
-- Any state in `fails[]` (verdict `fail`) → append a `gaps:` entry: the defect type/severity + the screenshot evidence path under `.aoforge/objectives/<obj>/evidence/ui_eval/<state_id>.png`.
-- `verdict: pass-with-reviews` OR any state in `reviews[]` → append `notes:` entries + a partial section; that surface STAYS on the Step 9 human-verification list.
-- Any state in `unjudged[]` (aodex#485 — nothing examined it, distinct from a genuine judge disagreement) → append a `notes:` entry naming it as never judged; that surface STAYS on the Step 9 human-verification list regardless of `gate` or the run's overall verdict.
-- Any state in `known_broken[]` (#72 — judged BROKEN, but only MEDIUM/LOW, so below the HIGH-only blocking bar and still `verdict: pass`) → append a `notes:` entry naming it with its `max_severity` and defects. It never fails the gate, but it is a known defect, not a clean pass: that surface STAYS on the Step 9 human-verification list.
-- `gate: 'binding'` AND `verdict: pass` (no fails, no reviews, no unjudged, no known_broken) → REMOVE that surface from the Step 9 `human_verification:` list. **This is the ONLY route that may retire a human visual check.** The payoff — machine-judged visual correctness drops off the human queue — requires a binding gate; an offline pass alone never earns it.
-- `gate: 'advisory'` → NEVER removes a surface from the Step 9 list, whatever the verdict. Even a clean `verdict: pass` on the default (offline label-echo) path is a labels lookup, not a machine judgment of the pixels — append a `notes:` entry (e.g. "advisory pass — offline label-echo judge, not machine-verified against a binding gate") and leave the surface queued for human visual verification.
-
-For non-Flutter objectives: skip this subroutine.
-
-### Step 8d: Advisory design review (ADVISORY — NEVER GATES)
-
-After the Step 8c defect gate, run a lightweight ADVISORY design-critique pass over this objective's Flutter UI surfaces. **This step is the opposite of Step 8c: it can NEVER gate, fail, or change the pass/fail verdict.** Where Step 8c's defect judge answers "is this surface BROKEN?" and a fail produces a `gaps:` entry, Step 8d's design critic answers "is this GOOD design?" and only ever records ADVISORY notes + candidate todos for FUTURE UI objectives. Do NOT touch or duplicate the Step 8c gating logic.
-
-**Gate:** run ONLY when the objective has >=1 TRD with `type: ui` + `stack: flutter`. Otherwise skip silently.
-
-**Cadence:** the heavy first-run design sweep is the user-invoked `/aoforge:design-review` (ranked design-debt backlog). Step 8d is the lightweight follow-up — a thin advisory pass on each UI objective's surfaces, so design debt keeps surfacing as the project grows without a full re-sweep each time.
-
-**Run the advisory critic arm (only when a manifest AND a credential exist):**
-
-```bash
-# Locate the objective's design-review manifest (same manifest the ui_eval gate uses):
-#   .aoforge/objectives/<obj>/evidence/ui_eval/manifest.json  OR  flutter/ui_eval/manifests/*.json
-DESIGN_MANIFEST="<resolved manifest path>"
-
-# A credential is required for the live critique (ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN+ANTHROPIC_BASE_URL).
-if [ -n "$DESIGN_MANIFEST" ] && [ -f "$DESIGN_MANIFEST" ] && { [ -n "$ANTHROPIC_API_KEY" ] || [ -n "$ANTHROPIC_AUTH_TOKEN" ]; }; then
-  DESIGN=$(node ~/.claude/aoforge/bin/aof-tools.cjs flutter-ui design-review "$DESIGN_MANIFEST" --live --raw)
-else
-  # No manifest OR no credential → NOTE and continue. NEVER block.
-  DESIGN='{"advisory":true,"skipped":"design-review skipped (no manifest/credential)"}'
-fi
-```
-
-Rollup shape (when it runs): `{ advisory:true, total, counts:{high,medium,low}, byDimension, debt[]?, skipped[], report_path }`. `advisory:true` is ALWAYS set — there is NEVER a verdict.
-
-**Route the advisory output (the load-bearing never-gates contract):**
-
-- If `design-review skipped (no manifest/credential)` → record an **advisory note** `design-review skipped (no manifest/credential)` and continue. NOT a gap. NOT a fail.
-- High/medium-priority debt items → record them as **advisory notes** in the verification output AND route them to the objective-work loop as **candidate todos** for FUTURE UI objectives (see below). They DO **NOT** create `gaps:` entries, DO **NOT** appear in the Step 11 `gaps:` block, and DO **NOT** change the Step 10 status. Low-priority debt is recorded in the report only.
-- On `{ error: ... }` (manifest not found / invalid) → record an advisory note and fall through. NEVER a hard fail.
-
-**Routing high-priority debt → candidate todos (reuse the existing todo mechanism):**
-
-Use the SAME capture verb as `/aoforge:todo add`. For each `high` (and optionally `medium`) debt item, draft the todo and hand it to `aof-tools todo add`. Local mode writes `.aoforge/todos/pending/<date>-<slug>.md` exactly as before; store mode also files it as a todo issue:
-
-```bash
-slug=$(node ~/.claude/aoforge/bin/aof-tools.cjs generate-slug "design debt <state_id> <dimension>" --raw)
-DRAFT=$(node ~/.claude/aoforge/bin/aof-tools.cjs planning draft todos/pending/<date>-<slug>.md)
-# Fill the printed draft path (Write tool) with area: ui, the debt anchor/observation/suggestion,
-# and a note that it is a candidate for a FUTURE UI-polish objective (NOT a blocker for THIS one).
-node ~/.claude/aoforge/bin/aof-tools.cjs todo add --from "$DRAFT" --stem <date>-<slug>
-node ~/.claude/aoforge/bin/aof-tools.cjs commit "docs: capture design-debt todo - <state_id> <dimension>" --files .aoforge/todos/pending/<date>-<slug>.md
-```
-
-Shell variables do not survive between Bash calls: note the path `planning draft` prints and pass it literally to `--from`. The commit records the file in local mode; in store mode `commit` skips the gitignored cache path.
-
-These candidate todos are scope for a future UI-polish objective; they do not block the current objective and never appear in its gap output.
-
-**In the verifier's final report**, add an `## Advisory Design Review` section listing the high/medium debt items (or "skipped — no manifest/credential") and the `report_path`. Clearly mark it ADVISORY. The Step 10 status and Step 11 `gaps:` block are computed WITHOUT any input from Step 8d.
-
-For non-Flutter objectives: skip this subroutine.
-
-
 ## Step 9: Identify Human Verification Needs
 
-Items that pass functional verification (Step 8a web or 8b Flutter/Maestro) can be removed from the human verification list. Only flag items that:
-- **Surfaces that Step 8c scored `pass` UNDER `gate: 'binding'` (a real `--judge live` comparison) are visual-correctness-verified by the machine judge and MUST NOT appear in this human-verification list.** A `pass` under `gate: 'advisory'` (the default offline label-echo path) is a labels lookup, not a machine judgment — it STAYS on this list. Step 8c `review`/`unjudged`/SKIPPED surfaces also escalate here for visual UX.
+Items that pass functional verification (Step 8, including a stack pack's runtime checks) can be removed from the human verification list. A stack pack fragment may also say which of its own verdicts clear an item. Only flag items that:
 - Cannot be verified via automation (performance feel, accessibility nuance, animation smoothness, haptics)
 - Failed automated verification in a way that needs human judgment
 - Involve external service integration (Stripe checkout, email delivery, push notifications)
@@ -692,33 +476,6 @@ Items that pass functional verification (Step 8a web or 8b Flutter/Maestro) can 
 **Expected:** {What should happen}
 **Why human:** {Why can't verify programmatically or via browser automation}
 ```
-
-### Step 9 (REQ-10-06): Auto-generate UAT for Flutter UI objectives
-
-If the objective contains AT LEAST ONE TRD with `type: ui` + `stack: flutter`, auto-generate the 1-page UAT checklist:
-
-```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs generate uat "$OBJECTIVE" --raw
-```
-
-Output JSON: `{ generated: true, uat_path: '...', test_count: N }` or `{ error: '...' }`.
-
-On `generated: true`, publish the generated file through the UAT verb (local mode rewrites the same bytes; store mode also queues its wiki page):
-
-```bash
-node ~/.claude/aoforge/bin/aof-tools.cjs doc put objectives/{objective_dir}/{phase_num}-UAT.md --from "<uat_path from the JSON>"
-```
-
-The generator produces:
-- State-coverage rows expanded per platform (e.g., `platform: [mobile, web]` doubles state rows — one row per (state, platform) combination)
-- Maestro flow rows (mobile-only by design — Maestro on Flutter web is blocked upstream)
-- Web integration rows (`flutter drive` invocations) — when `web` is in the TRD's `platform` field
-
-On success, mention the UAT.md path in the verifier's final report. The user runs through the checklist; results feed back into `/aoforge:verify-work` via the existing UAT.md flow (see `templates/UAT.md` lifecycle section).
-
-If the generator returns an error like "UAT.md already in use; refusing to overwrite" — this means a previous walkthrough is in progress. Report and skip; do NOT regenerate.
-
-For non-Flutter objectives: skip this subroutine. Manual UAT (the existing flow) is unchanged.
 
 ## Step 10: Determine Overall Status
 
@@ -949,7 +706,7 @@ because this guard is harness-level, not an AOForge hook.
 
 <stub_detection_patterns>
 
-@~/.claude/aoforge/references/stub-patterns.md
+Read ~/.claude/aoforge/references/stub-patterns.md with the Read tool before the stub scan of each TRD's key files (an @ line in an agent prompt is not expanded for you); it lists the placeholder, TODO and hard-coded-return patterns to grep for, per stack.
 
 </stub_detection_patterns>
 

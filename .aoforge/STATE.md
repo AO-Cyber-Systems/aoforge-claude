@@ -278,6 +278,12 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 | 31 | session-audit counts edit-gate bypasses / routed / abandoned (DECISION-001 data) | 2026-10-05 | 60a4def7 | Done | [31-count-edit-gate-bypasses-in-session-audi](./quick/31-count-edit-gate-bypasses-in-session-audi/) |
 | 32 | hook-runner waits for stdout to drain before settling (CI flake on release PR #126) | 2026-10-08 | 1e12f7f0 | Done | [32-fix-hook-runner-stdout-drain-race-causin](./quick/32-fix-hook-runner-stdout-drain-race-causin/) |
 | 33 | Clear the 13 new CodeQL alerts on release PR #126 (mdCell table escaping, exact hint asserts, argv spawn) | 2026-10-08 | 8d4396af | Done | [33-clear-codeql-alerts-on-release-pr-126](./quick/33-clear-codeql-alerts-on-release-pr-126/) |
+| 34 | 3.1.0 release blockers (core version, prefixed release tags, changelog hint) and security sweep secret leak + regex cost | 2026-10-16 | f7e68425 | Done | [34-release-blockers-for-3-1-0-and-security-](./quick/34-release-blockers-for-3-1-0-and-security-/) |
+| 35 | Model overrides bind, no-progress guard on every non-Bash tool, advance-job archive committed, stack verify --task path and unavailable packs | 2026-10-16 | 64fbcb11 | Done | [35-model-overrides-no-progress-matcher-adva](./quick/35-model-overrides-no-progress-matcher-adva/) |
+| 36 | Verb correctness: roadmap-coverage on the shared parser, checkpoint SUMMARYs not done, trd finalize safe retry, planning verbs write the running worktree | 2026-10-16 | 98948a16 | Done | [36-verb-correctness-roadmap-coverage-trd-fi](./quick/36-verb-correctness-roadmap-coverage-trd-fi/) |
+| 37 | Sonnet 5.5 cache rate 0.05x, 3.1.0 and pack 1.0.0 dated 2026-10-16, release dry run + explicit permissions + tag-rules inspector | 2026-10-16 | 51c29758 | Done | [37-sonnet-cache-rate-release-dates-release-](./quick/37-sonnet-cache-rate-release-dates-release-/) |
+| 38 | Flutter projects with a web platform select the web pack (soft_depends); web pack executor browser self-check | 2026-10-16 | 6e29a60a | Done | [38-flutter-web-selects-web-pack-web-pack-ex](./quick/38-flutter-web-selects-web-pack-web-pack-ex/) |
+| 39 | Core neutrality sweep: web/Flutter procedure leaves verify-work, checkpoints, templates; guard scans all of core and browser_ tools | 2026-10-16 | 68dab58c | Done | [39-move-remaining-web-and-flutter-procedure](./quick/39-move-remaining-web-and-flutter-procedure/) |
 
 ## Accumulated Context
 

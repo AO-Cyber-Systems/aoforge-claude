@@ -1,5 +1,6 @@
 # The agent shell harness (TRD 34-09/34-10) runs the fenced bash of the named sections of
-# `plugins/aoforge/agents/executor.md` under the real Bash-tool model — cwd persists,
+# `plugins/aoforge-stack-flutter/fragments/executor.md` (the Flutter stack pack's executor
+# procedure, moved out of agents/executor.md by TRD 76-05 and objective 77) under the real Bash-tool model — cwd persists,
 # shell variables do not, one command per call — and fails on any finding.
 #
 # This job is PATH-FILTERED, which is a known false-green class in this fleet
@@ -17,6 +18,8 @@ on:
     paths:
       - 'plugins/aoforge/agents/**'
       - 'plugins/aoforge/aoforge/workflows/**'
+      - 'plugins/aoforge-stack-flutter/fragments/**'
+      - 'plugins/aoforge-stack-flutter/bin/**'
       - 'plugins/aoforge/aoforge/bin/lib/agent-shell-harness*'
       - 'plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/**'
       - '.github/workflows/agent-shell-harness.yml'
@@ -42,8 +45,8 @@ jobs:
       - name: Stub binaries are executable
         run: |
           git ls-files -s plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/bin/
-          test "$(git ls-files -s plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/bin/ | grep -c '^100755')" -eq 6
+          test "$(git ls-files -s plugins/aoforge/aoforge/bin/lib/__fixtures__/agent-shell/bin/ | grep -c '^100755')" -eq 7
 
       # Nothing swallows this step's exit code: a finding must fail the job.
-      - name: Run the harness against agents/executor.md
+      - name: Run the harness against the executor's Flutter procedure
         run: node --test plugins/aoforge/aoforge/bin/lib/agent-shell-harness.test.cjs

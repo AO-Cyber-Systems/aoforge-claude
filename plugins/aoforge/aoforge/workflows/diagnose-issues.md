@@ -88,6 +88,12 @@ TaskCreate(
 TaskUpdate(taskId=gap_task_id, status="in_progress")
 ```
 
+**Resolve the debugger model** (once, before spawning; without it every debugger inherits the session model whatever the profile says):
+
+```bash
+DEBUGGER_MODEL=$(node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model debugger --raw)
+```
+
 **Spawn debug agents in parallel:**
 
 For each gap, fill the debug-subagent-prompt template and spawn:
@@ -96,6 +102,7 @@ For each gap, fill the debug-subagent-prompt template and spawn:
 Task(
   prompt=filled_debug_subagent_prompt,
   subagent_type="debugger",
+  model="{DEBUGGER_MODEL}",
   description="Debug: {truth_short}"
 )
 ```
@@ -146,6 +153,15 @@ Parse each return to extract:
 ```
 TaskUpdate(taskId=gap_task_id, status="completed", description="Root cause: {root_cause}")
 ```
+
+If an agent returns `## ESCALATION REQUESTED` (TRD 76-07), re-spawn that gap's debugger once, one
+rung up, with the same filled prompt plus the escalation block verbatim in `<prior_attempt>`:
+```bash
+node ~/.claude/aoforge/bin/aof-tools.cjs resolve-model debugger --escalate-from "{DEBUGGER_MODEL}"
+```
+Use the result's `model`. When it reports `ceiling: true`, or the re-spawn escalates again, record
+the gap as inconclusive (below) with the block's "What a higher rung should do differently" as the
+remaining possibility. Other gaps keep `DEBUGGER_MODEL`.
 
 If agent returns `## INVESTIGATION INCONCLUSIVE`:
 - root_cause: "Investigation inconclusive - manual review needed"

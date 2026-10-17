@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "aocyber",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "AO Cyber Systems plugins for Claude Code",
   "owner": {
     "name": "AO Cyber Systems",
@@ -10,13 +10,35 @@
   "plugins": [
     {
       "name": "aoforge",
-      "description": "Meta-prompting, context engineering, and spec-driven development system. 34 skills, 13 agents, wave-based parallelization, atomic commits, design-craft references, and persistent state across context resets.",
-      "version": "3.0.0",
+      "description": "Meta-prompting, context engineering, and spec-driven development system. 32 skills, 12 agents, stack packs for Flutter and web, wave-based parallelization, atomic commits, design-craft references, and persistent state across context resets.",
+      "version": "3.1.0",
       "author": {
         "name": "AO Cyber Systems",
         "email": "dev@aocodex.ai"
       },
       "source": "./plugins/aoforge",
+      "category": "development"
+    },
+    {
+      "name": "aoforge-stack-flutter",
+      "description": "AOForge stack pack for Flutter and Dart: UI verification gates, the visual-eval judge, the design critic and Flutter-aware planning. Needs aoforge.",
+      "version": "1.0.0",
+      "author": {
+        "name": "AO Cyber Systems",
+        "email": "dev@aocodex.ai"
+      },
+      "source": "./plugins/aoforge-stack-flutter",
+      "category": "development"
+    },
+    {
+      "name": "aoforge-stack-web",
+      "description": "AOForge stack pack for web UIs: the verifier's Playwright browser drive, run by a dedicated agent. Needs aoforge and the Playwright plugin.",
+      "version": "1.0.0",
+      "author": {
+        "name": "AO Cyber Systems",
+        "email": "dev@aocodex.ai"
+      },
+      "source": "./plugins/aoforge-stack-web",
       "category": "development"
     },
     {

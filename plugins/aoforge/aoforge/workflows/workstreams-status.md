@@ -38,7 +38,7 @@ For each workstream in `workstreams`:
 
 1. **Read worktree STATE.md:**
 ```bash
-cat {worktree_path}/.aoforge/STATE.md 2>/dev/null
+node ~/.claude/aoforge/bin/aof-tools.cjs --cwd {worktree_path} state digest --raw 2>/dev/null
 ```
 
 Parse: current objective, job progress, status.

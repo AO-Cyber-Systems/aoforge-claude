@@ -12,7 +12,7 @@ Soft-bundled with `defaults-table.md` per the v1.1 design — both are read by t
 | Integration | Multiple units or a unit plus real I/O behave correctly together | profile `## Testing` |
 | System / E2E | The system behaves correctly end-to-end, driven from its outermost surface | profile `verification.runtime` + `runtime_check` |
 | AI exploratory | Ad hoc, judgment-driven probing beyond scripted cases | (no formal pattern) |
-| Visual / golden | Rendered UI matches an approved baseline | `aof-tools verify flutter-ui-eval` where a UI profile applies |
+| Visual / golden | Rendered UI matches an approved baseline | the active stack pack's visual gate, where one applies (`stack context verifier`) |
 | Wrong-tenant assertion | Cross-tenant access is rejected | profile `## Testing` |
 | Contract / parity (port) | A reimplementation reproduces the source's observable behavior | profile `## Testing` |
 
@@ -24,33 +24,24 @@ Soft-bundled with `defaults-table.md` per the v1.1 design — both are read by t
 
 ## Example stack profiles
 
-The former per-stack cells (Go, Flutter, Node) now live as tier-2 profiles that ship bundled in `aoforge/stack-profiles/` (`go.md`, `dart.md`, `flutter.md`), mirrored to `~/.claude/aoforge/stack-profiles/`. A project adopts one via `extends: <id>` in `.aoforge/STACK.md` with nothing to install. A user or org override goes in `~/.claude/aoforge/stacks/<id>.md` and wins over the bundled profile of the same id.
+Go ships bundled as `aoforge/stack-profiles/go.md`, mirrored to `~/.claude/aoforge/stack-profiles/`. Other stacks' profiles ship in their stack pack (`aof-tools stack discover` lists the packs) and carry their own layer cells in their `## Testing` section. A project adopts one via `extends: <id>` in `.aoforge/STACK.md`. A user or org override goes in `~/.claude/aoforge/stacks/<id>.md` and wins over the pack's and the bundled profile of the same id.
 
-| Layer | Go | Flutter (mobile + web) | Node (CLI / plugin) |
-|---|---|---|---|
-| Unit | `*_test.go` per-package | `flutter test` (widget + unit) | `node --test` |
-| Integration | `*_test.go` with httpmock or interceptor cassettes | `integration_test/` driver harness | Fixture-driven test against real I/O |
-| System / E2E | (rare — gateway level only) | `integration_test/` + Patrol (or Maestro YAML for native flows) | (rare) |
-| AI exploratory | (no formal pattern in org) | (no formal pattern in org) | (no formal pattern in org) |
-| Visual / golden | n/a | `aof-tools verify flutter-ui-eval` — two-layer (golden net + VLM judge), shipped in AOForge 2.4.0; `matchesGoldenFile` in use on aodex/eden-biz | n/a |
-| Wrong-tenant assertion | httpmock test asserting cross-tenant 403/404 | (rarely applicable) | n/a |
-| Contract / parity (port) | Recorded cassettes vs source | Widget-tree behavioral parity | I/O snapshot or daemon contract test |
-
-## Flutter-web semantics gotcha
-
-The Flutter integration test runner has subtly different semantics between web (browser) and mobile (real device or emulator) targets:
-
-- On mobile, `await tester.pumpAndSettle()` waits for all pending animations + microtasks to drain.
-- On web, the same call sometimes returns before browser-side `requestAnimationFrame` completions. Tests that pass on mobile occasionally flake on web.
-
-Recommendation: for Flutter projects targeting web specifically, prefer `Patrol` (which wraps these semantics) or add an explicit `await Future.delayed(Duration(milliseconds: 100))` after navigation events. Document the failure mode in the TRD's `<gotchas>` section so executors don't lose hours debugging "this test passes on macOS but flakes on web."
+| Layer | Go | Node (CLI / plugin) |
+|---|---|---|
+| Unit | `*_test.go` per-package | `node --test` |
+| Integration | `*_test.go` with httpmock or interceptor cassettes | Fixture-driven test against real I/O |
+| System / E2E | (rare — gateway level only) | (rare) |
+| AI exploratory | (no formal pattern in org) | (no formal pattern in org) |
+| Visual / golden | n/a | n/a |
+| Wrong-tenant assertion | httpmock test asserting cross-tenant 403/404 | n/a |
+| Contract / parity (port) | Recorded cassettes vs source | I/O snapshot or daemon contract test |
 
 ## Codegen discipline
 
 Several stacks generate code from higher-level schemas:
 
 - ConnectRPC: `.proto` files generate Go handlers/clients
-- Drift / Floor (Flutter SQLite): schema generates DAO classes
+- Drift / Floor (SQLite ORMs): schema generates DAO classes
 - GraphQL Codegen: schema generates typed clients
 
 The profile's `generated` block names the globs, markers and `regenerate` command.
@@ -67,8 +58,8 @@ This makes "regen broke X" diffs distinct from "schema broke X" diffs. Tests aga
 
 Outside-in testing starts at the highest user-observable layer and drills inward. The "highest layer" varies by platform:
 
-- **Web app:** browser driver (e.g. Playwright) then controller/route handler then service then repository
-- **Mobile (Flutter):** `integration_test` driver then widget tests then service then repository
+- **Web app:** browser driver (from the stack profile or an active pack) then controller/route handler then service then repository
+- **Mobile:** the platform's integration driver (from the stack profile) then widget/component tests then service then repository
 - **HTTP API:** HTTP integration test (real server or httpmock) then handler then service then repository
 - **CLI:** top-level test invoking the binary or its entry function then command-tree dispatch then flag parsing then I/O snapshot
 - **Plugin:** Host integration test (mocked host) then plugin contract surface then internal modules
@@ -86,7 +77,7 @@ The planner uses this routing when the resolver returns `outside_in: true` — o
 
 Covered by future objectives, not this doc:
 
-- Extending the shipped Flutter visual gate with a probe/conform layer (cross-stack, beyond Flutter) — see `docs/PROPOSAL-ui-oracle-loop.md` in the aoforge-claude repository (the `~/.claude/aoforge` mirror carries no `docs/`)
+- Extending a stack pack's visual gate with a probe/conform layer (cross-stack) — see `docs/PROPOSAL-ui-oracle-loop.md` in the aoforge-claude repository (the `~/.claude/aoforge` mirror carries no `docs/`)
 - AI-exploratory testing patterns — no observed org adoption; revisit if/when patterns emerge
 - Property-based testing infrastructure — suppressed by default per the `no_property_based_default` resolver constraint
 - Stack-specific tooling — declare it in the project's stack profile (`.aoforge/STACK.md`)

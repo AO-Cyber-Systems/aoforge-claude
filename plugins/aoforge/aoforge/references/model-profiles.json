@@ -1,7 +1,7 @@
 {
   "_comment": [
     "Two maps with DIFFERENT consumers — keep both accurate.",
-    "models{}: tier -> concrete API model id. Live: flutter-ui-eval.cjs sends it to the",
+    "models{}: tier -> concrete API model id. Live: a stack pack's vision judge sends it to the",
     "  Messages API for the vision judge. A stale id here is a real runtime defect.",
     "agents{}: agent -> tier per profile. Consumed by aof-tools resolve-model, which",
     "  emits a Task() model ALIAS (opus resolves to 'inherit' so the agent keeps the",
@@ -13,7 +13,7 @@
   "models": {
     "opus":   "claude-opus-5-5",
     "sonnet": "claude-sonnet-5-5",
-    "haiku":  "claude-haiku-4-5"
+    "haiku":  "claude-haiku-5-5"
   },
   "agents": {
     "planner":              { "quality": "opus",   "balanced": "opus",    "budget": "sonnet" },
@@ -24,10 +24,19 @@
     "research-synthesizer": { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
     "debugger":             { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" },
     "codebase-mapper":      { "quality": "sonnet", "balanced": "haiku",   "budget": "haiku"  },
-    "verifier":             { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
-    "job-checker":          { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
+    "verifier":             { "quality": "sonnet", "balanced": "sonnet",  "budget": "sonnet" },
+    "job-checker":          { "quality": "sonnet", "balanced": "sonnet",  "budget": "sonnet" },
     "integration-checker":  { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  },
-    "security-auditor":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" },
-    "ui-evaluator":         { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
-  }
+    "security-auditor":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
+  },
+  "focus": {
+    "codebase-mapper": {
+      "concerns":     { "quality": "sonnet", "balanced": "sonnet",  "budget": "haiku"  }
+    },
+    "project-researcher": {
+      "pitfalls":     { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" },
+      "architecture": { "quality": "opus",   "balanced": "sonnet",  "budget": "sonnet" }
+    }
+  },
+  "verdict_floor": { "tier": "sonnet", "agents": ["verifier", "job-checker"] }
 }

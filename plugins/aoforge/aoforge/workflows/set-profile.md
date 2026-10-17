@@ -15,9 +15,9 @@ Read all files referenced by the invoking prompt's execution_context before star
 Validate argument:
 
 ```
-if $ARGUMENTS.profile not in ["quality", "balanced", "budget"]:
+if $ARGUMENTS.profile not in ["quality", "balanced", "budget", "auto"]:
   Error: Invalid profile "$ARGUMENTS.profile"
-  Valid profiles: quality, balanced, budget
+  Valid profiles: quality, balanced, budget, auto
   EXIT
 ```
 </step>
@@ -61,7 +61,7 @@ Example:
 |-------|-------|
 | planner | opus |
 | executor | sonnet |
-| verifier | haiku |
+| verifier | sonnet |
 | ... | ... |
 
 Next spawned agents will use the new profile.
@@ -71,6 +71,10 @@ Map profile names:
 - quality: use "quality" column from MODEL_PROFILES
 - balanced: use "balanced" column from MODEL_PROFILES
 - budget: use "budget" column from MODEL_PROFILES
+- auto: no single column. Each objective uses the profile its (kind, work) cell in
+  `references/defaults-table.md` names (feature/port → quality, refactor/foundation/bugfix →
+  balanced, prototype/spike → budget); an OBJECTIVE.md `overrides: model_profile` still wins.
+  Show the three columns and say which applies to which work type.
 </step>
 
 </process>

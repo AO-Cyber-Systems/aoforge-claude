@@ -107,9 +107,9 @@ const GROUPS = {
     templates: ['summary', 'job-prompt'],
   },
   verify: {
-    agents: ['verifier', 'integration-checker', 'ui-evaluator', 'security-auditor'],
-    workflows: ['verify-work', 'verify-objective', 'diagnose-issues', 'ui-eval', 'design-review', 'security-audit'],
-    skills: ['verify-work', 'ui-eval', 'design-review', 'security-audit'],
+    agents: ['verifier', 'integration-checker', 'security-auditor'],
+    workflows: ['verify-work', 'verify-objective', 'diagnose-issues', 'security-audit'],
+    skills: ['verify-work', 'security-audit'],
     templates: ['UAT', 'verification-report'],
   },
   bootstrap: {

@@ -30,10 +30,15 @@ const VERB_DETAILS = [
 // name → { usage, summary, mutates?, details? }
 const COMMANDS = {
   'state': {
-    usage: 'aof-tools state [load|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session|rekey --from <old checkout path> [--to <new path>] [--dry-run]] [--raw]',
+    usage: 'aof-tools state [load|digest [--decisions <N>]|rotate-decisions [--keep <N>] [--dry-run]|get [section]|update <field> <value>|patch --<field> <val>...|advance-job [--objective <N>]|record-metric|update-progress|add-decision|add-blocker|resolve-blocker|record-session|rekey --from <old checkout path> [--to <new path>] [--dry-run]] [--raw]',
     summary: 'Read or update .aoforge/STATE.md.',
     mutates: true,
     details: [
+      '  digest    The compact STATE.md a session needs on entry: Project Reference, Current Position, Blockers,',
+      '            Session Continuity, the newest decisions (headlines) and pending todos. `load` returns it as',
+      '            state_digest; `get` still returns the full file.',
+      '  rotate-decisions  Keep the newest N (default 10) entries of "Recent Decisions" in STATE.md and append the rest',
+      '            to STATE_ARCHIVE.md, oldest first. advance-job does the same on every advance (local mode).',
       '  rekey     Copy repo-keyed runtime state from a moved checkout\'s old key to its new key; never deletes.',
       '            Estimate run state and history, awareness cache, hook markers, outbox files (not the lock),',
       '            backups and their registry entry, planning drafts. Nothing at the new key is overwritten;',
@@ -42,8 +47,18 @@ const COMMANDS = {
     ],
   },
   'resolve-model': {
-    usage: 'aof-tools resolve-model <agent-type> [--raw]',
+    usage: 'aof-tools resolve-model <agent-type> [--objective N] [--focus <focus>] [--escalate-from <tier|model>] [--raw]',
     summary: 'Resolve the model for an agent from the configured profile.',
+    details: [
+      'Profile precedence: an OBJECTIVE.md/TRD model_profile override, then config.json',
+      'model_profile, then the (kind, work) defaults table for --objective, then balanced.',
+      'The result names the source as profile_source (TRD 76-01).',
+      '--focus names a spawn focus (codebase-mapper tech|arch|quality|concerns, project-researcher',
+      'stack|features|architecture|pitfalls) whose tiers in model-profiles.json focus{} apply.',
+      'verifier and job-checker never resolve below the verdict_floor tier (TRD 76-06).',
+      '--escalate-from names the tier (or inherit, or a model id) an attempt ran on and returns the',
+      'next rung up (haiku -> sonnet -> opus); ceiling: true at opus means escalate to the human (TRD 76-07).',
+    ],
   },
   'find-objective': {
     usage: 'aof-tools find-objective <objective> [--raw]',
@@ -83,13 +98,23 @@ const COMMANDS = {
     mutates: true,
   },
   'verify': {
-    usage: 'aof-tools verify <job-structure|objective-completeness|references|commits|artifacts|key-links|trd-pre|api-contract|flutter-ui-bootstrap|flutter-state-coverage|flutter-ui-eval> <arg> [--raw]',
-    summary: 'Verification suite — structure, references, commits, artifacts, UI states.',
+    usage: 'aof-tools verify <job-structure|objective-completeness|objective-evidence|references|commits|artifacts|key-links|trd-pre|api-contract> <arg> [--raw]',
+    summary: 'Verification suite — structure, references, commits, artifacts, API contracts.',
+    details: 'objective-evidence <objective> collects the verifier\'s mechanical evidence in one call: per TRD the artifacts and key-links checks, the SUMMARY Self-Check and key-files (and whether each exists) and the commit count, plus objective-completeness (TRD 76-04). Read-only.',
   },
-  'flutter-ui': {
-    usage: 'aof-tools flutter-ui <setup|eval|bootstrap|design-review> [args] [--raw]',
-    summary: 'Flutter UI evaluation setup and runs.',
+  'trd': {
+    usage: 'aof-tools trd finalize <objective>-<trd> [--duration <d>] [--dry-run] [--raw]',
+    summary: 'Run the post-SUMMARY state, roadmap and requirements bookkeeping for one TRD (TRD 76-04).',
     mutates: true,
+    details: 'Reads the TRD (task count, requirements) and its posted SUMMARY (key-files, key-decisions, duration), then runs state advance-job, update-progress, record-metric, add-decision per decision, record-session, roadmap update-job-progress and requirements mark-complete, stopping at the first failure (exit 1). --dry-run prints the steps without running them. Pass --cwd <checkout> first in a worktree.',
+  },
+  'codebase': {
+    usage: 'aof-tools codebase facts [--focus tech|arch|quality|concerns|all] [--root <dir>] [--raw]',
+    summary: 'Language-neutral codebase facts for the mapper: manifests, languages, layout, tests, markers, imports (TRD 76-04).',
+  },
+  'security': {
+    usage: 'aof-tools security sweep [--focus <focus>|all] [--root <dir>] [--raw]',
+    summary: 'The security auditor\'s pattern sweep in one call: hits per check, secret files by existence only (TRD 76-04).',
   },
   'ui': {
     usage: 'aof-tools ui <metrics|spec|sheet|lock> [args] [--raw]',
@@ -97,13 +122,8 @@ const COMMANDS = {
     mutates: true,
   },
   'detect': {
-    usage: 'aof-tools detect <novel-domain|brownfield-map|flutter-ui-scope> [arg] [--raw]',
-    summary: 'Detectors used by the planner (research boundary, brownfield, Flutter UI scope).',
-  },
-  'generate': {
-    usage: 'aof-tools generate uat <objective> [--raw]',
-    summary: 'Generate a 1-page UAT checklist from TRDs and Maestro flows.',
-    mutates: true,
+    usage: 'aof-tools detect <novel-domain|brownfield-map> [arg] [--raw]',
+    summary: 'Detectors used by the planner (research boundary, brownfield).',
   },
   'generate-slug': {
     usage: 'aof-tools generate-slug <text> [--raw]',
@@ -165,7 +185,7 @@ const COMMANDS = {
     summary: 'List objectives with their on-disk status.',
   },
   'roadmap': {
-    usage: 'aof-tools roadmap <get-objective <N>|analyze|update-job-progress <N>> [--raw]',
+    usage: 'aof-tools roadmap <get-objective <N>|analyze|digest|update-job-progress <N>> [--raw]',
     summary: 'Read or update ROADMAP.md.',
     mutates: true,
   },
@@ -197,7 +217,7 @@ const COMMANDS = {
     details: VERB_DETAILS,
   },
   'summary': {
-    usage: 'aof-tools summary post <trd-id> --from <path|-> [--file <name>] | summary checkpoint <trd-id> --from <path|-> [--raw]',
+    usage: 'aof-tools summary post <trd-id> [--from <path|->] [--file <name>] | summary checkpoint <trd-id> [--from <path|->] [--tick <n|text>] [--hash <short>] [--raw]',
     summary: 'Write a TRD\'s SUMMARY (post) or a per-task progress checkpoint.',
     mutates: true,
     details: VERB_DETAILS,
@@ -233,10 +253,10 @@ const COMMANDS = {
     details: VERB_DETAILS,
   },
   'validate': {
-    usage: 'aof-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]> [--raw]',
+    usage: 'aof-tools validate <consistency|health [--repair]|docs|requirements [--objective <N>]|roadmap-coverage> [--raw]',
     summary: 'Check .aoforge/ integrity, objective numbering, documentation staleness, and SUMMARY/VERIFICATION requirement agreement.',
     mutates: true,
-    details: 'health reports W066 legacy-planning-dir as the one broken result when the project has only the pre-rename planning directory, which AOForge no longer reads (fix: AOForge 3.0.x\'s `aof-tools upgrade --apply`, or git mv it to .aoforge/; see docs/MIGRATING-TO-AOFORGE.md), and as a warning when both directories exist (the legacy one is ignored); W067 legacy-config-key when .aoforge/config.json carries the pre-rename stamp key (alone: rename it to "aoforge"; beside "aoforge": delete it); and W069 legacy-claude-md-block when CLAUDE.md holds a managed block under the pre-rename markers (rename them to AOFORGE, or run AOForge 3.0.x\'s upgrade once).',
+    details: 'health reports W066 legacy-planning-dir as the one broken result when the project has only the pre-rename planning directory, which AOForge no longer reads (fix: AOForge 3.0.x\'s `aof-tools upgrade --apply`, or git mv it to .aoforge/; see docs/MIGRATING-TO-AOFORGE.md), and as a warning when both directories exist (the legacy one is ignored); W067 legacy-config-key when .aoforge/config.json carries the pre-rename stamp key (alone: rename it to "aoforge"; beside "aoforge": delete it); and W069 legacy-claude-md-block when CLAUDE.md holds a managed block under the pre-rename markers (rename them to AOFORGE, or run AOForge 3.0.x\'s upgrade once). roadmap-coverage checks that every v1 requirement maps to exactly one ROADMAP objective (orphans, duplicates, unknown ids); exit 1 on a gap (TRD 76-04).',
   },
   'doctor': {
     usage: 'aof-tools doctor [--fix] [--json] [--path <dir>] [--global]',
@@ -354,8 +374,16 @@ const COMMANDS = {
     ],
   },
   'stack': {
-    usage: 'aof-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services]> [--raw]',
-    summary: 'Resolve, validate and slice the project stack profile (.aoforge/STACK.md over bundled general).',
+    usage: 'aof-tools stack <resolve [--file <path>] [--provenance] | context <agent> [--files a,b] [--budget N] [--ui] | validate [--profile <path>] | command <key> [--files a,b] [--packages a,b] [--apply] | init [--from codebase|research] [--extends <id>] [--write] [--force] | verify [--run] [--include a,b] [--keys a,b] [--timeout <s>] [--draft] [--allow-services] | verify --changed|--all [--task <id>] | discover | doctor> [--raw]',
+    summary: 'Resolve, validate and slice the project stack profile (.aoforge/STACK.md over bundled general); discover, gate and check stack packs.',
+    details: [
+      '  stack discover    mirrored stack packs, which are active for this project and why, and which the repo evidence proposes.',
+      '  stack doctor      for each active pack: its required tools on PATH and its own doctor command. Exit 1 when one is not ready.',
+      '  stack verify --changed|--all [--task <id>]   run every active pack\'s verify command and merge the results',
+      '                    (error > missing > fail > pass; missing never passes). --task writes .aoforge/verify/<id>.json.',
+      '                    Exit 0 pass, 1 fail, 2 missing or error.',
+      '  stack context <agent> also lists the active packs\' fragment for that agent and the pack sub-agents it delegates to.',
+    ],
     mutates: true,
   },
   'awareness': {
@@ -530,8 +558,6 @@ const OWN_HELP = {
   'org-awareness': true,
   'dup-detect': true,
   'defaults-table': new Set(['init']),
-  'flutter-ui': new Set(['bootstrap', 'design-review', 'eval']),
-  'verify': new Set(['flutter-ui-eval']),
   'gh': new Set(['resolve']),
 };
 

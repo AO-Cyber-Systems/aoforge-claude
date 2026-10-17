@@ -198,6 +198,202 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with `spawnSync gh ENOBUFS` on a repository whose issue list is larger than 1 MiB. A read that still overflows or
   times out says so (`ENOBUFS` or `ETIMEDOUT`) after the read and the repository it was for.
 
+## [3.1.0] - 2026-10-16
+
+Flutter, Dart and web procedure moved out of core into the `aoforge-stack-flutter` and `aoforge-stack-web` stack
+packs, with no forwarding shim. A Flutter, Dart or web project installs its pack (`/plugin install
+aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
+
+### Release tooling and security sweep (quick 34)
+
+- **Core is 3.1.0.** package.json, package-lock.json, the aoforge plugin.json and marketplace.json (top level and the
+  `aoforge` entry) say 3.1.0, which satisfies the stack packs' `aoforge >=3.1.0`; at 3.0.0 Claude Code disabled both
+  packs (`dependency-version-unsatisfied`). A repo test in stack-packs.test.cjs keeps the release files, every pack's
+  range and this heading in step. An `extends: flutter` or `extends: dart` that cannot be resolved now names the pack
+  and its install command (`lib/stack-pack-hints.cjs`). The `devflow` pointer stays at 3.0.0, its final release.
+- **Prefixed release tags.** release.yml runs on `v*` and `*--v*` tags through `scripts/release-tag.cjs`: a `vX.Y.Z`
+  release first pushes `aoforge--vX.Y.Z` at the same commit (the tag the packs resolve core from), a
+  `<pack>--vX.Y.Z` tag creates that pack's release from `plugins/<pack>/CHANGELOG.md` with `--latest=false`, and an
+  `aoforge--v*` push creates nothing. The changelog gate's hint for `aoforge--vX.Y.Z` now runs `changelog update
+  --version vX.Y.Z` (it wrote `## [aoforge--vX.Y.Z]`), and `changelog update` takes the previous release from `v*`
+  tags only, so a pack tag between releases no longer shortens the range.
+- **`security sweep` no longer copies secrets into a transcript.** Hit text is redacted fail-closed: a token is
+  replaced whole (prefix and body; `sk_live_…`, `xoxb-…` and others kept their body before), and after a
+  secret-looking key and its operator (`=`, `:=`, `:`, `==`, `||`, `or`, `,`, `(` and more) the rest of the line is
+  replaced, so `f"…"`, `?token=…`, `os.getenv(…) or "…"` and `password == "…"` no longer leak. Go `password :=`,
+  `sk-ant-…` and `github_pat_…` are now leads. Each line is matched in its first 4096 characters (`line_truncated`,
+  `lines_capped`), and the sql-injection and debug-defaults rows no longer backtrack catastrophically: a 200 KB
+  single-line file that stalled the sweep past 30 s now takes milliseconds. A `--root` that is missing or not a
+  directory exits 1 instead of reporting a clean sweep.
+
+### Fixes (quick 35)
+
+- **Project `agent_models` and `model_overrides` bind.** Both were silently ignored (`loadConfig` dropped them, and
+  `resolve-model` never read `model_overrides`). `resolve-model` and every `init` command now resolve through one
+  function, `resolveAgentModel`, and report the winning layer in `tier_source`. Precedence, highest first:
+  `--escalate-from`, then `model_overrides` (unfloored), then `agent_models`, then the focus tier, then the package
+  table; the verdict floor applies to the last three.
+- **The no-progress guard covers every tool again.** Its PreToolUse matcher was a list of exact names, and under
+  Claude Code's matcher rule `mcp__` matched no MCP tool while BashOutput, Monitor, ToolSearch and SendMessage got no
+  guard at all. The matcher is now `^(?!Bash$).*`: every tool except exactly `Bash`, MCP tools included. Bash stays
+  covered once, through the PreToolUse(Bash) dispatcher. pre-bash.test.js and hook-coexistence.test.js model the rule
+  with one shared helper (`hooks/__fixtures__/claude-matcher.js`).
+- **Rotated decisions reach the branch.** `state advance-job` reports `files_changed` (the planning files the run
+  wrote) and `archive_updated`, and seeds STATE_ARCHIVE.md whenever it writes STATE.md. The commits that follow it in
+  execute-trd.md and execute-objective.md now name `.aoforge/STATE_ARCHIVE.md`, so in a worktree the decision and
+  metric rows it moved are committed. A repo test (`state-archive-commit.repo.test.cjs`) fails on any prompt that
+  commits STATE.md after an archive-writing command without the archive.
+- **`stack verify --task` stays in the verify directory.** `--task ../../escaped` wrote `<project>/escaped.json`, and a
+  bare `--task` was silently treated as no task. A task id is now letters, digits, `.`, `_` and `-` with no `..`; any
+  other value, a missing one or a flag exits 1 before a pack command runs or a file is written, and the record writer
+  refuses any path outside `<planning dir>/verify/`.
+- **A selected pack that cannot run blocks.** A pack named in config `stacks.enabled` (and not in `stacks.disabled`)
+  that is not mirrored, has a broken manifest or has its plugin disabled made `stack verify` print `pass` and
+  `stack doctor` print `No active stack packs.`, both with exit 0. `stack verify` now reports it as `missing` (or
+  `error` for a broken manifest) and exits 2, and `stack doctor` lists it as not ready and exits 1
+  (`unavailableSelectedPacks` in `lib/stack-packs.cjs`).
+
+### Fixes (quick 36)
+
+- **`validate roadmap-coverage` reads ROADMAP ids with the shared parser.** It kept its own label and id regexes, so it
+  disagreed with `verify trd-pre` and `objective complete`: `- **Requirements**: API-01` and a label followed by bullet
+  lines were false orphans, and `none (tech debt; AUTH-03 deferred)` counted AUTH-03 as mapped. Each objective section
+  now goes through `roadmapRequirementIds`, and a section ends at the next heading of its own level or higher, so a
+  Requirements line under a later `## Progress` is credited to no objective. A REQUIREMENTS.md section is out of v1
+  only when its heading starts with `v2` (or later), `Out of Scope`, `Traceability`, `Future`, `Deferred` or `Later`,
+  so `## Integrations (OAuth v2)` stays in v1. A REQUIREMENTS.md with no v1 definitions exits 1 with a reason instead of
+  `0/0 ✓`. Requirement ids may carry one lowercase suffix (`AUTH-01a`) on both sides, and raw success output ends in a
+  newline.
+- **A checkpoint SUMMARY is not a finished TRD.** `verify objective-evidence` counted a mid-run SUMMARY (`## Progress`,
+  no `## Self-Check`) as done and reported "2/2 TRDs have a SUMMARY", and `verify objective-completeness` called the
+  objective complete. Evidence now flags `checkpoint` per SUMMARY, counts final SUMMARYs only, lists `checkpoints` and
+  `no_self_check`, and its raw output ends in a newline. Completeness needs a final SUMMARY per plan, lists
+  `checkpoint_summaries` and adds the error `Plans with only a checkpoint SUMMARY`.
+- **`trd finalize` is a safe retry.** A re-run appended every decision and the metrics row to STATE_ARCHIVE.md again.
+  `state record-metric` now replaces the row for the same objective and job (and, in store mode, its `metrics_log`
+  entry), and an identical `state add-decision` is a no-op that exits 0 with `duplicate: true`. A table that ends the
+  archive no longer gains a blank line on every write. Decisions keep their rationale: `Cookie sessions: simpler than
+  JWT here` passes `--summary` and `--rationale`, and `Use https://example.com docs` stays whole. `--duration=99min`
+  is read, and `--duration` with no value (or followed by a flag) exits 1 before anything runs. A checkpoint SUMMARY is
+  refused, and `01-1` or `1-1` resolves to TRD 01-01.
+- **Planning verbs write the checkout that runs them in local mode.** Every verb resolved the main checkout whenever it
+  had a planning directory, so `quick put` run from a worktree whose tree used the legacy planning directory wrote the
+  main checkout's `.aoforge/quick/...` and printed `wrote .aoforge/quick/...`, and `summary checkpoint` could not find
+  a TRD that only the worktree had. One resolver, `planning-mode.resolveVerbRoot`, now decides the root for every
+  planning verb (plan, objective, summary, verification, doc, todo, debug, quick, decision, milestone and `planning
+  draft`): in local mode the checkout holding the caller when it has its own planning directory, else the main
+  checkout. Store mode still reads and writes the main checkout (D-14), and drafts stay keyed on the main checkout.
+  `todo-sync` keeps passing the main checkout explicitly.
+
+### Pricing and release workflow (quick 37)
+
+- **Sonnet 5.5 cache hits cost $0.10 per million.** model-rates.json had $0.20, the 0.1x rule. The pricing page prices
+  cache hits on Opus 5.5 and Sonnet 5.5 at 0.05x input. Every entry was re-read on 2026-10-16, and a test pins the
+  page's multipliers (cache hits 0.05x for Opus 5.5 and Sonnet 5.5, 0.025x for Fable 5.1 and 0.1x otherwise; writes
+  1.25x and 2x). calibration.json keeps the rates it was built with, so re-run `aof-tools calibrate` to reprice. On the
+  same inputs (objectives 57 to 66, `--minutes trd_level --window 10 --through 66`) the TRD-level cost falls from
+  $3.02 to $2.14 at p50 and from $5.39 to $4.04 at p90.
+- **Release dry run.** release.yml grants `contents: write` at the top level and in its job. A `workflow_dispatch` with
+  `dry_run` pushes `aoforge--v0.0.0-dryrun-<run id>` at HEAD with GITHUB_TOKEN, checks that origin shows it, deletes
+  it and creates no release; a failed delete names the cleanup command. A tag pushed with GITHUB_TOKEN starts no
+  workflow, and no release path relies on one: the alias needs no run, pack tags are pushed by a person, and no other
+  workflow triggers on tags.
+- **`scripts/tag-rules.cjs`** lists the tag rulesets, including inherited ones, that match a tag, read-only. GitHub has
+  no rules-for-a-tag endpoint, so it reads the tag-target rulesets and matches their ref_name patterns locally.
+- **Release dates.** 3.1.0 and the stack packs' 1.0.0 are dated 2026-10-16.
+
+### Stack packs: Flutter web selects the web pack; web executor self-check (quick 38)
+
+- **Soft dependencies.** A pack manifest can declare `soft_depends: [{ pack, platforms }]`. When the declaring pack is
+  active and the resolved `verification.runtime`, or any `platform` / `must_haves.platform` of a TRD under the
+  objectives tree, includes a listed platform, the named pack is selected too. `stacks.disabled` wins, and the rule is
+  not transitive. The Flutter pack declares web for platform `web`, so a Flutter project with web TRDs now gets the web
+  verifier fragment and web-ui-verifier. Before, only the Flutter pack was active and Flutter web coverage fell
+  silently to human verification.
+- **`stack doctor` warns on an absent soft dependency.** Its result gains `warnings` (`pack`, `wants`, `platform`,
+  `reason`, `install_hint`) for a soft dependency that is not installed, not enabled or broken, and `--raw` prints a
+  `warn:` line for each. It never fails on them: `ok` and the exit code ignore warnings.
+- **The executor holds five read-only browser tools again** (navigate, wait_for, console_messages, snapshot, close),
+  which 1cce9f50 had removed, for the web pack's new executor self-check: load up to three routes, count console
+  errors, take one accessibility snapshot and record a `## Browser self-check` table that the web verifier fragment
+  passes to web-ui-verifier. No click, fill or type tool is granted. `stack-neutrality.repo.test.cjs` exempts exactly
+  those tokens on that one frontmatter line (`GRANT_ALLOW`), so a sixth grant fails CI.
+
+### Stack packs: the rest of the web and Flutter procedure leaves core (quick 39)
+
+- **verify-work, `checkpoints.md` and `verification-patterns.md` no longer instruct browser tool calls.** verify-work
+  had told the orchestrator to call tools its skill no longer grants. UI pre-verification now reuses the evidence the
+  active packs recorded (VERIFICATION.md runtime rows, SUMMARY self-check tables), or spawns the agent
+  `stack context verifier --raw` lists under `packs.subagents`; with neither, a UI test is presented without a
+  Pre-verified block. A checkpoint's pre-check comes from the active pack's executor fragment.
+- **The TRD template's Flutter UI fields, the UAT template's auto-generated section and the Flutter cells of
+  `testing-strategy.md` moved to the Flutter pack** (planner fragment, verifier fragment Step 9, profile `## Testing`).
+  Core now documents only the pack-defined `stack` and `platform` fields and its own `api_contract`.
+- **Neutral wording** in `defaults-table.md` (the app cells name UI flow drivers, not tools), `model-profiles`
+  (a stack pack's vision judge reads `models{}`) and the STACK.md template (profile lookup is user, then an enabled
+  pack's, then bundled).
+- **`stack-neutrality.repo.test.cjs` now scans all of core** (`.claude-plugin`, agents, skills, hooks and all of
+  `aoforge/`: templates, references, schemas and stack-profiles included) and matches `browser_*` tool names from any
+  MCP server. The executor's five-token exemption is unchanged. ALLOW gains seven data and design-set entries, with
+  `design-stack-flutter.md` marked as known debt.
+
+### Model efficiency (objective 76) and stack-pack leftovers (objective 77)
+
+- **Mechanical verbs** (TRD 76-04): `trd finalize <obj>-<trd>` runs the executor's post-SUMMARY state, roadmap and
+  requirements bookkeeping from the TRD and SUMMARY; `verify objective-evidence <obj>` collects the verifier's per-TRD
+  artifacts, key-links, Self-Check, key-files and commits; `validate roadmap-coverage` checks every v1 requirement maps
+  to exactly one objective (exit 1 on a gap); `codebase facts [--focus]` gives the mapper language-neutral facts;
+  `security sweep [--focus]` runs the auditor's pattern table and reports secret files by existence only. The
+  executor, verifier, roadmapper, codebase-mapper and security-auditor call them.
+- **Per-focus tiers and a verdict floor** (TRD 76-06): `model-profiles.json` `focus{}` raises codebase-mapper
+  `concerns` and project-researcher `architecture`/`pitfalls`; `resolve-model --focus`, `init map-codebase`
+  `mapper_models`, `init new-project|new-milestone` `researcher_models`. `verdict_floor` keeps the verifier and the
+  job-checker at Sonnet or above on every profile (budget was Haiku). No tier is lowered before a recorded eval.
+- **Escalation loop** (TRD 76-07): `resolve-model --escalate-from <tier|inherit|model id>` returns the next rung
+  (`ceiling: true` at opus). `execute-objective` classes `## ESCALATION REQUESTED` as ESCALATE and re-spawns the plan
+  one rung up once (item 5e) instead of FAILED; `/aoforge:debug` and `diagnose-issues` do the same for the debugger,
+  which gains the escalation return.
+- **Stack packs, the rest of the procedure**: `stack verify --run`'s Dart/Flutter gate guard and org-awareness's Dart
+  export extractor move into the Flutter pack behind new manifest hooks `gate_policy` and `awareness`; the Surface
+  Spec pattern catalogue defaults to an active pack's `ui.pattern_catalogue` (`--patterns` still overrides); TRD
+  artifact `tests:` take any key. Six neutrality allowlist entries go.
+
+### Performance and context budget
+
+- **STATE.md is a digest again.** `state rotate-decisions [--keep N] [--dry-run]` keeps the newest 10 entries of
+  `## Recent Decisions` in STATE.md and appends the rest to STATE_ARCHIVE.md, oldest first; `state advance-job` does
+  the same on every advance in local mode and migration 0015 (auto) does it once at upgrade. `validate health`
+  Check 23 reports W068 `decision-log-oversized` (repairable). New `state digest [--decisions N]` prints the compact
+  STATE.md a session needs on entry (Project Reference, Current Position with the objective-complete lines
+  collapsed, blockers, continuity, the newest decision headlines, pending todos); `state load` returns it as
+  `state_digest` in place of `state_raw`, which had no consumers. `lib/state-digest.cjs`.
+- **`roadmap digest`**: one line per objective plus milestones and the current/next pointers (2.3 KB here against
+  a 36 KB ROADMAP.md); `analyzeRoadmap` is the shared reader behind `analyze` and `digest`.
+- **Skills inject digests instead of whole files.** Every `@.aoforge/STATE.md` and `@.aoforge/ROADMAP.md` in a
+  skill is now a !`aof-tools state digest --raw` / `roadmap digest --raw` injection, and the routed skills
+  (status, milestone, workstreams, todo, objective) Read only the workflow `skill-route` resolves instead of inlining
+  every subcommand's. Measured on this repo: `/aoforge:status` 43K -> 5K chars before any work, `/aoforge:milestone`
+  75K -> 13K. Verified on Claude Code 2.1.301: a skill body expands `@` for absolute, `~` and
+  `${CLAUDE_PLUGIN_ROOT}` paths and runs `!` lines under its Bash grant; agent bodies and Task prompts expand
+  neither, so every `@` line in an agent is now an explicit "Read this file when ..." instruction (checkpoints.md
+  only before a checkpoint task, tdd.md only for a TDD TRD), and `cat .aoforge/STATE.md` in agents and workflows
+  became `state digest --raw`.
+- **`summary checkpoint <trd> --tick <n|text> [--hash <short>]`** ticks one `## Progress` item in the SUMMARY draft
+  in place and checkpoints it: one command per task instead of a whole-draft rewrite. With neither `--tick` nor
+  `--from`, `summary checkpoint` and `summary post` take the planning draft of that SUMMARY as the input.
+- **aof-tools loads its lib modules lazily** at dispatch: `--version`, `state get`, `config-get` 125 ms -> ~47 ms
+  (6 modules loaded instead of 52). The backup-prune throttle no longer loads upgrade.cjs before reading its stamp.
+- **One process for the PreToolUse(Bash) hooks.** `hooks/pre-bash.js` runs gate-commits, changelog-on-tag,
+  gate-interactive, gate-bash-writes and guard-no-progress with the same stdin and merges their decisions (deny over
+  ask, every reason kept; a throwing hook is skipped). Each dispatched hook carries `DISPATCHED-BY: pre-bash.js`,
+  which doctor check 12, the hook inventory and the docs generator read. guard-no-progress keeps its own
+  registration for the other tools. Five processes per Bash call became one.
+- **CLAUDE.md** is 146 lines / 15K chars (was 225 / 40K): the command catalog moved to `docs/AOF-TOOLS-REFERENCE.md`
+  and the per-hook detail to `docs/HOOKS-REFERENCE.md`. `context-budget.repo.test.cjs` caps CLAUDE.md, every
+  skill's resolved footprint and every agent body, and rejects a whole-planning-file inline in a skill.
+- **Models**: `claude-haiku-5-5` is priced in `model-rates.json` and is the `haiku` tier pin (was the superseded
+  `claude-haiku-4-5`, which doctor check 13 and W063 could not flag without the rate row).
+
 ## [3.0.0] - 2026-10-08
 
 DevFlow is now AOForge. 3.0.0 is objective 72 (INST-01 to INST-06), the rename, together with objectives 68 to 71,

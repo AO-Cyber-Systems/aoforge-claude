@@ -5,7 +5,8 @@
  * `--from`, and the check that the draft is still based on the live file.
  *
  * A draft lives at `<os.tmpdir()>/aoforge-drafts/<repoKey(main)>/<rel>` and is seeded from the live
- * `<main>/.aoforge/<rel>`. Before this module a draft was seeded once and never looked at again, so one left over from
+ * `<root>/<planning dir>/<rel>`, where `<root>` is the root the verbs write (planning-mode.resolveVerbRoot, quick 36):
+ * the running checkout in local mode when it has a planning dir, else main. The draft key stays main's. Before this module a draft was seeded once and never looked at again, so one left over from
  * an earlier session, or seeded before someone else changed the live file, was handed back as current and `doc put`
  * published it over that change (in store mode, to the wiki).
  *
@@ -55,8 +56,10 @@ function readOrNull(file) {
   }
 }
 
-/** The MAIN checkout (D-14): drafts and the live file are keyed on it, so a linked worktree shares them. */
+/** The MAIN checkout (D-14): drafts are keyed on it, so a draft path handed out from any checkout stays valid. */
 const mainOf = (root) => planningMode.resolveMainRoot(root) || path.resolve(String(root));
+/** The root the planning verbs write (quick 36): the live file a draft is seeded from and published to lives there. */
+const verbRootOf = (root) => planningMode.resolveVerbRoot(root) || path.resolve(String(root));
 
 /** `<tmpdir>/aoforge-drafts/<repoKey(main)>/<rel>`; throws TypeError (planning-paths' rule) for an unsafe rel. */
 function draftFileFor(root, rel) {
@@ -64,10 +67,10 @@ function draftFileFor(root, rel) {
   return path.join(os.tmpdir(), DRAFTS_DIR, outbox.repoKey(mainOf(root)), ...rel.split('/'));
 }
 
-/** `<main>/<planning dir>/<rel>`: the file a draft is seeded from and published to. */
+/** `<verb root>/<planning dir>/<rel>`: the file a draft is seeded from and published to. */
 function liveFileFor(root, rel) {
   planningPaths.classify(rel);
-  return path.join(planningRoot(mainOf(root)), ...rel.split('/'));
+  return path.join(planningRoot(verbRootOf(root)), ...rel.split('/'));
 }
 
 /** realpath of the deepest existing ancestor of `p` with the missing remainder re-appended (macOS /var vs /private/var). */
@@ -216,7 +219,7 @@ function checkDraftBase(root, rel, from) {
     reason: s.reason,
     draft: from,
     error:
-      `the draft ${from} is stale: ${planningRel(mainOf(root), rel)} changed after the draft was seeded, so publishing it would ` +
+      `the draft ${from} is stale: ${planningRel(verbRootOf(root), rel)} changed after the draft was seeded, so publishing it would ` +
       `overwrite that change. Run \`aof-tools planning draft ${rel}\` to reseed it (it keeps your edits at ` +
       `${from}${STALE_SUFFIX}), re-apply them, then run doc put again.`,
   };

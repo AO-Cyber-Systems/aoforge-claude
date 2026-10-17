@@ -414,8 +414,8 @@ describe('7. layout both: the new directory wins and the legacy one is left alon
 
   test('state load reads <new>/STATE.md', () => {
     const j = json(p.run(['state', 'load']), 'state load');
-    assert.ok(j.state_raw.includes(CURRENT_STATUS), j.state_raw);
-    assert.equal(j.state_raw.includes(LEGACY_COPY_STATUS), false, 'read the legacy copy');
+    assert.ok(j.state_digest.includes(CURRENT_STATUS), j.state_digest);
+    assert.equal(j.state_digest.includes(LEGACY_COPY_STATUS), false, 'read the legacy copy');
   });
 
   test('init plan-objective 1 resolves under the new directory', () => {

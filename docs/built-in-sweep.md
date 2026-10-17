@@ -4,7 +4,7 @@ Status: closed (TRD 62-10). Every row below is converted or marked.
 
 Inventory: TRD 62-02. Conversions: TRDs 62-04 to 62-09 and 62-11. Ratchet closed: TRD 62-10, which deleted the baseline directory and reconciled each Conversion cell below with what shipped.
 
-This is the list of every prompt in the 34 skills and 40 active workflows that the built-in sweep converted or deliberately kept, with what each became, plus the progress tasks, plan-mode draft reviews and `allowed-tools` changes that shipped. The rules the conversions follow are in [references/built-ins.md](../plugins/aoforge/aoforge/references/built-ins.md), and the CI check that holds this list to the prose is [builtin-sweep.repo.test.cjs](../plugins/aoforge/aoforge/bin/lib/builtin-sweep.repo.test.cjs).
+This is the list of every prompt in the 32 skills and 38 active workflows (`ui-eval` and `design-review` moved to the Flutter stack pack, objective 77) that the built-in sweep converted or deliberately kept, with what each became, plus the progress tasks, plan-mode draft reviews and `allowed-tools` changes that shipped. The rules the conversions follow are in [references/built-ins.md](../plugins/aoforge/aoforge/references/built-ins.md), and the CI check that holds this list to the prose is [builtin-sweep.repo.test.cjs](../plugins/aoforge/aoforge/bin/lib/builtin-sweep.repo.test.cjs).
 
 ## Prompts
 
@@ -157,9 +157,9 @@ Every scanned file with no row above. Each was read for prompts and has none the
 - **milestone** (2): `skills/milestone/SKILL.md`, `aoforge/workflows/audit-milestone.md`
 - **execute-and-map** (4): `skills/adopt/SKILL.md`, `skills/discuss-objective/SKILL.md`, `skills/execute-objective/SKILL.md`, `aoforge/workflows/adopt.md`
 - **todo-status-objective** (9): `skills/objective/SKILL.md`, `skills/status/SKILL.md`, `skills/todo/SKILL.md`, `skills/workstreams/SKILL.md`, `aoforge/workflows/add-objective.md`, `aoforge/workflows/add-todo.md`, `aoforge/workflows/progress.md`, `aoforge/workflows/workstreams-run.md`, `aoforge/workflows/workstreams-status.md`
-- **remaining** (16): `skills/awareness/SKILL.md`, `skills/cleanup/SKILL.md`, `skills/design-review/SKILL.md`, `skills/flow/SKILL.md`, `skills/help/SKILL.md`, `skills/initiatives/SKILL.md`, `skills/list-objective-assumptions/SKILL.md`, `skills/security-audit/SKILL.md`, `skills/set-profile/SKILL.md`, `skills/settings/SKILL.md`, `skills/sync-roadmap/SKILL.md`, `skills/tui/SKILL.md`, `skills/ui-eval/SKILL.md`, `aoforge/workflows/design-review.md`, `aoforge/workflows/set-profile.md`, `aoforge/workflows/ui-eval.md`
+- **remaining** (12): `skills/awareness/SKILL.md`, `skills/cleanup/SKILL.md`, `skills/flow/SKILL.md`, `skills/help/SKILL.md`, `skills/initiatives/SKILL.md`, `skills/list-objective-assumptions/SKILL.md`, `skills/security-audit/SKILL.md`, `skills/set-profile/SKILL.md`, `skills/settings/SKILL.md`, `skills/sync-roadmap/SKILL.md`, `skills/tui/SKILL.md`, `aoforge/workflows/set-profile.md` (`ui-eval` and `design-review` moved to the Flutter stack pack, objective 77)
 
-Scan set check: 35 files with rows + 39 files with no prompt = 74 (34 skills + 40 active workflows).
+Scan set check: 35 files with rows + 35 files with no prompt = 70 (32 skills + 38 active workflows).
 
 ## Progress (BLTN-01)
 
@@ -233,6 +233,6 @@ Prompts left as prose with no row, because the scanner does not flag them and th
 
 ## Out of scope
 
-- **Agents.** Checked with `rg -n -i "AskUserQuestion|ask the user|wait for user|\(y/n\)" plugins/aoforge/agents`. Subagents cannot reach the user: they return a checkpoint and the orchestrating skill asks. `executor.md` declares AskUserQuestion and describes it only for the main-context run (Pattern C) of a human-verify or decision checkpoint; as a subagent it returns the checkpoint format. `debugger.md` line 238 (`Wait for user to select (number) or describe new issue (text)`) is the debugger's own standalone session handling; skills/debug asks for it (see the debug rows). `planner.md` line 702 (offer to reconstruct a missing STATE.md) is a planner return. The other ten agents (codebase-mapper, integration-checker, job-checker, objective-researcher, project-researcher, research-synthesizer, roadmapper, security-auditor, ui-evaluator, verifier) have no match.
+- **Agents.** Checked with `rg -n -i "AskUserQuestion|ask the user|wait for user|\(y/n\)" plugins/aoforge/agents`. Subagents cannot reach the user: they return a checkpoint and the orchestrating skill asks. `executor.md` declares AskUserQuestion and describes it only for the main-context run (Pattern C) of a human-verify or decision checkpoint; as a subagent it returns the checkpoint format. `debugger.md` line 238 (`Wait for user to select (number) or describe new issue (text)`) is the debugger's own standalone session handling; skills/debug asks for it (see the debug rows). `planner.md` line 702 (offer to reconstruct a missing STATE.md) is a planner return. The other nine agents (codebase-mapper, integration-checker, job-checker, objective-researcher, project-researcher, research-synthesizer, roadmapper, security-auditor, verifier) have no match (ui-evaluator moved to the Flutter stack pack, objective 77).
 - **references/ and templates/.** They explain, or are copied into user projects; they do not prompt the user.
 - **workflows/insert-objective.md.** `status: legacy`, outside the scan set.

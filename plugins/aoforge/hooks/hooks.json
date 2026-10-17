@@ -113,19 +113,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/gate-commits.js"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/changelog-on-tag.js"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/gate-interactive.js"
-          },
-          {
-            "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/gate-bash-writes.js"
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pre-bash.js"
           }
         ]
       },
@@ -148,7 +136,7 @@
         ]
       },
       {
-        "matcher": "*",
+        "matcher": "^(?!Bash$).*",
         "hooks": [
           {
             "type": "command",

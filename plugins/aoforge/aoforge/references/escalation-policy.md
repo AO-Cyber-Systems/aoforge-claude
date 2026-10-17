@@ -63,7 +63,11 @@ An agent cannot change its own model — `Task()` fixes it at spawn. So:
 1. The agent **requests** escalation by returning the structured block below and
    stopping. It does not keep trying at its current tier.
 2. The **orchestrator** re-spawns the same TRD one rung up, passing the prior
-   attempt's evidence so the escalated agent does not start cold.
+   attempt's evidence so the escalated agent does not start cold. The rung comes from
+   `aof-tools resolve-model <agent> --escalate-from <model it ran on>` (haiku → sonnet → opus;
+   `ceiling: true` at opus sends it to the human). `execute-objective` (item 5e), `/aoforge:debug`
+   and `diagnose-issues` do this once per plan or session (TRD 76-07); `inherit` counts as opus,
+   since the session model is the top rung a spawn can reach.
 
 ```
 ## ESCALATION REQUESTED

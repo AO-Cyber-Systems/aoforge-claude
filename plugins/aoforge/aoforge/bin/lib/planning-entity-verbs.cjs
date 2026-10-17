@@ -90,9 +90,13 @@ const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v)
 const optsOf = (opts) => (isObject(opts) ? opts : {});
 const flushFlags = (o) => ({ noFlush: o.noFlush === true, noWait: o.noWait === true });
 
-/** `{main, mode}` for the MAIN checkout (D-14), or `{error}`. */
+/**
+ * `{main, mode}` or `{error}`. `main` is the root the entity verbs read and write (planning-mode.resolveVerbRoot,
+ * quick 36): the MAIN checkout in store mode (D-14); in local mode the checkout holding `root` when it has its own
+ * planning dir, else MAIN. The mode is always read from MAIN's config. todo-sync passes the main root explicitly.
+ */
 function contextOf(root) {
-  const main = planningMode.resolveMainRoot(root);
+  const main = planningMode.resolveVerbRoot(root);
   if (!main) return { error: `no ${planningDirLabel()} directory at or above ${root}` };
   return { main, mode: planningMode.planningMode(main).mode };
 }

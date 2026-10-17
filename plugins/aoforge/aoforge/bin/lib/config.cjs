@@ -5,6 +5,11 @@ const path = require('path');
 const { output, error } = require('./helpers.cjs');
 const { planningRoot, planningRel, userDotFile } = require('./compat.cjs');
 
+/** `v` when it is a non-null, non-array object; otherwise a fresh `{}`. */
+function plainObject(v) {
+  return v !== null && typeof v === 'object' && !Array.isArray(v) ? v : {};
+}
+
 function loadConfig(cwd) {
   const configPath = path.join(planningRoot(cwd), 'config.json');
   const defaults = {
@@ -24,6 +29,10 @@ function loadConfig(cwd) {
     brave_search: false,
     verifier_checkpoints: false,
     decision_queue: false,
+    // Per-agent model settings (quick 35): the tier map per profile, and the flat unfloored pin. init.cjs reads both;
+    // they used to be missing here, so neither ever reached a spawn.
+    agent_models: {},
+    model_overrides: {},
   };
 
   try {
@@ -65,6 +74,8 @@ function loadConfig(cwd) {
       brave_search: get('brave_search') ?? defaults.brave_search,
       verifier_checkpoints: get('verifier_checkpoints', { section: 'workflow', field: 'verifier_checkpoints' }) ?? autonomous,
       decision_queue: get('decision_queue', { section: 'workflow', field: 'decision_queue' }) ?? autonomous,
+      agent_models: plainObject(get('agent_models')),
+      model_overrides: plainObject(get('model_overrides')),
     };
   } catch {
     return defaults;

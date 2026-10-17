@@ -1,4 +1,5 @@
 'use strict';
+require('./__fixtures__/stack-pack-env.cjs').useRepoPacks(); // pack-shipped profiles (flutter, dart): objective 77
 
 // stack-mcp.test.cjs (objective 42, TRD 09, SDR-05)
 //
@@ -74,7 +75,7 @@ function pluginHome(rel, pluginJson, extraFiles = {}) {
 
 /** runMcp(repo, args, { bin, home }) — THIS checkout's aof-tools with PATH = the stub dir only. */
 function runMcp(repo, args, { bin, home }) {
-  const env = { PATH: bin, HOME: home };
+  const env = { PATH: bin, HOME: home, AOFORGE_STACKS_DIR: process.env.AOFORGE_STACKS_DIR };
   const r = spawnSync(process.execPath, [DF_TOOLS, '--cwd', repo, 'stack', 'mcp', ...args], { encoding: 'utf-8', env, timeout: 60000 });
   let json = null;
   try { json = JSON.parse(r.stdout); } catch (_) { /* leave null; assertions fail loudly */ }

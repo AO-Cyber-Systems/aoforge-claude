@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "name": "flutter",
+  "plugin": "aoforge-stack-flutter",
+  "version": "1.0.0",
+  "contract": 1,
+  "description": "Flutter and Dart: UI test bootstrap, per-task and post-task gates, state coverage, Maestro and flutter drive verification, the visual-eval judge and design critic, and auto-generated UAT.",
+  "profiles": [
+    "profiles/flutter.md",
+    "profiles/dart.md"
+  ],
+  "detect": {
+    "files": [
+      "pubspec.yaml",
+      "flutter/pubspec.yaml"
+    ]
+  },
+  "fragments": {
+    "planner": "fragments/planner.md",
+    "executor": "fragments/executor.md",
+    "verifier": "fragments/verifier.md"
+  },
+  "soft_depends": [
+    {
+      "pack": "web",
+      "platforms": [
+        "web"
+      ]
+    }
+  ],
+  "models": {
+    "ui-evaluator": {
+      "quality": "opus",
+      "balanced": "sonnet",
+      "budget": "sonnet"
+    }
+  },
+  "cli": "bin/aof-flutter.cjs",
+  "requires_tool": {
+    "flutter": ">=3.22"
+  },
+  "install_hint": "Install Flutter (https://docs.flutter.dev/get-started/install), then run `node ~/.claude/aoforge/stacks/flutter/bin/aof-flutter.cjs flutter-ui setup` for the UI eval tools.",
+  "ui": {
+    "metrics_paths": [
+      "flutter/lib",
+      "lib"
+    ],
+    "pattern_catalogue": null,
+    "must_not_extra": []
+  },
+  "gate_policy": "lib/gate-policy.cjs",
+  "awareness": "lib/awareness.cjs"
+}

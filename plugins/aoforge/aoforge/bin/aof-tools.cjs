@@ -19,11 +19,14 @@
  *   state load                         Load project config + state
  *   state update <field> <value>       Update a STATE.md field
  *   state get [section]                Get STATE.md content or section
+ *   state digest [--decisions N]       Compact STATE.md: position, blockers, newest decisions
+ *   state rotate-decisions [--keep N] [--dry-run]
+ *                                      Move decisions beyond the newest N to STATE_ARCHIVE.md
  *   state patch --field val ...        Batch update STATE.md fields
  *   state rekey --from <old> [--to <new>] [--dry-run]
  *                                      Copy repo-keyed runtime state from a moved
  *                                      checkout's old key to its new key
- *   resolve-model <agent-type>         Get model for agent based on profile
+ *   resolve-model <agent-type> [--focus f] [--escalate-from t]  Get model for agent based on profile
  *   find-objective <objective>                 Find objective directory by number
  *   commit <message> [--files f1 f2]   Commit planning docs. A message starting
  *                                      with `--` is refused; with no --files the
@@ -99,6 +102,11 @@
  * Verification Suite:
  *   verify job-structure <file>       Check TRD.md/JOB.md structure + tasks
  *   verify objective-completeness <objective>  Check all jobs have summaries
+ *   verify objective-evidence <objective>   Verifier evidence for every TRD in one call (TRD 76-04)
+ *   validate roadmap-coverage           Every v1 requirement maps to exactly one objective
+ *   trd finalize <obj>-<trd>            Post-SUMMARY state/roadmap/requirements bookkeeping
+ *   codebase facts [--focus f]          Language-neutral codebase facts for the mapper
+ *   security sweep [--focus f]          The security auditor's pattern sweep
  *   verify references <file>           Check @-refs + paths resolve
  *   verify commits <h1> [h2] ...      Batch verify commit hashes
  *   verify artifacts <job-file>       Check must_haves.artifacts
@@ -106,9 +114,6 @@
  *   verify api-contract <trd-path>    SHA drift for api_contract: block (advisory; exits 0)
  *   verify trd-pre <objective>        Cheap pre-flight: req coverage, task completeness,
  *                                       dep cycles, scope counts (pure-logic, no agent spawn)
- *   verify flutter-ui-bootstrap <project-dir>  Check Flutter UI testing infra
- *                                       (pubspec/integration_test/.maestro/test_driver/marker)
- *   verify flutter-state-coverage <trd-path>  Check Flutter UI artifact state coverage via regex catalog
  *
  * Skill Lifecycle:
  *   skill-active --start <name>        Mark skill as active (writes .aoforge/.skill-active)
@@ -126,14 +131,6 @@
  *   detect novel-domain <objective>   Detect if objective crosses research boundary
  *     [--raw]                           Returns { novel, signals, recommendation }
  *                                       Signals: new_dep, missing_patterns, comparison_keyword
- *   detect flutter-ui-scope <objective>  Detect Flutter UI scope (sets type=ui semantics in planner)
- *     [--raw]                           Returns { detected, signals, platform, state_management, evidence }
- *
- * UAT Generation:
- *   generate uat <objective>           Auto-generate 1-page UAT.md checklist from TRDs + Maestro flows
- *     [--raw]                           (mobile-only) + flutter drive web instructions. Writes to
- *                                       .aoforge/objectives/<obj-dir>/<obj>-UAT.md. Refuses to
- *                                       overwrite a UAT.md already in use (non-pending results).
  *
  * Template Fill:
  *   template fill summary --objective N    Create pre-filled SUMMARY.md
@@ -227,90 +224,80 @@
 
 // ─── Module Imports ───────────────────────────────────────────────────────────
 
+// ─── Lazy module loading ──────────────────────────────────────────────────────
+// aof-tools runs 50-100 times per workflow, and most of a run is node startup. Loading every lib module up front
+// cost ~70 ms of a ~125 ms call (444 require calls, 1.4 MB of source) for commands that use one of them. `lazy`
+// returns forwarders that require the module on first call; `lazyModule` is a proxy for a module used as an
+// object (`intent.x(...)`). Modules every call needs (helpers, help, cwd-flag, flag-guard, flag-spec, compat) stay
+// eager. Every destructured name is a function (checked when this block was generated); a constant must stay eager.
+const lazyCache = new Map();
+function loadLazy(mod) {
+  let m = lazyCache.get(mod);
+  if (!m) { m = require(mod); lazyCache.set(mod, m); }
+  return m;
+}
+function lazy(mod, names) {
+  const out = {};
+  for (const name of names) {
+    out[name] = function (...args) {
+      const fn = loadLazy(mod)[name];
+      if (typeof fn !== 'function') throw new TypeError(`${mod} does not export a function named ${name}`);
+      return fn.apply(this, args);
+    };
+  }
+  return out;
+}
+function lazyModule(mod) {
+  return new Proxy({}, {
+    get: (_, prop) => loadLazy(mod)[prop],
+    has: (_, prop) => prop in loadLazy(mod),
+    ownKeys: () => Reflect.ownKeys(loadLazy(mod)),
+    getOwnPropertyDescriptor: (_, prop) => Object.getOwnPropertyDescriptor(loadLazy(mod), prop),
+  });
+}
+
 const { error, parseIncludeFlag } = require('./lib/helpers.cjs');
-const { cmdConfigEnsureSection, cmdConfigSet, cmdConfigGet } = require('./lib/config.cjs');
-const {
-  cmdStateLoad, cmdStateGet, cmdStatePatch, cmdStateUpdate, cmdStateAdvanceJob,
-  cmdStateRecordMetric, cmdStateUpdateProgress, cmdStateAddDecision, cmdStateAddBlocker,
-  cmdStateResolveBlocker, cmdStateRecordSession, cmdStateSnapshot,
-} = require('./lib/state.cjs');
-const {
-  cmdFrontmatterGet, cmdFrontmatterSet, cmdFrontmatterMerge, cmdFrontmatterValidate,
-} = require('./lib/frontmatter.cjs');
-const {
-  cmdFindObjective, cmdObjectiveNextDecimal, cmdObjectivesList,
-  cmdObjectiveAdd, cmdObjectiveInsert, cmdObjectiveRemove, cmdObjectiveComplete,
-} = require('./lib/objective.cjs');
-const {
-  cmdRoadmapGetObjective, cmdRoadmapAnalyze, cmdRoadmapUpdateJobProgress,
-  cmdMilestoneComplete, cmdProgressRender,
-} = require('./lib/roadmap.cjs');
-const { cmdTemplateSelect, cmdTemplateFill } = require('./lib/templates.cjs');
-const {
-  cmdVerifySummary, cmdVerifyJobStructure, cmdVerifyObjectiveCompleteness,
-  cmdVerifyReferences, cmdVerifyCommits, cmdVerifyArtifacts, cmdVerifyKeyLinks,
-} = require('./lib/verify.cjs');
-const { cmdVerifyTrdPre } = require('./lib/trd-pre-check.cjs');
-const { cmdVerifyApiContract } = require('./lib/api-contract.cjs');
-const { cmdVerifyFlutterUIBootstrap } = require('./lib/flutter-ui-bootstrap.cjs');
-const { cmdFlutterUISetup } = require('./lib/flutter-ui-setup.cjs');
-const { cmdFlutterUIEvalBootstrap } = require('./lib/flutter-ui-eval-bootstrap.cjs');
-const { cmdVerifyFlutterStateCoverage } = require('./lib/flutter-state-coverage.cjs');
-const { cmdVerifyFlutterUIEval } = require('./lib/flutter-ui-eval.cjs');
-const { cmdDesignReview } = require('./lib/flutter-ui-design-review.cjs');
-const { cmdUiMetrics } = require('./lib/ui-metrics.cjs');
-const { cmdUiSpec, cmdUiSheet, cmdUiLock } = require('./lib/ui-spec-cli.cjs');
-const { cmdDetectNovelDomain } = require('./lib/novel-domain.cjs');
-const { cmdDetectBrownfieldMap } = require('./lib/brownfield-detector.cjs');
-const { cmdDetectFlutterUIScope } = require('./lib/flutter-ui-scope.cjs');
-const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs, cmdValidateRequirements } = require('./lib/validate.cjs');
-const {
-  cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject,
-  cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp,
-  cmdInitTodos, cmdInitMilestoneOp, cmdInitMapCodebase, cmdInitSecurityAudit, cmdInitProgress,
-} = require('./lib/init.cjs');
-const intent = require('./lib/intent.cjs');
-const migrate = require('./lib/migrate.cjs');
-const {
-  cmdWorkstreamsAnalyze, cmdWorkstreamsProvision, cmdWorkstreamsReconcile,
-} = require('./lib/workstreams.cjs');
-const {
-  cmdGhStatus, cmdGhSyncObjectives, cmdGhComment, cmdGhCloseIssue, cmdGhSyncRelease,
-  cmdGhResolve, cmdGhSync,
-} = require('./lib/gh.cjs');
-const {
-  cmdChangelogUpdate, cmdChangelogCheck,
-} = require('./lib/changelog.cjs');
-const { cmdSkillActive } = require('./lib/skill-active.cjs');
-const { cmdAwarenessRoute } = require('./lib/awareness-cli.cjs');
-const { cmdOrgAwarenessRoute } = require('./lib/org-awareness-cli.cjs');
-const { cmdDupDetectRoute } = require('./lib/dup-detect-cli.cjs');
-const { cmdInitiativesRoute } = require('./lib/initiatives-cli.cjs');
-const { cmdCheckTodosRoute } = require('./lib/check-todos-cli.cjs');
-const { cmdSyncRoadmapRoute } = require('./lib/roadmap-reconcile-cli.cjs');
-const { cmdTuiRoute } = require('./lib/tui-cli.cjs');
-const { cmdSurveyDecimalObjectives } = require('./lib/decimal-survey.cjs');
-const {
-  cmdGenerateSlug, cmdCurrentTimestamp, cmdListTodos, cmdVerifyPathExists,
-  cmdHistoryDigest, cmdObjectiveJobIndex, cmdSummaryExtract, cmdWebsearch,
-  cmdCommit, cmdTodoComplete, cmdScaffold, cmdRequirementsMarkComplete,
-} = require('./lib/misc.cjs');
-const {
-  cmdHandoffCreate, cmdHandoffComplete, cmdHandoffList, cmdHandoffGet,
-} = require('./lib/handoff.cjs');
-const {
-  cmdTrdTddInspect,
-} = require('./lib/trd-tdd.cjs');
-const { cmdMicro } = require('./lib/micro.cjs');
-const { cmdProjectDecline, cmdProjectAccept } = require('./lib/decline-tracker.cjs');
-const { cmdProjectState } = require('./lib/project-state.cjs');
-const { cmdGlobalConfig } = require('./lib/global-config.cjs');
-const { cmdExecContextRoute } = require('./lib/exec-context.cjs');
-const { cmdMergeDriver } = require('./lib/merge-driver-cli.cjs');
+const { cmdConfigEnsureSection, cmdConfigSet, cmdConfigGet } = lazy('./lib/config.cjs', ['cmdConfigEnsureSection', 'cmdConfigSet', 'cmdConfigGet']);
+const { cmdStateLoad, cmdStateDigest, cmdStateRotateDecisions, cmdStateGet, cmdStatePatch, cmdStateUpdate, cmdStateAdvanceJob, cmdStateRecordMetric, cmdStateUpdateProgress, cmdStateAddDecision, cmdStateAddBlocker, cmdStateResolveBlocker, cmdStateRecordSession, cmdStateSnapshot } = lazy('./lib/state.cjs', ['cmdStateLoad', 'cmdStateDigest', 'cmdStateRotateDecisions', 'cmdStateGet', 'cmdStatePatch', 'cmdStateUpdate', 'cmdStateAdvanceJob', 'cmdStateRecordMetric', 'cmdStateUpdateProgress', 'cmdStateAddDecision', 'cmdStateAddBlocker', 'cmdStateResolveBlocker', 'cmdStateRecordSession', 'cmdStateSnapshot']);
+const { cmdFrontmatterGet, cmdFrontmatterSet, cmdFrontmatterMerge, cmdFrontmatterValidate } = lazy('./lib/frontmatter.cjs', ['cmdFrontmatterGet', 'cmdFrontmatterSet', 'cmdFrontmatterMerge', 'cmdFrontmatterValidate']);
+const { cmdFindObjective, cmdObjectiveNextDecimal, cmdObjectivesList, cmdObjectiveAdd, cmdObjectiveInsert, cmdObjectiveRemove, cmdObjectiveComplete } = lazy('./lib/objective.cjs', ['cmdFindObjective', 'cmdObjectiveNextDecimal', 'cmdObjectivesList', 'cmdObjectiveAdd', 'cmdObjectiveInsert', 'cmdObjectiveRemove', 'cmdObjectiveComplete']);
+const { cmdRoadmapGetObjective, cmdRoadmapAnalyze, cmdRoadmapDigest, cmdRoadmapUpdateJobProgress, cmdMilestoneComplete, cmdProgressRender } = lazy('./lib/roadmap.cjs', ['cmdRoadmapGetObjective', 'cmdRoadmapAnalyze', 'cmdRoadmapDigest', 'cmdRoadmapUpdateJobProgress', 'cmdMilestoneComplete', 'cmdProgressRender']);
+const { cmdTemplateSelect, cmdTemplateFill } = lazy('./lib/templates.cjs', ['cmdTemplateSelect', 'cmdTemplateFill']);
+const { cmdVerifySummary, cmdVerifyJobStructure, cmdVerifyObjectiveCompleteness, cmdVerifyReferences, cmdVerifyCommits, cmdVerifyArtifacts, cmdVerifyKeyLinks } = lazy('./lib/verify.cjs', ['cmdVerifySummary', 'cmdVerifyJobStructure', 'cmdVerifyObjectiveCompleteness', 'cmdVerifyReferences', 'cmdVerifyCommits', 'cmdVerifyArtifacts', 'cmdVerifyKeyLinks']);
+const { cmdVerifyTrdPre } = lazy('./lib/trd-pre-check.cjs', ['cmdVerifyTrdPre']);
+const { cmdVerifyApiContract } = lazy('./lib/api-contract.cjs', ['cmdVerifyApiContract']);
+const { cmdUiMetrics } = lazy('./lib/ui-metrics.cjs', ['cmdUiMetrics']);
+const { cmdUiSpec, cmdUiSheet, cmdUiLock } = lazy('./lib/ui-spec-cli.cjs', ['cmdUiSpec', 'cmdUiSheet', 'cmdUiLock']);
+const { cmdDetectNovelDomain } = lazy('./lib/novel-domain.cjs', ['cmdDetectNovelDomain']);
+const { cmdDetectBrownfieldMap } = lazy('./lib/brownfield-detector.cjs', ['cmdDetectBrownfieldMap']);
+const { cmdValidateConsistency, cmdValidateHealth, cmdValidateDocs, cmdValidateRequirements } = lazy('./lib/validate.cjs', ['cmdValidateConsistency', 'cmdValidateHealth', 'cmdValidateDocs', 'cmdValidateRequirements']);
+const { cmdResolveModel, cmdInitExecuteObjective, cmdInitPlanObjective, cmdInitNewProject, cmdInitNewMilestone, cmdInitQuick, cmdInitResume, cmdInitVerifyWork, cmdInitObjectiveOp, cmdInitTodos, cmdInitMilestoneOp, cmdInitMapCodebase, cmdInitSecurityAudit, cmdInitProgress } = lazy('./lib/init.cjs', ['cmdResolveModel', 'cmdInitExecuteObjective', 'cmdInitPlanObjective', 'cmdInitNewProject', 'cmdInitNewMilestone', 'cmdInitQuick', 'cmdInitResume', 'cmdInitVerifyWork', 'cmdInitObjectiveOp', 'cmdInitTodos', 'cmdInitMilestoneOp', 'cmdInitMapCodebase', 'cmdInitSecurityAudit', 'cmdInitProgress']);
+const intent = lazyModule('./lib/intent.cjs');
+const migrate = lazyModule('./lib/migrate.cjs');
+const { cmdWorkstreamsAnalyze, cmdWorkstreamsProvision, cmdWorkstreamsReconcile } = lazy('./lib/workstreams.cjs', ['cmdWorkstreamsAnalyze', 'cmdWorkstreamsProvision', 'cmdWorkstreamsReconcile']);
+const { cmdGhStatus, cmdGhSyncObjectives, cmdGhComment, cmdGhCloseIssue, cmdGhSyncRelease, cmdGhResolve, cmdGhSync } = lazy('./lib/gh.cjs', ['cmdGhStatus', 'cmdGhSyncObjectives', 'cmdGhComment', 'cmdGhCloseIssue', 'cmdGhSyncRelease', 'cmdGhResolve', 'cmdGhSync']);
+const { cmdChangelogUpdate, cmdChangelogCheck } = lazy('./lib/changelog.cjs', ['cmdChangelogUpdate', 'cmdChangelogCheck']);
+const { cmdSkillActive } = lazy('./lib/skill-active.cjs', ['cmdSkillActive']);
+const { cmdAwarenessRoute } = lazy('./lib/awareness-cli.cjs', ['cmdAwarenessRoute']);
+const { cmdOrgAwarenessRoute } = lazy('./lib/org-awareness-cli.cjs', ['cmdOrgAwarenessRoute']);
+const { cmdDupDetectRoute } = lazy('./lib/dup-detect-cli.cjs', ['cmdDupDetectRoute']);
+const { cmdInitiativesRoute } = lazy('./lib/initiatives-cli.cjs', ['cmdInitiativesRoute']);
+const { cmdCheckTodosRoute } = lazy('./lib/check-todos-cli.cjs', ['cmdCheckTodosRoute']);
+const { cmdSyncRoadmapRoute } = lazy('./lib/roadmap-reconcile-cli.cjs', ['cmdSyncRoadmapRoute']);
+const { cmdTuiRoute } = lazy('./lib/tui-cli.cjs', ['cmdTuiRoute']);
+const { cmdSurveyDecimalObjectives } = lazy('./lib/decimal-survey.cjs', ['cmdSurveyDecimalObjectives']);
+const { cmdGenerateSlug, cmdCurrentTimestamp, cmdListTodos, cmdVerifyPathExists, cmdHistoryDigest, cmdObjectiveJobIndex, cmdSummaryExtract, cmdWebsearch, cmdCommit, cmdTodoComplete, cmdScaffold, cmdRequirementsMarkComplete } = lazy('./lib/misc.cjs', ['cmdGenerateSlug', 'cmdCurrentTimestamp', 'cmdListTodos', 'cmdVerifyPathExists', 'cmdHistoryDigest', 'cmdObjectiveJobIndex', 'cmdSummaryExtract', 'cmdWebsearch', 'cmdCommit', 'cmdTodoComplete', 'cmdScaffold', 'cmdRequirementsMarkComplete']);
+const { cmdHandoffCreate, cmdHandoffComplete, cmdHandoffList, cmdHandoffGet } = lazy('./lib/handoff.cjs', ['cmdHandoffCreate', 'cmdHandoffComplete', 'cmdHandoffList', 'cmdHandoffGet']);
+const { cmdTrdTddInspect } = lazy('./lib/trd-tdd.cjs', ['cmdTrdTddInspect']);
+const { cmdMicro } = lazy('./lib/micro.cjs', ['cmdMicro']);
+const { cmdProjectDecline, cmdProjectAccept } = lazy('./lib/decline-tracker.cjs', ['cmdProjectDecline', 'cmdProjectAccept']);
+const { cmdProjectState } = lazy('./lib/project-state.cjs', ['cmdProjectState']);
+const { cmdGlobalConfig } = lazy('./lib/global-config.cjs', ['cmdGlobalConfig']);
+const { cmdExecContextRoute } = lazy('./lib/exec-context.cjs', ['cmdExecContextRoute']);
+const { cmdMergeDriver } = lazy('./lib/merge-driver-cli.cjs', ['cmdMergeDriver']);
 const {
   hasTopLevelHelpFlag, ownsHelp, HELP_FLAGS, printHelp, topLevelUsage, COMMANDS: HELP_TABLE,
 } = require('./lib/help.cjs');
-const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
 const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
 const { checkFlags, formatUnknownFlag } = require('./lib/flag-guard.cjs');
 const { FLAG_SPEC } = require('./lib/flag-spec.cjs');
@@ -420,6 +407,12 @@ async function main() {
         }, raw);
       } else if (subcommand === 'update-progress') {
         cmdStateUpdateProgress(cwd, raw);
+      } else if (subcommand === 'digest') {
+        const decIdx = args.indexOf('--decisions');
+        cmdStateDigest(cwd, { decisions: decIdx !== -1 ? args[decIdx + 1] : null }, raw);
+      } else if (subcommand === 'rotate-decisions') {
+        const keepIdx = args.indexOf('--keep');
+        cmdStateRotateDecisions(cwd, { keep: keepIdx !== -1 ? args[keepIdx + 1] : null, dryRun: args.includes('--dry-run') }, raw);
       } else if (subcommand === 'add-decision') {
         const objectiveIdx = args.indexOf('--objective');
         const summaryIdx = args.indexOf('--summary');
@@ -457,7 +450,12 @@ async function main() {
     }
 
     case 'resolve-model': {
-      cmdResolveModel(cwd, args[1], raw);
+      const objIdx = args.indexOf('--objective');
+      const focusIdx = args.indexOf('--focus');
+      const escIdx = args.indexOf('--escalate-from');
+      cmdResolveModel(cwd, args[1], raw, objIdx !== -1 ? args[objIdx + 1] : undefined,
+        focusIdx !== -1 ? args[focusIdx + 1] : undefined,
+        escIdx !== -1 ? (args[escIdx + 1] || '') : undefined);
       break;
     }
 
@@ -543,6 +541,8 @@ async function main() {
         cmdVerifyJobStructure(cwd, args[2], raw);
       } else if (subcommand === 'objective-completeness') {
         cmdVerifyObjectiveCompleteness(cwd, args[2], raw);
+      } else if (subcommand === 'objective-evidence') {
+        require('./lib/objective-evidence.cjs').cmdVerifyObjectiveEvidence(cwd, args[2], raw);
       } else if (subcommand === 'references') {
         cmdVerifyReferences(cwd, args[2], raw);
       } else if (subcommand === 'commits') {
@@ -556,42 +556,12 @@ async function main() {
       } else if (subcommand === 'api-contract') {
         // verify api-contract <trd-path> [--raw]
         cmdVerifyApiContract(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-ui-bootstrap') {
-        // verify flutter-ui-bootstrap <project-dir> [--raw]
-        cmdVerifyFlutterUIBootstrap(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-state-coverage') {
-        // verify flutter-state-coverage <trd-path> [--raw]
-        cmdVerifyFlutterStateCoverage(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-ui-eval') {
-        // verify flutter-ui-eval <manifest|captureResults> [--raw]
-        cmdVerifyFlutterUIEval(cwd, args.slice(2), raw);
       } else {
-        error('Unknown verify subcommand. Available: job-structure, objective-completeness, references, commits, artifacts, key-links, trd-pre, api-contract, flutter-ui-bootstrap, flutter-state-coverage, flutter-ui-eval');
+        error('Unknown verify subcommand. Available: job-structure, objective-completeness, objective-evidence, references, commits, artifacts, key-links, trd-pre, api-contract');
       }
       break;
     }
 
-    case 'flutter-ui': {
-      // flutter-ui setup [--print-only] [--auto] [--raw]
-      //   One-command adoption: detect missing system tools, build install plan,
-      //   dispatch via handoff (daemon live) or print (daemon down), chain bootstrap.
-      const subcommand = args[1];
-      if (subcommand === 'setup') {
-        cmdFlutterUISetup(cwd, args.slice(2), raw);
-      } else if (subcommand === 'eval') {
-        // flutter-ui eval <manifest|captureResults> [--raw]
-        cmdVerifyFlutterUIEval(cwd, args.slice(2), raw);
-      } else if (subcommand === 'bootstrap') {
-        // flutter-ui bootstrap [project-dir] [--raw]
-        cmdFlutterUIEvalBootstrap(cwd, args[2], raw, args.slice(2));
-      } else if (subcommand === 'design-review') {
-        // flutter-ui design-review <manifest> [--live] [--raw]
-        cmdDesignReview(cwd, args.slice(2), raw);
-      } else {
-        error('Unknown flutter-ui subcommand. Available: setup, eval, bootstrap, design-review');
-      }
-      break;
-    }
 
     case 'ui': {
       // ui metrics baseline [--since YYYY-MM-DD] [--paths p1,p2] [--out file]
@@ -646,27 +616,12 @@ async function main() {
       } else if (subcommand === 'brownfield-map') {
         // detect brownfield-map [<cwd>] [--raw]
         cmdDetectBrownfieldMap(cwd, args[2], raw);
-      } else if (subcommand === 'flutter-ui-scope') {
-        // detect flutter-ui-scope <objective> [--raw]
-        cmdDetectFlutterUIScope(cwd, args[2], raw);
       } else {
-        error('Unknown detect subcommand. Available: novel-domain, brownfield-map, flutter-ui-scope');
+        error('Unknown detect subcommand. Available: novel-domain, brownfield-map');
       }
       break;
     }
 
-    case 'generate': {
-      const subcommand = args[1];
-      if (subcommand === 'uat') {
-        // generate uat <objective> [--raw]
-        // Auto-generates 1-page UAT checklist from TRDs + Maestro flows + flutter drive web rows.
-        // Writes to .aoforge/objectives/<obj-dir>/<obj>-UAT.md
-        cmdGenerateUAT(cwd, args[2], raw);
-      } else {
-        error('Unknown generate subcommand. Available: uat');
-      }
-      break;
-    }
 
     case 'generate-slug': {
       cmdGenerateSlug(args[1], raw);
@@ -809,6 +764,8 @@ async function main() {
         cmdRoadmapGetObjective(cwd, args[2], raw);
       } else if (subcommand === 'analyze') {
         cmdRoadmapAnalyze(cwd, raw);
+      } else if (subcommand === 'digest') {
+        cmdRoadmapDigest(cwd, raw);
       } else if (subcommand === 'update-job-progress') {
         cmdRoadmapUpdateJobProgress(cwd, args[2], raw);
       } else {
@@ -907,9 +864,30 @@ async function main() {
         const eq = args.find((a) => a.startsWith('--objective='));
         const objective = eq ? eq.slice('--objective='.length) : (i >= 0 ? args[i + 1] : null);
         cmdValidateRequirements(cwd, { objective }, raw);
+      } else if (subcommand === 'roadmap-coverage') {
+        require('./lib/roadmap-coverage.cjs').cmdValidateRoadmapCoverage(cwd, raw);
       } else {
-        error('Unknown validate subcommand. Available: consistency, health, docs, requirements');
+        error('Unknown validate subcommand. Available: consistency, health, docs, requirements, roadmap-coverage');
       }
+      break;
+    }
+
+    // TRD 76-04: mechanical work the agents used to do by hand, one call each.
+    case 'trd': {
+      if (args[1] === 'finalize') require('./lib/trd-finalize.cjs').cmdTrdFinalize(cwd, args, raw);
+      else error('Usage: aof-tools trd finalize <objective>-<trd> [--duration <d>] [--dry-run]');
+      break;
+    }
+
+    case 'codebase': {
+      if (args[1] === 'facts') require('./lib/codebase-facts.cjs').cmdCodebaseFacts(cwd, args, raw);
+      else error('Usage: aof-tools codebase facts [--focus tech|arch|quality|concerns|all] [--root <dir>]');
+      break;
+    }
+
+    case 'security': {
+      if (args[1] === 'sweep') require('./lib/security-sweep.cjs').cmdSecuritySweep(cwd, args, raw);
+      else error('Usage: aof-tools security sweep [--focus <focus>|all] [--root <dir>]');
       break;
     }
 

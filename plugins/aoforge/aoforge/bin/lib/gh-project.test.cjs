@@ -630,7 +630,9 @@ describe('repo guard (test 12)', () => {
   // Enabled by 46-07. runtime-digest.cjs (skips the fixtures dir when hashing the bundle) and
   // flutter-ui-eval-bootstrap.cjs (eval-harness bootstrap that reads its own fixtures) legitimately
   // name the directory; gh.cjs no longer does.
-  const FIXTURE_READERS = new Set(['runtime-digest.cjs', 'flutter-ui-eval-bootstrap.cjs']);
+  // pack-mirror.cjs names __fixtures__ only to SKIP it when it mirrors a stack pack (objective 77),
+  // and codebase-facts.cjs only to skip fixture trees when it lists imports and stubs (TRD 76-04).
+  const FIXTURE_READERS = new Set(['runtime-digest.cjs', 'pack-mirror.cjs', 'codebase-facts.cjs']);
 
   test('X2: no lib/ module outside tests reads __fixtures__', () => {
     const offenders = nonTestSources(libDir)

@@ -38,142 +38,24 @@ Also read the stack info (languages detected) and scope (path filter, if any) fr
 </step>
 
 <step name="detect_patterns">
-Based on your focus mode, run targeted searches. Adapt grep patterns to the detected stack.
-
-**For secrets-and-code focus:**
-
-Search for hardcoded secrets:
+Run the pattern sweep for your focus mode in one call:
 ```bash
-# API keys, tokens, passwords in source
-grep -rn "password\s*=\|api_key\s*=\|apiKey\s*=\|secret\s*=\|token\s*=" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.py" --include="*.go" --include="*.java" --include="*.rb" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | grep -v '.spec.' | head -50
-
-# Common secret patterns
-grep -rn "sk-[a-zA-Z0-9]\{20,\}\|sk_live_\|sk_test_\|ghp_[a-zA-Z0-9]\{36\}\|AKIA[A-Z0-9]\{16\}\|xox[baprs]-" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" . 2>/dev/null | grep -v node_modules | head -30
-
-# Private keys embedded in code
-grep -rn "BEGIN.*PRIVATE KEY\|BEGIN RSA\|BEGIN EC\|BEGIN DSA" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" --include="*.java" . 2>/dev/null | grep -v node_modules | head -20
+node ~/.claude/aoforge/bin/aof-tools.cjs security sweep --focus <focus> --raw
 ```
+Each line is `[category] file:line text` for a pattern hit, or `[category] exists: <path>` for a secret file, manifest or lockfile. The hits are leads to read in context, not findings. A `more hits than the limit` line means that check was cut off: narrow it with Grep on the relevant directories. Without `--raw` the same result comes back as JSON.
 
-Search for injection vulnerabilities:
-```bash
-# SQL injection (string concatenation in queries)
-grep -rn "query.*+.*\"\|execute.*+.*\"\|raw.*+.*\"" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -30
+What the sweep covers per focus:
+- **secrets-and-code:** hardcoded secrets and token patterns (matched token values are redacted), embedded private keys, SQL and command injection, XSS sinks, path traversal, sensitive data in logs and URLs, weak hashing, `Math.random`; existence of `.env*`, `*.pem`, `*.key`, `*.p12`, `credentials.*`, `secrets.*` and the `.secrets/`, `config/secrets/`, `secrets/` directories.
+- **auth-and-access:** JWT decode without verification, route handlers (check each for auth middleware), password hashing, direct object references, role checks, CORS, rate limiting, CSRF.
+- **config-and-deps:** security headers, cookie and session settings, stack traces and error details sent to clients, debug defaults, disabled TLS or verification; existence of `package.json`, `requirements.txt`, `go.mod` and the lockfiles. Read the manifests that exist yourself to assess dependency versions.
 
-# Command injection
-grep -rn "exec(\|execSync(\|child_process\|subprocess\|os\.system\|os\.popen" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -30
-
-# XSS vectors (dangerouslySetInnerHTML, innerHTML, document.write)
-grep -rn "dangerouslySetInnerHTML\|innerHTML\|document\.write\|v-html\|\$sce\.trustAsHtml" --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" --include="*.vue" . 2>/dev/null | grep -v node_modules | head -30
-
-# Path traversal
-grep -rn "\.\./" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | grep -v "import\|require" | head -20
-```
-
-Search for sensitive data exposure:
-```bash
-# Logging sensitive data
-grep -rn "console\.log.*password\|console\.log.*token\|console\.log.*secret\|logger.*password\|log\..*password" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-
-# Sensitive data in URLs
-grep -rn "password=\|token=\|secret=" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -20
-```
-
-Search for weak cryptography:
-```bash
-# Weak hashing (MD5, SHA1 for security purposes)
-grep -rn "createHash.*md5\|createHash.*sha1\|hashlib\.md5\|hashlib\.sha1\|MD5\.\|SHA1\." --include="*.ts" --include="*.js" --include="*.py" --include="*.go" --include="*.java" . 2>/dev/null | grep -v node_modules | head -20
-
-# Math.random for security
-grep -rn "Math\.random" --include="*.ts" --include="*.js" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -20
-```
-
-Note existence of secret files (DO NOT read them):
-```bash
-# List secret files — existence only
-ls .env .env.* *.pem *.key *.p12 credentials.* secrets.* 2>/dev/null
-ls -d .secrets/ config/secrets/ secrets/ 2>/dev/null
-```
-
-**For auth-and-access focus:**
-
-Search for authentication issues:
-```bash
-# JWT without verification
-grep -rn "jwt\.decode\|verify.*false\|algorithms.*none" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" . 2>/dev/null | grep -v node_modules | head -20
-
-# Missing auth middleware
-grep -rn "app\.get\|app\.post\|app\.put\|app\.delete\|router\.get\|router\.post" --include="*.ts" --include="*.js" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -50
-
-# Password handling
-grep -rn "bcrypt\|argon2\|scrypt\|pbkdf2\|plaintext.*password\|password.*plaintext" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-```
-
-Search for authorization bypass:
-```bash
-# Direct object references (IDOR)
-grep -rn "params\.id\|params\.userId\|req\.params\.\|request\.args\." --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -30
-
-# Role checks
-grep -rn "isAdmin\|role.*===\|hasPermission\|authorize\|can(" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-```
-
-Search for API security issues:
-```bash
-# CORS configuration
-grep -rn "cors\|Access-Control-Allow-Origin\|Access-Control-Allow" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-
-# Rate limiting
-grep -rn "rateLimit\|rate-limit\|throttle\|RateLimiter" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-
-# CSRF protection
-grep -rn "csrf\|csurf\|CSRFToken\|_token\|authenticity_token" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-```
-
-**For config-and-deps focus:**
-
-Search for dependency vulnerabilities:
-```bash
-# Check for known vulnerable patterns in package.json/requirements.txt
-cat package.json 2>/dev/null | head -100
-cat requirements.txt 2>/dev/null
-cat go.mod 2>/dev/null | head -50
-
-# Check for outdated/vulnerable lockfiles
-ls package-lock.json yarn.lock pnpm-lock.yaml Pipfile.lock poetry.lock go.sum 2>/dev/null
-```
-
-Search for security header issues:
-```bash
-# Security headers (helmet, CSP, HSTS)
-grep -rn "helmet\|Content-Security-Policy\|X-Frame-Options\|Strict-Transport-Security\|X-Content-Type-Options" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-
-# Cookie security
-grep -rn "cookie\|session\|httpOnly\|secure.*true\|sameSite" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | head -20
-```
-
-Search for error handling leaks:
-```bash
-# Stack traces exposed to users
-grep -rn "stack.*trace\|err\.stack\|error\.stack\|traceback\|stackTrace" --include="*.ts" --include="*.js" --include="*.py" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -20
-
-# Detailed error messages to client
-grep -rn "res\.status.*error\.\|response.*error\.\|send.*err\b" --include="*.ts" --include="*.js" . 2>/dev/null | grep -v node_modules | grep -v '.test.' | head -20
-```
-
-Search for insecure defaults:
-```bash
-# Debug mode in production
-grep -rn "debug.*true\|DEBUG.*=.*1\|NODE_ENV.*development" --include="*.ts" --include="*.js" --include="*.py" --include="*.json" . 2>/dev/null | grep -v node_modules | head -20
-
-# Disabled security features
-grep -rn "verify.*false\|rejectUnauthorized.*false\|insecure\|allowHttp\|TLS.*false\|SSL.*false" --include="*.ts" --include="*.js" --include="*.py" --include="*.go" . 2>/dev/null | grep -v node_modules | head -20
-```
+The sweep skips `node_modules`, `.git`, `vendor`, `dist`, `build`, files over 1 MB, and never opens a file on the forbidden list below. Its patterns target JS/TS, Python, Go, Java and Ruby; for another stack, add Grep searches for the equivalent sinks.
 
 Read key files to understand context around any matches. Use Glob and Grep liberally. Adapt patterns based on the detected stack.
 </step>
 
 <step name="analyze_findings">
-For each potential finding from the grep results:
+For each potential finding from the sweep results:
 
 1. **Read the surrounding code** (10-20 lines of context) to confirm it's a real issue
 2. **Assign confidence** based on what you verified:

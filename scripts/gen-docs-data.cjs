@@ -134,7 +134,19 @@ for (const [event, groups] of Object.entries(hooksJson.hooks)) {
   }
 }
 
+// A hook run inside a registered dispatcher (`DISPATCHED-BY: <file>.js` in its first 40 lines, the marker
+// doctor check 12 reads) is registered through it: list it under the dispatcher's events.
+for (const file of fs.readdirSync(path.join(PLUGIN, 'hooks'))) {
+  if (!file.endsWith('.js') || file.endsWith('.test.js') || registered[file]) continue;
+  const head = read(path.join(PLUGIN, 'hooks', file)).split('\n').slice(0, 40);
+  const m = head.map((l) => /DISPATCHED-BY:\s*([a-z0-9-]+\.js)/.exec(l)).find(Boolean);
+  if (m && registered[m[1]]) {
+    registered[file] = registered[m[1]].map((r) => ({ event: r.event, matcher: `${r.matcher || '*'} via ${m[1]}` }));
+  }
+}
+
 const HOOK_DOCS = {
+  'pre-bash.js': ['Enforcement', 'The PreToolUse(Bash) gates in one process: runs gate-commits, changelog-on-tag, gate-interactive, gate-bash-writes and guard-no-progress with the same stdin and merges their decisions (deny over ask, every reason kept), so a Bash call spawns one `node` instead of five. A hook that throws is skipped, never the event.', null],
   'sync-runtime.js': ['Runtime sync', 'Mirrors the plugin-bundled runtime to `~/.claude/aoforge/` whenever the bundled version differs from the cached `.plugin-version`. Skills reference `@~/.claude/aoforge/...` paths, which do not interpolate `${CLAUDE_PLUGIN_ROOT}` — this hook is what makes those references resolve.', null],
   'awareness-cache-populate.js': ['Session context', 'Warms the cross-repo awareness cache in a detached child process. Never blocks session start, even when a scan takes 30s or more.', null],
   'classify-session.js': ['Session context', 'Classifies the project as `ambient`, `init-offer`, or `skip` and injects the routing decision table you see at session start.', 'AOFORGE_SKIP_CLASSIFY=1'],

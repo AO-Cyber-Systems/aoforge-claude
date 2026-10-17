@@ -6,6 +6,7 @@ const { output, error, findPlanFiles, localDate, trdKey } = require('./helpers.c
 const { loadConfig } = require('./config.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 const { planningRoot, planningRel, planningDirLabel } = require('./compat.cjs');
+const stateDigest = require('./state-digest.cjs');
 
 // ─── State JSON Sidecar ───────────────────────────────────────────────────────
 // state.json holds machine-readable fields alongside the human-readable STATE.md.
@@ -201,9 +202,12 @@ function cmdStateLoad(cwd, raw) {
   const roadmapExists = fs.existsSync(path.join(planningDir, 'ROADMAP.md'));
   const stateExists = stateRaw.length > 0;
 
+  // The digest, not the whole file: STATE.md's decision log can run to tens of kilobytes, and every consumer of
+  // `state load` only ever read the config and the position. `state get` still returns the full text.
   const result = {
     config,
-    state_raw: stateRaw,
+    state_digest: stateExists ? stateDigest.digest(stateRaw) : '',
+    state_bytes: stateRaw.length,
     state_exists: stateExists,
     roadmap_exists: roadmapExists,
     config_exists: configExists,
@@ -231,6 +235,58 @@ function cmdStateLoad(cwd, raw) {
   }
 
   output(result);
+}
+
+/**
+ * `state digest [--decisions N]`: the compact STATE.md a session needs on entry (lib/state-digest.cjs). Skills read
+ * this instead of inlining the whole file; `state get` keeps returning the full text.
+ */
+function cmdStateDigest(cwd, options, raw) {
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  let content;
+  try {
+    content = fs.readFileSync(statePath, 'utf-8');
+  } catch {
+    error('STATE.md not found');
+  }
+  const n = options && options.decisions != null ? parseInt(options.decisions, 10) : undefined;
+  const text = stateDigest.digest(content, { decisions: Number.isInteger(n) ? n : undefined });
+  output({ digest: text, state_bytes: content.length, digest_bytes: text.length }, raw, text);
+}
+
+/**
+ * rotateDecisionsOnDisk(cwd, keep) -> {applies, moved, kept, dry_run?}: keep the newest `keep` entries of STATE.md's
+ * `## Recent Decisions` and append the rest to STATE_ARCHIVE.md `## Decisions`, oldest first. Both files are written
+ * only when something moves. Shared by `state rotate-decisions`, `state advance-job`, migration 0015 and
+ * `validate health --repair`.
+ */
+function rotateDecisionsOnDisk(cwd, keep, { dryRun = false } = {}) {
+  const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  if (!fs.existsSync(statePath)) return { applies: false, moved: 0, kept: 0, reason: 'STATE.md not found' };
+  const content = fs.readFileSync(statePath, 'utf-8');
+  const r = stateDigest.rotateDecisions(content, keep);
+  if (!r.applies) return { applies: false, moved: 0, kept: r.kept };
+  if (!dryRun) {
+    ensureArchive(cwd);
+    const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
+    const archive = fs.readFileSync(archivePath, 'utf-8');
+    fs.writeFileSync(archivePath, stateDigest.appendDecisionsToArchive(archive, r.moved), 'utf-8');
+    fs.writeFileSync(statePath, r.content, 'utf-8');
+  }
+  return { applies: true, moved: r.moved.length, kept: r.kept, dry_run: dryRun };
+}
+
+/** `state rotate-decisions [--keep N] [--dry-run]`. */
+function cmdStateRotateDecisions(cwd, options, raw) {
+  const keepArg = options && options.keep != null ? parseInt(options.keep, 10) : undefined;
+  const keep = Number.isInteger(keepArg) && keepArg >= 0 ? keepArg : stateDigest.DEFAULT_KEEP;
+  const r = rotateDecisionsOnDisk(cwd, keep, { dryRun: !!(options && options.dryRun) });
+  const store = storeMode(cwd);
+  const result = { rotated: r.applies, moved: r.moved, kept: r.kept, keep };
+  if (r.reason) result.reason = r.reason;
+  if (r.dry_run) result.dry_run = true;
+  if (store) result.hint = DECISION_HINT;
+  output(result, raw, r.applies ? String(r.moved) : '0');
 }
 
 function cmdStateGet(cwd, section, raw) {
@@ -340,6 +396,18 @@ function bareObjectiveNumber(n) {
   return String(n).replace(/^0+(?=\d)/, '');
 }
 
+/**
+ * What one advance-job run wrote (quick 35): repo-relative posix paths, plus whether STATE_ARCHIVE.md changed. The
+ * workflows commit these files, and before this the archive rows a rotation moved were left out of the commit.
+ */
+function advanceFilesChanged(cwd, { stateMd = false, archive = false, stateJson = false } = {}) {
+  const files_changed = [];
+  if (stateMd) files_changed.push(planningRel(cwd, 'STATE.md'));
+  if (archive) files_changed.push(planningRel(cwd, 'STATE_ARCHIVE.md'));
+  if (stateJson) files_changed.push(planningRel(cwd, 'state.json'));
+  return { files_changed, archive_updated: !!archive };
+}
+
 // The position as a fact read from disk (TRD 59-02, PLMB-01): count objective N's TRDs
 // and the TRDs that have a SUMMARY (the NN-MM pairing findObjectiveInternal does). The
 // result does not depend on any counter carried between calls, so it is idempotent and
@@ -351,7 +419,7 @@ function advanceFromDisk(cwd, objective, raw) {
 
   const total = info.jobs.length;
   if (total === 0) {
-    output({ advanced: false, reason: 'no_trds', objective: info.objective_number }, raw, 'false');
+    output({ advanced: false, reason: 'no_trds', objective: info.objective_number, ...advanceFilesChanged(cwd) }, raw, 'false');
     return;
   }
   // A TRD counts once it has a SUMMARY that is completion evidence: one whose frontmatter
@@ -374,8 +442,16 @@ function advanceFromDisk(cwd, objective, raw) {
 
   const store = storeMode(cwd);
   const statePath = path.join(planningRoot(cwd), 'STATE.md');
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
   let stateMdUpdated = false;
+  let rotated = 0;
+  let archiveCreated = false;
   if (!store && fs.existsSync(statePath)) {
+    const archiveExisted = fs.existsSync(archivePath);
+    try { rotated = rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP).moved; } catch { /* advisory */ }
+    // The archive exists whenever this path writes STATE.md, so a commit naming it never fails on a missing path.
+    ensureArchive(cwd);
+    archiveCreated = !archiveExisted;
     const original = fs.readFileSync(statePath, 'utf-8');
     let content = original;
     // Fields are rewritten only where they already exist; none is ever added.
@@ -412,6 +488,7 @@ function advanceFromDisk(cwd, objective, raw) {
     status: statusKey,
     status_text: statusText,
     state_md_updated: stateMdUpdated,
+    ...advanceFilesChanged(cwd, { stateMd: stateMdUpdated || rotated > 0, archive: archiveCreated || rotated > 0, stateJson: true }),
   }, raw, statusKey);
 }
 
@@ -430,6 +507,22 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
   const hasStateMd = fs.existsSync(statePath);
   if (!hasStateMd && !store) { output({ error: 'STATE.md not found' }, raw); return; }
 
+  // Every advance keeps STATE.md a digest: decisions beyond DEFAULT_KEEP move to the archive (local mode only;
+  // in store mode STATE.md is a generated view and is never written here).
+  const archivePath = path.join(planningRoot(cwd), 'STATE_ARCHIVE.md');
+  const archiveExisted = fs.existsSync(archivePath);
+  let rotated = 0;
+  if (!store && hasStateMd) {
+    try { rotated = rotateDecisionsOnDisk(cwd, stateDigest.DEFAULT_KEEP).moved; } catch { /* advisory: the advance still runs */ }
+  }
+  // The two branches below that write STATE.md seed the archive first, so a commit naming it never fails on a
+  // missing path (quick 35). seedArchive() reports whether it created the file, for files_changed.
+  const seedArchive = () => {
+    ensureArchive(cwd);
+    return !archiveExisted;
+  };
+  let archiveCreated = false;
+
   // Store mode reads a rendered STATE.md only as the counters' fallback; it never writes it.
   let content = hasStateMd ? fs.readFileSync(statePath, 'utf-8') : '';
   const emit = store ? storeOutput : output;
@@ -443,28 +536,34 @@ function cmdStateAdvanceJob(cwd, optionsOrRaw, maybeRaw) {
   // No usable position (no counters, or state.json's 0/0): nothing to advance. Before this
   // guard 0 >= 0 rewrote Status to "Objective complete" after the first TRD of every objective.
   if (isNaN(currentJob) || isNaN(totalJobs) || totalJobs <= 0) {
-    output({ advanced: false, reason: 'no_position', hint: NO_POSITION_HINT }, raw, 'false');
+    // A rotation above may already have written STATE.md and the archive; say so.
+    const changed = advanceFilesChanged(cwd, { stateMd: rotated > 0, archive: rotated > 0 });
+    output({ advanced: false, reason: 'no_position', hint: NO_POSITION_HINT, ...changed }, raw, 'false');
     return;
   }
 
   if (currentJob >= totalJobs) {
     if (!store) {
+      archiveCreated = seedArchive();
       content = stateReplaceField(content, 'Status', 'Objective complete — ready for verification') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
       fs.writeFileSync(statePath, content, 'utf-8');
     }
     writeStateJson(cwd, { current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification', last_activity: today });
-    emit({ advanced: false, reason: 'last_job', current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification' }, raw, 'false');
+    const changed = advanceFilesChanged(cwd, { stateMd: !store, archive: archiveCreated || rotated > 0, stateJson: true });
+    emit({ advanced: false, reason: 'last_job', current_job: currentJob, total_jobs: totalJobs, status: 'ready_for_verification', ...changed }, raw, 'false');
   } else {
     const newJob = currentJob + 1;
     if (!store) {
+      archiveCreated = seedArchive();
       content = stateReplaceField(content, 'Current Job', String(newJob)) || content;
       content = stateReplaceField(content, 'Status', 'Ready to execute') || content;
       content = stateReplaceField(content, 'Last Activity', today) || content;
       fs.writeFileSync(statePath, content, 'utf-8');
     }
     writeStateJson(cwd, { current_job: newJob, total_jobs: totalJobs, status: 'Ready to execute', last_activity: today });
-    emit({ advanced: true, previous_job: currentJob, current_job: newJob, total_jobs: totalJobs }, raw, 'true');
+    const changed = advanceFilesChanged(cwd, { stateMd: !store, archive: archiveCreated || rotated > 0, stateJson: true });
+    emit({ advanced: true, previous_job: currentJob, current_job: newJob, total_jobs: totalJobs, ...changed }, raw, 'true');
   }
 }
 
@@ -488,20 +587,37 @@ function cmdStateRecordMetric(cwd, options, raw) {
   if (metricsMatch) {
     const tableHeader = metricsMatch[1];
     let tableBody = metricsMatch[2].trimEnd();
-    const newRow = `| Objective ${objective} P${job} | ${duration} | ${tasks || '-'} tasks | ${files || '-'} files |`;
+    const rowKey = `Objective ${objective} P${job}`;
+    const newRow = `| ${rowKey} | ${duration} | ${tasks || '-'} tasks | ${files || '-'} files |`;
 
-    if (tableBody.trim() === '' || tableBody.includes('None yet')) {
+    // Upsert (quick 36): a re-run for the same objective and job replaces its row, so `trd finalize`
+    // is a safe retry. The first cell is compared as an exact string; numbers are not normalised.
+    const bodyLines = tableBody.split('\n');
+    const existing = bodyLines.findIndex((line) => {
+      const cell = /^\|([^|]*)\|/.exec(line);
+      return cell !== null && cell[1].trim() === rowKey;
+    });
+    if (existing !== -1) {
+      bodyLines[existing] = newRow;
+      tableBody = bodyLines.join('\n');
+    } else if (tableBody.trim() === '' || tableBody.includes('None yet')) {
       tableBody = newRow;
     } else {
       tableBody = tableBody + '\n' + newRow;
     }
 
-    content = content.replace(metricsPattern, `${tableHeader}${tableBody}\n`);
+    // A table that ends the file keeps exactly one trailing newline: the match stops before the
+    // final `\n`, which used to survive as an extra blank line on every later write.
+    const start = metricsMatch.index;
+    const after = content.slice(start + metricsMatch[0].length);
+    content = content.slice(0, start) + `${tableHeader}${tableBody}\n` + (/^\n*$/.test(after) ? '' : after);
     fs.writeFileSync(archivePath, content, 'utf-8');
     if (store) {
-      // STATE_ARCHIVE.md is runtime in store mode; state.json carries the same row.
-      const metrics_log = [...(stateJsonOrDefaults(cwd).metrics_log || []),
-        { objective, job, duration, tasks: tasks || null, files: files || null }];
+      // STATE_ARCHIVE.md is runtime in store mode; state.json carries the same row, one per objective and job.
+      const entry = { objective, job, duration, tasks: tasks || null, files: files || null };
+      const log = stateJsonOrDefaults(cwd).metrics_log || [];
+      const at = log.findIndex((m) => m && String(m.objective) === String(objective) && String(m.job) === String(job));
+      const metrics_log = at === -1 ? [...log, entry] : log.map((m, i) => (i === at ? entry : m));
       writeStateJson(cwd, { metrics_log });
       storeOutput({ recorded: true, objective, job, duration }, raw, 'true');
       return;
@@ -582,6 +698,13 @@ function cmdStateAddDecision(cwd, options, raw) {
   const match = content.match(sectionPattern);
 
   if (match) {
+    // Idempotent (quick 36): the exact entry line already in Decisions is a no-op, so a retried
+    // `trd finalize` writes neither the archive nor state.json again. A different rationale is a
+    // different line and is added.
+    if (match[2].split('\n').some((line) => line.trimEnd() === entry)) {
+      output({ added: false, duplicate: true, decision: entry }, raw, 'false');
+      return;
+    }
     let sectionBody = match[2];
     // Remove placeholders
     sectionBody = sectionBody.replace(/None yet\.?\s*\n?/gi, '').replace(/No decisions yet\.?\s*\n?/gi, '').replace(/\*\(none yet\)\*\s*\n?/gi, '');
@@ -841,6 +964,9 @@ module.exports = {
   stateExtractField,
   stateReplaceField,
   cmdStateLoad,
+  cmdStateDigest,
+  cmdStateRotateDecisions,
+  rotateDecisionsOnDisk,
   cmdStateGet,
   cmdStatePatch,
   cmdStateUpdate,

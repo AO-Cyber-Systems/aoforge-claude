@@ -67,7 +67,7 @@ Check `node ~/.claude/aoforge/bin/aof-tools.cjs planning mode`.
 
 **Local:** edit STATE.md as today to reflect the new objective:
 
-1. Read `.aoforge/STATE.md`
+1. Run `node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw` (the STATE.md digest)
 2. Under "## Accumulated Context" → "### Roadmap Evolution" add entry:
    ```
    - Objective {N} added: {description}

@@ -31,7 +31,9 @@ Usage:
 </execution_context>
 
 <context>
-@.aoforge/STATE.md
-@.aoforge/ROADMAP.md
+Project state (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs state get` prints the full file):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw 2>/dev/null`
+Roadmap (digest; `node ~/.claude/aoforge/bin/aof-tools.cjs roadmap get-objective <N>` prints one objective in full):
+!`node ~/.claude/aoforge/bin/aof-tools.cjs roadmap digest --raw 2>/dev/null`
 @.aoforge/config.json
 </context>

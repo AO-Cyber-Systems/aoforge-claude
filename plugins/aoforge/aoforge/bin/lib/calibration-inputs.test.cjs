@@ -132,6 +132,64 @@ describe('57-02 model rates', () => {
   });
 });
 
+describe('shipped rates follow the pricing page (quick 37)', () => {
+  // https://platform.claude.com/docs/en/about-claude/pricing, read 2026-10-16.
+  // Footnote 1: Fable 5.1 (and Mythos 5.1) cache hits are 0.025x input.
+  // Footnote 2: "Cache hits and refreshes on Claude Opus 5.5 and Claude Sonnet 5.5 are priced at 0.05x the base
+  // input price". "All other models use the standard 0.1x multiplier". Cache writes are 1.25x (5 minutes) and 2x
+  // (1 hour) of input on every model.
+  const CACHE_HIT = { 'claude-fable-5-1': 0.025, 'claude-opus-5-5': 0.05, 'claude-sonnet-5-5': 0.05 };
+  const DEFAULT_CACHE_HIT = 0.1;
+  // 0.1 * 0.1 is not 0.01 in floating point, so compare with a tolerance.
+  const close = (a, b) => Math.abs(a - b) < 1e-9;
+
+  test('1: Opus 5.5 and Sonnet 5.5 cache hits cost 0.05x input', () => {
+    const rates = ci.loadRates();
+    assert.equal(rates.ok, true);
+    for (const id of ['claude-opus-5-5', 'claude-sonnet-5-5']) {
+      const model = rates.models[id];
+      assert.ok(model, id);
+      assert.ok(close(model.cache_read, model.input * 0.05),
+        `${id}.cache_read is ${model.cache_read}, expected ${model.input * 0.05} (0.05x of input ${model.input})`);
+    }
+  });
+
+  test('2: Fable 5.1 cache hits cost 0.025x input, every other model 0.1x', () => {
+    const rates = ci.loadRates();
+    assert.equal(rates.ok, true);
+    assert.ok(rates.models['claude-fable-5-1'], 'claude-fable-5-1 is priced');
+    for (const [id, model] of Object.entries(rates.models)) {
+      if (CACHE_HIT[id] === 0.05) continue; // test 1 owns Opus 5.5 and Sonnet 5.5
+      const multiplier = CACHE_HIT[id] ?? DEFAULT_CACHE_HIT;
+      assert.ok(close(model.cache_read, model.input * multiplier),
+        `${id}.cache_read is ${model.cache_read}, expected ${model.input * multiplier} (${multiplier}x of input ${model.input})`);
+    }
+  });
+
+  test('3: every model writes the cache at 1.25x input for 5 minutes and 2x for 1 hour', () => {
+    const rates = ci.loadRates();
+    assert.equal(rates.ok, true);
+    for (const [id, model] of Object.entries(rates.models)) {
+      assert.ok(close(model.cache_write_5m, model.input * 1.25),
+        `${id}.cache_write_5m is ${model.cache_write_5m}, expected ${model.input * 1.25}`);
+      assert.ok(close(model.cache_write_1h, model.input * 2),
+        `${id}.cache_write_1h is ${model.cache_write_1h}, expected ${model.input * 2}`);
+    }
+  });
+
+  test('4: rateFor gives the Sonnet 5.5 row of the pricing page', () => {
+    assert.deepEqual(ci.rateFor(ci.loadRates(), 'claude-sonnet-5-5'),
+      { id: 'claude-sonnet-5-5', input: 2, output: 10, cache_read: 0.1, cache_write_5m: 2.5, cache_write_1h: 4 });
+  });
+
+  test('5: the file comment names Opus 5.5 and Sonnet 5.5 as the 0.05x models', () => {
+    const raw = JSON.parse(fs.readFileSync(ci.RATES_PATH, 'utf8'));
+    assert.ok(Array.isArray(raw._comment));
+    const line = raw._comment.find((l) => l.includes('Opus 5.5') && l.includes('Sonnet 5.5') && l.includes('0.05x'));
+    assert.ok(line, `no _comment line names Opus 5.5 and Sonnet 5.5 with 0.05x:\n${raw._comment.join('\n')}`);
+  });
+});
+
 describe('57-02 parseDurationMinutes', () => {
   const cases = [
     ['8min', 8], ['3 min', 3], ['~45min', 45], ['about 50 min', 50], ['65 min', 65],

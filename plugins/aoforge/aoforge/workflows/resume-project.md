@@ -56,7 +56,7 @@ read in load_state and carry on from PROJECT.md and ROADMAP.md.
 Read and parse STATE.md, then PROJECT.md:
 
 ```bash
-cat .aoforge/STATE.md
+node ~/.claude/aoforge/bin/aof-tools.cjs state digest --raw
 cat .aoforge/PROJECT.md
 ```
 

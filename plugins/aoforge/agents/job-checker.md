@@ -467,54 +467,45 @@ must_haves:
 
 Aggregate across plans for full picture of what objective delivers.
 
-## Step 4: Check Requirement Coverage
+## Step 4: Read the mechanical pre-check
 
-Map requirements to tasks:
+Dimensions 2 (task completeness), 3 (dependency correctness), 5 (scope sanity), 8 (TRD size and
+linked bulk) and the ID half of Dimension 1 are computed by code. Do not re-derive them with greps.
 
-```
-Requirement          | Plans | Tasks | Status
----------------------|-------|-------|--------
-User can log in      | 01    | 1,2   | COVERED
-User can log out     | -     | -     | MISSING
-Session persists     | 01    | 3     | COVERED
-```
-
-For each requirement: find covering task(s), verify action is specific, flag gaps.
-
-## Step 5: Validate Task Structure
-
-Use aof-tools job-structure verification (already run in Step 2):
+Use the `Mechanical pre-check (verify trd-pre)` JSON from your prompt. If the prompt has none (an
+older orchestrator), run it once yourself:
 
 ```bash
-PLAN_STRUCTURE=$(node ~/.claude/aoforge/bin/aof-tools.cjs verify job-structure "$JOB_PATH")
+node ~/.claude/aoforge/bin/aof-tools.cjs verify trd-pre "$OBJECTIVE_NUMBER"
 ```
 
-The `tasks` array in the result shows each task's completeness:
-- `hasFiles` — files element present
-- `hasAction` — action element present
-- `hasVerify` — verify element present
-- `hasDone` — done element present
+**Quick mode** (`Mode: quick-full`) has no objective, so `verify trd-pre` does not apply. Run
+`node ~/.claude/aoforge/bin/aof-tools.cjs verify job-structure "<plan path>"` on the one plan for task
+completeness, and count its tasks for scope (1-3 is right for a quick task).
 
-**Check:** valid task type (auto, checkpoint:*, tdd), auto tasks have files/action/verify/done, action is specific, verify is runnable, done is measurable.
+Turn its `checks` into issues, one per finding:
 
-**For manual validation of specificity** (aof-tools checks structure, not content quality):
-```bash
-grep -B5 "</task>" "$OBJECTIVE_DIR"/*-TRD.md "$OBJECTIVE_DIR"/*-JOB.md 2>/dev/null | grep -v "<verify>"
-```
+| Field | Dimension | Severity |
+|---|---|---|
+| `requirement_coverage.missing[]` | requirement_coverage | blocker |
+| `task_completeness.incomplete[]` | task_completeness | blocker |
+| `dependency_correctness.cycles[]`, `.orphan_refs[]` | dependency_correctness | blocker |
+| `scope_sanity.oversized_trds[]` (5+ tasks) | scope_sanity | blocker (split required) |
+| `scope_sanity.warning_trds[]` (4 tasks) | scope_sanity | warning |
+| `scope_sanity.passed: false` with both lists empty (too many TRDs) | scope_sanity | warning: name `total_trds` |
+| `trd_budget.over[]`, `.warn[]`, each `bulk` finding | trd_budget | as Dimension 8 step 2 says |
 
-## Step 6: Verify Dependency Graph
+## Step 5: Check the judgment dimensions
 
-```bash
-for plan in "$OBJECTIVE_DIR"/*-TRD.md "$OBJECTIVE_DIR"/*-JOB.md; do
-  grep "depends_on:" "$job"
-done
-```
+What code cannot see is your job:
 
-Validate: all referenced plans exist, no cycles, wave numbers consistent, no forward references. If A -> B -> C -> A, report cycle.
-
-## Step 7: Check Key Links
-
-For each key_link in must_haves: find source artifact task, check if action mentions the connection, flag missing wiring.
+- **Requirement coverage, semantic half (Dimension 1):** for each requirement the pre-check found
+  covered, does the covering task's `<action>` actually deliver it? A task that names the ID but
+  builds something else is a blocker.
+- **Task quality:** the pre-check proves `<action>`, `<verify>` and `<done>` exist, not that they
+  are good. Is the action specific, the verify runnable, the done measurable?
+- **Key links (Dimension 4):** for each key_link in must_haves, find the task that creates the
+  source artifact and check its action mentions the connection.
 
 ```
 key_link: Chat.tsx -> /api/chat via fetch
@@ -522,18 +513,7 @@ Task 2 action: "Create Chat component with message list..."
 Missing: No mention of fetch/API call → Issue: Key link not planned
 ```
 
-## Step 8: Assess Scope
-
-```bash
-grep -c "<task" "$OBJECTIVE_DIR"/$OBJECTIVE-01-TRD.md "$OBJECTIVE_DIR"/$OBJECTIVE-01-JOB.md 2>/dev/null
-grep "files_modified:" "$OBJECTIVE_DIR"/$OBJECTIVE-01-TRD.md "$OBJECTIVE_DIR"/$OBJECTIVE-01-JOB.md 2>/dev/null
-```
-
-Thresholds: 2-3 tasks/plan good, 4 warning, 5+ blocker (split required).
-
-## Step 8b: Check TRD Size and Linked Bulk
-
-Run `verify trd-pre` (no `--raw`) and apply Dimension 8 to `checks.trd_budget`: every `over` TRD at the severity Dimension 8 step 2 selects, every `warn` TRD and every `bulk` finding as a warning.
+- **Context compliance (Dimension 7):** see that dimension.
 
 ## Step 9: Verify must_haves Derivation
 

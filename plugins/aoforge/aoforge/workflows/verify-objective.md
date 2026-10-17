@@ -21,8 +21,9 @@ Then verify each level against the actual codebase.
 </core_principle>
 
 <required_reading>
-@~/.claude/aoforge/references/verification-patterns.md
-@~/.claude/aoforge/templates/verification-report.md
+Read with the Read tool, each when needed (an @ line in a Task prompt is not expanded):
+- ~/.claude/aoforge/references/verification-patterns.md — once, before the first check
+- ~/.claude/aoforge/templates/verification-report.md — before writing the report
 </required_reading>
 
 <process>

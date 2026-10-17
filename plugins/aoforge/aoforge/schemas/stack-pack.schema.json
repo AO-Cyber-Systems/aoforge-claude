@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aoforge.aocyber.ai/schemas/stack-pack/v1",
+  "schema_version": 1,
+  "title": "Stack Pack manifest v1",
+  "description": "aoforge-stack.json at a stack pack plugin's root, mirrored to ~/.claude/aoforge/stacks/<name>/ by the pack's SessionStart hook. See docs/PROPOSAL-stack-packs.md \u00a75A. Paths are relative to the pack root. Detection files, generated-file globs and runtime defaults belong in the pack's profiles, not here (PROPOSAL-stack-profile.md \u00a78); the manifest keeps the executable concerns.",
+  "type": "object",
+  "required": [
+    "schema",
+    "name",
+    "plugin",
+    "contract"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "relPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^/~].*"
+    },
+    "argv": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "agentKey": {
+      "type": "string",
+      "enum": [
+        "planner",
+        "executor",
+        "verifier",
+        "debugger",
+        "mapper",
+        "researcher"
+      ]
+    },
+    "tier": {
+      "type": "string",
+      "enum": [
+        "opus",
+        "sonnet",
+        "haiku"
+      ]
+    }
+  },
+  "properties": {
+    "schema": {
+      "const": 1
+    },
+    "name": {
+      "description": "Pack id: the stacks/<name>/ mirror directory and the config stacks.enabled key.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "plugin": {
+      "description": "The Claude Code plugin name that ships the pack; its agents are addressed <plugin>:<agent>.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "version": {
+      "type": "string"
+    },
+    "contract": {
+      "description": "Contract version the pack implements. Core refuses one it does not support.",
+      "const": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "profiles": {
+      "description": "Tier-2 stack profiles the pack ships. A project whose extends chain names one of their ids activates the pack.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relPath"
+      },
+      "uniqueItems": true
+    },
+    "detect": {
+      "description": "Repo evidence that PROPOSES the pack in `stack discover`. Detection never activates a pack.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profile": {
+          "type": "string"
+        }
+      }
+    },
+    "fragments": {
+      "description": "Per-agent instruction files. `stack context <agent>` points the agent at the active packs' fragment for it.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/agentKey"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/relPath"
+      }
+    },
+    "subagents": {
+      "description": "Pack agents a core agent delegates to, keyed by the core agent.",
+      "type": "object",
+      "propertyNames": {
+        "$ref": "#/$defs/agentKey"
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "agent"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "agent": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9-]*$"
+            },
+            "when": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "description": "Tier per profile for the pack's own agents, read by `aof-tools resolve-model <agent>`.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "quality",
+          "balanced",
+          "budget"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "quality": {
+            "$ref": "#/$defs/tier"
+          },
+          "balanced": {
+            "$ref": "#/$defs/tier"
+          },
+          "budget": {
+            "$ref": "#/$defs/tier"
+          }
+        }
+      }
+    },
+    "cli": {
+      "description": "The pack's own Node CLI entry, run as `node <mirror>/<cli> <args>`.",
+      "$ref": "#/$defs/relPath"
+    },
+    "verify": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/argv"
+        },
+        "changed_flag": {
+          "type": "string"
+        },
+        "all_flag": {
+          "type": "string"
+        },
+        "result_schema": {
+          "const": 1
+        }
+      }
+    },
+    "fix": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/argv"
+        }
+      }
+    },
+    "doctor": {
+      "type": "object",
+      "required": [
+        "command"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "$ref": "#/$defs/argv"
+        }
+      }
+    },
+    "requires_tool": {
+      "description": "External binaries the pack drives, name -> version range (informational; presence is checked).",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "install_hint": {
+      "type": "string"
+    },
+    "ui": {
+      "description": "Stack inputs to the stack-neutral Surface Spec pipeline.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "metrics_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "pattern_catalogue": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "must_not_extra": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "select": {
+      "description": "Selection by the resolved profile's frontmatter, besides a profile id in the extends chain: e.g. {\"runtime\": [\"web\"]} activates the pack for verification.runtime: web.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "soft_depends": {
+      "description": "Packs this pack wants for some platforms without requiring them. When this pack is active and the project's platforms (the resolved verification.runtime, and every TRD's platform / must_haves.platform) include one listed here, the named pack is selected too, unless config stacks.disabled names it. A named pack that is not installed, not enabled or broken is a `stack doctor` warning, never a failure. Not followed transitively.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "pack",
+          "platforms"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "pack": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$"
+          },
+          "platforms": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "gate_policy": {
+      "description": "A module exporting the pack's run-guard policy for `stack verify --run`: guardedTools, deny, binDirs, rewrite(command, {cwdAbs, root, fs}).",
+      "$ref": "#/$defs/relPath"
+    },
+    "awareness": {
+      "description": "A module that lets org-awareness read the pack's language in the shared library repo: extensions, entrypoints(root, fs), parseExports(source).",
+      "$ref": "#/$defs/relPath"
+    }
+  }
+}

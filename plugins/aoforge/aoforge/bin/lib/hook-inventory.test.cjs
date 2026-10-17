@@ -25,6 +25,7 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 const IS_AOFORGE_CHECKOUT = fs.existsSync(path.join(REPO_ROOT, 'README.md'));
+const HOOKS_DIR = path.join(REPO_ROOT, 'plugins', 'aoforge', 'hooks');
 
 // ---- pure parser functions ----
 
@@ -57,13 +58,23 @@ function parseBullets(section) {
 }
 
 /** Every `hooks/<name>.js` reference across hooks.json + plugin.json (statusLine). */
-function registeredScripts(hooksJson, pluginJson) {
+function registeredScripts(hooksJson, pluginJson, hooksDir = null) {
   const scripts = new Set();
   const re = /hooks\/([a-z0-9-]+\.js)/g;
   for (const blob of [JSON.stringify(hooksJson), JSON.stringify(pluginJson)]) {
     let m;
     re.lastIndex = 0;
     while ((m = re.exec(blob))) scripts.add(m[1]);
+  }
+  // A hook run inside a registered dispatcher (`DISPATCHED-BY: <file>.js` in its first 40 lines, the
+  // marker doctor check 12 reads) is registered through it.
+  if (hooksDir) {
+    for (const name of fs.readdirSync(hooksDir)) {
+      if (!/^[a-z0-9-]+\.js$/.test(name) || scripts.has(name)) continue;
+      const head = fs.readFileSync(path.join(hooksDir, name), 'utf8').split('\n').slice(0, 40);
+      const m = head.map((l) => /DISPATCHED-BY:\s*([a-z0-9-]+\.js)/.exec(l)).find(Boolean);
+      if (m && scripts.has(m[1])) scripts.add(name);
+    }
   }
   return scripts;
 }
@@ -94,7 +105,7 @@ describe(
       );
 
     test('1. registered ⊆ documented: every registered script has a CLAUDE.md bullet', () => {
-      const registered = registeredScripts(hooksJson(), pluginJson());
+      const registered = registeredScripts(hooksJson(), pluginJson(), HOOKS_DIR);
       const documented = new Set(parseBullets(hooksSection(claudeMd())).map((b) => b.script));
       const missing = [...registered].filter((s) => !documented.has(s));
       assert.deepEqual(
@@ -105,7 +116,7 @@ describe(
     });
 
     test('2. documented ⊆ registered ∪ draft: every bullet is registered or Draft-grouped', () => {
-      const registered = registeredScripts(hooksJson(), pluginJson());
+      const registered = registeredScripts(hooksJson(), pluginJson(), HOOKS_DIR);
       const { undocumentedLive } = classifyInventory(claudeMd(), registered);
       assert.deepEqual(
         undocumentedLive.sort(),
@@ -115,7 +126,7 @@ describe(
     });
 
     test('3. Draft labels are true: script exists on disk and is not registered', () => {
-      const registered = registeredScripts(hooksJson(), pluginJson());
+      const registered = registeredScripts(hooksJson(), pluginJson(), HOOKS_DIR);
       const bullets = parseBullets(hooksSection(claudeMd()));
       const draftBullets = bullets.filter((b) => isDraftGroup(b.group));
       // Vacuously true before the Draft group exists (RED phase); once it exists,
@@ -159,7 +170,7 @@ describe(
     });
 
     test('5. sanity floor: parser is not silently matching nothing', () => {
-      const registered = registeredScripts(hooksJson(), pluginJson());
+      const registered = registeredScripts(hooksJson(), pluginJson(), HOOKS_DIR);
       const bullets = parseBullets(hooksSection(claudeMd()));
       assert.ok(registered.size >= 10, `expected >= 10 registered scripts, got ${registered.size}`);
       assert.ok(bullets.length > 0, 'expected a non-empty bullet set');

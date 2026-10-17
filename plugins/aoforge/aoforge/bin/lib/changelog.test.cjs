@@ -51,3 +51,54 @@ test('11. dots are literal: 4.1.0 does not match 401.0.0 but matches its own ent
 test('12. no CHANGELOG.md -> false (guard)', () => {
   assert.equal(hasVersionEntry(dir, '1.0.0'), false);
 });
+
+// Quick 34: a pack tag (`<pack>--vX.Y.Z`) between two core releases must not become the previous
+// release, or `changelog update` covers only the commits since the pack tag. Hand-built temp repos;
+// the git calls run inside node, so the tag gate never sees them.
+
+const { spawnSync, execFileSync } = require('child_process');
+const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
+
+function git(...args) {
+  return execFileSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=T', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgsign=false', ...args],
+    { cwd: dir, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+}
+
+function commit(subject) {
+  fs.writeFileSync(path.join(dir, 'f.txt'), subject);
+  git('add', '-A');
+  git('commit', '-qm', subject);
+}
+
+/** v1.0.0, then a commit, a lightweight pack tag, and another commit. */
+function historyWithPackTag() {
+  git('init', '-q', '.');
+  commit('feat: one');
+  git('tag', '-a', 'v1.0.0', '-m', 'v1.0.0');
+  commit('fix: two');
+  git('tag', 'aoforge-stack-demo--v1.0.0');
+  commit('feat: three');
+}
+
+function dryRun(...args) {
+  const r = spawnSync(process.execPath, [AOF_TOOLS, '--cwd', dir, 'changelog', 'update', ...args, '--dry-run'], { encoding: 'utf-8' });
+  assert.equal(r.status, 0, r.stderr);
+  let out = r.stdout.trim();
+  if (out.startsWith('@file:')) out = fs.readFileSync(out.slice('@file:'.length), 'utf-8');
+  return JSON.parse(out);
+}
+
+test('13. a pack tag after the last core tag is not the previous release (HEAD range)', () => {
+  historyWithPackTag();
+  const r = dryRun('--version', 'v1.1.0');
+  assert.equal(r.from, 'v1.0.0');
+  assert.equal(r.commit_count, 2);
+});
+
+test('14. --to <v-tag> past a pack tag starts at the previous core tag', () => {
+  historyWithPackTag();
+  git('tag', '-a', 'v1.1.0', '-m', 'v1.1.0');
+  const r = dryRun('--version', 'v1.1.0', '--to', 'v1.1.0');
+  assert.equal(r.from, 'v1.0.0');
+  assert.equal(r.commit_count, 2);
+});

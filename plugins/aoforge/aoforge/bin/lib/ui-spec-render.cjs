@@ -6,7 +6,7 @@
  *   renderSurfaceSpec(spec, {validate}) -> {manifest, navGraphMermaid, controlTableMd, captureList}
  *
  * §4.1's one-file rule: the spec is the only hand-authored artifact. The ui-eval manifest the
- * existing `flutter-ui-eval` engine consumes, the mermaid navigation graph (§8.2 — "can the
+ * a stack pack's UI eval engine consumes, the mermaid navigation graph (§8.2 — "can the
  * reader get back from here", answered before code exists), the plain-language control table a
  * human reads on the review sheet (§8.3) and the capture list 34-06's sheet grid and W2's
  * `ui probe` iterate are all DERIVED. Nothing downstream is hand-edited.
@@ -102,7 +102,7 @@ function statesOf(spec) {
  * second path is the silent pass.
  *
  * `theme`, `viewport` and `content` come from §4.2's state block and are carried through for
- * 34-06's sheet. No field is INVENTED: if §4.2 does not carry it and `flutter-ui-eval.cjs` does
+ * 34-06's sheet. No field is INVENTED: if §4.2 does not carry it and the pack's UI eval engine does
  * not read it, it is not here. (`expected` — the judge's anchor — is W2's calibration work and
  * is deliberately NOT synthesised from `content` here.)
  */

@@ -39,6 +39,8 @@ const FLAG_SPEC = deepFreeze({
       get: {},
       update: {},
       'update-progress': {},
+      digest: { values: ['--decisions'] },
+      'rotate-decisions': { values: ['--keep'], bools: ['--dry-run'] },
       patch: {
         anyFlags: true,
         reason: '`state patch --<field> <value>` pairs name arbitrary STATE.md fields, so every --x is a field name',
@@ -81,6 +83,7 @@ const FLAG_SPEC = deepFreeze({
     subcommands: {
       'get-objective': {},
       analyze: {},
+      digest: {},
       'update-job-progress': {},
     },
   },
@@ -121,7 +124,7 @@ const FLAG_SPEC = deepFreeze({
   summary: {
     subcommands: {
       post: { values: ['--from', '--file'], bools: FLUSH },
-      checkpoint: { values: ['--from', '--file'], bools: FLUSH },
+      checkpoint: { values: ['--from', '--file', '--tick', '--hash'], bools: FLUSH },
     },
   },
 
@@ -175,6 +178,14 @@ const FLAG_SPEC = deepFreeze({
       docs: {},
       health: { bools: ['--repair'] },
       requirements: { values: ['--objective'] },
+      'roadmap-coverage': {},
+    },
+  },
+
+  // TRD 76-04: the executor's post-SUMMARY bookkeeping in one call.
+  trd: {
+    subcommands: {
+      finalize: { values: ['--duration'], bools: ['--dry-run'] },
     },
   },
 
@@ -195,15 +206,7 @@ const FLAG_SPEC = deepFreeze({
   // the flags it reads. Where a command nests (`gh outbox flush|resolve`, `ui spec validate|render`, `stack`'s extension
   // modules) the entry carries the union of the nested forms' flags.
 
-  // Flutter UI and UI-spec tooling.
-  'flutter-ui': {
-    subcommands: {
-      setup: { bools: ['--print-only', '--auto'] },
-      eval: { values: ['--judge', '--samples'] },
-      bootstrap: {},
-      'design-review': { bools: ['--live'] },
-    },
-  },
+  // UI-spec tooling.
   ui: {
     subcommands: {
       metrics: { values: ['--since', '--paths', '--out'] },
@@ -213,7 +216,6 @@ const FLAG_SPEC = deepFreeze({
       lock: { values: ['--sheet-hash', '--by', '--at', '--patterns'] },
     },
   },
-  generate: { subcommands: { uat: {} } },
 
   // Layout migration, adoption, upgrade and diagnosis.
   // `migrate plan` is read-only and ignores the apply flags; help.cjs documents one flag list for both, so both accept it.
@@ -328,7 +330,9 @@ const FLAG_SPEC = deepFreeze({
       validate: { values: ['--profile'] },
       command: { values: ['--file', '--files', '--packages'], bools: ['--apply'] },
       init: { values: ['--from', '--extends'], bools: ['--write', '--force'] },
-      verify: { values: ['--include', '--keys', '--timeout'], bools: ['--run', '--draft', '--allow-services'] },
+      verify: { values: ['--include', '--keys', '--timeout', '--task'], bools: ['--run', '--draft', '--allow-services', '--changed', '--all'] },
+      discover: { values: [], bools: [] },
+      doctor: { values: [], bools: [] },
       report: {
         ownParser: true,
         reason: 'stack-report.cjs rejects an unknown flag (it takes --write and --draft) before it drafts or writes STACK-REPORT.md',
