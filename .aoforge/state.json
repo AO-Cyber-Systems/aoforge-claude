@@ -1,6 +1,6 @@
 {
   "current_objective": "79",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 10,
   "progress_pct": 98,
   "status": "executing",
@@ -1829,6 +1829,11 @@
     {
       "objective": "79",
       "summary": "79-01: pre-rename runtime leftovers on this machine (.devflow-handoff/, .aoforge/.devflow-notices.json, objective 37's .devflow-handoff/) are excluded in .git/info/exclude; .gitignore keeps no legacy line",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-02: compat references are resolved by module (lexer plus regex), not by name; reconcile-guard.repo.test.cjs fails on a compat export that does not exist, on the five removed names and on a tracked pre-rename planning path",
       "rationale": null
     }
   ],
