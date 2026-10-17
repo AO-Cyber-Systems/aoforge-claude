@@ -29,9 +29,11 @@ re_verification: false
 
 | Requirement | Status | Evidence |
 |---|---|---|
-| EST-11 | SATISFIED (as an honest report; verdict not met) | REQUIREMENTS.md line 19 unticked with "not met" note and trace row pointing to report and follow-up todo. |
+| EST-11 | NOT SATISFIED (reported honestly: the prospective retest's verdict is not met; see 75-RETEST-REPORT.md and todo est-11-follow-up-objective-75) | REQUIREMENTS.md line 19 unticked with "not met" note and trace row pointing to report and follow-up todo. |
 | TODO-01 | SATISFIED | Ticked; trace row cites the sweep table. |
 | EST-09 | SATISFIED | Ticked; coverage 0.97826 measured. |
+
+Corrected 2026-10-16 (objective 79, TRD 79-05): this row said SATISFIED while 75-01-SUMMARY and REQUIREMENTS.md record EST-11 as not met; validate requirements (W065) flagged the disagreement.
 
 No orphaned requirements.
 

@@ -1845,6 +1845,11 @@
       "objective": "79",
       "summary": "79-04: quick 36's cross-layout worktree cases are reworked onto a same-layout (.aoforge/) worktree; the pre-rename worktree is proven refused in planning-verbs-worktree.legacy.test.cjs. No resolver or compat change.",
       "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "EST-11 corrected in 75-VERIFICATION.md (NOT SATISFIED), never ticked: the record was wrong, the checker was right",
+      "rationale": null
     }
   ],
   "blockers": [
