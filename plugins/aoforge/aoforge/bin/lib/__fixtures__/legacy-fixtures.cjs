@@ -42,24 +42,6 @@ function projectTree({ layout = 'aoforge', files = {}, nested = null } = {}) {
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-// ─── legacyEnv ────────────────────────────────────────────────────────────────
-
-/**
- * A plain env object holding the old-prefix variables. Never touches process.env.
- *
- * @param {Record<string,string>} [overrides] merged over the defaults
- * @returns {Record<string,string>}
- */
-function legacyEnv(overrides = {}) {
-  return Object.assign(
-    {
-      DEVFLOW_SKIP_EDIT_GATE: '1',
-      DEVFLOW_CALIBRATION_PATH: '/tmp/x.json',
-    },
-    overrides,
-  );
-}
-
 // ─── fakeHome ─────────────────────────────────────────────────────────────────
 
 /**
@@ -84,4 +66,4 @@ function fakeHome({ legacyDot = {}, newDot = {} } = {}) {
   return { home, cleanup: () => fs.rmSync(home, { recursive: true, force: true }) };
 }
 
-module.exports = { projectTree, legacyEnv, fakeHome };
+module.exports = { projectTree, fakeHome };

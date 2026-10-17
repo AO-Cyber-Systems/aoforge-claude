@@ -899,8 +899,9 @@ describe('TRD 36-06: sync-runtime runs the bundled global upgrade', () => {
       fs.rmSync(tmp.root, { recursive: true, force: true });
       fs.rmSync(home, { recursive: true, force: true });
     });
-    // notices.cjs resolves the planning directory through compat.cjs (TRD 72-05), which reads legacy-names.cjs;
-    // managed-block.cjs builds its markers with text-escape.cjs. Since TRD 78-08 global-upgrade.cjs no longer
+    // notices.cjs resolves the planning directory through compat.cjs (TRD 72-05); global-upgrade.cjs and
+    // managed-block.cjs read legacy-names.cjs (compat.cjs no longer does, TRD 78-12), and managed-block.cjs builds
+    // its markers with text-escape.cjs. Since TRD 78-08 global-upgrade.cjs no longer
     // needs legacy-rewrite.cjs (no outside-block rewrite; keeping it in the list is harmless), and
     // planning-layout.cjs stays out on purpose: managed-block loads it lazily, only to word a pre-rename refusal,
     // and falls back to a built-in line without it.

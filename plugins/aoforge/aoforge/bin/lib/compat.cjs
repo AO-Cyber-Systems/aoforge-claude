@@ -3,7 +3,7 @@
 // compat.cjs — where AOForge names its planning directory, project root, $HOME, agent types and
 // user files. Every library under bin/ and every hook resolves these here (TRDs 72-05, 72-06).
 //
-//   - planningDirName    a project's planning directory: always `.aoforge` (from NAMES)
+//   - planningDirName    a project's planning directory: always `.aoforge`
 //   - planningRoot / planningRel / PLANNING_DIR_NAMES / isPlanningDirName / planningDirLabel
 //                        the same name as an absolute path, a posix relative path, a list,
 //                        a segment test and a "not found" label
@@ -15,24 +15,29 @@
 //   - userDotFile        a file AOForge keeps for the user, in the runtime home only (TRD 73-11)
 //   - runtimeHome        the runtime mirror, ~/.claude/aoforge
 //   - watchStateDir      the watch daemon's runtime directory under the runtime home
-//   - aliasLegacyEnv     the last pre-rename shim (see below)
 //
 // Why the name stays `compat.cjs`: until AOForge 3.1.0 this module held the one-release shims of
-// the rename (objective 72): a legacy planning directory, the pre-rename agent namespace and the
-// pre-rename and 3.0.0 user dot directories were read beside the new names. Objective 78 (TRD
-// 78-11) removed them; the module keeps its name and every surviving signature because ~80 modules
-// and every hook import it, and renaming it would only multiply conflicts with `main`.
-// `aliasLegacyEnv` is the last shim; TRD 78-12 deletes it. Detecting a pre-rename layout to REPORT
-// it is planning-layout.cjs's job, never this module's.
+// the rename (objective 72): a legacy planning directory, the pre-rename agent namespace, the
+// pre-rename and 3.0.0 user dot directories and the pre-rename environment prefix were read beside
+// the new names. Objective 78 removed them (TRD 78-11 the readers, TRD 78-12 the environment alias);
+// the module keeps its name and every surviving signature because ~80 modules and every hook import
+// it, and renaming it would only multiply conflicts with `main`. Detecting a pre-rename layout to
+// REPORT it is planning-layout.cjs's job, never this module's.
 //
 // Nothing here caches a result: tests and spawned hooks change HOME per process. This module
-// spells no old name: the one it still needs (aliasLegacyEnv's prefix) comes from LEGACY in
-// legacy-names.cjs.
+// spells no old name and requires nothing from legacy-names.cjs (TRD 78-12): the three current names
+// it needs are held below, and compat.legacy.test.cjs (16c) pins them equal to NAMES there.
 
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+
+// The current names this module resolves: the planning directory, the agent namespace and the runtime directory
+// (the planningDir, agentNs and runtimeDir keys of NAMES; written as key names, never as dotted access, because a
+// dotted access to the directory key would contain the legacy directory's spelling and trip test 16).
+const NEW_PLAN_DIR = '.aoforge';
+const AGENT_NS = 'aoforge:';
+const RUNTIME_DIR = 'aoforge';
 
 // ─── stat helpers ─────────────────────────────────────────────────────────────
 
@@ -54,34 +59,7 @@ function isDir(p, fsImpl) {
   return st !== null && st.isDirectory();
 }
 
-// ─── environment ──────────────────────────────────────────────────────────────
-
-/**
- * Copy each old-prefix variable to the new prefix when the new one is unset.
- * The new-prefix value wins when both are set. The old key is never deleted.
- *
- * @param {object} [env=process.env]
- * @returns {string[]} the sorted names that were set
- */
-function aliasLegacyEnv(env = process.env) {
-  const aliased = [];
-  for (const key of Object.keys(env)) {
-    if (!key.startsWith(LEGACY.envPrefix)) continue;
-    const suffix = key.slice(LEGACY.envPrefix.length);
-    if (suffix === '' || env[key] === undefined) continue;
-    const target = NAMES.envPrefix + suffix;
-    if (env[target] !== undefined) continue;
-    env[target] = env[key];
-    aliased.push(target);
-  }
-  return aliased.sort();
-}
-
 // ─── planning directory ───────────────────────────────────────────────────────
-
-// Destructured so the literal-name source guard stays meaningful: a dotted access to the
-// directory key would itself contain the legacy directory's spelling as a substring.
-const { planningDir: NEW_PLAN_DIR } = NAMES;
 
 function hasNewPlanDir(root, fsImpl) {
   return isDir(path.join(root, NEW_PLAN_DIR), fsImpl);
@@ -233,21 +211,21 @@ function findProjectRoot(start, { fsImpl = fs, maxUp = 64, home = userHomeDir() 
  */
 function isOwnAgentType(t) {
   if (typeof t !== 'string') return false;
-  return t.startsWith(NAMES.agentNs) && t.length > NAMES.agentNs.length;
+  return t.startsWith(AGENT_NS) && t.length > AGENT_NS.length;
 }
 
 const EXECUTOR_AGENT = 'executor';
 
 /** `aoforge:executor` exactly: what verify-commits and gate-executor-stop act on (TRD 72-10). */
 function isOwnExecutor(t) {
-  return isOwnAgentType(t) && t === NAMES.agentNs + EXECUTOR_AGENT;
+  return isOwnAgentType(t) && t === AGENT_NS + EXECUTOR_AGENT;
 }
 
 // ─── user files and runtime home ──────────────────────────────────────────────
 
 /** The runtime mirror and the home of every file AOForge keeps for the user: <home>/.claude/aoforge. */
 function runtimeHome(home) {
-  return path.join(home, '.claude', NAMES.runtimeDir);
+  return path.join(home, '.claude', RUNTIME_DIR);
 }
 
 /**
@@ -266,7 +244,6 @@ function watchStateDir(home) {
 }
 
 module.exports = {
-  aliasLegacyEnv,
   planningDirName,
   planningRoot,
   planningRel,

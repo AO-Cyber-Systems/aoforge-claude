@@ -37,7 +37,7 @@ const { spawnSync } = require('child_process');
 
 const compat = require('./compat.cjs');
 const { legacyLayoutMessage } = require('./planning-layout.cjs');
-const { projectTree, legacyEnv, fakeHome } = require('./__fixtures__/legacy-fixtures.cjs');
+const { projectTree, fakeHome } = require('./__fixtures__/legacy-fixtures.cjs');
 const { planningProject } = require('./__fixtures__/legacy-layout-fixtures.cjs');
 
 const { NAMES } = require('./legacy-names.cjs');
@@ -46,54 +46,6 @@ const AOF_TOOLS = path.join(__dirname, '..', 'aof-tools.cjs');
 /** The deleted environment alias (TRD 78-12), built from parts so a search for the name finds no code. */
 const ENV_ALIAS = ['alias', 'Legacy', 'Env'].join('');
 const LAYOUTS = ['aoforge', 'legacy', 'both', 'none'];
-
-describe('compat.aliasLegacyEnv', () => {
-  it('5. copies the legacy variable to the new prefix, keeps the legacy key, returns the names', () => {
-    const env = { DEVFLOW_SKIP_EDIT_GATE: '1' };
-    const aliased = compat.aliasLegacyEnv(env);
-    assert.equal(env.AOFORGE_SKIP_EDIT_GATE, '1');
-    assert.equal(env.DEVFLOW_SKIP_EDIT_GATE, '1');
-    assert.deepEqual(aliased, ['AOFORGE_SKIP_EDIT_GATE']);
-  });
-
-  it('5b. returns the aliased names sorted', () => {
-    const env = legacyEnv();
-    const aliased = compat.aliasLegacyEnv(env);
-    assert.deepEqual(aliased, ['AOFORGE_CALIBRATION_PATH', 'AOFORGE_SKIP_EDIT_GATE']);
-    assert.equal(env.AOFORGE_CALIBRATION_PATH, '/tmp/x.json');
-  });
-
-  it('6. the new-prefix value wins when both are set', () => {
-    const env = { DEVFLOW_SKIP_EDIT_GATE: '1', AOFORGE_SKIP_EDIT_GATE: '0' };
-    const aliased = compat.aliasLegacyEnv(env);
-    assert.equal(env.AOFORGE_SKIP_EDIT_GATE, '0');
-    assert.equal(env.DEVFLOW_SKIP_EDIT_GATE, '1');
-    assert.deepEqual(aliased, []);
-  });
-
-  it('7. ignores a bare prefix and a lowercase prefix', () => {
-    const env = { DEVFLOW_: 'x', devflow_x: 'y' };
-    const aliased = compat.aliasLegacyEnv(env);
-    assert.deepEqual(aliased, []);
-    assert.deepEqual(Object.keys(env).sort(), ['DEVFLOW_', 'devflow_x']);
-  });
-
-  it('8. defaults to process.env', () => {
-    const before = { ...process.env };
-    try {
-      process.env.DEVFLOW_COMPAT_PROBE_72 = 'yes';
-      delete process.env.AOFORGE_COMPAT_PROBE_72;
-      const aliased = compat.aliasLegacyEnv();
-      assert.ok(aliased.includes('AOFORGE_COMPAT_PROBE_72'));
-      assert.equal(process.env.AOFORGE_COMPAT_PROBE_72, 'yes');
-    } finally {
-      for (const key of Object.keys(process.env)) {
-        if (!(key in before)) delete process.env[key];
-      }
-      Object.assign(process.env, before);
-    }
-  });
-});
 
 /** Run `fn(t)` on a projectTree in `layout`, removed afterwards. */
 function withTree(opts, fn) {

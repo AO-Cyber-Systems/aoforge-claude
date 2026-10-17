@@ -78,15 +78,15 @@ const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const ALLOW = [
   {
     pattern: '**/legacy-names.cjs',
-    reason: 'the one module that spells every legacy name; every other module builds them from LEGACY',
+    reason: 'the one module that spells every legacy name; every other module builds them from LEGACY (3.1: detectors, gh rebrand, history readers)',
   },
   {
     pattern: '**/__fixtures__/legacy-*',
-    reason: 'fixtures that build legacy projects, environments and homes on purpose',
+    reason: 'fixtures that build pre-rename projects, homes and GitHub artefacts as input',
   },
   {
     pattern: '**/*.legacy.test.*',
-    reason: 'tests of the one-release shims feed legacy names as deliberate input',
+    reason: 'tests feed legacy names as input to prove 3.1 ignores or reports them',
   },
   {
     pattern: 'scripts/aoforge-rename*',
@@ -98,7 +98,7 @@ const ALLOW = [
   },
   {
     pattern: '.gitignore',
-    reason: 'keeps the legacy ignore lines beside the new ones for one release (old runtime files)',
+    reason: 'keeps the legacy ignore lines until main, which still uses the legacy planning directory, is reconciled with 3.1',
   },
   {
     pattern: 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js',

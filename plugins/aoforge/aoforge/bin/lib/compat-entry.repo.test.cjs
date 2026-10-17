@@ -1,13 +1,13 @@
 'use strict';
 
 // Test list (TRD 78-10, objective 78-remove-the-rename-shims, SC-1). AOForge 3.0.0 copied the legacy environment
-// prefix onto the new one in every process it started (compat.cjs aliasLegacyEnv, TRD 72-04). 3.1 reads only the
-// AOForge prefix: a user who still exports a legacy variable is told so by coexistence-guard's SessionStart notice
+// prefix onto the new one in every process it started (compat.cjs's environment alias, TRD 72-04; TRD 78-12 deleted
+// it, and the name is built from parts below so a search for it finds no code). 3.1 reads only the AOForge prefix: a user who still exports a legacy variable is told so by coexistence-guard's SessionStart notice
 // and doctor check 16, and the variable has no effect.
 //
 // 1. Repo contract: the entry points (aof-tools.cjs, aoforge-watch.cjs, every hooks/*.js named in hooks/hooks.json
 //    and the plugin.json statusLine script; the list is derived from the manifests, so a new hook is covered
-//    automatically) never mention `aliasLegacyEnv`, comments included.
+//    automatically) never mention the alias by name, comments included.
 // 2. Behaviour: hooks/gate-edits.js, spawned in a scratch AOForge project (ambient, no skill marker) on a Write to a
 //    tracked file, denies the write with only { [LEGACY.envPrefix + 'SKIP_EDIT_GATE']: '1' } set, exactly as with no
 //    variable; with { AOFORGE_SKIP_EDIT_GATE: '1' } it allows the write (no output).
@@ -32,6 +32,8 @@ const PLUGIN_ROOT = path.resolve(__dirname, '..', '..', '..');
 const HOOKS_JSON = path.join(PLUGIN_ROOT, 'hooks', 'hooks.json');
 const PLUGIN_JSON = path.join(PLUGIN_ROOT, '.claude-plugin', 'plugin.json');
 const IS_PLUGIN_CHECKOUT = fs.existsSync(HOOKS_JSON) && fs.existsSync(PLUGIN_JSON);
+/** The deleted environment alias's name (TRD 78-12), built from parts so a search for it finds no code. */
+const ENV_ALIAS = ['alias', 'Legacy', 'Env'].join('');
 const CLI = path.join(PLUGIN_ROOT, NAMES.runtimeDir, 'bin', `${NAMES.cli}.cjs`);
 
 const HOOK_SCRIPT_RE = /hooks\/([A-Za-z0-9_.-]+\.js)/g;
@@ -82,8 +84,8 @@ describe('compat-entry.repo.test.cjs', { skip: IS_PLUGIN_CHECKOUT ? false : 'not
   for (const rel of IS_PLUGIN_CHECKOUT ? entryPoints() : []) {
     test(`1: ${rel} never aliases the legacy environment prefix`, () => {
       const src = fs.readFileSync(path.join(PLUGIN_ROOT, rel), 'utf8');
-      const lines = src.split('\n').flatMap((line, i) => (line.includes('aliasLegacyEnv') ? [`${i + 1}: ${line.trim()}`] : []));
-      assert.deepEqual(lines, [], `${rel} still mentions aliasLegacyEnv`);
+      const lines = src.split('\n').flatMap((line, i) => (line.includes(ENV_ALIAS) ? [`${i + 1}: ${line.trim()}`] : []));
+      assert.deepEqual(lines, [], `${rel} still mentions ${ENV_ALIAS}`);
     });
   }
 

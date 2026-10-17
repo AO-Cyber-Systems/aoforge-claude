@@ -46,7 +46,8 @@ function world(t, { installLib = true } = {}) {
   if (installLib) {
     fs.copyFileSync(path.join(LIB_DIR, 'estimate-run-store.cjs'), path.join(libDir, 'estimate-run-store.cjs'));
     fs.copyFileSync(path.join(LIB_DIR, 'upgrade.cjs'), path.join(libDir, 'upgrade.cjs'));
-    // both resolve the planning directory through compat.cjs (TRD 72-05), which reads legacy-names.cjs
+    // both resolve the planning directory through compat.cjs (TRD 72-05); upgrade.cjs reads legacy-names.cjs
+    // (NAMES, SHIM_RELEASE), compat.cjs no longer does (TRD 78-12)
     fs.copyFileSync(path.join(LIB_DIR, 'compat.cjs'), path.join(libDir, 'compat.cjs'));
     fs.copyFileSync(path.join(LIB_DIR, 'legacy-names.cjs'), path.join(libDir, 'legacy-names.cjs'));
   }
