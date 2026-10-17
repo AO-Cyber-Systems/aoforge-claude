@@ -228,8 +228,10 @@
 // aof-tools runs 50-100 times per workflow, and most of a run is node startup. Loading every lib module up front
 // cost ~70 ms of a ~125 ms call (444 require calls, 1.4 MB of source) for commands that use one of them. `lazy`
 // returns forwarders that require the module on first call; `lazyModule` is a proxy for a module used as an
-// object (`intent.x(...)`). Modules every call needs (helpers, help, cwd-flag, flag-guard, flag-spec, compat) stay
-// eager. Every destructured name is a function (checked when this block was generated); a constant must stay eager.
+// object (`intent.x(...)`). Modules every call needs (helpers, help, cwd-flag, flag-guard, flag-spec) stay eager;
+// compat is not among them: since 3.1 nothing calls into it at startup, and the one place that needs it in this file
+// (`planning sibling-trd-scan`, reading config.json) requires it where it runs. Every destructured name is a function
+// (checked when this block was generated); a constant must stay eager.
 const lazyCache = new Map();
 function loadLazy(mod) {
   let m = lazyCache.get(mod);
