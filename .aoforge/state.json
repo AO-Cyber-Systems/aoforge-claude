@@ -1,8 +1,8 @@
 {
   "current_objective": "78",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 12,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-16",
   "metrics": {
@@ -1734,6 +1734,26 @@
     {
       "objective": "78",
       "summary": "78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: migrations 0012/0013 removed; ids 0012-0014 reserved in upgrade.RETIRED_MIGRATIONS so --only names the 3.0.x path",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: the stamp is read and written under the aoforge key only; the pre-rename key is never touched (W067 reports it)",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: aof-tools refuses mutating commands and init in a legacy-only project (legacy-layout-guard.cjs); doctor/validate report; 12 exemptions with reasons; tokens guarded",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: the runner's generic deferred path and the hook's HEAD-only commit handling are kept; the hook tells a legacy-only project through one global notice",
       "rationale": null
     }
   ],
