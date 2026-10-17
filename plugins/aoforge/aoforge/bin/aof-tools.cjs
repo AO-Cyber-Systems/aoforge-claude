@@ -318,6 +318,7 @@ const { cmdGenerateUAT } = require('./lib/uat-generator.cjs');
 const { extractCwdFlag } = require('./lib/cwd-flag.cjs');
 const { checkFlags, formatUnknownFlag } = require('./lib/flag-guard.cjs');
 const { FLAG_SPEC } = require('./lib/flag-spec.cjs');
+const { legacyLayoutGuard } = require('./lib/legacy-layout-guard.cjs');
 
 // ─── CLI Router ───────────────────────────────────────────────────────────────
 
@@ -379,6 +380,10 @@ async function main() {
     const unknownFlag = checkFlags(args, FLAG_SPEC);
     if (unknownFlag) error(formatUnknownFlag(unknownFlag));
   }
+
+  // ── A legacy-only project gets the one message, never a second planning tree (TRD 78-07) ──
+  const legacy = legacyLayoutGuard({ command, args, cwd, commands: HELP_TABLE });
+  if (legacy) error(legacy.message);
 
   switch (command) {
     case 'state': {
