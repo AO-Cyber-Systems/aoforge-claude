@@ -40,7 +40,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawnSync } = require('child_process');
-// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+// The planning directory is `.aoforge/` (compat.cjs).
 const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 const RESOLVER_TIMEOUT_MS = 2000;

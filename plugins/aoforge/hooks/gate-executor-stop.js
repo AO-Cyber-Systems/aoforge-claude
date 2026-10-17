@@ -3,8 +3,7 @@
 /**
  * AOForge Executor Completion Gate (SubagentStop hook) — TRD 44-04, AUT-02
  *
- * Purpose: an `aoforge:executor` (for one release also the pre-rename
- * namespace's executor, compat.isOwnExecutor, TRD 72-10) that stops NATURALLY while its TRD has no
+ * Purpose: an `aoforge:executor` (compat.isOwnExecutor) that stops NATURALLY while its TRD has no
  * `<id>-SUMMARY.md` gets exactly one more turn to finish the work or to write
  * and commit the `## Progress` checkpoint. The hook does that by printing
  * a top-level `{"decision":"block","reason":"..."}`.
@@ -51,9 +50,7 @@
 
 const fs = require('fs');
 const path = require('path');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
-// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+// The planning directory is `.aoforge/` (compat.cjs).
 const compat = require('../aoforge/bin/lib/compat.cjs');
 const { spawnSync } = require('child_process');
 const { escapeRegExp } = require('../aoforge/bin/lib/text-escape.cjs');

@@ -57,9 +57,7 @@
 'use strict';
 
 const path = require('path');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
-// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+// The planning directory is `.aoforge/` (compat.cjs).
 const { findProjectRoot } = require('../aoforge/bin/lib/compat.cjs');
 
 // TRD 73-02: handoff selection, claim, rendering and the consumed mark live in the shared delivery library.

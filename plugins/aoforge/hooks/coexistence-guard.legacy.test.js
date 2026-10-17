@@ -14,7 +14,8 @@
 // 7. Disabled (enabledPlugins false) or absent -> no notice file, exit 0, stdout empty.
 // 8. Corrupt installed_plugins.json -> no notice, exit 0, stdout empty.
 // 9. AOFORGE_SKIP_COEXISTENCE=1 -> nothing read, nothing written (in process: the detector is never called; spawned:
-//    no notice file). The legacy-prefixed variable skips too (the env alias runs first).
+//    no notice file). The legacy-prefixed variable does not skip (TRD 78-10: no env alias): the detector runs and
+//    the queued notice names the variable.
 // 9b. Malformed or empty stdin still queues the notice (the session id is only a dedupe key); a notices file the
 //    hook cannot parse is left byte for byte as it was.
 //
@@ -146,13 +147,20 @@ describe('coexistence-guard hook', () => {
     });
   });
 
-  it('9. AOFORGE_SKIP_COEXISTENCE=1 (or the legacy prefix) -> nothing written', () => {
-    for (const env of [{ AOFORGE_SKIP_COEXISTENCE: '1' }, { DEVFLOW_SKIP_COEXISTENCE: '1' }]) {
-      withHome(ENABLED, ({ home }) => {
-        spawnGuard(home, { env });
-        assert.equal(fs.existsSync(globalFile(home)), false, JSON.stringify(env));
-      });
-    }
+  it('9. AOFORGE_SKIP_COEXISTENCE=1 -> nothing written', () => {
+    withHome(ENABLED, ({ home }) => {
+      spawnGuard(home, { env: { AOFORGE_SKIP_COEXISTENCE: '1' } });
+      assert.equal(fs.existsSync(globalFile(home)), false);
+    });
+  });
+
+  it('9. the legacy-prefixed skip variable does not skip (TRD 78-10): the notice is queued and names it', () => {
+    withHome(ENABLED, ({ home }) => {
+      spawnGuard(home, { env: { DEVFLOW_SKIP_COEXISTENCE: '1' } });
+      const list = queued(home);
+      assert.equal(list.length, 1);
+      assert.match(JSON.stringify(list[0]), /DEVFLOW_SKIP_COEXISTENCE/);
+    });
   });
 
   it('9. in process: the skip returns before the detector is called', () => {
@@ -166,9 +174,12 @@ describe('coexistence-guard hook', () => {
     assert.equal(result.status, 'skip');
     assert.equal(calls, 0);
 
-    const legacy = guard.run({ env: { DEVFLOW_SKIP_COEXISTENCE: '1' }, home: '/nonexistent-home', payload: {}, detect });
-    assert.equal(legacy.status, 'skip');
-    assert.equal(calls, 0);
+    // TRD 78-10: the legacy prefix is no longer aliased, so its skip variable does not skip; the detector runs.
+    assert.throws(
+      () => guard.run({ env: { DEVFLOW_SKIP_COEXISTENCE: '1' }, home: '/nonexistent-home', payload: {}, detect }),
+      /the detector must not run when skipped/
+    );
+    assert.equal(calls, 1);
   });
 
   it('9b. malformed stdin still queues; an unparseable notices file is left alone', () => {

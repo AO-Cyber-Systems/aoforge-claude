@@ -26,9 +26,7 @@
 
 const fs = require('fs');
 const path = require('path');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
-// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+// The planning directory is `.aoforge/` (compat.cjs).
 const { findProjectRoot, planningRoot } = require('../aoforge/bin/lib/compat.cjs');
 const { NAMES } = require('../aoforge/bin/lib/legacy-names.cjs');
 const { hasOverridePhrase, writeEditOverrideMarker } = require('./lib/edit-override.js');
@@ -387,8 +385,8 @@ function renderMultiMatch(matches, prompt) {
   return lines.join('\n');
 }
 
-// `planningDirName` (optional) is the project's planning directory name, `.aoforge` unless the project
-// still uses the legacy one (TRD 72-06); the single-match directive names it.
+// `planningDirName` (optional) is the project's planning directory name, `.aoforge`; the single-match
+// directive names it.
 function renderDirective(matches, prompt = '', planningDirName = NAMES.planningDir) {
   if (!matches || matches.length === 0) return '';
   if (matches.length === 1) return renderSingleMatch(matches[0], prompt, planningDirName);

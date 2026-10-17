@@ -35,8 +35,6 @@
 
 const fs = require('fs');
 const path = require('path');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 /**
  * The TaskCreate metadata key that carries a todo's stem, `aoforge_todo`: the one key todo-session.cjs's TODO_META_KEYS

@@ -52,8 +52,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 // The shared per-invocation matcher (TRD 73-10). Fail open: if it (or shell-words, which it requires) cannot load,
 // nothing is gated. The plugin always ships aoforge/ beside hooks/, so this only happens on a broken install or a stub

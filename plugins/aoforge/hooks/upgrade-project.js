@@ -65,9 +65,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
-// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+// The planning directory is `.aoforge/` (compat.cjs).
 const {
   findProjectRoot: compatFindProjectRoot,
   planningDirName,
@@ -104,7 +102,7 @@ function isDirectory(p) {
 }
 
 /**
- * Nearest ancestor of `start` (inclusive) holding a planning DIRECTORY (`.aoforge/`, or a legacy one:
+ * Nearest ancestor of `start` (inclusive) holding a planning DIRECTORY (`.aoforge/`:
  * compat.findProjectRoot), else null.
  */
 function findProjectRoot(start) {
@@ -270,8 +268,8 @@ function gitState(root) {
 }
 
 /**
- * The notices file relative to the project root, in the project's own planning directory (`.aoforge/`,
- * or a legacy one): where notices.cjs projectNoticesPath writes it.
+ * The notices file relative to the project root, in the project's own planning directory (`.aoforge/`):
+ * where notices.cjs projectNoticesPath writes it.
  */
 function noticesRel(root) {
   return `${planningDirName(root)}/${NAMES.notices}`;

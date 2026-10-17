@@ -54,7 +54,6 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { planningRoot, watchStateDir } = require('./lib/compat.cjs');
-require('./lib/compat.cjs').aliasLegacyEnv();
 const { spawn } = require('child_process');
 
 const state = require('./lib/watcher-state.cjs');

@@ -17,7 +17,7 @@
  *      gates.editGate "off"; "warn" turns it into 'ask'. No other escape.
  *      Store off (the default), this rule never runs and the planning libs are
  *      not loaded. Fails open: any error loading or running them skips the rule.
- *   1. `.aoforge/**` (or, for one release, the legacy planning directory's) allowed, then `*.md`
+ *   1. `.aoforge/**` allowed, then `*.md`
  *      allowed (see "Permits edits to").
  *   2. Not an AOForge project → noop; target outside the project → allow.
  *   3. The escape hatches below, then DENY.
@@ -43,8 +43,7 @@
  *      are allowed without depending on a marker they may never see. Only the
  *      exact, case-sensitive `aoforge:` prefix with a non-empty name is trusted;
  *      `agent_id` presence alone proves nothing. Allowed in "warn" mode too
- *      (never 'ask'). For one release the pre-rename namespace is trusted the
- *      same way (compat.isOwnAgentType, TRD 72-10).
+ *      (never 'ask'). compat.isOwnAgentType decides.
  *
  * Permits edits to:
  *   - .aoforge/**        (planning artifacts are edited directly; in store mode
@@ -55,7 +54,7 @@
  * hooks.json matcher is `Edit|Write|MultiEdit`. Defensive guard inside handles
  * future matcher changes.
  *
- * Non-AOForge projects (no .aoforge/, and no legacy planning directory) — hook no-ops.
+ * Non-AOForge projects (no .aoforge/) — hook no-ops.
  *
  * Prior behavior: `permissionDecision: 'ask'` warn-only + `AOFORGE_STRICT_EDITS=1`
  * hard-deny. The new default IS strict deny. Migrate env var references:
@@ -67,17 +66,15 @@
 
 const fs = require('fs');
 const path = require('path');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
-// TRD 72-06: the planning directory is `.aoforge/`, or for one release a legacy one (compat.cjs resolves which).
+// The planning directory is `.aoforge/` (compat.cjs).
 const { findProjectRoot, planningRoot, isOwnAgentType } = require('../aoforge/bin/lib/compat.cjs');
-const { NAMES, LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
+const { NAMES } = require('../aoforge/bin/lib/legacy-names.cjs');
 const { escapeRegExp } = require('../aoforge/bin/lib/text-escape.cjs');
 
-/** Both planning-directory names, the new one first. Built from names, never from the filesystem. */
-const PLANNING_DIR_NAMES = [NAMES.planningDir, LEGACY.planningDir];
-/** A path segment naming either planning directory: the planning-artifact test. */
-const PLANNING_SEGMENT_RE = new RegExp(`/(?:${escapeRegExp(NAMES.planningDir)}|${escapeRegExp(LEGACY.planningDir)})/`);
+/** The planning-directory name (`.aoforge`). Built from names, never from the filesystem. */
+const PLANNING_DIR_NAMES = [NAMES.planningDir];
+/** A path segment naming the planning directory: the planning-artifact test. */
+const PLANNING_SEGMENT_RE = new RegExp(`/${escapeRegExp(NAMES.planningDir)}/`);
 
 // ---------------------------------------------------------------------------
 // Shared lib — single source of truth for phrases + marker lifecycle
@@ -95,7 +92,7 @@ const {
 
 /**
  * Walk up from `start` to the nearest project (compat.findProjectRoot) and return its planning
- * directory: `.aoforge/`, else a legacy one. Null when no ancestor holds either.
+ * directory, `.aoforge/`. Null when no ancestor holds one.
  */
 function findPlanningDir(start) {
   const root = findProjectRoot(start, { maxUp: Infinity });
@@ -116,8 +113,8 @@ function findRepoRoot(start) {
 }
 
 /**
- * The MAIN checkout's planning directory (`.aoforge/`, else a legacy one: compat
- * planningRoot), resolved from anywhere inside a linked worktree. Returns null
+ * The MAIN checkout's planning directory (`.aoforge/`: compat planningRoot),
+ * resolved from anywhere inside a linked worktree. Returns null
  * when unresolvable or absent.
  *
  * TRD 27-01 — `.aoforge/.skill-active` is gitignored (.gitignore:44), so a
@@ -266,9 +263,8 @@ function isOutsideProject(projectRoot, filePath) {
  * followed by a non-empty agent name. `aoforgex:y`, `x:aoforge:y`,
  * `aoforge:`, `AOFORGE:executor` and non-strings are all rejected.
  *
- * TRD 72-10: for one release the pre-rename namespace (LEGACY.agentNs) is
- * trusted the same way, so this is compat.isOwnAgentType. The exported name
- * stays: gate-bash-writes imports it.
+ * This is compat.isOwnAgentType, which decides what the `aoforge:` namespace
+ * accepts. The exported name stays: gate-bash-writes imports it.
  *
  * @param {unknown} agentType
  * @returns {boolean}

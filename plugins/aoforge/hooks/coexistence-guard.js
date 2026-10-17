@@ -20,15 +20,13 @@
  *
  * Contract: stdout stays empty, exit 0 on every path, fail open (a diagnostic line on stderr at most). SessionStart
  * only, so there is no per-prompt nagging.
- * Escape: AOFORGE_SKIP_COEXISTENCE=1 (the legacy env prefix is aliased first, as in every hook).
+ * Escape: AOFORGE_SKIP_COEXISTENCE=1.
  */
 
 'use strict';
 
 const fs = require('fs');
 const os = require('os');
-// Objective 72: honour the legacy env prefix for one release. A stub plugin tree without the libs fails open.
-try { require('../aoforge/bin/lib/compat.cjs').aliasLegacyEnv(); } catch (e) { if (e.code !== 'MODULE_NOT_FOUND') throw e; }
 
 const SKIP_ENV = 'AOFORGE_SKIP_COEXISTENCE';
 const SOURCE = 'coexistence-guard';
@@ -36,7 +34,6 @@ const KEY_PREFIX = 'coexistence:';
 
 function libs() {
   return {
-    compat: require('../aoforge/bin/lib/compat.cjs'),
     coexistence: require('../aoforge/bin/lib/coexistence.cjs'),
     notices: require('../aoforge/bin/lib/notices.cjs'),
   };
@@ -72,8 +69,7 @@ function noticeFor(found) {
  * @returns {{status: 'skip'|'nothing'|'already-told'|'pending'|'queued'|'unwritable', notice?: object}}
  */
 function run({ env = process.env, home = os.homedir(), payload = {}, detect, now = new Date() } = {}) {
-  const { compat, coexistence, notices } = libs();
-  compat.aliasLegacyEnv(env);
+  const { coexistence, notices } = libs();
   if (env[SKIP_ENV] === '1') return { status: 'skip' };
 
   const found = coexistence.legacyNotices({ env, userHome: home, detect });
