@@ -65,7 +65,7 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 72 — Rename to AOForge and naming cleanup (completed 2026-10-09, 27/27 TRDs)
 **Objective complete:** 73 — Handoff gaps and result injection (completed 2026-10-10, 14/14 TRDs)
 **Objective complete:** 75 — Prospective estimate retest and todo sweep (completed 2026-10-10, 5/5 TRDs)
-**Status:** Executing objective 78 — 9/12 TRDs complete
+**Status:** Executing objective 78 — 10/12 TRDs complete
 **Progress:** [██████████] 99%
 
 ## Branch State (post-merge)
@@ -286,6 +286,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 ## Session Continuity
 
-Last session: 2026-10-17T00:05:37.235Z
+Last session: 2026-10-17T00:47:12.661Z
 Resume file: `None`
-Stopped at: Completed 78-05-watch-daemon-runtime-home-TRD.md
+Stopped at: Completed 78-10-env-alias-removal-TRD.md
