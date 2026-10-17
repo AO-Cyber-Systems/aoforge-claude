@@ -15,21 +15,21 @@
 //      `config-ensure-section` (the verb that creates the first config) writes <new>/config.json; `adopt
 //      scaffold` in an adopt-ready repo writes <new>/ and never the legacy directory.
 //
-// Layout `legacy` (only the legacy directory)
+// Layout `legacy` (only the legacy directory; TRD 78-07 turned the 3.0 fallback of cases 3-4 into refusals)
 //   3. Read verbs: `state load`, `roadmap analyze`, `init plan-objective 1`, `init execute-objective 1`,
-//      `init progress`, `planning mode`, `config-get workflow.auto_advance`, `stack resolve` (STACK.md in the
-//      legacy directory) succeed, and give the same output as layout `aoforge` once paths are normalised.
-//   4. Write verbs: `objective add "Second"`, `planning draft PROJECT.md` + `doc put PROJECT.md --from <draft>`,
+//      `init progress`, `planning mode`, `stack resolve` exit 1 with legacyLayoutMessage(root) on stderr (the CLI
+//      guard, legacy-layout-guard.cjs); `config-get workflow.auto_advance` (read-only, not guarded) still exits 0;
+//      the new directory is never created. (Layout `aoforge` reads its own directory, as before.)
+//   4. Write verbs: `objective add "Second"`, `planning draft PROJECT.md`, `doc put PROJECT.md --from <file>`,
 //      `summary post 01-01 --from <file>`, `state update-progress`, `config-set workflow.x true` and
-//      `commit "docs: x" --files <legacy>/STATE.md` all write under the legacy directory; the new directory is
-//      never created. (The same verbs write under <new>/ in layout `aoforge`.)
-//      Cases 3-4 are the 3.0 one-release fallback. They stay until their owners change them: TRD 78-07 (the CLI
-//      guard refuses these verbs in a legacy-only project) and TRD 78-11 (compat drops the legacy directory).
+//      `commit "docs: x" --files <legacy>/STATE.md` exit 1 with the same message; the legacy directory is
+//      byte-identical and the new directory is never created. (The same verbs write under <new>/ in layout
+//      `aoforge`.)
 //   5. (TRD 78-01, its case 1) `validate health --raw` returns status broken with ONE error, W066
 //      `legacy-planning-dir`, naming the legacy directory, AOForge 3.0.x, `git mv` and the migration guide, and no
 //      `--only`; no other check ran; `--repair` creates no new directory either.
-//   6. `init plan-objective 1` (and `init execute-objective 1`) JSON `advisories_warnings` carries the W066 line,
-//      with the same fix.
+//   6. `init plan-objective 1` (and `init execute-objective 1`) refuse (TRD 78-07; before it, their JSON carried the
+//      W066 advisory): exit 1, stderr names the legacy directory, AOForge 3.0.x, `git mv` and the guide, no `--only`.
 //
 // Layout `both`
 //   7. Verbs read and write <new>/ and leave the legacy directory byte-identical; `validate health` W066 says
@@ -50,7 +50,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { NAMES, LEGACY } = require('./legacy-names.cjs');
-const { escapeRegExp } = require('./text-escape.cjs');
+const { legacyLayoutMessage } = require('./planning-layout.cjs');
 const {
   planningProject,
   CURRENT_STATUS,
@@ -118,34 +118,6 @@ function snapshotTree(dir) {
   };
   walk(dir);
   return out;
-}
-
-const escapeRe = escapeRegExp;
-
-/**
- * Output of a verb with everything that legitimately differs between two fixtures replaced: the temp
- * directories, the repository key derived from the root path, and the planning directory's name.
- */
-function normalise(p, text) {
-  let t = text;
-  for (const [abs, label] of [[p.root, '<root>'], [p.home, '<home>'], [p.tmp, '<tmp>']]) {
-    t = t.replace(new RegExp(escapeRe(abs), 'g'), label);
-  }
-  t = t.replace(/\brepo-[0-9a-f]{8}\b/g, 'repo-<key>');
-  t = t.replace(new RegExp(`${escapeRe(NEW)}|${escapeRe(OLD)}`, 'g'), '<dir>');
-  return t;
-}
-
-/** Parsed JSON with the layout advisory (Task 3 adds W066 to legacy only) and volatile keys removed. */
-function comparable(p, r) {
-  const text = normalise(p, r.stdout);
-  try {
-    const v = JSON.parse(text);
-    if (v && typeof v === 'object') delete v.advisories_warnings;
-    return v;
-  } catch {
-    return text;
-  }
 }
 
 const READ_VERBS = [
@@ -238,11 +210,11 @@ describe('2. a new project gets the new directory', () => {
   });
 });
 
-// ─── Case 3: read verbs, both single-directory layouts ───────────────────────
-// Cases 3-4 (layout legacy) pin the 3.0 one-release fallback. Owners of their change: TRD 78-07 (the CLI guard
-// refuses planning verbs in a legacy-only project) and TRD 78-11 (compat stops resolving the legacy directory).
+// ─── Case 3: read verbs ──────────────────────────────────────────────────────
+// Layout aoforge reads its own directory; layout legacy refuses (TRD 78-07, the CLI guard). Both hold before and
+// after TRD 78-11 (compat stops resolving the legacy directory): the guard reads the filesystem itself.
 
-for (const layout of ['aoforge', 'legacy']) {
+for (const layout of ['aoforge']) {
   describe(`3. layout ${layout}: read verbs reach ${DIR_OF[layout]}`, () => {
     const dir = DIR_OF[layout];
     let p;
@@ -291,27 +263,76 @@ for (const layout of ['aoforge', 'legacy']) {
   });
 }
 
-describe('3. parity: legacy read verbs print what layout aoforge prints, paths aside', () => {
-  let a;
-  let l;
+/** A refusal by the legacy-layout guard: exit 1, the one message on stderr. */
+function refused(p, r, what) {
+  assert.equal(r.status, 1, `${what} exited ${r.status}\n${r.out}`);
+  assert.ok(r.stderr.includes(legacyLayoutMessage(p.root)), `${what}: stderr lacks the legacy-layout message\n${r.out}`);
+  return r;
+}
+
+/** config-get is read-only and not guarded: it runs whatever compat resolves (before and after TRD 78-11). */
+const UNGUARDED_READS = new Set(['config-get']);
+
+describe('3. layout legacy: read verbs refuse with the legacy-layout message', () => {
+  let p;
+  let legacyBefore;
   before(() => {
-    a = planningProject({ layout: 'aoforge', files: { 'STACK.md': STACK_MD } });
-    l = planningProject({ layout: 'legacy', files: { 'STACK.md': STACK_MD } });
+    p = planningProject({ layout: 'legacy', files: { 'STACK.md': STACK_MD } });
+    legacyBefore = snapshotTree(path.join(p.root, OLD));
   });
-  after(() => { a.cleanup(); l.cleanup(); });
+  after(() => p.cleanup());
 
   for (const args of READ_VERBS) {
     test(args.join(' '), () => {
-      const ra = ok(a.run(args), `aoforge ${args.join(' ')}`);
-      const rl = ok(l.run(args), `legacy ${args.join(' ')}`);
-      assert.deepEqual(comparable(l, rl), comparable(a, ra));
+      const r = p.run(args);
+      if (UNGUARDED_READS.has(args[0])) ok(r, args.join(' '));
+      else refused(p, r, args.join(' '));
     });
   }
+
+  test(`no ${NEW} appears and ${OLD} is byte-identical after the reads`, () => {
+    for (const args of READ_VERBS) p.run(args);
+    assert.equal(exists(p.root, NEW), false, `${NEW} was created`);
+    assert.deepEqual(snapshotTree(path.join(p.root, OLD)), legacyBefore);
+  });
 });
 
-// ─── Case 4: write verbs, both single-directory layouts ──────────────────────
+// ─── Case 4: write verbs ─────────────────────────────────────────────────────
 
-for (const layout of ['aoforge', 'legacy']) {
+describe('4. layout legacy: write verbs refuse and write nothing', () => {
+  let p;
+  let legacyBefore;
+  before(() => {
+    p = planningProject({ layout: 'legacy' });
+    legacyBefore = snapshotTree(path.join(p.root, OLD));
+  });
+  after(() => p.cleanup());
+
+  test('objective add, planning draft, doc put, summary post, state update-progress, config-set and commit refuse', () => {
+    const file = path.join(p.tmp, 'summary.md');
+    fs.writeFileSync(file, SUMMARY_MD);
+    const head = p.git(['rev-parse', 'HEAD']).trim();
+    for (const args of [
+      ['objective', 'add', 'Second'],
+      ['planning', 'draft', 'PROJECT.md'],
+      ['doc', 'put', 'PROJECT.md', '--from', file],
+      ['summary', 'post', '01-01', '--from', file],
+      ['state', 'update-progress'],
+      ['config-set', 'workflow.x', 'true'],
+      ['commit', 'docs: x', '--files', `${OLD}/STATE.md`],
+    ]) {
+      refused(p, p.run(args), args.join(' '));
+    }
+    assert.equal(p.git(['rev-parse', 'HEAD']).trim(), head, 'no commit');
+  });
+
+  test(`${OLD} is byte-identical and ${NEW} is never created`, () => {
+    assert.deepEqual(snapshotTree(path.join(p.root, OLD)), legacyBefore);
+    assert.equal(exists(p.root, NEW), false, `${NEW} was created`);
+  });
+});
+
+for (const layout of ['aoforge']) {
   describe(`4. layout ${layout}: write verbs write under ${DIR_OF[layout]}`, () => {
     const dir = DIR_OF[layout];
     const other = OTHER_OF[layout];
@@ -450,14 +471,12 @@ describe('5-6. layout legacy: W066 is the one broken result, naming 3.0.x and th
     assert.equal(j.repairs_performed, undefined);
   });
 
-  test('6. init plan-objective 1 and init execute-objective 1 carry the W066 line in advisories_warnings', () => {
+  test('6. init plan-objective 1 and init execute-objective 1 refuse with the same fix (TRD 78-07)', () => {
     for (const verb of ['plan-objective', 'execute-objective']) {
-      const j = json(p.run(['init', verb, '1']), `init ${verb}`);
-      const lines = j.advisories_warnings.filter((l) => l.startsWith('W066 '));
-      assert.equal(lines.length, 1, `init ${verb}: ${JSON.stringify(j.advisories_warnings)}`);
-      assert.ok(lines[0].includes('legacy-planning-dir'), lines[0]);
-      for (const part of LAYOUT_FIX_PARTS) assert.ok(lines[0].includes(part), `line misses ${part}: ${lines[0]}`);
-      assert.equal(RETIRED.test(lines[0]), false, lines[0]);
+      const r = refused(p, p.run(['init', verb, '1']), `init ${verb}`);
+      assert.ok(r.stderr.includes(`${OLD}/`), r.stderr);
+      for (const part of LAYOUT_FIX_PARTS) assert.ok(r.stderr.includes(part), `stderr misses ${part}: ${r.stderr}`);
+      assert.equal(RETIRED.test(r.stderr), false, r.stderr);
     }
   });
 
