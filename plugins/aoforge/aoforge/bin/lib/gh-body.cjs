@@ -16,8 +16,8 @@
  * marker, part line, dir marker or begin/end pair in the pre-rename namespace is plain text here: an id line
  * is not found, a pair is not a managed section (a merge appends the AOForge one and leaves the old text
  * byte for byte). `aof-tools gh rebrand` (72-16, gh-rebrand.cjs) is the one reader of the old namespace,
- * with its own patterns, and it reads it only to rewrite it. The label helpers at the end still give the
- * legacy twin of a default label; 78-09 removes them.
+ * with its own patterns, and it reads it only to rewrite it. Labels are not read here: a lookup by label
+ * lists the AOForge label alone, and gh-legacy-labels refuses one in a repository not yet rebranded (78-09).
  *
  * Marker forms:
  *   issue body, line 1:   <!-- aoforge:id=46 -->
@@ -35,8 +35,7 @@
  *   <!-- aoforge:end NAME -->
  */
 
-// LEGACY is read by the label helpers at the end only (78-09 removes them).
-const { NAMES, LEGACY } = require('./legacy-names.cjs');
+const { NAMES } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
 
 // The marker namespace as readers match it (regex source). Writers below spell it literally.
@@ -60,7 +59,7 @@ const OPTIONAL_SECTIONS = ['wiki', 'meta'];
 const PR_SECTION_ORDER = Object.freeze(['closes', 'wiki', 'summary']);
 
 // The sticky-comment marker written before the aoforge:id form existed.
-const LEGACY_STATE_MARKER = '<!-- df:state -->';
+const PRE_ID_STATE_MARKER = '<!-- df:state -->';
 
 // Entity ids (todo / debug / quick issues, 48-02's grammar). Duplicated from gh-trd.cjs ENTITY_ID_SOURCE so this
 // module stays dependency-free; a test pins the two to one source. An entity id has exactly one spelling.
@@ -328,7 +327,7 @@ function buildStateComment(id, state, isoTimestamp) {
 function isStateComment(body, id) {
   if (typeof body !== 'string') return false;
   const firstLine = body.split('\n', 1)[0].replace(/\r$/, '');
-  if (firstLine.trim() === LEGACY_STATE_MARKER) return true;
+  if (firstLine.trim() === PRE_ID_STATE_MARKER) return true;
   const cid = canonicalId(id);
   if (cid === null) return false;
   const m = firstLineMarker(body);
@@ -745,51 +744,7 @@ function buildPrBody(args) {
   return r.body;
 }
 
-// ─── Label namespace (TRD 72-11) ─────────────────────────────────────────────
-//
-// A default label is `<markerNs>:<kind>` (`aoforge:objective`). Until a repository is rebranded its issues carry the
-// legacy twin, so a lookup by a DEFAULT label lists both and merges the results by issue number. A label set in
-// `github.labels.*` that is not the default is used as configured, alone. Writers keep adding the AOForge form.
-
-const LABEL_PREFIX = `${NAMES.markerNs}:`;
-const LEGACY_LABEL_PREFIX = `${LEGACY.markerNs}:`;
-
-/** legacyLabel(label) — the legacy twin of an AOForge-namespace label (`aoforge:trd` -> the legacy `:trd`), else null. */
-function legacyLabel(label) {
-  if (typeof label !== 'string' || !label.startsWith(LABEL_PREFIX) || label.length === LABEL_PREFIX.length) return null;
-  return LEGACY_LABEL_PREFIX + label.slice(LABEL_PREFIX.length);
-}
-
-/**
- * labelForms(label, defaultLabel) — the labels a lookup lists: `[label, its legacy twin]` when `label` is the default
- * for its role, else `[label]` (a configured label is used as configured).
- */
-function labelForms(label, defaultLabel) {
-  const twin = label === defaultLabel ? legacyLabel(label) : null;
-  return twin === null ? [label] : [label, twin];
-}
-
-/** unionByNumber(lists) — the items of every list, each issue number once (the first occurrence wins), list order kept. */
-function unionByNumber(lists) {
-  const seen = new Set();
-  const out = [];
-  for (const list of Array.isArray(lists) ? lists : []) {
-    for (const item of Array.isArray(list) ? list : []) {
-      const n = item && typeof item === 'object' ? item.number : undefined;
-      if (Number.isInteger(n)) {
-        if (seen.has(n)) continue;
-        seen.add(n);
-      }
-      out.push(item);
-    }
-  }
-  return out;
-}
-
 module.exports = {
-  legacyLabel,
-  labelForms,
-  unionByNumber,
   ENTITY_ID_SOURCE,
   SECTION_ORDER,
   OPTIONAL_SECTIONS,

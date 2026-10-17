@@ -34,7 +34,7 @@ const ghMilestone = require('./gh-milestone.cjs');
 const ghBody = require('./gh-body.cjs');
 const ghComments = require('./gh-comments.cjs');
 const ghCapability = require('./gh-capability.cjs');
-const legacyLabels = require('./gh-legacy-labels.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
@@ -677,7 +677,7 @@ function reportOrphans(root, objectiveArg) {
   // One label (TRD 78-09): a repository that still has the default TRD label's pre-rename twin is refused with the
   // fix, since its old-labelled TRD issues would not be listed.
   const label = configuredLabels(root).trd;
-  const rebranded = legacyLabels.checkRebranded({ repo: gate.repo, label, defaultLabel: DEFAULT_LABELS.trd });
+  const rebranded = rebrandCheck.checkRebranded({ repo: gate.repo, label, defaultLabel: DEFAULT_LABELS.trd });
   if (!rebranded.ok) return { ok: false, error: rebranded.error };
   const listed = client.ghPaginate(`repos/${gate.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
   if (!listed.ok) return { ok: false, error: `could not list ${label} issues: ${listed.error || 'unknown error'}` };

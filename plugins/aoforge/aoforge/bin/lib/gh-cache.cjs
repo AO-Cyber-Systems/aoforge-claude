@@ -61,7 +61,7 @@ const ghWiki = require('./gh-wiki.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghCapability = require('./gh-capability.cjs');
 const client = require('./gh-client.cjs');
-const legacyLabels = require('./gh-legacy-labels.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const milestoneStore = require('./gh-milestone-store.cjs');
@@ -529,7 +529,7 @@ const restIdOf = (issue) => (Number.isInteger(issue.id) ? issue.id : null);
  * fix (gh-legacy-labels) instead of being read under the AOForge label alone.
  */
 function listLabelled(repo, label, defaultLabel) {
-  const rebranded = legacyLabels.checkRebranded({ repo, label, defaultLabel });
+  const rebranded = rebrandCheck.checkRebranded({ repo, label, defaultLabel });
   if (!rebranded.ok) return { ok: false, error: rebranded.error };
   const r = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
   if (!r.ok) return { ok: false, error: `could not list ${label} issues: ${failureText(r)}` };

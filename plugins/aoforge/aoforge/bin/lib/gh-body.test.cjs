@@ -1260,6 +1260,6 @@ describe('78-09 single label namespace', () => {
       assert.strictEqual(Object.hasOwn(ghBody, name), false, `${name} is gone (TRD 78-09)`);
     }
     const source = fs.readFileSync(path.join(__dirname, 'gh-body.cjs'), 'utf-8');
-    assert.doesNotMatch(source, /\bLEGACY\b/, 'gh-body reads and writes the AOForge namespace only');
+    assert.doesNotMatch(source, /LEGACY/, 'gh-body reads and writes the AOForge namespace only');
   });
 });

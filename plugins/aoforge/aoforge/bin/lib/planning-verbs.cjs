@@ -73,7 +73,6 @@ const trdBulk = require('./trd-bulk.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const client = require('./gh-client.cjs');
-const ghBody = require('./gh-body.cjs');
 const ghCache = require('./gh-cache.cjs');
 const ghComments = require('./gh-comments.cjs');
 const ghHierarchy = require('./gh-hierarchy.cjs');
@@ -634,9 +633,9 @@ const SUMMARY_FILE_RE = /^(\d+(?:\.\d+)?-\d+)(?:-.*)?-SUMMARY\.md$/;
 const VERDICT_STATE = Object.freeze({ passed: 'success', gaps_found: 'failure', human_needed: 'pending' });
 
 /**
- * The labels `summary post` takes off a TRD issue: `github.labels.in_progress` when it is set, else the default and
- * its legacy twin (TRD 72-11: a `trd start` run before the rebrand added the legacy form; the flusher removes only a
- * label the issue carries, so asking for both costs nothing). `trd start` itself adds the AOForge form only.
+ * The label `summary post` takes off a TRD issue, as a one-element list: `github.labels.in_progress` when it is set,
+ * else the default. The one `trd start` adds (TRD 78-09 removed 72-11's pre-rename twin; `gh rebrand` renames that
+ * label on a repository that still has it).
  */
 function inProgressLabels(main) {
   let configured = null;
@@ -647,7 +646,7 @@ function inProgressLabels(main) {
     configured = null;
   }
   const label = typeof configured === 'string' && configured.trim() !== '' ? configured.trim() : IN_PROGRESS_LABEL;
-  return ghBody.labelForms(label, IN_PROGRESS_LABEL);
+  return [label];
 }
 
 /**

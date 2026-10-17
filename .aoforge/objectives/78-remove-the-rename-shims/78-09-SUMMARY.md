@@ -9,5 +9,6 @@ status: checkpoint
 
 ## Progress
 - [x] Task 1: RED + GREEN — the rebrand check module — 1f6c8dc4 (RED), 5abc90b0 (GREEN)
-- [x] Task 2: RED + GREEN — store and mirror lookups — a0a721eb (RED), (this commit)
-- [ ] Task 3: RED + GREEN — checks lookup, in-progress label, gh-body helpers removed — next step: flip gh-markers.legacy.test.cjs section 8 and planning-verbs-pr.test.cjs IN_PROGRESS_FORMS to `[aoforge:in-progress]`, add a gh-check-cli findObjectiveIssue twin case (gh-checks.legacy.test.cjs) and a gh-body "no twin helpers" case, commit RED, then switch gh-check-cli/planning-verbs to checkRebranded / `[label]` and delete the gh-body label helpers
+- [x] Task 2: RED + GREEN — store and mirror lookups — a0a721eb (RED), 6a72e793 (GREEN)
+- [x] Task 3: RED + GREEN — checks lookup, in-progress label, gh-body helpers removed — dd88a0f9 (RED), (this commit)
+- [ ] Close-out — next step: run the full suite (minus watcher-shell.test.cjs) with node_modules symlinked, then finish this SUMMARY, self-check, tokens stamp, summary post, state advance-job --objective 78, roadmap update-job-progress 78

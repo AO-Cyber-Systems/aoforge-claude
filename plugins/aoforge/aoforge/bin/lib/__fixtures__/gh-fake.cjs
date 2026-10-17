@@ -84,7 +84,7 @@
 
 const crypto = require('node:crypto');
 const { isWriteArgs } = require('../gh-client.cjs');
-const legacyLabels = require('../gh-legacy-labels.cjs');
+const rebrandCheck = require('../gh-legacy-labels.cjs');
 
 const BASE_TIME = Date.parse('2026-01-01T00:00:00Z');
 
@@ -204,7 +204,7 @@ function createFakeGitHub({
 } = {}) {
   const [repoOwner, repoName] = repo.split('/');
   // A new repository: what gh-legacy-labels remembered about the previous fake's labels does not hold here.
-  legacyLabels.clearCache();
+  rebrandCheck.clearCache();
   // Copies, so a write route never mutates an options array a test shares between fakes.
   const fieldDefs = fields.map((f) => ({ ...f })); // runApi has a local `fields` (the request body), so name the definitions apart
   const typeDefs = types.map((t) => ({ ...t }));

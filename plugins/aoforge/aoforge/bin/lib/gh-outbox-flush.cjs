@@ -58,7 +58,7 @@ const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const trd = require('./gh-trd.cjs');
 const bodyLib = require('./gh-body.cjs');
-const legacyLabels = require('./gh-legacy-labels.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const issueLib = require('./gh-issue.cjs');
 const wikiLib = require('./gh-wiki.cjs');
@@ -472,7 +472,7 @@ function setMapped(ctx, id, role, patch) {
  */
 function scanByLabel(ctx, label, defaultLabel) {
   if (ctx.cache.scans.has(label)) return ctx.cache.scans.get(label);
-  const rebranded = legacyLabels.checkRebranded({ repo: ctx.repo, label, defaultLabel });
+  const rebranded = rebrandCheck.checkRebranded({ repo: ctx.repo, label, defaultLabel });
   if (!rebranded.ok) {
     const fail = rebranded.kind === 'legacy-namespace'
       ? failWith('legacy-namespace', rebranded.error)

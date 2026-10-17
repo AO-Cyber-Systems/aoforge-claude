@@ -24,7 +24,7 @@ const client = require('./gh-client.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const milestoneLib = require('./gh-milestone.cjs');
 const bodyLib = require('./gh-body.cjs');
-const legacyLabels = require('./gh-legacy-labels.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { planningRoot } = require('./compat.cjs');
 
@@ -254,7 +254,7 @@ function scanObjectiveIssues(runCtx) {
   // One label (TRD 78-09). The default label's pre-rename twin is never listed: a repository that still has it is
   // refused (kind 'legacy-namespace', the message names `aof-tools gh rebrand --apply`), because listing the AOForge
   // label alone there would miss its objectives and the sync would create them a second time.
-  const rebranded = legacyLabels.checkRebranded({ repo: runCtx.repo, label: runCtx.label, defaultLabel: DEFAULT_OBJECTIVE_LABEL });
+  const rebranded = rebrandCheck.checkRebranded({ repo: runCtx.repo, label: runCtx.label, defaultLabel: DEFAULT_OBJECTIVE_LABEL });
   const listed = rebranded.ok ? listByLabel(runCtx, runCtx.label) : null;
   let scan;
   if (!rebranded.ok) {

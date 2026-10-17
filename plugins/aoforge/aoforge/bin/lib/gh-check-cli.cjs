@@ -59,6 +59,7 @@ const fs = require('fs');
 const client = require('./gh-client.cjs');
 const check = require('./gh-check.cjs');
 const ghBody = require('./gh-body.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const { PLANNING_DIR_NAMES } = require('./compat.cjs');
 const { NAMES } = require('./legacy-names.cjs');
 const { escapeRegExp } = require('./text-escape.cjs');
@@ -192,7 +193,9 @@ function failed(ctx, e) {
       // best effort: the exit code still reports the failure
     }
   }
-  return result(1, 'error', clip(message, DESCRIPTION_MAX), [message]);
+  // An error may carry longer `details` than a status description holds (78-09's un-rebranded-repository refusal).
+  const details = e && Array.isArray(e.details) && e.details.length > 0 ? e.details : [message];
+  return result(1, 'error', clip(message, DESCRIPTION_MAX), details);
 }
 
 // ─── Reading what the checks need ────────────────────────────────────────────
@@ -312,17 +315,21 @@ function findObjectiveIssue(repo, pr, issues, config) {
 
   const configured = config && config.github && config.github.labels && config.github.labels.objective;
   const label = typeof configured === 'string' && configured !== '' ? configured : DEFAULT_OBJECTIVE_LABEL;
-  // The default label, then its legacy twin (TRD 72-11): a repository not yet rebranded labels its objectives that way.
-  for (const form of ghBody.labelForms(label, DEFAULT_OBJECTIVE_LABEL)) {
-    const listed = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(form)}&state=all`);
-    if (!listed.ok) {
-      if (isNotFound(listed)) continue;
-      throw new Error(`could not list the ${form} issues of ${repo}: ${why(listed)}`);
-    }
-    const found = listed.items.find(isObjective);
-    if (found) return found;
+  // One label (TRD 78-09). A repository that still has the default label's pre-rename twin is an error: its objective
+  // may carry the old label only. The status names the fix in 140 characters; the details carry the full refusal.
+  const rebranded = rebrandCheck.checkRebranded({ repo, label, defaultLabel: DEFAULT_OBJECTIVE_LABEL });
+  if (!rebranded.ok) {
+    if (rebranded.kind !== 'legacy-namespace') throw new Error(rebranded.error);
+    const e = new Error(`${repo} still has the label "${rebrandCheck.legacyTwin(label)}": run \`aof-tools gh rebrand --apply\`, then re-run this check`);
+    e.details = [rebranded.error];
+    throw e;
   }
-  return null;
+  const listed = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+  if (!listed.ok) {
+    if (isNotFound(listed)) return null;
+    throw new Error(`could not list the ${label} issues of ${repo}: ${why(listed)}`);
+  }
+  return listed.items.find(isObjective) || null;
 }
 
 /** The issue numbers linked under an objective issue: sub-issues, or its `trds` task list without the sub-issues API. */
