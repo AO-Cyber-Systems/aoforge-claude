@@ -42,6 +42,51 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **A project still on the pre-rename layout gets one clear message instead of silent breakage** (objective 78, TRDs
+  78-01, 78-07, 78-11; SC-4). AOForge 3.1 reads `.aoforge/` only. A project holding only the pre-rename planning
+  directory gets one line from `planning-layout.legacyLayoutMessage` naming AOForge 3.0.x, the manual `git mv` and
+  "Upgrading from 2.x" in `docs/MIGRATING-TO-AOFORGE.md`: `validate health` returns it as the one broken W066 (Check 0,
+  nothing else runs and nothing is written, `--repair` included), `doctor` resolves no project and prints it as a note,
+  `aof-tools` refuses every command that writes the planning tree and `init` (`lib/legacy-layout-guard.cjs`; doctor,
+  validate and runtime-home commands are exempt, each with its reason), and the `upgrade-project` SessionStart hook
+  queues it once as a global notice and runs nothing. No hook treats such a directory as a project, and nothing creates
+  `.aoforge/` there. `old-layout.legacy.test.cjs` walks one such project through every surface (TRD 78-12).
+- **W066, W067 and the new W069** (objective 78, TRD 78-01). W066 is broken for a legacy-only project and stays a
+  warning when both directories exist; W067 also fires when the pre-rename stamp key sits beside `aoforge{}` (fix:
+  delete it); W069 `legacy-claude-md-block` (validate Check 23, doctor check 27) reports a project CLAUDE.md block under
+  the pre-rename markers. None names `--only 0012/0013` any more. W069 was picked because `main` already uses W068:
+  the reconcile of this branch with `main` must confirm W069 is still free.
+- **Retired migrations answer by name** (objective 78, TRDs 78-07, 78-08). `upgrade --apply --only 0012|0013|0014`
+  exits 1 with one line naming the retired migration, AOForge 3.0.x and the guide, never "unknown migration id"
+  (`upgrade.RETIRED_MIGRATIONS`). The stamp is read from `aoforge{}` only and the writer never touches the pre-rename
+  key.
+- **A pre-rename CLAUDE.md block is reported, not converted** (objective 78, TRD 78-08). `managed-block` refuses a
+  block under the pre-rename markers (`ELEGACYBLOCK`, the W069 text); migrations 0005 and 0007 skip such a file with
+  that reason; the global upgrade leaves `~/.claude/CLAUDE.md` untouched with one notice when it holds a pre-rename
+  block or routing heading.
+- **One SessionStart notice for every global leftover** (objective 78, TRD 78-06). `coexistence-guard` and
+  `lib/coexistence.cjs` now report the pre-rename plugin still enabled, pre-rename environment variables (each with its
+  `AOFORGE_*` name), a pre-rename runtime home that 3.0.x never migrated, and files 3.0.0 left in `~/.aoforge/`, as one
+  notice per session. Doctor checks 15 and 16 are report-only; check 17 keeps its fix.
+- **An un-rebranded GitHub repository is refused, not duplicated** (objective 78, TRD 78-09). Every lookup by a
+  default label (`gh sync`, `gh pull`, `gh orphans`, the outbox flush, the planning-consistency check) first checks
+  once per process whether the repository still has the label's pre-rename twin (`lib/gh-legacy-labels.cjs`) and, if
+  so, refuses with one error naming `aof-tools gh rebrand --apply`; the flush halts with class `legacy-namespace`.
+  `gh setup` refuses a PR template holding the pre-rename block with the same fix (TRD 78-03). `gh rebrand` is kept
+  and is now required for such a repository.
+- **A stale `.mcp.json` owner is reported** (objective 78, TRD 78-04). `stack mcp` manages an entry only through
+  `AOFORGE_MANAGED`; an entry owned through the pre-rename key alone is listed in the result's new `warnings` array
+  (always present) and never rewritten or removed.
+- **A running 3.0.0 watch daemon is refused, not adopted** (objective 78, TRD 78-05). `aoforge-watch start` refuses
+  while a daemon AOForge 3.0.0 started from `~/.aoforge/` is alive, naming `kill <pid>` or the service reinstall, and
+  `aoforge-watch status` prints the same warning on stderr; the 3.0.0 pid and log readers and `ELEGACYDAEMON` are gone.
+- **History readers, narrowed** (objective 78, TRD 78-11). `session-audit` and `agent-overhead` still count
+  transcripts recorded under the pre-rename agent and skill names; the benchmark and token readers count `.aoforge/`
+  paths only, so history recorded under the pre-rename planning directory before objective 72 no longer counts there.
+- **`legacy-names.cjs` trimmed** (objective 78, TRD 78-12). `SHIM_REMOVAL` is `3.1.0`, `SHIM_RELEASE` (`3.0.x`) is the
+  path every legacy message names, `LEGACY.commandDash` is gone, and `legacy-names.legacy.test.cjs` fails on a `LEGACY`
+  key nothing reads. `compat.cjs` requires nothing from it. The full suite for objective 78 runs with
+  `watcher-shell.test.cjs` excluded (its W-3 fish-shell test hangs on the development machine).
 - **`main` takes changes only through a pull request** (objective 74, OPS-02). The ruleset `aoforge: default branch`
   (id 24829006) was applied on 2026-10-09 after the user approved the exact text of `.github/rulesets/main.json`: `main`
   cannot be deleted or force-pushed, a direct push to it is rejected, and a change reaches it only through a pull
@@ -71,6 +116,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   read-only key forms it used to accept. User allowlist entries still match the whole command.
 - **A key read with `-y` and no `-P` is handed off even when the command passes `-N`** (objective 73 gap closure, HND-02,
   TRD 73-10). A `-N` anywhere in the command used to exempt it.
+
+### Removed
+
+- **The one-release rename shims** (objective 78, for 3.1.0, as `SHIM_REMOVAL` and the 3.0.0 migration guide promised).
+  3.1 reads AOForge names only; "Upgrading from 2.x" in `docs/MIGRATING-TO-AOFORGE.md` gives the 3.0.x path and the
+  manual steps. Removed:
+  - the pre-rename environment-variable alias (`compat.aliasLegacyEnv`) and every call to it in the CLI, the watch
+    daemon and the hooks (TRDs 78-10, 78-12);
+  - the pre-rename planning-directory fallback, the pre-rename agent namespace in the gates, and the `~/.aoforge/` and
+    pre-rename dot-directory fallbacks for user files (`isLegacyPlanning`, `bothPlanningDirs`, `legacyRuntimeHome` and
+    `resolveUserFile` left `compat.cjs`; TRD 78-11);
+  - migrations 0012 (planning-dir move), 0013 (config-key rename) and 0014 (CLAUDE.md rebrand), whose ids stay reserved
+    (TRDs 78-07, 78-08);
+  - the global upgrade's move of a pre-rename block and its proposed rewrite of hand-written text outside the block
+    (`outside_diff`) (TRD 78-08);
+  - `NAMESPACE_RENAMES` and the doc-refs reading of the pre-rename command forms; migration 0007 no longer rewrites them
+    (TRD 78-02);
+  - the pointer plugin (the final pre-rename 3.0.0 release, its 45 files), its marketplace entry, its generator
+    `scripts/gen-pointer-skills.cjs` and the rename guard's four ALLOW entries for it (TRD 78-02);
+  - the first-session runtime-state migration in `sync-runtime.js` (`lib/runtime-state-migrate.cjs`) and the
+    `doctor --global --fix` fixes of checks 15 and 16 (TRD 78-06);
+  - the dual-namespace GitHub readers (pre-rename markers, label twins: `labelForms`, `unionByNumber`) and the second,
+    pre-rename status context the checks posted (TRDs 78-03, 78-09);
+  - the 3.0.0 watch daemon's pid and log readers in `~/.aoforge/` and `ELEGACYDAEMON` (TRD 78-05);
+  - the pre-rename adopt branch and marker, the pre-rename `.mcp.json` owner key and todo metadata key, and migration
+    0010's pre-rename block slug (TRD 78-04).
+
+  Kept on purpose, each reading an old name only to report or convert it: `gh rebrand` and `lib/legacy-rewrite.cjs`,
+  the detectors (`planning-layout`, `coexistence`, `gh-legacy-labels`, checks-pin, doctor checks 15, 16, 17 and 27),
+  the history readers, `PRESERVE`, and the first-generation `<!-- df:state -->` sticky-comment reader, which predates
+  the rename and rewrites its own input on the next sync (TRD 78-12). They go in a later release once no repository
+  needs them.
 
 ### Fixed
 

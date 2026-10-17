@@ -22,53 +22,70 @@ A detailed reference for workflows, troubleshooting, and configuration. For quic
 3.0.0 renames DevFlow to AOForge: the plugin (`devflow@aocyber` to `aoforge@aocyber`), the slash commands
 (`/devflow:<name>` to `/aoforge:<name>`), the agent types, the CLI (`df-tools.cjs` to `aof-tools.cjs`), the runtime home
 (`~/.claude/devflow/` to `~/.claude/aoforge/`), the `DEVFLOW_*` variables, the project planning directory (`.planning/`
-to `.aoforge/`), the config and CLAUDE.md markers and the GitHub artefacts. The name map, what keeps working for one
-release, what moves by itself, the checklist and how to check the result are in
-**[Migrating to AOForge](MIGRATING-TO-AOFORGE.md)**. This section is the reference for the surfaces the rename added.
+to `.aoforge/`), the config and CLAUDE.md markers and the GitHub artefacts. 3.0.0 kept the old names working for one
+release; **3.1.0 removed those one-release shims** (objective 78). The name map, what 3.1.0 removed, what 3.1 still
+reports, the 2.x upgrade path, the 3.0.0 checklist and how to check the result are in
+**[Migrating to AOForge](MIGRATING-TO-AOFORGE.md)**. This section is the reference for the surfaces the rename left.
 <!-- rename-guard:ignore-end -->
 
-**The shim layer, for one release.** `lib/legacy-names.cjs` is the one module that spells the old names. It exports
-`NAMES` (the AOForge forms), `LEGACY` (the pre-rename forms) and `SHIM_REMOVAL` (the release after 3.0.0), and every
-other module and test builds the old names from it, so the rename guard (`rename-guard.repo.test.cjs`) can fail CI on an
-old name anywhere else. `lib/compat.cjs` holds the shim primitives, and the new name always wins:
+**The name map.** `lib/legacy-names.cjs` is the one module that spells the old names. It exports `NAMES` (the AOForge
+forms), `LEGACY` (the pre-rename forms), `PRESERVE`, `SHIM_RELEASE` (`3.0.x`, the last release line with the shims,
+which every 3.1 legacy message names as the conversion path) and `SHIM_REMOVAL` (`3.1.0`, the release that removed
+them). Every other module and test builds the old names from it, so the rename guard (`rename-guard.repo.test.cjs`)
+can fail CI on an old name anywhere else. In 3.1 an old name is read only to detect and report it (`planning-layout`,
+`coexistence`, `managed-block`, `global-upgrade`, `gh-setup`, `gh-legacy-labels`, `checks-pin`, `stack-mcp`, doctor
+checks 15 and 16), to convert it on request (`gh rebrand` and `legacy-rewrite`), or to read history recorded before
+the rename (`session-audit` and `agent-overhead`). `legacy-names.legacy.test.cjs` fails on a `LEGACY` key nothing reads.
+The benchmark and the token readers (`lib/benchmark.cjs`, `lib/token-usage.cjs`) count `.aoforge/` paths only, so
+commits and transcripts recorded under the pre-rename planning directory before objective 72 no longer count for them.
 
-- `aliasLegacyEnv` copies each pre-rename environment variable to its `AOFORGE_*` name when that one is unset. Every hook
-  and the CLI call it first, so an old escape hatch still works.
-- `planningDirName`, `planningRoot` and `findProjectRoot` resolve `.aoforge/` first and the legacy planning directory
-  second (W066 below).
-- `isOwnAgentType` and `isOwnExecutor` let the edit gates, `verify-commits` and `gate-executor-stop` treat a subagent of
-  the pre-rename namespace as their own.
-- `userDotFile` reads `defaults.json`, the Brave API key and the watch allowlist from the runtime home,
-  `~/.claude/aoforge/`, first; then from `~/.aoforge/`, where 3.0.0 kept them; then from the pre-rename dot directory.
-  The first file found wins and nothing is merged. It wraps `resolveUserFile`, which also reports where the file came
-  from. AOForge writes these files only in the runtime home.
+**`lib/compat.cjs` names one layout.** It kept its name (about 80 modules and every hook import it) but holds no shim
+any more and requires nothing from `legacy-names.cjs`:
+
+- `planningDirName`, `planningRoot`, `planningRel`, `PLANNING_DIR_NAMES` and `isPlanningDirName` name `.aoforge/`
+  alone, and `findProjectRoot` finds a directory holding `.aoforge/`, never `$HOME` (below). A directory holding only
+  the pre-rename planning directory is not a project to any hook or reader.
+- `isOwnAgentType` and `isOwnExecutor` accept the `aoforge:` namespace only, so the edit gates, `verify-commits` and
+  `gate-executor-stop` no longer trust a pre-rename subagent.
+- `userDotFile` names `defaults.json`, the Brave API key and the watch allowlist in the runtime home,
+  `~/.claude/aoforge/`, with no fallback: a copy in `~/.aoforge/` (where 3.0.0 kept them) or in the pre-rename dot
+  directory is not read. Doctor check 17 moves 3.0.0's copies.
 - `watchStateDir` names `~/.claude/aoforge/state/watch/`, where the watch daemon keeps its pid file and log and the
   launchd or systemd service writes its logs.
-- `runtimeHome` and `legacyRuntimeHome` name the runtime mirror under `~/.claude`, new and old.
+- `runtimeHome` names the runtime mirror, `~/.claude/aoforge/`.
 
-The shims, the legacy planning-directory fallback, migrations 0012 and 0013 and the pointer plugin are removed in the
-release after 3.0.0.
+The environment alias went in 3.1.0 too: a pre-rename environment variable has no effect, and the `coexistence-guard`
+notice and doctor check 16 name each one with its `AOFORGE_*` form.
+
+**A project still on the old layout.** `planning-layout.cjs` detects it without compat: `isLegacyPlanning` (the old
+directory holds a config, STATE, ROADMAP or PROJECT file and `.aoforge/` is absent), `bothPlanningDirs` and
+`findLegacyLayoutRoot` (walks up, stops at `$HOME`). Every surface gives the one message from `legacyLayoutMessage`,
+which names AOForge 3.0.x, the manual `git mv` and the guide's "Upgrading from 2.x":
+
+- `validate health` returns one broken W066 and writes nothing, `--repair` included; `doctor` resolves no project and
+  prints the message as a note.
+- `aof-tools` refuses every command that writes the planning tree, and `init`, which every skill calls first
+  (`lib/legacy-layout-guard.cjs`). Doctor, validate and the commands that touch only the runtime home, git config or
+  transcripts are exempt, each with its reason in the module; `upgrade --global|--prune|--register` and help flags run.
+- The `upgrade-project` SessionStart hook queues the message once as a global notice (key
+  `legacy-layout:<realpath>`), runs no migration and commits nothing.
+- `upgrade --apply --only 0012|0013|0014` names the retired migration and the 3.0.x path instead of "unknown migration
+  id" (`upgrade.RETIRED_MIGRATIONS`).
 
 **What 3.0.0 left in `~/.aoforge/`.** AOForge 3.0.0 kept the watch daemon's pid file and log, the service logs and the
-user files in `~/.aoforge/`. For one release a daemon started by 3.0.0 is still found there: `aoforge-watch status`,
-`start`, `stop`, `add-project` and `remove-project` and `gate-interactive.js` treat it as an AOForge daemon,
-`aoforge-watch stop` clears its pid file, and `aoforge-watch logs` falls back to its log. `doctor --global --fix`
-(check 17 below) moves what is left.
+user files in `~/.aoforge/`. 3.1 no longer reads them there. `aoforge-watch start` refuses while a daemon 3.0.0 started
+from there is still alive (`watcher-state.interimDaemon()`), naming `kill <pid>` or the service reinstall, and
+`aoforge-watch status` prints the same warning on stderr after its JSON. `doctor --global --fix` (check 17 below) moves
+what is left.
 
 **Your home directory is never a project.** `findProjectRoot` never returns `$HOME` and never searches above it, and the
 planning-mode lookups refuse it too: a planning directory exactly at your home directory is not a project, whatever it
 holds. A leftover `~/.aoforge/` therefore cannot turn the repositories under it into AOForge projects.
 
-**Runtime state.** On the first AOForge session, `sync-runtime.js` carries the old runtime home's state into
-`~/.claude/aoforge/` once (`lib/runtime-state-migrate.cjs`). It copies `calibration.json`, `audit.log`,
-`transcript-index.jsonl`, `stacks/` and `state/` (estimate run state and history, awareness cache, hook markers, progress
-guard, transcript-export stamp), and leaves the old copy as the backup. It moves `state/outbox/` and `backups/`, one
-child at a time, so no queued GitHub write exists in both homes. Nothing in the new home is overwritten: a child that is
-already there stays behind and is listed as skipped. The marker `~/.claude/aoforge/.legacy-state-migrated.json`
-(`from`, `at`, `copied`, `moved`, `skipped`) is written last, so a failure part-way leaves no marker and the next
-session retries; the hook prints one `[aoforge] runtime state migration skipped: <message>` line on stderr and still
-exits 0. Disable the old plugin straight after the first AOForge session: it keeps writing its own home until then, and
-the migration does not run twice. `doctor --global --fix` later moves the old home into a backup (check 16 below).
+**Runtime state.** 3.1 does not carry the pre-rename runtime home's state into `~/.claude/aoforge/` (3.0.x's
+`sync-runtime.js` did that once, on the first session). A home never migrated is reported by the coexistence notice
+and doctor check 16 with the 3.0.x path or the manual copy; a home left over after a 3.0.x migration is reported by
+check 16 with the `mv` that moves it into a backup.
 
 **Moving a checkout: `aof-tools state rekey`.** Runtime state outside the repository is keyed by the checkout's path, so
 a moved or renamed checkout starts with none. Carry it over:
@@ -85,61 +102,54 @@ new path. Run it once the old checkout is retired: the outbox journal is copied,
 `--raw` prints the plan as prose. Claude Code's own memory directory under `~/.claude/projects/` is not repo-keyed
 AOForge state, and `state rekey` does not touch it.
 
-**Command forms.** `doc-refs` reads the pre-rename slash namespaces and the dash form of the pre-plugin install as well
-as `/aoforge:`. A dash-form token counts only when its name is a known command, so file names and paths that start the
-same way are never findings. `doc-refs.repo.test.cjs` fails CI on any old form in a user-facing file (changelogs, the
-planning tree and the pointer plugin are exempt), and migration 0007 rewrites them in a project's CLAUDE.md block and
-STATE.md. One caveat: run from the home mirror (`node ~/.claude/aoforge/bin/aof-tools.cjs upgrade`) there is no plugin
-manifest to list the live skills, so a dash form is rewritten only for a renamed or removed command there. The next
-session-start upgrade, which runs the bundled copy, rewrites the rest.
+**Command forms.** `doc-refs` reads `/aoforge:` only. The pre-rename slash namespaces and the dash form of the
+pre-plugin install are plain text to it, and migration 0007 no longer rewrites them. `doc-refs.repo.test.cjs` still fails
+CI on a renamed or removed `/aoforge:` command in a user-facing file, and the rename guard fails on any old name. The
+pointer release of the old plugin (its forwarding skills and their generator) was removed from the marketplace in 3.1.0.
 
-<!-- rename-guard:ignore-start -->
-**The pointer plugin.** The final `devflow@aocyber` release (3.0.0, `plugins/devflow/` in this repository) only points
-to AOForge. Its SessionStart hook says that DevFlow is now AOForge and how to install it, and goes quiet once
-`~/.claude/aoforge/.plugin-version` exists. It has one generated forwarding skill per AOForge command: `/devflow:<name>`
-hands its arguments to `/aoforge:<name>`, or says how to install AOForge. Six commands run only when typed (`cleanup`,
-`list-objective-assumptions`, `milestone`, `set-profile`, `settings`, `workstreams`); for those the pointer names the
-`/aoforge:` command to type. It ships no agents, gates or runtime, so beside AOForge nothing runs twice. Its skills are
-generated from `plugins/aoforge/skills` by `node scripts/gen-pointer-skills.cjs --write` (`--check` runs in the test
-suite), and the whole plugin is removed in the release after 3.0.0.
-<!-- rename-guard:ignore-end -->
-
-**Coexistence notice.** When the pre-rename plugin is still installed and enabled beside AOForge, both register their
-hooks and a gate could run twice. The `coexistence-guard.js` SessionStart hook (`lib/coexistence.cjs`, which reads
-`installed_plugins.json` and `enabledPlugins` in your settings) queues one notice per session naming the old plugin's
-version and the exact `claude plugin disable` command; `route-results.js` shows it on the next prompt. A pointer release
-(3.x) gets a softer notice, because it forwards only. The hook never edits settings or uninstalls anything. Escape:
+**Coexistence notice.** The `coexistence-guard.js` SessionStart hook (`lib/coexistence.cjs`) queues one notice per
+session for everything the rename left in your home that 3.1 no longer reads: the pre-rename plugin still enabled
+beside AOForge (its hooks and gates could run twice; the notice names its version and the exact `claude plugin disable`
+command, and a pointer release gets a softer, info-level line), pre-rename environment variables (each with its
+`AOFORGE_*` form), the pre-rename runtime home never migrated by a 3.0.x session, and files 3.0.0 left in
+`~/.aoforge/`. With several findings the notice is one line plus one detail line each; `route-results.js` shows it on
+the next prompt. It reports only: it never edits settings, moves a file or makes an old name work. Escape:
 `AOFORGE_SKIP_COEXISTENCE=1`.
 
-**Doctor.** Three checks cover the rename, one clears what 3.0.0 left in `~/.aoforge/`, and one more learned the old
-caller:
+**Doctor.** Four checks cover what the rename left, and one more learned the old caller:
 
 | Check | Scope | Reports | Fix |
 |---|---|---|---|
-| 15 `legacy-df-install` | global | legacy-prefixed skills or agents under `~/.claude/skills/` and `~/.claude/agents/` (INST-01: they must not come back) | `doctor --global --fix` moves them into `~/.claude/aoforge/backups/legacy-<timestamp>/`, never deletes |
-| 16 `legacy-plugin-runtime` | global | the old plugin still enabled (report-only, names the disable command); the old runtime home not migrated; the old home left over after the migration; pre-rename environment variables (report-only) | `doctor --global --fix`, one step per run: the first run migrates, the next moves the leftover home into `backups/legacy-<old runtime dir>-runtime-<timestamp>/`. The move is refused while the old plugin is enabled |
-| 17 `user-dot-dir` | global | a leftover `~/.aoforge/` (3.0.0's watch daemon pid file and log, service logs, saved defaults, Brave key or allowlist) | `doctor --global --fix` moves AOForge's files to `~/.claude/aoforge/` (the daemon's to `state/watch/`), or into `backups/aoforge-dot-dir-<timestamp>/` when a newer copy exists or the pid is stale. It never deletes or overwrites a file and removes the directory only once it is empty; a symlinked `~/.aoforge` keeps its link and target. Report-only while a daemon there is live (names `aoforge-watch stop`), an installed service still logs there (names the reinstall) or the directory holds planning files. Files it does not know, such as a `.DS_Store` macOS dropped there, are listed and left in place, so the directory stays |
-| 27 `legacy-planning-layout` | project | W066 and W067 (below); check 22 defers both to it, so each shows once | report-only: names `upgrade --apply --only 0012` or `--only 0013` |
+| 15 `legacy-df-install` | global | legacy-prefixed skills or agents under `~/.claude/skills/` and `~/.claude/agents/` (INST-01: they must not come back) | report-only since 3.1.0: the global upgrade moves them into `~/.claude/aoforge/backups/legacy-<timestamp>/` at session start after a plugin update, or now with `aof-tools upgrade --global --apply` (the check's `fix_command`); or move them by hand |
+| 16 `legacy-plugin-runtime` | global | the old plugin still enabled; the old runtime home never migrated; the old home left over after a 3.0.x migration; pre-rename environment variables | report-only since 3.1.0: the disable command; for a home never migrated, AOForge 3.0.x once or a copy by hand; for a leftover, the printed `mkdir -p ... && mv` into `backups/legacy-<old runtime dir>-runtime-<date>/` (prefixed by the disable command while the old plugin is enabled); rename the variables |
+| 17 `user-dot-dir` | global | a leftover `~/.aoforge/` (3.0.0's watch daemon pid file and log, service logs, saved defaults, Brave key or allowlist), which 3.1 no longer reads | `doctor --global --fix` moves AOForge's files to `~/.claude/aoforge/` (the daemon's to `state/watch/`), or into `backups/aoforge-dot-dir-<timestamp>/` when a newer copy exists or the pid is stale. It never deletes or overwrites a file and removes the directory only once it is empty; a symlinked `~/.aoforge` keeps its link and target. Report-only while a daemon there is live (names `aoforge-watch stop`), an installed service still logs there (names the reinstall) or the directory holds planning files. Files it does not know, such as a `.DS_Store` macOS dropped there, are listed and left in place, so the directory stays |
+| 27 `legacy-planning-layout` | project | W066 (both directories), W067 and W069 (below); check 22 defers all three to it, so each shows once. A legacy-only root is no project: doctor prints the layout message as a note | report-only: each finding names its manual fix or the 3.0.x path |
 | 26 `checks-workflow-pin` | project | a managed caller under the pre-rename file name is reported with W062 and the `aof-tools gh rebrand --dry-run` command | `gh rebrand`, never a re-pin with `gh setup --apply` |
 
-Run `doctor --global --fix` only after AOForge is installed and the old plugin is disabled. Before that, it would run the
-one-time runtime-state migration early, and the old plugin's later writes would stay behind.
+Checks 15 and 16 lost their fixes in 3.1.0 because the conversions belong to 3.0.x; check 17 keeps its fix because
+`~/.aoforge/` holds files AOForge 3.0.0 itself wrote, and no 3.0.x release moves them.
 
-**GitHub artefacts.** Store and mirror reads accept the pre-rename labels and hidden markers beside the AOForge ones,
-and the checks post every verdict under both context namespaces, so a required check under either name keeps passing for
-the release. `aof-tools gh rebrand` renames them for good; see
+**GitHub artefacts.** Store and mirror reads, the checks and the outbox speak the `aoforge` namespace only, and each
+verdict is posted under the `aoforge/` context only. A repository that still has the pre-rename twin of a default label
+is refused rather than read under the new label alone (`lib/gh-legacy-labels.cjs`, one cached label lookup per default
+label per process): `gh sync`, `gh pull`, `gh orphans`, the outbox flush (which halts with class `legacy-namespace`)
+and the planning-consistency check each name `aof-tools gh rebrand --apply`. `gh setup` refuses a PR template that holds
+the pre-rename block with the same fix. `gh rebrand` is the converter and is now required, not optional; see
 [Rebranding a repository](#rebranding-a-repository-aof-tools-gh-rebrand).
 
-**Adopt and the watch daemon.** An adopt begun before the rename resumes on its pre-rename branch. When both that branch
-and `aoforge/adopt` exist, adopt refuses with `adopt-branch-conflict`: keep the branch your adopt is on, delete the
-other, and re-run `/aoforge:adopt`. A watch daemon started before the rename watches only its own handoff directories:
-`aoforge-watch status` and `stop` see it, but `add-project` and `remove-project` refuse it with `ELEGACYDAEMON`, and AOForge
-never routes a command to it. Stop it with `aoforge-watch stop`, then start `aoforge-watch`. A daemon started by AOForge
-3.0.0 keeps working until you restart it: it runs the 3.0.0 code, allowlist included, and keeps its pid file and log in
-`~/.aoforge/`, where AOForge still finds them. The next start writes them to `~/.claude/aoforge/state/watch/`.
+**Adopt and the watch daemon.** An adopt begun before the rename does not resume: `aoforge/adopt` starts fresh and the
+pre-rename branch and marker are left as they are. A watch daemon started before the rename watches only its own
+handoff directories, and AOForge never routes a command to it: stop it, then start `aoforge-watch`. A daemon started by
+AOForge 3.0.0 must be stopped too (see "What 3.0.0 left in `~/.aoforge/`" above): `aoforge-watch start` refuses beside
+it.
+
+**`.mcp.json` and todos.** `stack mcp` manages an entry only when its env holds `AOFORGE_MANAGED=stack`. An entry owned
+through the pre-rename key alone is reported, one line each, in the result's `warnings` (present in every result, empty
+when nothing is stale) and is never rewritten or removed; rename its key to `AOFORGE_MANAGED` or delete it. The todo
+sync reads the `aoforge_todo` metadata key only.
 
 **Override phrases.** The edit gate honours `skip aoforge`, `bypass aoforge`, `just edit` and `force edit`. The
-pre-rename forms of the first two are no longer read by the live gate.
+pre-rename forms of the first two are not read.
 
 ---
 
@@ -319,7 +329,7 @@ An `aof-tools` command that writes (the ones `aof-tools --help` marks with `*`) 
 | `/aoforge:set-profile <profile>` | Quick profile switch | Change cost/quality tradeoff |
 | `/aoforge:cleanup` | Archive completed debug sessions, prune stale files | Periodic maintenance |
 | `/aoforge:status check [--migrate]` | Validate `.aoforge/` integrity and fix issues; `--migrate` upgrades the project in place (runs `aof-tools upgrade`) | Planning files feel stale or corrupt, after an AOForge update, or when `validate health` reports W040 (`aof-tools validate requirements [--objective <N>]` runs the W065 requirements check alone; see [Health checks](#health-checks-for-the-skill-marker-and-requirements-e006-w064-w065)) |
-| `/aoforge:doctor [--fix] [--global] [path]` | Diagnose the AOForge environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale or git-tracked skill markers (check 23) and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33), and what the 3.0.0 rename leaves behind: a legacy-prefixed install (check 15) and the pre-rename plugin and runtime home (check 16) with `--global`, the legacy planning layout W066/W067 (check 27); see [Renamed to AOForge](#renamed-to-aoforge-300)); read-only unless `--fix`, which applies only safe, reversible repairs | AOForge behaves oddly, after a plugin update, or a repo shows `.aoforge` runtime files changing |
+| `/aoforge:doctor [--fix] [--global] [path]` | Diagnose the AOForge environment (runtime mirror, plugin cache, hooks, runtime state inside the repo, stale or git-tracked skill markers (check 23) and backups, resolved decisions whose multi-line answer a pre-52 writer flattened (check 33), and what the 3.0.0 rename leaves behind: a legacy-prefixed install (check 15, report-only), the pre-rename plugin, runtime home and environment variables (check 16, report-only) and 3.0.0's files in `~/.aoforge/` (check 17) with `--global`, the legacy planning layout W066/W067/W069 (check 27); see [Renamed to AOForge](#renamed-to-aoforge-300)); read-only unless `--fix`, which applies only safe, reversible repairs | AOForge behaves oddly, after a plugin update, or a repo shows `.aoforge` runtime files changing |
 
 ### Adopting an Existing Repo (`/aoforge:adopt`)
 
@@ -343,8 +353,10 @@ lands as **one signed commit on a new `aoforge/adopt` branch, which is never pus
 **Refusal rules.** It refuses, and touches nothing, when the target is: a dirty working tree, a
 repo mid-rebase/merge, a detached HEAD, or a path that isn't a git repository at all. It names the
 reason and stops -- it never stashes or resets your work. An adopt begun before the 3.0.0 rename
-resumes on its pre-rename branch; when that branch and `aoforge/adopt` both exist it refuses with
-`adopt-branch-conflict` (keep the branch your adopt is on, delete the other, re-run).
+does not resume in 3.1: a new adopt starts on `aoforge/adopt` and leaves the pre-rename branch and marker as they
+are (delete them yourself once you no longer need them). A stale `aoforge/adopt` with no marker refuses with
+`adopt-branch-exists`. A project that holds only the pre-rename planning directory is refused with the legacy-layout
+message (see [Renamed to AOForge](#renamed-to-aoforge-300)).
 
 Under the hood: `aof-tools adopt preflight|begin|scaffold|report` (the deterministic half) plus the
 global `aof-tools --cwd <dir>` flag so the CLI can target `[path]` from anywhere. Implemented in
@@ -374,22 +386,22 @@ node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --global --confirm   # adopt th
   | 0004 | Backfill `OBJECTIVE.md` for NN-named objective dirs | auto |
   | 0005 | Refresh an existing CLAUDE.md AOForge block (never adds one) | auto |
   | 0006 | Set PROJECT.md `kind` / `default_work` | confirm |
-  | 0007 | Rewrite stale AOForge command references, and the pre-rename slash and dash forms, in the CLAUDE.md AOForge block and in STATE.md above its Session Log | auto |
+  | 0007 | Rewrite stale AOForge command references (renamed or removed `/aoforge:` commands) in the CLAUDE.md AOForge block and in STATE.md above its Session Log. Since 3.1.0 the pre-rename slash and dash forms are plain text to it, and a CLAUDE.md under the pre-rename markers is skipped with the W069 reason | auto |
   | 0008 | Gitignore and untrack runtime state (`.aoforge/.progress-guard.json`, `.awareness-cache.json`, `.dup-detect-log.jsonl`, `.check-todos-cache.json`, `.deprecation-log.jsonl`, `.override-log.jsonl`, nested `**/.aoforge/` too); the working copies stay | auto |
   | 0009 | Convert `.aoforge/.gh-mapping.json` to v3 and key `.gh-sync-state.json` by objective id | auto |
   | 0010 | Gitignore and untrack the planning cache (store mode only); skips while a GitHub backfill is still pending | confirm |
   | 0011 | Backfill the planning history onto GitHub and turn store mode on, then hand off to 0010; resumable (see **Migrating an existing project**) | confirm |
-  | 0012 | Move the legacy planning directory to `.aoforge/` with `git mv` (history follows; untracked and ignored files move with it). Backs up the directory, CLAUDE.md and the ignore files first. Files an earlier migration of the same run removed (0002 renaming `*-JOB.md`, say) are staged first, so the move no longer stops on them; a deletion you made yourself still defers it. In store mode the 0010 ignore block is rewritten first, so the moved cache stays ignored. Each `.gitignore` and `.git/info/exclude` line naming the legacy directory gets a `.aoforge/` twin, and the legacy line stays for one release. Deferred (see below) on tracked changes, an operation in progress, or when `.aoforge/` already exists | auto |
-  | 0013 | Rename the legacy config stamp key to `aoforge{}` in place; when both keys exist they are merged and the `aoforge{}` values win | auto |
-  | 0014 | Move a project CLAUDE.md managed block to the AOFORGE markers and rewrite the pre-rename names inside it (product, slash namespace, CLI, runtime path, and the planning directory once it has moved). Text outside the block is never touched | auto |
+  | 0012 | Retired in 3.1.0 (was: move the legacy planning directory to `.aoforge/` with `git mv`). The id stays reserved | — |
+  | 0013 | Retired in 3.1.0 (was: rename the legacy config stamp key to `aoforge{}`). The id stays reserved | — |
+  | 0014 | Retired in 3.1.0 (was: move a project CLAUDE.md managed block to the AOFORGE markers). The id stays reserved | — |
 
   `confirm` migrations run only when you name them with `--only <id>` or pass `--apply --confirm`. `--confirm` selects every applicable confirm migration, including ones `--only` does not name; `--only <id>` alone runs just that one.
 
-  0012, 0013 and 0014 are the 3.0.0 rename (see [Renamed to AOForge](#renamed-to-aoforge-300) and [MIGRATING-TO-AOFORGE.md](MIGRATING-TO-AOFORGE.md)). 0012 and 0013 are one-release shims and go with the rest in the release after 3.0.0.
-- **Deferred migrations.** A migration can decline to run yet instead of failing; today only 0012 does. It writes nothing and stays pending, every later migration in the run waits, and the stamp is not advanced. The SessionStart hook queues one action notice, replaced rather than repeated while the reason lasts: `AOForge left migration 0012 (Move the legacy planning directory to .aoforge/) for later (<reason>): ... Run aof-tools upgrade --apply --only 0012 once it clears. The next session start retries it.` Untracked files inside the legacy directory are not a reason to defer (they move with it), but they make the hook leave the move staged instead of committing it: commit or remove them first, or run `upgrade --apply --only 0012` and commit the move yourself.
+  0012, 0013 and 0014 were the 3.0.0 rename; 3.1.0 retired them with the other one-release shims (objective 78). `upgrade --apply --only 0012` (or 0013, 0014) exits 1 with one line naming the retired migration, AOForge 3.0.x and [MIGRATING-TO-AOFORGE.md](MIGRATING-TO-AOFORGE.md) ("Upgrading from 2.x"), never "unknown migration id" (`upgrade.RETIRED_MIGRATIONS`). The upgrade reads the `aoforge{}` stamp only: a pre-rename key alone reads as no stamp (safe, because every migration is detection-based), and the stamp writer never edits or deletes it (W067 names the fix). In a project that holds only the pre-rename planning directory, `upgrade --apply` and `--check` write nothing and report the legacy-layout message as their one failure.
+- **Deferred migrations.** A migration can decline to run yet instead of failing (3.0.x's 0012 did; no shipped migration defers since 3.1.0, but the runner keeps the mechanism). It writes nothing and stays pending, every later migration in the run waits, and the stamp is not advanced. The SessionStart hook queues one action notice, replaced rather than repeated while the reason lasts, naming the migration, the reason and the `upgrade --apply --only <id>` command to run once it clears; the next session start retries it.
 - **Stamp.** `.aoforge/config.json` records `aoforge{version, migrations_applied, upgraded_at}`. `validate health` reports **W040** when the project is behind.
 - **Backups** go outside the repo, to `~/.claude/aoforge/backups/<repo>-<hash>/<timestamp>/`, before anything is written.
-- **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/aoforge/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- AOFORGE:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. A block refreshes only when the template version rises: version 3 adds the `/aoforge:doctor` routing line (and carries the `/aoforge:gh-sync` line), so an existing block picks up both at the next global upgrade. If you already have a hand-written AOForge section, you get a notice and nothing changes until you run `upgrade --global --confirm`. Since 3.0.0 (template version 4) a block under the pre-rename markers is recognised, never duplicated, and moved to the AOFORGE markers and `/aoforge:` routing with a backup and no confirmation. Hand-written lines outside the block that name the old product are a different matter: the global upgrade computes their rewrite as a unified diff, shows it in an action notice (`upgrade --global --raw` prints it after the summary; the JSON carries `outside_diff`), and writes it only when you run `upgrade --global --confirm`, backup first. Read the diff before you confirm.
+- **Global.** After each successful runtime mirror, `sync-runtime.js` runs the global upgrade. It moves legacy `~/.claude/skills/df-*`, `~/.claude/agents/df-*` and `~/.claude/aoforge/VERSION` into a backup (it moves them, never deletes them). It also keeps a versioned `<!-- AOFORGE:START v=… src=… -->` block in `~/.claude/CLAUDE.md` current, and never touches text outside the markers. A block refreshes only when the template version rises: version 3 adds the `/aoforge:doctor` routing line (and carries the `/aoforge:gh-sync` line), so an existing block picks up both at the next global upgrade. If you already have a hand-written AOForge section, you get a notice and nothing changes until you run `upgrade --global --confirm`. Since 3.1.0 a block under the pre-rename markers, or a hand-written routing section under the pre-rename product name, is no longer moved or adopted: the global upgrade leaves `~/.claude/CLAUDE.md` untouched, with or without `--confirm`, and queues one action notice naming the fix (rename the markers to AOFORGE, or delete that section so the next upgrade adds the AOForge block); `upgrade --global --raw` prints `CLAUDE.md left untouched: <reason>`. 3.0.x's rewrite of hand-written text outside the block (`outside_diff`) is gone.
 - **Backup pruning.** AOForge installs no scheduler of its own -- pruning runs from the `upgrade-project.js` SessionStart path, throttled to once per 24 hours by a last-prune timestamp. The default policy keeps backups younger than 14 days, and always keeps the newest 5 per repo. It's configurable in `~/.claude/aoforge/global-config.json`: `backups.retain_days` and `backups.keep_min`. Run it by hand (or preview it) with `node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --prune [--dry-run]`; register a repo for pruning without a full upgrade with `upgrade --register`. Both `/aoforge:adopt` and `/aoforge:new-project` register the repo automatically. Skip pruning entirely with `AOFORGE_SKIP_PRUNE=1`. If you want an OS-level schedule instead of the once-per-session throttle, add your own cron line, e.g. `0 3 * * * node ~/.claude/aoforge/bin/aof-tools.cjs upgrade --prune` -- this is opt-in and entirely user-owned; AOForge never installs it for you.
 
 ### Health checks for the skill marker and requirements (E006, W064, W065)
@@ -430,15 +442,16 @@ node ~/.claude/aoforge/bin/aof-tools.cjs validate requirements [--objective <N>]
 
 prints the same findings without running the other health checks and without any network call. The default output is JSON (`findings`, `checked`, `skipped`); `--raw` prints one `W065` line and a `fix:` line per finding, or `requirements-completed agrees with VERIFICATION (<n> objective(s), <m> requirement(s) checked)` when nothing disagrees. `--objective <N>` limits the scan to one objective; `validate health` always scans all of them. A finding exits 0, because W065 is advisory and is never repaired. Each finding names the TRDs whose `requirements` field lists the ID and the fix: run `aof-tools planning draft` on that TRD's SUMMARY, add the ID to `requirements-completed` in the draft, and publish it with `aof-tools summary post <trd> --from <draft>`. A scan that cannot run is reported as W065 `requirements-check-failed`.
 
-### Health checks for the legacy layout (W066, W067)
+### Health checks for the legacy layout (W066, W067, W069)
 
-Two advisories, both warnings, report a project that the 3.0.0 rename has not finished moving. `validate health` raises them and `/aoforge:doctor` check 27 (`legacy-planning-layout`) shows the same text (`lib/planning-layout.cjs`); check 22 defers both to it, so each appears once. Neither is repaired automatically, and neither appears once the project has moved.
+These report a project the 3.0.0 rename never finished moving. `validate health` raises them and `/aoforge:doctor` check 27 (`legacy-planning-layout`) shows the same text (`lib/planning-layout.cjs`); check 22 defers all three to it, so each appears once. None is repaired automatically: since 3.1.0 the conversions belong to AOForge 3.0.x or to the manual steps in [MIGRATING-TO-AOFORGE.md](MIGRATING-TO-AOFORGE.md) ("Upgrading from 2.x").
 
 | Code | When | Fix |
 |---|---|---|
-| W066 `legacy-planning-dir` | The project still has only the legacy planning directory. AOForge reads it for one release, until the release after 3.0.0 | `aof-tools upgrade --apply --only 0012`, or start a session (the upgrade hook moves it) |
-| W066 `legacy-planning-dir` (both) | `.aoforge/` and the legacy directory both exist; AOForge reads `.aoforge/` only and ignores the other | Move what you still need from the legacy directory into `.aoforge/`, then remove the legacy directory yourself. 0012 refuses to merge them |
-| W067 `legacy-config-key` | `config.json` records its upgrades only under the legacy stamp key. The upgrade runner reads it for one release | `aof-tools upgrade --apply --only 0013` (both keys present is not W067: the runner reads the new one and 0013 merges them) |
+| W066 `legacy-planning-dir` (broken) | The project has only the legacy planning directory, which AOForge 3.1 does not read. `validate health` returns this one error and runs no other check; nothing is written, `--repair` included. Doctor resolves no project and prints the same text as a note | AOForge 3.0.x once (`aof-tools upgrade --apply` there), or by hand: `git mv` the directory to `.aoforge/`, then rename the pre-rename key in `.aoforge/config.json` to `aoforge` |
+| W066 `legacy-planning-dir` (both, warning) | `.aoforge/` and the legacy directory both exist; AOForge reads `.aoforge/` only and ignores the other | Move what you still need from the legacy directory into `.aoforge/`, then remove the legacy directory yourself |
+| W067 `legacy-config-key` (warning) | `.aoforge/config.json` carries the pre-rename stamp key, alone or beside `aoforge{}`. The upgrade runner reads `aoforge{}` only | Alone: rename the key to `aoforge`. Beside `aoforge{}`: delete it |
+| W069 `legacy-claude-md-block` (warning) | The project CLAUDE.md holds a managed block under the pre-rename markers, which AOForge no longer updates (migrations 0005 and 0007 skip the file with this reason) | Rename the two markers to `AOFORGE`; the next upgrade refreshes the block (or run AOForge 3.0.x's upgrade once) |
 
 ### Estimation data (`aof-tools tokens`, `aof-tools calibrate`)
 
@@ -900,11 +913,10 @@ Set `commit_docs: false` during `/aoforge:new-project` or via `/aoforge:settings
 AOForge updates through the Claude Code plugin marketplace (`/plugin`), and `/aoforge:status check --migrate` brings a project forward.
 
 <!-- rename-guard:ignore-start -->
-**Coming from DevFlow 2.x.** Install `aoforge@aocyber` from the same `aocyber` marketplace, restart Claude Code, then
-disable the old plugin (`claude plugin disable devflow@aocyber`). The marketplace also carries a final
-`devflow@aocyber` 3.0.0, a pointer: if you update the old plugin instead of installing the new one, its session-start
-notice tells you to install AOForge, and each `/devflow:<name>` forwards to `/aoforge:<name>` once AOForge is there.
-The full checklist is in [MIGRATING-TO-AOFORGE.md](MIGRATING-TO-AOFORGE.md).
+**Coming from DevFlow 2.x.** AOForge 3.1 does not convert a 2.x install or project: run AOForge 3.0.x once (the
+`v3.0.0` tag of the repository), or do the conversion by hand, as described in "Upgrading from 2.x" in
+[MIGRATING-TO-AOFORGE.md](MIGRATING-TO-AOFORGE.md). The pointer release of `devflow@aocyber` left the marketplace in
+3.1.0, so `/devflow:<name>` no longer forwards; disable the old plugin (`claude plugin disable devflow@aocyber`).
 <!-- rename-guard:ignore-end -->
 
 ### Subagent Appears to Fail but Work Was Done
@@ -923,7 +935,7 @@ A known workaround exists for a Claude Code classification bug. AOForge's orches
 | Milestone audit found gaps | `/aoforge:milestone gaps` |
 | Something broke | `/aoforge:debug "description"` |
 | AOForge itself misbehaves, or runtime files keep dirtying a repo | `/aoforge:doctor` (add `--fix` to apply the safe repairs) |
-| GitHub backfill stopped part-way | Run `aof-tools upgrade --apply --only 0011 --confirm` again (see **GitHub integration** > **Troubleshooting**). A backfill started before the 3.0.0 rename: run `aof-tools gh rebrand --apply` first |
+| GitHub backfill stopped part-way | Run `aof-tools upgrade --apply --only 0011 --confirm` again (see **GitHub integration** > **Troubleshooting**). A backfill started before the 3.0.0 rename, or a `gh` command that says the repository "still has the pre-rename label": run `aof-tools gh rebrand --apply` first |
 | Upgrading from the plugin before the 3.0.0 rename | [MIGRATING-TO-AOFORGE.md](MIGRATING-TO-AOFORGE.md) |
 | Moved or renamed a checkout, and its estimates, outbox or backups are gone | `aof-tools state rekey --from <old path> --dry-run`, then without `--dry-run` (see [Renamed to AOForge](#renamed-to-aoforge-300)) |
 | Quick targeted fix | `/aoforge:quick` |
@@ -973,20 +985,20 @@ AOForge installs hooks into Claude Code's `settings.json`. Hooks run in a separa
 | `route-intent.js` | UserPromptSubmit | Detects AOForge projects (`.aoforge/`) and matches user intent against 13 categories (build, plan, verify, debug, gh-sync, ...). Injects a system reminder telling Claude to use the appropriate skill rather than editing code directly. | None — silent for non-AOForge repos and explicit `/aoforge:` invocations |
 | `route-results.js` | UserPromptSubmit | On your next prompt, adds queued notices (from `upgrade-project.js`, `coexistence-guard.js` and others) and every finished handoff result that no other hook delivered yet, whichever session or agent queued it: the catch-all behind `inject-handoff-results.js`. Each result is delivered once, through the same claim as the other hook. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_HANDOFF_RESULTS=1` (handoff results only), `AOFORGE_SKIP_NOTICES=1` (notices only) |
 | `gate-commits.js` | PreToolUse (Bash) | Blocks raw `git commit` in AOForge projects; demands `aof-tools commit` so atomic per-task commits and STATE.md stay consistent. Merge, rebase and cherry-pick completions are allowed automatically. | Inline `AOFORGE_ALLOW_RAW_COMMIT=1 git commit …`, or `AOFORGE_ALLOW_RAW_COMMIT=1` exported before launching Claude Code (see below) |
-| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.aoforge/.skill-active` marker exists (executor writes this), the editing agent is an AOForge agent (`agent_type` `aoforge:<name>`, and for one release the pre-rename namespace too), user prompt contains an override phrase (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`), or env var is set. Always permits `.aoforge/**` and `*.md` paths. (Prior `AOFORGE_STRICT_EDITS=1` behavior is now the default.) | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
+| `gate-edits.js` | PreToolUse (Edit/Write/MultiEdit) | **Strict DENY by default** in ambient mode. Allows edits when `.aoforge/.skill-active` marker exists (executor writes this), the editing agent is an AOForge agent (`agent_type` `aoforge:<name>`; since 3.1.0 the pre-rename namespace is not trusted), user prompt contains an override phrase (`skip aoforge`, `just edit`, `bypass aoforge`, `force edit`), or env var is set. Always permits `.aoforge/**` and `*.md` paths. (Prior `AOFORGE_STRICT_EDITS=1` behavior is now the default.) | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from disables the gate entirely (see [Bash writes and the edit gate](#bash-writes-and-the-edit-gate)) |
 | `gate-bash-writes.js` | PreToolUse (Bash) | Applies the Edit gate to Bash. In ambient mode, denies (`strict`) or asks (`warn`, the shipped default) when a command writes a tracked source file: a redirect, `tee`, `sed -i`, `perl -i`, `cp`/`mv` or inline python/node. Mentions, `.aoforge/`, `*.md`, untracked files and paths outside the project are never gated. Same escapes as `gate-edits.js`. Needs an installed plugin carrying objective 60. See [Bash writes and the edit gate](#bash-writes-and-the-edit-gate). | `AOFORGE_SKIP_EDIT_GATE=1` in the environment Claude Code was launched from (not as an inline prefix), `gates.bashEditGate: off` |
 | `gate-interactive.js` | PreToolUse (Bash) | Denies a command that needs a terminal or your shell's environment (auth logins, `passwd`, `ssh-keygen` without `-N` (or with `-y` but no `-P`), `nvm use`, `direnv allow`, ...) and queues it as `.aoforge-handoff/pending/<id>.json`, recording the session and agent that asked. Each call of a compound command is matched on its own words, so a quoted mention or heredoc data is never gated. With `aoforge-watch` running, Claude tells you in one line that the command waits in your aoforge-watch terminal, and the result comes back by itself; without it, Claude asks you to run `! cmd`. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_INTERACTIVE_GATE=1` |
 | `inject-handoff-results.js` | PostToolUse (`*`), Stop | Delivers a finished handoff result to the session and agent that queued it, once: after Claude's next tool call (PostToolUse, as added context), or when Claude ends its turn (Stop, as a block that tells Claude to continue). At Stop it waits up to 120 s for a command you are still answering in the aoforge-watch terminal; its Stop registration has a 150 s timeout. Silent when nothing is ready. See [Interactive commands and aoforge-watch](#interactive-commands-and-aoforge-watch). | `AOFORGE_SKIP_HANDOFF_INJECT=1` (this hook), `AOFORGE_SKIP_HANDOFF_RESULTS=1` (all handoff delivery), `AOFORGE_HANDOFF_STOP_WAIT_MS=0` (no Stop wait) |
 | `changelog-on-tag.js` | PreToolUse (Bash) | Blocks `git tag -a vX.Y.Z` if `CHANGELOG.md` has no `## [X.Y.Z]` heading. Tells you to run `aof-tools changelog update --version vX.Y.Z` first. | `AOFORGE_SKIP_CHANGELOG_GATE=1` |
 | `verify-completion.js` | Stop | Checks the most-recent SUMMARY.md has Task Evidence and no `Self-Check: FAILED` markers. Warns only — does not block. | n/a (warning only) |
-| `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. In autonomous mode it also blocks an `aoforge:executor` stop once per agent (for one release also the pre-rename namespace's executor), so the executor commits its work before it ends; other agent types are never blocked. | n/a (one block per agent) |
-| `gate-executor-stop.js` | SubagentStop | Blocks an `aoforge:executor` (for one release also the pre-rename namespace's executor) once when it stops naturally and its TRD has no SUMMARY.md yet, telling it to finish or write the `## Progress` checkpoint, or when its final SUMMARY (with `## Self-Check`) has no `tokens_input`/`tokens_output`, telling it to stamp and re-post. Never blocks twice in a row; fails open. The token branch needs an installed plugin carrying objective 66. | `AOFORGE_SKIP_EXECUTOR_STOP_GATE=1` |
+| `verify-commits.js` | SubagentStop | Warns when a subagent finishes without producing any commits in the last 10 min — silent-failure detector for the executor. In autonomous mode it also blocks an `aoforge:executor` stop once per agent, so the executor commits its work before it ends; other agent types are never blocked. | n/a (one block per agent) |
+| `gate-executor-stop.js` | SubagentStop | Blocks an `aoforge:executor` once when it stops naturally and its TRD has no SUMMARY.md yet, telling it to finish or write the `## Progress` checkpoint, or when its final SUMMARY (with `## Self-Check`) has no `tokens_input`/`tokens_output`, telling it to stamp and re-post. Never blocks twice in a row; fails open. The token branch needs an installed plugin carrying objective 66. | `AOFORGE_SKIP_EXECUTOR_STOP_GATE=1` |
 | `gate-skill-requires.js` | UserPromptExpansion, PreToolUse (Skill) | Refuses to start a `/aoforge:<skill>` whose `SKILL.md` declares `requires:` a tool that is not on PATH (today `/aoforge:gh-sync`, which needs `gh`). A typed command is blocked and a Skill tool call is denied, each with the install hint and a pointer to `/aoforge:doctor`. Fails open. Needs an installed plugin carrying objective 61. See [Skills that need a tool](#skills-that-need-a-tool-requires). | `AOFORGE_SKIP_SKILL_REQUIRES=1` in the environment Claude Code was launched from |
 | `auto-continue.js` | Stop | While an AOForge skill is active and nothing runs in the background, blocks once when Claude ends its turn right after announcing its own next step ("Writing the predicate.") instead of taking it. Questions and `/aoforge:` hand-offs never trigger it. | `AOFORGE_SKIP_AUTOCONTINUE=1` |
 | `todo-sync.js` | Stop | Merges the session's `/aoforge:todo` items (TaskCreate/TaskUpdate or TodoWrite calls in the transcript) into the todo archive with the library behind `aof-tools todo sync`: `.aoforge/todos/` in local mode, a queued `aoforge:todo` issue in store mode. Idempotent: a second Stop over the same transcript changes nothing and prints nothing. Says what it did in one message, never commits, never blocks, keeps no state and fails open. Needs an installed plugin carrying objective 63. See [Todos and the session task list](#todos-and-the-session-task-list). | `AOFORGE_SKIP_TODO_SYNC=1` |
 | `check-update.js` | SessionStart | Background npm registry check for newer AOForge versions. | n/a |
 | `upgrade-project.js` | SessionStart | Upgrades a behind AOForge project in place: applies the `auto` migrations with the bundled aof-tools, then commits exactly the changed files in a detached background process. It does not commit during a rebase, merge, cherry-pick or bisect, on a detached HEAD, over uncommitted edits (the runtime-state files migration 0008 untracks don't count), or if signing fails. Also runs the throttled backup prune (once per 24h; see [Upgrading a Project in Place](#upgrading-a-project-in-place-aof-tools-upgrade)) as the first step, AOForge project or not, then starts a detached background transcript export at most once per 24h (see [Automatic transcript export](#automatic-transcript-export)). Notices are emitted once, on the next prompt, by `route-results.js`. | `AOFORGE_SKIP_UPGRADE=1` (upgrade only), `AOFORGE_SKIP_PRUNE=1` (prune only), `AOFORGE_SKIP_TRANSCRIPT_EXPORT=1` (export only) |
-| `coexistence-guard.js` | SessionStart | When the pre-rename plugin is still installed and enabled beside AOForge, queues one notice per session naming its version and the exact `claude plugin disable` command, so the same gate does not run twice; `route-results.js` shows it on the next prompt. A pointer release gets a softer notice. Never edits settings, never blocks, fails open. See [Renamed to AOForge](#renamed-to-aoforge-300). | `AOFORGE_SKIP_COEXISTENCE=1` |
+| `coexistence-guard.js` | SessionStart | Queues one notice per session for everything the rename left in your home that 3.1 no longer reads: the pre-rename plugin still enabled beside AOForge (naming its version and the exact `claude plugin disable` command, so the same gate does not run twice; a pointer release gets a softer line), pre-rename environment variables (each with its `AOFORGE_*` form), the pre-rename runtime home never migrated by 3.0.x, and files 3.0.0 left in `~/.aoforge/`; `route-results.js` shows it on the next prompt. Reports only: never edits settings, never moves a file, never blocks, fails open. See [Renamed to AOForge](#renamed-to-aoforge-300). | `AOFORGE_SKIP_COEXISTENCE=1` |
 | `statusline.js` | StatusLine | Renders model, current task, context usage, update indicator and, while an objective builds, estimated time remaining (`⏱ 58 W7/7 ~20m left`) from the estimate run state. | n/a |
 
 ### Your own hooks
@@ -1603,7 +1615,7 @@ Prereqs: `gh` CLI installed and authenticated (`gh auth login`).
 
 - The first line of the body is `<!-- aoforge:id=N -->`. AOForge rewrites only the text between its `aoforge:begin` and `aoforge:end` section markers; anything a person wrote above, between or below them is kept byte for byte.
 - An issue made by an older AOForge has no markers. Its old generated text is kept and the managed sections are appended below it once. Delete the old text by hand if you want it gone.
-- The sticky state comment carries `<!-- aoforge:id=N kind=state -->` and is edited in place. An older `<!-- df:state -->` comment is adopted and rewritten with the new marker. Comments posted by `gh comment` and `gh close-issue` carry `aoforge:id` markers with their kind.
+- The sticky state comment carries `<!-- aoforge:id=N kind=state -->` and is edited in place. An older `<!-- df:state -->` comment (objective 46's first sticky marker, older than the rename) is still adopted and rewritten with the new marker: 3.1.0 kept this reader because it converts its own input on the next sync, and `gh rebrand` does not rewrite such a comment. Comments posted by `gh comment` and `gh close-issue` carry `aoforge:id` markers with their kind.
 - An issue is found through the mapping, then OBJECTIVE.md `github_issue`, then the `aoforge:id` marker, then an `[Objective N]` title, and only then created. Two candidates stop that objective with an error; nothing is guessed or duplicated.
 - Every `gh` call goes through one client: writes are at least 1 s apart, a secondary rate limit is retried after GitHub's `retry-after`, and list calls read every page.
 - The milestone is the objective's `milestone:` frontmatter, else the current entry in the ROADMAP `## Milestones` list.
@@ -1634,7 +1646,7 @@ If the mapping file is lost, re-run `gh sync --all`: the `aoforge:id` markers on
 
 ### Rebranding a repository (`aof-tools gh rebrand`)
 
-A repository that used the GitHub integration before 3.0.0 carries labels, hidden markers, wiki pages, check contexts and a checks caller in the pre-rename namespace. AOForge reads all of them for one release; `gh rebrand` renames them for good. It works in store and mirror mode (it needs `github.enabled`), is a dry run unless you pass `--apply`, and plans the local section only when you run it from a checkout of the repository. `--repo <owner/name>` defaults to `github.repo`.
+A repository that used the GitHub integration before 3.0.0 carries labels, hidden markers, wiki pages, check contexts and a checks caller in the pre-rename namespace. AOForge 3.0.x read them for one release; since 3.1.0 it reads none of them, so `gh rebrand` is required, not optional. Until it runs, every lookup by a default label (`gh sync`, `gh pull`, `gh orphans`, the outbox flush and the planning-consistency check) refuses with `<repo> still has the pre-rename label "<old label>", which AOForge no longer reads ... run aof-tools gh rebrand --apply` instead of creating duplicates (the flush halts with class `legacy-namespace`; the checks status is cut to 140 characters and keeps the fix), `gh setup` refuses a PR template holding the pre-rename block, and a ruleset that still requires pre-rename check contexts blocks pull requests, because 3.1 posts each verdict under `aoforge/` only. It works in store and mirror mode (it needs `github.enabled`), is a dry run unless you pass `--apply`, and plans the local section only when you run it from a checkout of the repository. `--repo <owner/name>` defaults to `github.repo`.
 
 ```bash
 node ~/.claude/aoforge/bin/aof-tools.cjs gh outbox flush          # first: a queued write may name an old label
@@ -1642,14 +1654,14 @@ node ~/.claude/aoforge/bin/aof-tools.cjs gh rebrand               # dry run: one
 node ~/.claude/aoforge/bin/aof-tools.cjs gh rebrand --apply       # then commit the local changes as printed
 ```
 
-- **Flush first.** An outbox entry queued before the rebrand that names a pre-rename label would make the flusher create that label again after the rename. Nothing checks for this.
+- **Flush first**, under 3.0.x if you still can. An outbox entry queued before the rebrand that names a pre-rename label would make the flusher create that label again after the rename. Nothing checks for this. Under 3.1 a flush that needs a label lookup halts with `legacy-namespace` until the rebrand; then clear the halt as `gh outbox status` prints it and flush again.
 - **What is rewritten**, in this order: labels; managed issues, pull requests and comments; wiki pages; rulesets; local files. A label is renamed, which keeps its issues. When the AOForge label already exists the two are merged: the AOForge label is added to every issue carrying the old one, then the old label is **deleted** (marked destructive in the plan; a failed add stops the run before the delete). An issue, pull request or comment counts as managed when its first line is a marker in either namespace or its text holds a managed section: its markers are re-spelled, the text inside managed sections gets the full rewrite, and outside them only the product name changes. Titles of managed issues, wiki pages and docs-backend pages get the full rewrite. Each repository ruleset gets one update with its required check contexts switched and a pre-rename ruleset name rewritten, so `gh setup` still finds `aoforge: default branch`. Locally, the managed caller is `git mv`ed to `.github/workflows/aoforge.yml` and re-rendered from the setup template at the current release (when `aoforge.yml` already exists the old caller is removed, also destructive), the docs backend directory is moved and its pages rewritten, the PR template block is re-marked, and the pre-rename `github.labels` values and `checks_workflow` in `config.json` are rewritten in place.
 - **What is never rewritten:** text AOForge does not manage, the preserved names of other products and the docs domain, and the repository's own owner and name, so a repository whose name holds the old word keeps working links.
 - **Apply** stops at the first failure and reports what is left; a re-run re-reads the repository and plans only what is still old. It runs with no retries, so a secondary rate limit stops it with the wait time. Wiki pages are written to a scratch clone and count as done only when the push succeeds. In store mode it refreshes the outbox's recorded bases for every issue and comment it rewrote, so the next flush does not read the rewrite as a human edit. It never commits or pushes: it prints the commit steps on an `aoforge-rebrand` branch (the store-mode form in store mode).
 - **Admin rights.** The rulesets section needs repository admin. Without it the section reports `needs admin` and the rest still applies. Organization rulesets are reported, never edited.
 - **The checks App.** The re-rendered caller reads `AOFORGE_APP_CLIENT_ID` (a repository variable) and `AOFORGE_APP_PRIVATE_KEY` (a secret). A secret cannot be copied through the API, so set the new names by hand; until you do, the checks fall back to the workflow token. The plan says so when the old caller used the pre-rename pair.
 - **Not covered:** required checks in classic branch protection (only rulesets are read; the checks post under both context namespaces during 3.x, so switch them before the next release), pull request review comments (AOForge writes none), first-generation sticky state comments with no namespace marker, and carriers beyond `ghPaginate`'s cap of 100 pages of 100 in a very large repository, or a single list read larger than 256 MiB or slower than 5 minutes.
-- **A backfill started before 3.0.0** (migration 0011) can halt when it resumes, because the resume looks issues up by the AOForge labels only. Run `gh rebrand --apply` before you resume it (it renames the labels and the `config.json` label values, so the lookups find the issues), or finish the backfill on the old plugin first.
+- **A backfill started before 3.0.0** (migration 0011) halts when it resumes on 3.1 while the repository still has the pre-rename labels. Run `gh rebrand --apply` before you resume it (it renames the labels and the `config.json` label values, so the lookups find the issues), or finish the backfill on the old plugin first.
 
 `/aoforge:doctor` check 26 points a pre-rename caller at this command (W062 with `gh rebrand --dry-run`), never at a re-pin. Implemented in `lib/gh-rebrand.cjs`.
 
