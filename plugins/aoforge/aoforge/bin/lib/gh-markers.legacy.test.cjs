@@ -33,8 +33,8 @@
 //    7d. the flusher's adopt-by-label scan: upsert-issue fails with class legacy-namespace, no issue is created, and
 //        a flush halts on it; with the twin absent (404) the AOForge-labelled issue is adopted after one list.
 //    7e. `gh orphans` (gh-hierarchy reportOrphans) is refused while the twin exists.
-// 8. In-progress label (planning-verbs, 78-09's): `summary post` removes it in both forms; `trd start` adds the
-//    AOForge form only; a configured label is the only one removed.
+// 8. In-progress label (planning-verbs, TRD 78-09): `summary post` removes the AOForge form only (never its pre-rename
+//    twin); `trd start` adds the AOForge form only; a configured label is the only one removed.
 //
 // Hermetic: the fake GitHub through the gh-client seam, temp projects, hermeticEnv() for HOME and the outbox. No
 // network, no real ~/.claude, no port.
@@ -581,10 +581,11 @@ describe('8. the in-progress label', () => {
     project.cleanup();
   });
 
-  test('8a. summary post removes it in both forms', () => {
+  test('8a. summary post removes the AOForge form only, never the pre-rename twin', () => {
     const r = verbs.summaryPost(project.root, { trd: '07-01', text: '# Summary\n', noFlush: true });
     assert.equal(r.ok, true, JSON.stringify(r));
-    assert.deepEqual(patchOf().payload, { labels_remove: ['aoforge:in-progress', `${OLD}:in-progress`] });
+    assert.deepEqual(patchOf().payload, { labels_remove: ['aoforge:in-progress'] });
+    assert.ok(!JSON.stringify(pending()).includes(`${OLD}:`), 'no queued op names a pre-rename label');
   });
 
   test('8b. trd start adds the AOForge form only', () => {

@@ -14,6 +14,10 @@
 //     `{ managed: true, uses_ref: <sha>, legacy: true }` with the same pin fields; a new caller is `legacy: false`. A
 //     release pin is compared like a new caller's; collectPinFindings reads the legacy caller file when the new one is
 //     absent and its W062 fix never says `gh setup --apply` (that would add a second caller).
+// 13. (TRD 78-09) planning-consistency finds an objective the PR forgot to close by the AOForge objective label alone:
+//     13a the pre-rename label still exists -> an `error` status that fits 140 characters and names
+//     `aof-tools gh rebrand --apply` (the full refusal in the details), nothing listed; 13b it is absent (404) -> one
+//     list of `aoforge:objective` finds the objective, as before.
 //
 // Hermetic: the fake GitHub through the gh-client seam, event payloads written to a temp dir, hermeticEnv() for HOME
 // and the outbox, temp project roots. No network, no real ~/.claude, no port.
@@ -241,5 +245,51 @@ describe('12. checks-pin and the legacy caller', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+// ─── 13. The objective lookup by label (TRD 78-09) ───────────────────────────
+
+describe('13. planning-consistency looks the objective up by the AOForge label alone', () => {
+  // An objective PR (#3 closes TRD #2 only, so the objective issue #1 is found by its label and marker).
+  const prBody = '<!-- aoforge:pr=50 -->\n<!-- aoforge:begin closes -->\nCloses #2\n<!-- aoforge:end closes -->\n';
+  const labelLists = () => fake.calls().filter((a) => /issues\?labels=/.test(a.join(' '))).map((a) => decodeURIComponent(/labels=([^&]+)/.exec(a.join(' '))[1]));
+  const twinGets = () => fake.calls().filter((a) => a[0] === 'api' && /^repos\/o\/r\/labels\/[^/]+$/.test(a[1] || '')).map((a) => decodeURIComponent(a[1].split('/').pop()));
+
+  function seedGraph(objectiveLabel) {
+    fake.files[HEAD] = { [`${NAMES.planningDir}/config.json`]: JSON.stringify({ github: { enabled: true, store: true } }) };
+    fake.seedIssue({ title: 'objective 50', body: '<!-- aoforge:id=50 -->\n\nObjective 50', labels: [objectiveLabel] });
+    fake.seedIssue({ title: 'TRD 50-01', body: '<!-- aoforge:id=50-01 -->\n\nTRD 1' });
+    fake.issues[0].subIssues.push(2);
+    fake.issues[1].parent = 1;
+  }
+
+  test('13a. the pre-rename objective label still exists: an error naming gh rebrand --apply, nothing listed', () => {
+    seedGraph(`${OLD}:objective`);
+    const r = run('planning-consistency', prEvent(prBody));
+    assert.equal(r.code, 1, JSON.stringify(r));
+    assert.equal(r.state, 'error');
+    const posted = postedInOrder(HEAD);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].context, 'aoforge/planning-consistency');
+    assert.equal(posted[0].state, 'error');
+    assert.equal(posted[0].description, `o/r still has the label "${OLD}:objective": run \`aof-tools gh rebrand --apply\`, then re-run this check`);
+    assert.ok(posted[0].description.length <= 140, 'the fix fits a status description');
+    assert.deepEqual(r.details, [
+      `o/r still has the pre-rename label "${OLD}:objective", which AOForge no longer reads, so it will not look issues up `
+      + 'by "aoforge:objective" alone: run `aof-tools gh rebrand --apply` (docs/MIGRATING-TO-AOFORGE.md, "Repositories '
+      + 'with GitHub integration"), then retry',
+    ]);
+    assert.deepEqual(labelLists(), [], 'neither label is listed');
+    assert.deepEqual(twinGets(), [`${OLD}:objective`]);
+  });
+
+  test('13b. the twin absent (404): the objective is found under aoforge:objective after one list', () => {
+    seedGraph('aoforge:objective');
+    const r = run('planning-consistency', prEvent(prBody));
+    assert.equal(r.state, 'failure', JSON.stringify(r));
+    assert.match(postedInOrder(HEAD)[0].description, /#1.*not closed|not closed.*#1/, 'the objective the PR forgot to close is named');
+    assert.deepEqual(labelLists(), ['aoforge:objective']);
+    assert.deepEqual(twinGets(), [`${OLD}:objective`]);
   });
 });

@@ -30,7 +30,6 @@ const mappingLib = require('./gh-mapping.cjs');
 const comments = require('./gh-comments.cjs');
 const wikiLib = require('./gh-wiki.cjs');
 const bodyLib = require('./gh-body.cjs');
-const { LEGACY } = require('./legacy-names.cjs');
 const { createFakeGitHub } = require('./__fixtures__/gh-fake.cjs');
 const { makeStoreProject, hermeticEnv, STORE_FIXTURE } = require('./__fixtures__/gh-store-fixtures.cjs');
 const { createWikiRemote, gitAvailable, applyGitTestEnv } = require('./__fixtures__/wiki-remote.cjs');
@@ -42,8 +41,8 @@ const BRANCH = 'df/objective-07-store-demo';
 const TIP = `feed${'0'.repeat(36)}`;
 const PR_TITLE = '[Objective 7] Store demo';
 const IN_PROGRESS = 'aoforge:in-progress';
-// `summary post` removes the default label and its legacy twin (TRD 72-11); the flusher drops one the issue lacks.
-const IN_PROGRESS_FORMS = [IN_PROGRESS, `${LEGACY.markerNs}:in-progress`];
+// `summary post` removes the AOForge label only (TRD 78-09 removed the 72-11 twin): `trd start` never added another.
+const IN_PROGRESS_FORMS = [IN_PROGRESS];
 
 // ─── Harness ─────────────────────────────────────────────────────────────────
 
