@@ -29,31 +29,34 @@
  *      window catches up. No ~/.claude/projects → nothing spawned, nothing written. Own try/catch:
  *      any error writes one `[aoforge] transcript export skipped: <msg>` line to stderr and the
  *      hook continues; stdout stays empty; exit code stays 0.
- *   1. Fast path: `.aoforge/config.json` `aoforge.version` equals the bundled plugin version and the
- *      project does not use the legacy planning directory → exit. One small JSON read and two stats;
- *      nothing else is required or written. Only the new stamp key counts here: a legacy key (or a
- *      legacy directory) always takes the slow path, so migrations 0012/0013 get to run (TRD 72-08).
- *   2. Apply: run the `auto` migrations synchronously via the BUNDLED upgrade.cjs (never the
- *      ~/.claude/aoforge mirror — sync-runtime runs in parallel and may be mid-swap). A legacy
- *      project's 0012 moves its planning directory to `.aoforge/` with `git mv`; when 0012 defers
- *      (dirty tree, an operation in progress, `.aoforge/` already there) nothing moves and a notice
- *      names the reason and `aof-tools upgrade --apply --only 0012`.
- *   3. Commit: spawn ONE detached child that commits exactly `changed_files` through the bundled
+ *   1. Legacy layout (TRD 78-07): a project that still has only the pre-rename planning directory
+ *      (planning-layout.isLegacyPlanning on the root compat finds, or planning-layout.findLegacyLayoutRoot
+ *      when compat finds none) is never migrated. ONE global notice, key `legacy-layout:<realpath>`,
+ *      carries planning-layout.legacyLayoutMessage (AOForge 3.0.x or the manual `git mv`) and the hook
+ *      returns: no migration, no commit, no `.aoforge/`, no project notice (a project notice would
+ *      create the second planning tree). The key replaces an unconsumed notice, so the project is
+ *      told once per session.
+ *   2. Fast path: `.aoforge/config.json` `aoforge.version` equals the bundled plugin version → exit.
+ *      One small JSON read; nothing else is required or written. Only the `aoforge` key counts.
+ *   3. Apply: run the `auto` migrations synchronously via the BUNDLED upgrade.cjs (never the
+ *      ~/.claude/aoforge mirror — sync-runtime runs in parallel and may be mid-swap). A migration
+ *      that defers (a dirty tree, an operation in progress) writes nothing and gets one notice
+ *      naming the reason and `aof-tools upgrade --apply --only <id>`.
+ *   4. Commit: spawn ONE detached child that commits exactly `changed_files` through the bundled
  *      `aof-tools commit --files`, unless a skip rule holds (rebase/merge/cherry-pick/revert/bisect
  *      in progress, detached HEAD, a changed file had uncommitted edits before the hook ran, not a
- *      git repository). A changed DIRECTORY (0012's two) counts as edited when anything under it was
- *      dirty or untracked-and-unignored before the run, so the commit never sweeps such a file in.
- *      A completed move commits as renames: the child keeps a path that only HEAD still has.
- *      A failed commit (e.g. signing) is reported, never retried another way.
- *   4. Notices: results, pending `confirm` migrations, deferrals and skip reasons go to
- *      `.aoforge/.aoforge-notices.json` (the project's planning directory after the run);
- *      route-results.js emits them once on the next prompt.
+ *      git repository). A changed DIRECTORY counts as edited when anything under it was dirty or
+ *      untracked-and-unignored before the run, so the commit never sweeps such a file in. A path a
+ *      migration renamed or deleted with git is kept: the child commits a path that only HEAD still
+ *      has. A failed commit (e.g. signing) is reported, never retried another way.
+ *   5. Notices: results, pending `confirm` migrations, deferrals and skip reasons go to
+ *      `.aoforge/.aoforge-notices.json`; route-results.js emits them once on the next prompt.
  *
  * Modes:
  *   node upgrade-project.js                                   SessionStart hook
  *   node upgrade-project.js --commit-child <root> <ver> <f…>  the detached commit child
  *
- * Escape hatches, each independent of the others: AOFORGE_SKIP_UPGRADE=1 (steps 1-4),
+ * Escape hatches, each independent of the others: AOFORGE_SKIP_UPGRADE=1 (steps 1-5),
  * AOFORGE_SKIP_PRUNE=1 (step 0), AOFORGE_SKIP_TRANSCRIPT_EXPORT=1 (step 0b).
  * Contract: stdout stays empty (SessionStart stdout becomes context), never throws, exit 0.
  */
@@ -69,9 +72,8 @@ const {
   findProjectRoot: compatFindProjectRoot,
   planningDirName,
   planningRoot,
-  isLegacyPlanning,
 } = require('../aoforge/bin/lib/compat.cjs');
-// TRD 72-08: the busy-operation list is shared with migration 0012 (which never moves the directory mid-operation).
+// The shared list of git operations during which nothing is committed.
 const { busyOperation } = require('../aoforge/bin/lib/git-busy.cjs');
 const { execFileSync, spawn, spawnSync } = require('child_process');
 
@@ -90,6 +92,14 @@ function readJson(file) {
     return JSON.parse(fs.readFileSync(file, 'utf-8'));
   } catch {
     return null;
+  }
+}
+
+function isDirectory(p) {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
   }
 }
 
@@ -132,6 +142,56 @@ function notify(root, notice) {
   if (!notices) return;
   try {
     notices.appendNotice(notices.projectNoticesPath(root), notice);
+  } catch { /* a notice must never break the hook */ }
+}
+
+// ─── the legacy layout (TRD 78-07) ────────────────────────────────────────────
+
+/**
+ * planning-layout.cjs from the bundled LIB (like upgrade.cjs), or null. A stub plugin tree without it fails open;
+ * any other load error writes one stderr line (stdout stays empty).
+ */
+function loadLayout() {
+  try {
+    return require(path.join(LIB, 'planning-layout.cjs'));
+  } catch (e) {
+    if (!e || e.code !== 'MODULE_NOT_FOUND') {
+      process.stderr.write(`[aoforge] legacy-layout check skipped: ${String((e && e.message) || e).split('\n')[0]}\n`);
+    }
+    return null;
+  }
+}
+
+/**
+ * The legacy-only project root `start` belongs to, or null. Holds before and after TRD 78-11: while compat still
+ * resolves the pre-rename directory, `find` returns the legacy root itself (checked with isLegacyPlanning); once it
+ * no longer does, `find` returns null and the walk finds it (findLegacyLayoutRoot stops at a nearer `.aoforge/`
+ * project and at $HOME). A root `find` returns that is a real `.aoforge/` project is never legacy.
+ */
+function legacyRootFor(start, { find = findProjectRoot, layout = loadLayout() } = {}) {
+  if (!layout) return null;
+  try {
+    const found = find(start);
+    if (found) return layout.isLegacyPlanning(found) ? found : null;
+    return layout.findLegacyLayoutRoot(start);
+  } catch {
+    return null;
+  }
+}
+
+/** One GLOBAL action notice for a legacy-only root, keyed by its realpath; never a project notice. */
+function notifyLegacyLayout(home, root, layout) {
+  const notices = loadNotices();
+  if (!notices) return;
+  try {
+    let real = root;
+    try { real = fs.realpathSync(root); } catch { /* keep the path as found */ }
+    notices.appendNotice(notices.globalNoticesPath(home), {
+      source: 'upgrade-project',
+      level: 'action',
+      key: `legacy-layout:${real}`,
+      message: layout.legacyLayoutMessage(real),
+    });
   } catch { /* a notice must never break the hook */ }
 }
 
@@ -259,7 +319,7 @@ function runtimeStatePredicate() {
 }
 
 /**
- * TRD 72-08: a changed path may be a DIRECTORY (migration 0012 reports both planning directories). It counts as
+ * TRD 72-08: a changed path may be a DIRECTORY (a migration may report one it moved or created). It counts as
  * edited when any path under it was dirty before the run (`state.dirty` lists untracked files one by one), because
  * the commit stages the directory as a whole and would sweep such a file in. Runtime-state paths stay exempt.
  */
@@ -287,7 +347,7 @@ function skipReason(state, changedFiles) {
 }
 
 /**
- * TRD 72-08: a migration the runner deferred (0012 on a dirty or busy tree) gets one action notice, replaced rather
+ * TRD 72-08: a migration the runner deferred (say, on a dirty or busy tree) gets one action notice, replaced rather
  * than repeated while it stays deferred (a stable key). The kind, reason code and command ride in `detail`.
  */
 function notifyDeferred(root, d) {
@@ -346,16 +406,27 @@ function main() {
   }
 
   if (process.env.AOFORGE_SKIP_UPGRADE === '1') return;
-  const root = findProjectRoot(process.cwd());
+  const found = findProjectRoot(process.cwd());
+  // TRD 78-07: a legacy-only project is told once, globally, and left alone (see step 1 above). A found root that
+  // holds `.aoforge/` is never legacy, so the fast path below loads nothing more.
+  if (!found || !isDirectory(path.join(found, NAMES.planningDir))) {
+    const layout = loadLayout();
+    const legacyRoot = legacyRootFor(process.cwd(), { find: () => found, layout });
+    if (legacyRoot) {
+      notifyLegacyLayout(os.homedir(), legacyRoot, layout);
+      return;
+    }
+  }
+  const root = found;
   if (!root) return;
   const manifest = readJson(path.join(pluginRoot, '.claude-plugin', 'plugin.json'));
   const to = manifest && typeof manifest.version === 'string' ? manifest.version : null;
   if (!to) return;
   const config = readJson(path.join(planningRoot(root), 'config.json'));
-  // Only the new stamp key: a project still stamped under the legacy key takes the slow path, so 0013 renames it.
+  // Only the `aoforge` stamp key counts; a config with only the pre-rename key takes the slow path once.
   const stampKey = NAMES.configKey;
   const stamp = config && config[stampKey] && typeof config[stampKey] === 'object' ? config[stampKey].version : undefined;
-  if (stamp === to && !isLegacyPlanning(root)) return; // FAST PATH (a legacy directory always leaves it: 0012)
+  if (stamp === to) return; // FAST PATH
 
   const home = os.homedir();
   const lock = acquireLock(home, root);
@@ -366,8 +437,6 @@ function main() {
 
     const upgrade = require(path.join(LIB, 'upgrade.cjs'));
     const report = upgrade.apply({ projectRoot: root, userHome: home, pluginVersion: to });
-    // 0012 may have moved the planning directory: the notices file now lives under the new name.
-    if (state.isRepo) ensureExcluded(root);
 
     for (const d of Array.isArray(report.deferred) ? report.deferred : []) notifyDeferred(root, d);
     if (report.pending_confirm.length) {
@@ -443,8 +512,8 @@ function isTracked(root, rel) {
 }
 
 /**
- * TRD 72-08: a path only HEAD still has — the legacy planning directory after 0012's `git mv` (gone from disk and from
- * the index). Kept in the commit so its deletions pair with the additions as renames.
+ * TRD 72-08: a path only HEAD still has — one a migration renamed or deleted with git (gone from disk and from the
+ * index). Kept in the commit so its deletions are recorded, and pair with the additions as renames.
  */
 function inHead(root, rel) {
   const r = git(root, ['ls-tree', '--name-only', 'HEAD', '--', rel]);
@@ -514,4 +583,4 @@ if (require.main === module) {
   process.exitCode = 0;
 }
 
-module.exports = { findProjectRoot, gitState, skipReason, lockPathFor, acquireLock, releaseLock };
+module.exports = { findProjectRoot, legacyRootFor, gitState, skipReason, lockPathFor, acquireLock, releaseLock };
