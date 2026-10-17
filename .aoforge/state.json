@@ -1785,6 +1785,11 @@
       "objective": "78",
       "summary": "78-08: legacy-rewrite.cjs KEPT (only consumer now gh rebrand); meta.legacy (pre-v1 marker) and the df-* move are objective 36's, not the rename, and stay",
       "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-09: label twins removed; a lookup by a default label first GETs its pre-rename twin once per process and refuses with aof-tools gh rebrand --apply when it exists (no duplicates in an un-rebranded repository); configured labels are never checked",
+      "rationale": null
     }
   ],
   "blockers": [

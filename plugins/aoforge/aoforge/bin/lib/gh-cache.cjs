@@ -61,6 +61,7 @@ const ghWiki = require('./gh-wiki.cjs');
 const ghMapping = require('./gh-mapping.cjs');
 const ghCapability = require('./gh-capability.cjs');
 const client = require('./gh-client.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const outbox = require('./gh-outbox.cjs');
 const flushLib = require('./gh-outbox-flush.cjs');
 const milestoneStore = require('./gh-milestone-store.cjs');
@@ -523,17 +524,18 @@ const stateOf = (issue) => (isClosed(issue) ? 'closed' : 'open');
 const restIdOf = (issue) => (Number.isInteger(issue.id) ? issue.id : null);
 
 /**
- * Every issue carrying `label` (open and closed), pull requests dropped, ascending by number. When `label` is the
- * role's default, its legacy twin is listed too and the two are merged by issue number (TRD 72-11).
+ * Every issue carrying `label` (open and closed), pull requests dropped, ascending by number. One label only (TRD
+ * 78-09): when `label` is the role's default, a repository that still has its pre-rename twin is refused with the
+ * fix (gh-legacy-labels) instead of being read under the AOForge label alone.
  */
 function listLabelled(repo, label, defaultLabel) {
-  const lists = [];
-  for (const form of ghBody.labelForms(label, defaultLabel)) {
-    const r = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(form)}&state=all`);
-    if (!r.ok) return { ok: false, error: `could not list ${form} issues: ${failureText(r)}` };
-    lists.push(r.items.filter((i) => i && typeof i === 'object' && !i.pull_request && Number.isInteger(i.number)));
-  }
-  const items = ghBody.unionByNumber(lists).sort((a, b) => a.number - b.number);
+  const rebranded = rebrandCheck.checkRebranded({ repo, label, defaultLabel });
+  if (!rebranded.ok) return { ok: false, error: rebranded.error };
+  const r = client.ghPaginate(`repos/${repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+  if (!r.ok) return { ok: false, error: `could not list ${label} issues: ${failureText(r)}` };
+  const items = r.items
+    .filter((i) => i && typeof i === 'object' && !i.pull_request && Number.isInteger(i.number))
+    .sort((a, b) => a.number - b.number);
   return { ok: true, items };
 }
 

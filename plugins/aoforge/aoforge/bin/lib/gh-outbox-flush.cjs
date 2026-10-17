@@ -18,6 +18,9 @@
  *   already_exists          -> success (a 422 that says the thing is already there)
  *   validation | permission | not_found | error | blocked | conflict -> the op is blocked and the flush
  *                              halts for a human
+ *   legacy-namespace        -> the same: the repository still has a default label's pre-rename twin, so the marker
+ *                              scan is refused rather than run under the AOForge label alone (78-09); the fix is
+ *                              `aof-tools gh rebrand --apply`
  *
  * Idempotence: a handler re-resolves the world before it writes (marker scan, the existing links, the
  * comments already there), so replaying an op after a crash creates nothing twice. A handler that has
@@ -55,6 +58,7 @@ const client = require('./gh-client.cjs');
 const outbox = require('./gh-outbox.cjs');
 const trd = require('./gh-trd.cjs');
 const bodyLib = require('./gh-body.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const issueLib = require('./gh-issue.cjs');
 const wikiLib = require('./gh-wiki.cjs');
@@ -459,23 +463,26 @@ function setMapped(ctx, id, role, patch) {
 }
 
 /**
- * The issues carrying `label`, listed once per context and indexed by their `aoforge:id` marker. When `label` is the
- * role's default, its legacy twin is listed too and merged by issue number (TRD 72-11), so an issue a repository not
- * yet rebranded labelled the old way is found instead of created a second time. Cached under `label`.
+ * The issues carrying `label`, listed once per context and indexed by their `aoforge:id` marker. Cached under `label`.
+ * One label (TRD 78-09). When `label` is the role's default and the repository still has its pre-rename twin, the
+ * scan is refused (`fail`: class legacy-namespace, the message names `aof-tools gh rebrand --apply`): an issue
+ * labelled the old way would not be listed, and the upsert would create it a second time. A twin check that got no
+ * answer fails like a list that could not be read (`fail` classified from the gh result: offline stays pending).
+ *   -> { ok:true, byId, duplicates, unmarked } | { ok:false, r } | { ok:false, fail }
  */
 function scanByLabel(ctx, label, defaultLabel) {
   if (ctx.cache.scans.has(label)) return ctx.cache.scans.get(label);
-  const lists = [];
-  let scan = null;
-  for (const form of bodyLib.labelForms(label, defaultLabel)) {
-    const list = getList(`repos/${ctx.repo}/issues?labels=${encodeURIComponent(form)}&state=all`);
-    if (!list.ok) {
-      scan = { ok: false, r: list.r };
-      break;
-    }
-    lists.push(list.items.filter((i) => i && !i.pull_request));
+  const rebranded = rebrandCheck.checkRebranded({ repo: ctx.repo, label, defaultLabel });
+  if (!rebranded.ok) {
+    const fail = rebranded.kind === 'legacy-namespace'
+      ? failWith('legacy-namespace', rebranded.error)
+      : failFrom({ ...rebranded.r, error: rebranded.error }, `scan ${label} issues`);
+    return { ok: false, fail };
   }
-  if (scan === null) scan = { ok: true, ...bodyLib.indexByMarker(bodyLib.unionByNumber(lists)) };
+  const list = getList(`repos/${ctx.repo}/issues?labels=${encodeURIComponent(label)}&state=all`);
+  const scan = list.ok
+    ? { ok: true, ...bodyLib.indexByMarker(list.items.filter((i) => i && !i.pull_request)) }
+    : { ok: false, r: list.r };
   ctx.cache.scans.set(label, scan);
   return scan;
 }
@@ -539,7 +546,7 @@ function handleUpsertIssue(ctx, op) {
   let number = entry ? entry.issue_number : null;
   if (number === null) {
     const scan = scanByLabel(ctx, labelFor(ctx, role), defaultLabelFor(role));
-    if (!scan.ok) return failFrom(scan.r, `scan ${labelFor(ctx, role)} issues`);
+    if (!scan.ok) return scan.fail || failFrom(scan.r, `scan ${labelFor(ctx, role)} issues`);
     if (Object.hasOwn(scan.duplicates, id)) {
       return failWith('error', `duplicate issues claim ${id}: ${scan.duplicates[id].map((n) => `#${n}`).join(', ')}; close all but one, then flush again`);
     }

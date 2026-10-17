@@ -22,13 +22,19 @@
 // 5. A legacy dir marker is not read, inside a legacy or an AOForge wiki section.
 // 6. Writers emit only the AOForge namespace; withCommentMarker adds an AOForge marker line above a legacy first line
 //    for the same id instead of restamping it.
-// 7. Label union (TRD 72-11 behaviour, removed by 78-09): the AOForge objective label lists #1 and #3, the legacy one
-//    #2 and #3 -> the lookup yields #1, #2 and #3 once each (gh-issue scan, gh-cache remote model, the flusher's marker
-//    scan); a configured label is the only one queried. The bodies are AOForge-marked here (an old issue AOForge 3.0
-//    rewrote while its label stayed old): a legacy body is unmarked since 78-03 (case 1).
-//    7e. `gh orphans` (gh-hierarchy reportOrphans) lists a legacy-labelled, unlinked TRD issue.
-// 8. In-progress label (planning-verbs, 78-09's): `summary post` removes it in both forms; `trd start` adds the
-//    AOForge form only; a configured label is the only one removed.
+// 7. Label twins are gone (TRD 78-09; 72-11 listed both and merged them). A lookup by a DEFAULT label lists that one
+//    label, after one GET of its pre-rename twin. The repository here still labels #2 and #3 the old way, so the twin
+//    exists and every lookup is REFUSED with the fix (`aof-tools gh rebrand --apply`): nothing is listed, nothing is
+//    created. The bodies are AOForge-marked (an old issue AOForge 3.0 rewrote while its label stayed old); with a
+//    legacy body (unmarked since 78-03, case 1) listing the AOForge label alone would create a duplicate.
+//    7a. gh-issue: the objective scan is refused. 7a2. mirror sync (`gh sync`) fails with the message, no create.
+//    7b. gh-cache: the remote model is refused before any list.
+//    7c. a configured label is used as configured: listed alone, never checked.
+//    7d. the flusher's adopt-by-label scan: upsert-issue fails with class legacy-namespace, no issue is created, and
+//        a flush halts on it; with the twin absent (404) the AOForge-labelled issue is adopted after one list.
+//    7e. `gh orphans` (gh-hierarchy reportOrphans) is refused while the twin exists.
+// 8. In-progress label (planning-verbs, TRD 78-09): `summary post` removes the AOForge form only (never its pre-rename
+//    twin); `trd start` adds the AOForge form only; a configured label is the only one removed.
 //
 // Hermetic: the fake GitHub through the gh-client seam, temp projects, hermeticEnv() for HOME and the outbox. No
 // network, no real ~/.claude, no port.
@@ -355,7 +361,22 @@ function labelsQueried(fake) {
   return out;
 }
 
-describe('7. label union', () => {
+/** The label of every `GET repos/o/r/labels/<name>` (the twin check) in the fake's call log, decoded. */
+function twinGets(fake) {
+  const out = [];
+  for (const args of fake.calls()) {
+    const m = args[0] === 'api' && args.length === 2 ? /^repos\/o\/r\/labels\/([^/]+)$/.exec(args[1]) : null;
+    if (m) out.push(decodeURIComponent(m[1]));
+  }
+  return out;
+}
+
+/** The refusal 78-09 specifies, spelled out here rather than taken from the module under test. */
+const refusal = (kind) => `o/r still has the pre-rename label "${OLD}:${kind}", which AOForge no longer reads, so it will `
+  + `not look issues up by "aoforge:${kind}" alone: run \`aof-tools gh rebrand --apply\` `
+  + '(docs/MIGRATING-TO-AOFORGE.md, "Repositories with GitHub integration"), then retry';
+
+describe('7. a default label is looked up alone, and its pre-rename twin refuses the lookup', () => {
   let envh;
   let root;
   let fake;
@@ -381,46 +402,72 @@ describe('7. label union', () => {
     envh.restore();
   });
 
-  test('7a. gh-issue: the objective scan yields #1, #2 and #3 once each', () => {
+  test('7a. gh-issue: the objective scan is refused with the fix; nothing is listed', () => {
     root = labelProject();
-    const ctx = issueLib.createRunContext(root);
-    const scan = issueLib.scanObjectiveIssues(ctx);
-    assert.equal(scan.ok, true, scan.error);
-    assert.deepEqual(scan.issues.map((i) => i.number).sort((a, b) => a - b), [1, 2, 3]);
-    assert.deepEqual(scan.byId, { 1: 1, 2: 2, 3: 3 });
-    assert.deepEqual(labelsQueried(fake).sort(), [pages.labels.aoforge, pages.labels.legacy].sort());
+    const scan = issueLib.scanObjectiveIssues(issueLib.createRunContext(root));
+    assert.equal(scan.ok, false);
+    assert.equal(scan.kind, 'legacy-namespace');
+    assert.equal(scan.error, refusal('objective'));
+    assert.deepEqual(twinGets(fake), [pages.labels.legacy], 'one GET of the twin');
+    assert.deepEqual(labelsQueried(fake), [], 'neither label is listed');
   });
 
-  test('7b. gh-cache: the remote model holds objectives 1, 2 and 3 once each', () => {
+  test('7a2. mirror sync (gh sync) fails with the message, and no issue is created', () => {
+    root = labelProject();
+    fs.writeFileSync(path.join(root, '.aoforge', 'ROADMAP.md'), '# Roadmap\n\n## Objectives\n\n### Objective 2: two\n**Goal:** g\n');
+    fs.mkdirSync(path.join(root, '.aoforge', 'objectives', '02-two'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.aoforge', 'objectives', '02-two', 'OBJECTIVE.md'), '---\nobjective: 02-two\n---\n\n# Objective 2: two\n');
+    const before = fake.issues.length;
+    const r = require('./gh.cjs').syncObjective('2', root);
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.equal(r.error, 'legacy-namespace');
+    assert.equal(r.message, refusal('objective'));
+    assert.equal(fake.issues.length, before, 'no issue created');
+    assert.ok(!fake.writes().some((a) => a[0] === 'issue' && a[1] === 'create'), 'no create call');
+  });
+
+  test('7b. gh-cache: the remote model is refused before any list', () => {
     root = labelProject();
     const model = cache.readRemoteModel(root);
-    assert.equal(model.ok, true, model.error);
-    assert.deepEqual(model.objectives.map((o) => [o.id, o.number]), [['1', 1], ['2', 2], ['3', 3]]);
-    assert.deepEqual(model.problems.duplicate_objectives, {});
-    const queried = labelsQueried(fake);
-    for (const kind of ['objective', 'trd', 'decision', 'todo', 'debug', 'quick']) {
-      assert.ok(queried.includes(`aoforge:${kind}`), `aoforge:${kind} listed`);
-      assert.ok(queried.includes(`${OLD}:${kind}`), `${OLD}:${kind} listed`);
-    }
+    assert.equal(model.ok, false);
+    assert.equal(model.error, refusal('objective'));
+    assert.deepEqual(labelsQueried(fake), []);
   });
 
-  test('7c. a configured label is the only one queried', () => {
+  test('7b2. gh-cache: with no twin left, each default label is listed alone after one GET of its twin', () => {
+    root = labelProject();
+    const relabelled = createFakeGitHub({ repo: 'o/r', hasWiki: false, ownerType: 'User' });
+    relabelled.seedIssue({ title: '[Objective 1] one', body: `${ghBody.markerLine('1')}\n`, labels: ['aoforge:objective'] });
+    client._setRunGh(relabelled.runGh);
+    const model = cache.readRemoteModel(root);
+    assert.equal(model.ok, true, model.error);
+    assert.deepEqual(model.objectives.map((o) => o.id), ['1']);
+    const kinds = ['objective', 'trd', 'decision', 'todo', 'debug', 'quick'];
+    assert.deepEqual(labelsQueried(relabelled).sort(), kinds.map((k) => `aoforge:${k}`).sort());
+    assert.deepEqual(twinGets(relabelled).sort(), kinds.map((k) => `${OLD}:${k}`).sort());
+    cache.readRemoteModel(root);
+    assert.equal(twinGets(relabelled).length, kinds.length, 'asked once per label for the process');
+  });
+
+  test('7c. a configured label is used as configured: listed alone and never checked', () => {
     root = labelProject({ objective: 'custom' });
     fake.seedIssue({ title: '[Objective 4] custom', body: `${ghBody.markerLine('4')}\n`, labels: ['custom'] });
     const scan = issueLib.scanObjectiveIssues(issueLib.createRunContext(root));
     assert.equal(scan.ok, true, scan.error);
     assert.deepEqual(scan.issues.map((i) => i.number), [4]);
     assert.deepEqual(labelsQueried(fake), ['custom']);
+    assert.deepEqual(twinGets(fake), [], 'a configured label has no twin to check');
 
     const model = cache.readRemoteModel(root);
     assert.equal(model.ok, true, model.error);
     assert.deepEqual(model.objectives.map((o) => o.id), ['4']);
     const objectiveLists = labelsQueried(fake).filter((l) => /objective|custom/.test(l));
     assert.deepEqual(objectiveLists, ['custom', 'custom'], 'neither objective default was listed');
+    assert.ok(!twinGets(fake).includes(pages.labels.legacy), 'the objective twin was never asked about');
   });
 });
 
-describe('7d. the flusher adopts a legacy-labelled TRD issue instead of creating a second one', () => {
+describe('7d. the flusher never creates a second issue for a TRD the old label carries', () => {
   let envh;
   let project;
   let fake;
@@ -440,38 +487,79 @@ describe('7d. the flusher adopts a legacy-labelled TRD issue instead of creating
     project.cleanup();
   });
 
-  test('7d. upsert-issue with no mapping finds the legacy-labelled TRD issue by label scan + marker', () => {
-    const file = STORE_FIXTURE.trdFiles[0];
-    const text = STORE_FIXTURE.trds[file];
-    const body = ghTrd.encodeTrdBody({ id: '7-01', file, text });
-    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body, labels: [`${OLD}:trd`] });
-    const ctx = flushLib.createContext(project.root, {
-      modes: { types: 'native', fields: 'native', hierarchy: 'native', pages: 'wiki', writable: true },
-      caps: { issue_fields: { available: true, ids: { work: 11, kind: 12 } } },
-    });
+  const MODES = { types: 'native', fields: 'native', hierarchy: 'native', pages: 'wiki', writable: true };
+  const CAPS = { issue_fields: { available: true, ids: { work: 11, kind: 12 } } };
+  const file = STORE_FIXTURE.trdFiles[0];
+  const body = () => ghTrd.encodeTrdBody({ id: '7-01', file, text: STORE_FIXTURE.trds[file] });
+  const upsert = (seq) => ({
+    seq, status: 'pending', kind: 'upsert-issue', target: { id: '7-01', role: 'trd' },
+    payload: { title: `[TRD 07-01] ${file}`, body: body(), labels: ['aoforge:trd'], type: 'TRD' },
+  });
+  const creates = () => fake.writes().filter((a) => a[0] === 'api' && a.includes('POST') && a.some((x) => /^repos\/o\/r\/issues$/.test(x)));
+
+  test('7d. upsert-issue with no mapping: the twin exists -> class legacy-namespace, nothing created', () => {
+    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body: body(), labels: [`${OLD}:trd`] });
+    const ctx = flushLib.createContext(project.root, { modes: MODES, caps: CAPS });
     assert.ok(!ctx.error, ctx.error);
-    const res = flushLib.executeOp(ctx, {
-      seq: 1, status: 'pending', kind: 'upsert-issue', target: { id: '7-01', role: 'trd' },
-      payload: { title: `[TRD 07-01] ${file}`, body, labels: ['aoforge:trd'], type: 'TRD' },
-    });
-    assert.equal(res.ok, true, JSON.stringify(res));
+    const res = flushLib.executeOp(ctx, upsert(1));
+    assert.deepEqual(res, { ok: false, class: 'legacy-namespace', error: refusal('trd'), warnings: res.warnings });
     assert.equal(fake.issues.length, 1, 'no second issue');
-    assert.equal(mappingLib.getTrd(mappingLib.readMappingV3(project.root), '7-01').issue_number, fake.issues[0].number);
+    assert.deepEqual(creates(), []);
+    assert.deepEqual(labelsQueried(fake), [], 'the AOForge label alone is not listed');
+    assert.equal(mappingLib.getTrd(mappingLib.readMappingV3(project.root), '7-01'), null);
   });
 
-  test('7e. gh orphans lists a legacy-labelled TRD issue that is not linked under its objective', () => {
+  test('7d2. a flush halts on it (class legacy-namespace, the message) and writes nothing', () => {
+    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body: body(), labels: [`${OLD}:trd`] });
+    const queued = outbox.enqueue(project.root, [{ kind: 'upsert-issue', target: upsert(1).target, payload: upsert(1).payload }], { now: 0 });
+    assert.equal(queued.ok, true, JSON.stringify(queued));
+    const r = flushLib.flush(project.root, { modes: MODES, caps: CAPS, wait: false });
+    assert.equal(r.status, 'halted', JSON.stringify(r));
+    assert.equal(r.class, 'legacy-namespace');
+    assert.equal(r.error, refusal('trd'));
+    assert.equal(r.halted.reason, 'blocked');
+    assert.deepEqual(fake.writes(), [], 'no GitHub write at all');
+    assert.equal(fake.issues.length, 1);
+  });
+
+  test('7d2b. (78-03 handoff) the old label AND an old-namespace body: refused, never a duplicate create', () => {
+    // Unmarked since 78-03 and invisible to an `aoforge:trd` list: without the check the flusher would create a
+    // second issue for 7-01. A flush halts instead.
+    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body: F.legacyTrdBody({ id: '7-01', file }), labels: [`${OLD}:trd`] });
+    const queued = outbox.enqueue(project.root, [{ kind: 'upsert-issue', target: upsert(1).target, payload: upsert(1).payload }], { now: 0 });
+    assert.equal(queued.ok, true, JSON.stringify(queued));
+    const r = flushLib.flush(project.root, { modes: MODES, caps: CAPS, wait: false });
+    assert.equal(r.status, 'halted', JSON.stringify(r));
+    assert.equal(r.class, 'legacy-namespace');
+    assert.deepEqual(creates(), [], 'no duplicate issue');
+    assert.equal(fake.issues.length, 1);
+  });
+
+  test('7d3. the twin absent (404): the AOForge-labelled issue is adopted after one list of that label', () => {
+    fake.seedIssue({ title: `[TRD 07-01] ${file}`, body: body(), labels: ['aoforge:trd'] });
+    const ctx = flushLib.createContext(project.root, { modes: MODES, caps: CAPS });
+    assert.ok(!ctx.error, ctx.error);
+    const res = flushLib.executeOp(ctx, upsert(1));
+    assert.equal(res.ok, true, JSON.stringify(res));
+    assert.equal(fake.issues.length, 1, 'adopted, not created');
+    assert.equal(mappingLib.getTrd(mappingLib.readMappingV3(project.root), '7-01').issue_number, fake.issues[0].number);
+    assert.deepEqual(labelsQueried(fake), ['aoforge:trd']);
+    assert.deepEqual(twinGets(fake), [`${OLD}:trd`]);
+  });
+
+  test('7e. gh orphans is refused while the twin of aoforge:trd exists', () => {
     const objective = fake.seedIssue({ title: '[Objective 7] Store demo', body: `${ghBody.markerLine('7')}\n`, labels: ['aoforge:objective'] });
     const m = mappingLib.readMappingV3(project.root);
     mappingLib.setEntry(m, '7', { issue_id: objective });
     assert.equal(mappingLib.writeMappingV3(project.root, m).ok, true);
-    const ghost = fake.seedIssue({
+    fake.seedIssue({
       title: '[TRD 07-09] ghost',
       body: ghTrd.encodeTrdBody({ id: '7-09', file: '07-09-ghost-TRD.md', text: '# ghost\n' }),
       labels: [`${OLD}:trd`],
     });
     const r = require('./gh-hierarchy.cjs').reportOrphans(project.root, '7');
-    assert.equal(r.ok, true, JSON.stringify(r));
-    assert.deepEqual(r.unlinked, [{ id: '7-09', number: ghost }]);
+    assert.deepEqual(r, { ok: false, error: refusal('trd') });
+    assert.deepEqual(labelsQueried(fake), []);
   });
 });
 
@@ -493,10 +581,11 @@ describe('8. the in-progress label', () => {
     project.cleanup();
   });
 
-  test('8a. summary post removes it in both forms', () => {
+  test('8a. summary post removes the AOForge form only, never the pre-rename twin', () => {
     const r = verbs.summaryPost(project.root, { trd: '07-01', text: '# Summary\n', noFlush: true });
     assert.equal(r.ok, true, JSON.stringify(r));
-    assert.deepEqual(patchOf().payload, { labels_remove: ['aoforge:in-progress', `${OLD}:in-progress`] });
+    assert.deepEqual(patchOf().payload, { labels_remove: ['aoforge:in-progress'] });
+    assert.ok(!JSON.stringify(pending()).includes(`${OLD}:`), 'no queued op names a pre-rename label');
   });
 
   test('8b. trd start adds the AOForge form only', () => {

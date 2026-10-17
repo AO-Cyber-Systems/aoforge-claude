@@ -68,7 +68,10 @@
 //   bypass_actors, then `always`, or `pull_requests_only` when that actor's bypass_mode is `pull_request`. It is
 //   never stored, so `fake.rulesets` and a PUT body never hold it (55-01).
 //   repos/o/r (PATCH has_wiki, delete_branch_on_merge; any other field is a loud gap), repos/o/r/labels (GET: the
-//   labels `gh label create` made, with colour and description).
+//   labels `gh label create` made, with colour and description), repos/o/r/labels/{name} (GET, the name
+//   URL-encoded: the label when it exists (made by `gh label create` or carried by a seeded or created issue), else
+//   404; gh-legacy-labels' "is this repository rebranded" check, TRD 78-09). Each new fake is a new repository, so
+//   creating one clears gh-legacy-labels' per-process answers.
 // Org level (404 for a User owner or another org, 403 when `orgAdmin:false`):
 //   orgs/{o}/issue-types (POST {name,is_enabled,description,color}) and issue-types/{id} (PUT patches). A created
 //   type gets id 'IT_<n>' and joins the same list GET and `issue.type` read. orgs/{o}/issue-fields (POST
@@ -81,6 +84,7 @@
 
 const crypto = require('node:crypto');
 const { isWriteArgs } = require('../gh-client.cjs');
+const rebrandCheck = require('../gh-legacy-labels.cjs');
 
 const BASE_TIME = Date.parse('2026-01-01T00:00:00Z');
 
@@ -199,6 +203,8 @@ function createFakeGitHub({
   deleteBranchOnMerge = false, files = {}, prCommits = {},
 } = {}) {
   const [repoOwner, repoName] = repo.split('/');
+  // A new repository: what gh-legacy-labels remembered about the previous fake's labels does not hold here.
+  rebrandCheck.clearCache();
   // Copies, so a write route never mutates an options array a test shares between fakes.
   const fieldDefs = fields.map((f) => ({ ...f })); // runApi has a local `fields` (the request body), so name the definitions apart
   const typeDefs = types.map((t) => ({ ...t }));
@@ -1208,12 +1214,27 @@ function createFakeGitHub({
     return repoOk();
   }
 
+  /** One label as REST shows it; `i` is its index in `labels`. */
+  function restLabel(name, i) {
+    const meta = labelMeta[name] || { color: 'ededed', description: null };
+    return { id: 200_000 + i, node_id: `LA_${200_000 + i}`, name, color: meta.color, default: false, description: meta.description };
+  }
+
   /** GET repos/o/r/labels: what `gh label create` made, in creation order. */
   function restListLabels(p, qs) {
-    return respondList(labels.map((name, i) => {
-      const meta = labelMeta[name] || { color: 'ededed', description: null };
-      return { id: 200_000 + i, node_id: `LA_${200_000 + i}`, name, color: meta.color, default: false, description: meta.description };
-    }), p, qs);
+    return respondList(labels.map(restLabel), p, qs);
+  }
+
+  /** GET repos/o/r/labels/{name}: the label, or 404 (78-09). The name arrives URL-encoded, as gh sends it. */
+  function restGetLabel(encoded) {
+    let name;
+    try {
+      name = decodeURIComponent(encoded);
+    } catch {
+      return notFound();
+    }
+    const at = labels.indexOf(name);
+    return at < 0 ? notFound() : ok(JSON.stringify(restLabel(name, at)));
   }
 
   // ─── Org writes, PR commits, contents (50-01) ──────────────────────────────
@@ -1582,6 +1603,12 @@ function createFakeGitHub({
     if (m) {
       if (m[1] !== repo) return notFound();
       return method === 'GET' ? restListLabels(p, qs) : unsupported(args);
+    }
+
+    m = /^repos\/([^/]+\/[^/]+)\/labels\/([^/]+)$/.exec(rawPath);
+    if (m) {
+      if (m[1] !== repo) return notFound();
+      return method === 'GET' ? restGetLabel(m[2]) : unsupported(args);
     }
 
     // ── 47-02: repo meta and org-level capabilities ──

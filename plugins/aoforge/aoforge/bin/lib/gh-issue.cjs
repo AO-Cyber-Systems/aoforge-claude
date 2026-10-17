@@ -24,11 +24,13 @@ const client = require('./gh-client.cjs');
 const mappingLib = require('./gh-mapping.cjs');
 const milestoneLib = require('./gh-milestone.cjs');
 const bodyLib = require('./gh-body.cjs');
+const rebrandCheck = require('./gh-legacy-labels.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
 const { planningRoot } = require('./compat.cjs');
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
-// templates/config.json `github.labels.objective`. When it is the label in use, the scan lists its legacy twin too.
+// templates/config.json `github.labels.objective`. When it is the label in use, the scan first checks that the
+// repository has no pre-rename twin of it (gh-legacy-labels, TRD 78-09).
 const DEFAULT_OBJECTIVE_LABEL = 'aoforge:objective';
 const validNumber = (v) => Number.isInteger(v) && v > 0;
 
@@ -244,27 +246,23 @@ function listByLabel(runCtx, label) {
  * GitHub's index, which lags and does not reliably see HTML comments.
  *
  *   -> { ok:true, issues, byId, duplicates, unmarked, titleById }   titleById: unmarked issues by title number
- *    | { ok:false, error }
+ *    | { ok:false, error }                                           the list failed
+ *    | { ok:false, kind:'legacy-namespace'|'error', error }          the twin check refused, or could not ask
  */
 function scanObjectiveIssues(runCtx) {
   if (runCtx._scan) return runCtx._scan;
-  // The default label lists its legacy twin too (TRD 72-11): a repository not yet rebranded labels its objectives
-  // that way. Merged by issue number, so an issue carrying both labels is scanned once.
-  const lists = [];
-  let failed = null;
-  for (const label of bodyLib.labelForms(runCtx.label, DEFAULT_OBJECTIVE_LABEL)) {
-    const listed = listByLabel(runCtx, label);
-    if (!listed.ok) {
-      failed = listed;
-      break;
-    }
-    lists.push(listed.issues);
-  }
+  // One label (TRD 78-09). The default label's pre-rename twin is never listed: a repository that still has it is
+  // refused (kind 'legacy-namespace', the message names `aof-tools gh rebrand --apply`), because listing the AOForge
+  // label alone there would miss its objectives and the sync would create them a second time.
+  const rebranded = rebrandCheck.checkRebranded({ repo: runCtx.repo, label: runCtx.label, defaultLabel: DEFAULT_OBJECTIVE_LABEL });
+  const listed = rebranded.ok ? listByLabel(runCtx, runCtx.label) : null;
   let scan;
-  if (failed) {
-    scan = { ok: false, error: failed.error };
+  if (!rebranded.ok) {
+    scan = { ok: false, kind: rebranded.kind, error: rebranded.error };
+  } else if (!listed.ok) {
+    scan = { ok: false, error: listed.error };
   } else {
-    const issues = bodyLib.unionByNumber(lists);
+    const issues = listed.issues;
     const idx = bodyLib.indexByMarker(issues);
     const titleById = {};
     const byNumber = new Map(issues.map((i) => [i.number, i]));
@@ -459,6 +457,8 @@ function findOrCreateObjectiveIssue(runCtx, resolved, opts = {}) {
 
   // 4. Marker scan (one list per run).
   const scan = scanObjectiveIssues(runCtx);
+  // An un-rebranded repository (78-09): the refusal is the message, and resolution stops before any create.
+  if (!scan.ok && scan.kind === 'legacy-namespace') return fail({ error: 'legacy-namespace', message: scan.error });
   if (!scan.ok) return fail({ error: 'scan_failed', message: `could not list ${runCtx.label} issues: ${scan.error}` });
   const dupes = scan.duplicates[id];
   if (dupes) {

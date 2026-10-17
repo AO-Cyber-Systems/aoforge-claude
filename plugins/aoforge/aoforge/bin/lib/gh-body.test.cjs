@@ -1253,3 +1253,13 @@ describe('49-05 PR body sections', () => {
     assert.strictEqual(ghBody.extractPrMarker(null), null);
   });
 });
+
+describe('78-09 single label namespace', () => {
+  test('8. gh-body exports no label-twin helpers and no longer imports the legacy name map', () => {
+    for (const name of ['legacyLabel', 'labelForms', 'unionByNumber']) {
+      assert.strictEqual(Object.hasOwn(ghBody, name), false, `${name} is gone (TRD 78-09)`);
+    }
+    const source = fs.readFileSync(path.join(__dirname, 'gh-body.cjs'), 'utf-8');
+    assert.doesNotMatch(source, /LEGACY/, 'gh-body reads and writes the AOForge namespace only');
+  });
+});

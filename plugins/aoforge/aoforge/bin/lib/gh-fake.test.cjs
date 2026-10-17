@@ -1644,6 +1644,19 @@ describe('50-01 setup routes', () => {
     assert.match(restGet(fake, 'repos/o/elsewhere/labels').stderr, /HTTP 404/);
   });
 
+  it('5b. GET repos/o/r/labels/{name} (78-09): the label when it exists, by `gh label create` or a seeded issue, else 404', () => {
+    const fake = createFakeGitHub();
+    assert.match(restGet(fake, 'repos/o/r/labels/team%3Aobjective').stderr, /HTTP 404/, 'no such label yet');
+    fake.seedIssue({ title: 'x', body: '', labels: ['team:objective'] });
+    const got = json(restGet(fake, 'repos/o/r/labels/team%3Aobjective'));
+    assert.equal(got.name, 'team:objective', 'the name is URL-decoded');
+    assert.ok(Number.isInteger(got.id));
+    assert.equal(fake.runGh(['label', 'create', 'needs triage', ...R]).ok, true);
+    assert.equal(json(restGet(fake, 'repos/o/r/labels/needs%20triage')).name, 'needs triage');
+    assert.match(restGet(fake, 'repos/o/elsewhere/labels/team%3Aobjective').stderr, /HTTP 404/);
+    assert.match(fake.runGh(['api', '--method', 'DELETE', 'repos/o/r/labels/team%3Aobjective']).stderr, /unsupported/);
+  });
+
   it('6. issue types: POST adds an enabled type, PUT enables a disabled seeded one; a User owner is 404 and orgAdmin:false is 403', () => {
     const fake = createFakeGitHub();
     const made = restCall(fake, 'POST', 'orgs/o/issue-types', { name: 'Bug', description: 'A defect', color: 'red', is_enabled: true });
