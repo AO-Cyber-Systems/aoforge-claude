@@ -1,9 +1,9 @@
 {
-  "current_objective": "78",
-  "current_job": 12,
-  "total_jobs": 12,
-  "progress_pct": 100,
-  "status": "ready_for_verification",
+  "current_objective": "79",
+  "current_job": 1,
+  "total_jobs": 10,
+  "progress_pct": 98,
+  "status": "executing",
   "last_activity": "2026-10-16",
   "metrics": {
     "jobs_completed": 0,
@@ -1819,6 +1819,16 @@
     {
       "objective": "78",
       "summary": "78-12: the first-generation df:state sticky-comment reader is KEPT (predates the rename, self-converting, gh rebrand does not convert it); the .gitignore legacy lines stay until main is reconciled",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-01: integrate/3.1.0 is one tree through merge commit afbe19a4 (parents e7fd81e7, 7fced4d9); 15 conflicts resolved as unions with objective 78 winning on shim facts and main on stack packs and lazy loading; CLAUDE.md budget left to 79-07",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-01: pre-rename runtime leftovers on this machine (.devflow-handoff/, .aoforge/.devflow-notices.json, objective 37's .devflow-handoff/) are excluded in .git/info/exclude; .gitignore keeps no legacy line",
       "rationale": null
     }
   ],
