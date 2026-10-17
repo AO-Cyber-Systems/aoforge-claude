@@ -175,8 +175,10 @@ function overrideMarker(project) {
 }
 
 /**
- * The corpus. Each entry: { id, category, why, command, expect, project?, setup?, env?, extra?, stdin? }.
+ * The corpus. Each entry: { id, category, why, command, expect, reasons?, project?, setup?, env?, extra?, stdin? }.
  *   expect   the merged permissionDecision the code gives ('deny' | 'ask'), or null for a silent pass
+ *   reasons  when given, how many reasons the merged decision carries (combined cases: every deny kept, an ask
+ *            dropped under a deny)
  *   project  makeProject options; setup(project) runs on both sides' projects after it
  *   env      added to the child env (values may use `<P>` / `<H>`); extra is merged into the payload;
  *            stdin, when a string, replaces the payload entirely
@@ -289,11 +291,14 @@ const CORPUS = [
     why: 'AOFORGE_SKIP_CHANGELOG_GATE=1 turns the tag gate off' },
 
   // ── combined (more than one hook speaks) ──
-  { id: 'combo-commit-interactive', category: 'combined', expect: 'deny', command: 'git commit -m x && gh auth login',
+  { id: 'combo-commit-interactive', category: 'combined', expect: 'deny', reasons: 2,
+    command: 'git commit -m x && gh auth login',
     why: 'two denials (gate-commits, gate-interactive): both reasons are kept' },
-  { id: 'combo-write-interactive', category: 'combined', expect: 'deny', command: 'echo x > src/a.cjs && gh auth login',
+  { id: 'combo-write-interactive', category: 'combined', expect: 'deny', reasons: 1,
+    command: 'echo x > src/a.cjs && gh auth login',
     why: 'ask (write) and deny (interactive): the deny wins and the ask reason is dropped' },
-  { id: 'combo-tag-commit', category: 'combined', expect: 'deny', command: 'git tag -a v9.9.9 -m x && git commit -m y',
+  { id: 'combo-tag-commit', category: 'combined', expect: 'deny', reasons: 2,
+    command: 'git tag -a v9.9.9 -m x && git commit -m y',
     why: 'two denials from changelog-on-tag and gate-commits' },
 
   // ── input edges ──
