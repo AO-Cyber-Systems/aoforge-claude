@@ -1544,3 +1544,57 @@ describe('48-08 readStoreMode', () => {
     assert.equal(gateEdits.readStoreMode(path.join(os.tmpdir(), 'gate-edits-no-such-dir-48-08')), false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TRD 78-10 (SC-1) — only `.aoforge/` is a planning segment. The pre-rename planning directory (built from
+// legacy-names LEGACY, never spelled here) is an ordinary project directory: in a store-mode project an Edit under
+// it is neither a planning artifact nor a store-mode planning path.
+// ---------------------------------------------------------------------------
+
+describe('78-10 — only .aoforge/ is a planning segment', () => {
+  const gateEdits = require('./gate-edits.js');
+  const { LEGACY } = require('../aoforge/bin/lib/legacy-names.cjs');
+  const P = '/p/.aoforge';
+  const LEGACY_DIR = `/p/${LEGACY.planningDir}`;
+  const base = { tool: 'Edit', planningDir: P, skillActive: false, overrideActive: false };
+
+  test('case 4: <root>/<legacy>/STATE.md in store mode is a markdown doc, not a planning artifact', () => {
+    for (const storeMode of [true, false]) {
+      assert.deepEqual(
+        gateEdits.shouldGate({ ...base, filePath: `${LEGACY_DIR}/STATE.md`, storeMode }),
+        { decision: 'allow', reason: 'markdown doc' },
+        `storeMode=${storeMode}`
+      );
+    }
+  });
+
+  test('case 4: a non-markdown file under <root>/<legacy>/ is gated like any project file (ambient deny)', () => {
+    for (const storeMode of [true, false]) {
+      const r = gateEdits.shouldGate({ ...base, filePath: `${LEGACY_DIR}/config.json`, storeMode });
+      assert.equal(r.decision, 'deny', `storeMode=${storeMode}: ${JSON.stringify(r)}`);
+    }
+  });
+
+  test('case 4: the same files under .aoforge/ stay planning artifacts (control)', () => {
+    for (const rel of ['STATE.md', 'config.json']) {
+      assert.deepEqual(
+        gateEdits.shouldGate({ ...base, filePath: `${P}/${rel}`, storeMode: false }),
+        { decision: 'allow', reason: 'planning artifact' },
+        rel
+      );
+    }
+  });
+
+  test('case 4 (subprocess): a store-mode project, ambient Write to <root>/<legacy>/config.json is denied', () => {
+    const root = makeStoreProject(STORE_ON);
+    try {
+      const legacy = runStoreHook(root, { filePath: path.join(root, LEGACY.planningDir, 'config.json') });
+      assert.equal(hookDecision(legacy), 'deny', legacy.stdout);
+      assert.match(JSON.parse(legacy.stdout).hookSpecificOutput.permissionDecisionReason, /ambient mode/);
+      const own = runStoreHook(root, { filePath: path.join(root, '.aoforge', 'config.json') });
+      assert.equal(hookDecision(own), 'none', `control: ${own.stdout}`);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
