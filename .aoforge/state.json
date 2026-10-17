@@ -1,8 +1,8 @@
 {
   "current_objective": "78",
-  "current_job": 10,
+  "current_job": 11,
   "total_jobs": 12,
-  "progress_pct": 99,
+  "progress_pct": 100,
   "status": "executing",
   "last_activity": "2026-10-16",
   "metrics": {
@@ -1794,6 +1794,16 @@
     {
       "objective": "78",
       "summary": "78-10: the CLI's 'legacy variable not read' observable is estimate task --class code --raw (it names the calibration path it resolved); coexistence-guard.legacy case 9 flipped (legacy skip var no longer skips, notice names it); planning-layout.legacy.test.js left to 78-11 with 4 gate-edits cases failing by design",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-11: compat.cjs keeps its name and every surviving signature (~80 importers; renaming would only multiply conflicts with main); PLANNING_DIR_NAMES/isPlanningDirName single-name; userDotFile is runtime-home only (doctor check 17 moves 3.0.0 files)",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-11: session-audit keeps its own two-namespace matcher (history reader of pre-rename transcripts); the gates trust aoforge: alone. config-get stays unguarded and errors with 'No config.json found' in a .planning/-only project",
       "rationale": null
     }
   ],
