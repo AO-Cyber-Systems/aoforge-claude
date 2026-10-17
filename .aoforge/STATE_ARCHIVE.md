@@ -636,6 +636,10 @@ STATE.md stays lean; this file grows over time.
 - [Objective 79]: 79-04: quick 36's cross-layout worktree cases are reworked onto a same-layout (.aoforge/) worktree; the pre-rename worktree is proven refused in planning-verbs-worktree.legacy.test.cjs. No resolver or compat change.
 - [Objective 79]: EST-11 corrected in 75-VERIFICATION.md (NOT SATISFIED), never ticked: the record was wrong, the checker was right
 - [Objective 79]: 79-07: CLAUDE.md rebuilt on main's slim skeleton within 200 lines / 20,000 chars (caps unchanged); integrate-side family and hook detail moved to docs/AOF-TOOLS-REFERENCE.md and docs/HOOKS-REFERENCE.md; Where we left off points at state digest plus standing items only
+- [Objective 79]: 79-08: VALIDATED_SHA is 5d470e241e4c67990bdf07b310b5f9d96b7ddfb5 (verdict PASS); only .aoforge/ planning files may differ between it and the head 79-09 pushes
+- [Objective 79]: 79-08: the node:26 CI-equivalent verdict is the non-root run (PASS, 0 failures); the root container fails one permission test CI's non-root runner cannot fail
+- [Objective 79]: 79-08: migration 0015 was not pending (advance-job had already rotated Recent Decisions to 10); upgrade --apply only stamped 3.1.0
+- [Objective 79]: 79-08: objective 76 stays unticked in the v1.6 checklist (main left 76-06 and 76-08 open); 77 is ticked
 
 ## Performance Metrics
 
@@ -869,3 +873,4 @@ STATE.md stays lean; this file grows over time.
 | Objective 79 P05 | 3min | 2 tasks | 4 files |
 | Objective 79 P06 | 6min | 2 tasks | 6 files |
 | Objective 79 P07 | 10min | 2 tasks | 5 files |
+| Objective 79 P08 | 12min | 2 tasks | 4 files |

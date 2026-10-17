@@ -1,10 +1,10 @@
 {
   "current_objective": "79",
-  "current_job": 7,
+  "current_job": 8,
   "total_jobs": 10,
   "progress_pct": 99,
   "status": "executing",
-  "last_activity": "2026-10-16",
+  "last_activity": "2026-10-17",
   "metrics": {
     "jobs_completed": 0,
     "jobs_failed": 0,
@@ -1854,6 +1854,26 @@
     {
       "objective": "79",
       "summary": "79-07: CLAUDE.md rebuilt on main's slim skeleton within 200 lines / 20,000 chars (caps unchanged); integrate-side family and hook detail moved to docs/AOF-TOOLS-REFERENCE.md and docs/HOOKS-REFERENCE.md; Where we left off points at state digest plus standing items only",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-08: VALIDATED_SHA is 5d470e241e4c67990bdf07b310b5f9d96b7ddfb5 (verdict PASS); only .aoforge/ planning files may differ between it and the head 79-09 pushes",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-08: the node:26 CI-equivalent verdict is the non-root run (PASS, 0 failures); the root container fails one permission test CI's non-root runner cannot fail",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-08: migration 0015 was not pending (advance-job had already rotated Recent Decisions to 10); upgrade --apply only stamped 3.1.0",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-08: objective 76 stays unticked in the v1.6 checklist (main left 76-06 and 76-08 open); 77 is ticked",
       "rationale": null
     }
   ],

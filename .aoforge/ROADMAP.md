@@ -473,7 +473,7 @@ TRDs:
 - [x] 79-05-objective-75-records-and-stack-text-TRD.md — (W2) EST-11 coverage row corrected via `verification post` (fixes the two requirements-agreement failures), STACK.md under AOForge names, pack profiles' home
 - [x] 79-06-changelog-versions-and-site-data-TRD.md — (W3) one `## [3.1.0] - 2026-10-16` section for both lines plus the reconcile entry, versions and marketplace, sibling bump, plugin validation, site data
 - [x] 79-07-claude-md-and-guides-TRD.md — (W3) CLAUDE.md within main's 200-line / 20,000-char budget on 3.1 facts, detail moved to the reference docs, guides without current-tense shim claims
-- [ ] 79-08-full-validation-TRD.md — (W4) upgrade to 3.1.0 (migration 0015), health and doctor, full suite (watcher-shell excluded and named), CI gate and node:26 Docker run, named gates, fleet test, VALIDATED_SHA
+- [x] 79-08-full-validation-TRD.md — (W4) upgrade to 3.1.0 (migration 0015), health and doctor, full suite (watcher-shell excluded and named), CI gate and node:26 Docker run, named gates, fleet test, VALIDATED_SHA
 - [ ] 79-09-push-open-pr-close-129-TRD.md — (W5, checkpoints) push integrate/3.1.0, open the 3.1.0 PR and wait for green CI, close #129 with a link (three approvals)
 - [ ] 79-10-merge-dry-run-tag-and-release-TRD.md — (W6, checkpoints) merge through the ruleset, release dry-run dispatch on main, tag v3.1.0 on the merge commit (three approvals), verify the release, the aoforge--v3.1.0 alias and main's marketplace
 
@@ -501,4 +501,4 @@ TRDs:
 | 76. Model efficiency and stack-specific content | v1.6 | 4/8 | In Progress | - |
 | 77. Stack packs: contract and extraction | v1.6 | 5/5 | In Progress | - |
 | 78. Remove the rename shims | v1.6 | 12/12 | Complete | 2026-10-17 |
-| 79. Reconcile and release 3.1.0 | v1.6 | 7/10 | In Progress | - |
+| 79. Reconcile and release 3.1.0 | v1.6 | 8/10 | In Progress | - |
