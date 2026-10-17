@@ -461,7 +461,7 @@ TRDs:
 - [x] 79-01-merge-and-resolve-TRD.md — (W1) one `--no-ff` merge of fix/post-77-verification, the 15 conflicts as unions, main's 76/77 and quick 34-39 records `git mv`ed to `.aoforge/`, pre-bash alias call removed, legacy `.gitignore` lines and their guard allowance dropped, full-suite triage routed to 79-02..79-07
 - [ ] 79-02-compat-import-guard-and-sweep-TRD.md — (W2, TDD) `reconcile-guard.repo.test.cjs` (compat imports name real exports, the five removed names, no tracked legacy planning path); rename and stack-neutrality guards; 79-02 triage rows
 - [ ] 79-03-pre-bash-equivalence-and-hooks-TRD.md — (W2, TDD) hand-built Bash corpus: pre-bash one process vs the five hooks spawned and merged, mutation proof; hook-domain triage rows
-- [ ] 79-04-worktree-resolver-and-coexistence-TRD.md — (W2, TDD) quick 36's worktree cases on the supported layout, pre-rename worktree refused (legacy test), SC-4 suites for quick 35, objective 76 and objective 78 plus a CLI smoke
+- [x] 79-04-worktree-resolver-and-coexistence-TRD.md — (W2, TDD) quick 36's worktree cases on the supported layout, pre-rename worktree refused (legacy test), SC-4 suites for quick 35, objective 76 and objective 78 plus a CLI smoke
 - [ ] 79-05-objective-75-records-and-stack-text-TRD.md — (W2) EST-11 coverage row corrected via `verification post` (fixes the two requirements-agreement failures), STACK.md under AOForge names, pack profiles' home
 - [ ] 79-06-changelog-versions-and-site-data-TRD.md — (W3) one `## [3.1.0] - 2026-10-16` section for both lines plus the reconcile entry, versions and marketplace, sibling bump, plugin validation, site data
 - [ ] 79-07-claude-md-and-guides-TRD.md — (W3) CLAUDE.md within main's 200-line / 20,000-char budget on 3.1 facts, detail moved to the reference docs, guides without current-tense shim claims
@@ -493,4 +493,4 @@ TRDs:
 | 76. Model efficiency and stack-specific content | v1.6 | 4/8 | In Progress | - |
 | 77. Stack packs: contract and extraction | v1.6 | 5/5 | In Progress | - |
 | 78. Remove the rename shims | v1.6 | 12/12 | Complete | 2026-10-17 |
-| 79. Reconcile and release 3.1.0 | v1.6 | 1/10 | In Progress | - |
+| 79. Reconcile and release 3.1.0 | v1.6 | 2/10 | In Progress | - |

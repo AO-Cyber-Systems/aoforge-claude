@@ -29,6 +29,12 @@ metrics:
   completed: 2026-10-17T03:28:00Z
   tasks: 2
   files: 4
+tokens_input: 10839621
+tokens_output: 55794
+tokens_cache_read: 10681694
+tokens_cache_write: 157771
+token_model: "claude-opus-5-5"
+tokens_source: "live"
 ---
 
 # Objective 79 TRD 04: Quick 36's worktree resolver on single-name compat, and the SC-4 coexistence proof Summary
@@ -37,7 +43,7 @@ metrics:
 
 ## Progress
 - [x] Task 1: Rework quick 36's worktree cases onto the supported layout; move the pre-rename cases to a legacy test — 5ee40964
-- [x] Task 2: SC-4 coexistence — the four features' suites and a CLI smoke on this repo — (this commit)
+- [x] Task 2: SC-4 coexistence — the four features' suites and a CLI smoke on this repo — b901ee3d
 
 ## What changed
 
@@ -117,3 +123,13 @@ None in behaviour. Two notes:
 - Auto-fix cycles used: 0
 - Must-haves verified: 5/5 (worktree contract on `.aoforge/`; pre-rename worktree refused, nothing written; reverse layout writes the worktree, main byte-identical; no LEGACY in the worktree test, pre-rename cases in the .legacy test; four features pass their own tests plus the CLI smoke)
 - Gate failures: the full suite's 4 remaining failures belong to 79-05 (#9, #10) and 79-07 (#1, #2) per 79-01's triage; none in this TRD's domain
+- Nothing written under the real ~/.claude (every test and suite ran with an empty scratch HOME); no push, PR, tag or GitHub write; the temporary node_modules symlink was removed and never committed; the untracked `amp` in the main checkout was not touched.
+
+## Self-Check: PASSED
+
+- FOUND: plugins/aoforge/aoforge/bin/lib/planning-verbs-worktree.legacy.test.cjs
+- FOUND: plugins/aoforge/aoforge/bin/lib/__fixtures__/worktree-verb-fixtures.cjs
+- FOUND: plugins/aoforge/aoforge/bin/lib/planning-verbs-worktree.test.cjs
+- FOUND: .aoforge/objectives/79-reconcile-and-release-3-1-0/79-04-SUMMARY.md
+- FOUND: 5ee40964 (Task 1), b901ee3d (Task 2)
+- FOUND: no node_modules link left in the checkout

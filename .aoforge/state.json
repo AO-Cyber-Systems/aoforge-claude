@@ -1,6 +1,6 @@
 {
   "current_objective": "79",
-  "current_job": 1,
+  "current_job": 2,
   "total_jobs": 10,
   "progress_pct": 98,
   "status": "executing",
@@ -1829,6 +1829,11 @@
     {
       "objective": "79",
       "summary": "79-01: pre-rename runtime leftovers on this machine (.devflow-handoff/, .aoforge/.devflow-notices.json, objective 37's .devflow-handoff/) are excluded in .git/info/exclude; .gitignore keeps no legacy line",
+      "rationale": null
+    },
+    {
+      "objective": "79",
+      "summary": "79-04: quick 36's cross-layout worktree cases are reworked onto a same-layout (.aoforge/) worktree; the pre-rename worktree is proven refused in planning-verbs-worktree.legacy.test.cjs. No resolver or compat change.",
       "rationale": null
     }
   ],

@@ -631,6 +631,7 @@ STATE.md stays lean; this file grows over time.
 - **TDD scope research COMPLETE** — survey ran across 9 sibling repos (aodex-go, aosentry, aohealth-go, aodex-flutter, eden-libs, eden-ui, eden-ui-flutter, eden-cli, devflow-claude). 4 artifacts at `.planning/research/tdd-scope-{by-kind-work,codebase-survey,refined-defaults,summary}.md`. Locked decisions captured in `.planning/objectives/00-refine-defaults-table/00-CONTEXT.md`.
 - [Objective 79]: 79-01: integrate/3.1.0 is one tree through merge commit afbe19a4 (parents e7fd81e7, 7fced4d9); 15 conflicts resolved as unions with objective 78 winning on shim facts and main on stack packs and lazy loading; CLAUDE.md budget left to 79-07
 - [Objective 79]: 79-01: pre-rename runtime leftovers on this machine (.devflow-handoff/, .aoforge/.devflow-notices.json, objective 37's .devflow-handoff/) are excluded in .git/info/exclude; .gitignore keeps no legacy line
+- [Objective 79]: 79-04: quick 36's cross-layout worktree cases are reworked onto a same-layout (.aoforge/) worktree; the pre-rename worktree is proven refused in planning-verbs-worktree.legacy.test.cjs. No resolver or compat change.
 
 ## Performance Metrics
 
@@ -858,3 +859,4 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P11 | 19min | 3 tasks | 25 files |
 | Objective 78 P12 | 25min | 3 tasks | 54 files |
 | Objective 79 P01 | 24min | 3 tasks | 19 files |
+| Objective 79 P04 | 10min | 2 tasks | 4 files |
