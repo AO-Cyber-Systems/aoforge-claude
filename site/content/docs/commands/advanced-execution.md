@@ -84,14 +84,17 @@ both its flow and yours.
 ### With the watcher running
 
 ```bash
-aoforge-watch start     # start the daemon for this project
-aoforge-watch status
+aoforge-watch start --foreground   # in a terminal you keep open: the attended terminal
+aoforge-watch status               # verify (from another terminal)
 ```
 
 Now the `gate-interactive` hook intercepts those commands, queues them, and denies
-the Bash call with "queued for daemon — continue with other work." The daemon runs
-the command in your interactive shell; the `route-results` hook injects the result
-into Claude's next turn. Claude never asks you to paste anything.
+the Bash call; Claude tells you in one line that the command is waiting in your
+aoforge-watch terminal. The daemon runs it there and you answer its prompt there.
+The result comes back by itself: the `inject-handoff-results` hook delivers it to
+the session or subagent that queued it after its next tool call, or when Claude
+ends its turn, and the `route-results` hook delivers anything still waiting on
+your next prompt. Claude never asks you to paste anything.
 
 ### Without the watcher
 
