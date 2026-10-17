@@ -6,13 +6,13 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 **Building:** AOForge (formerly DevFlow Claude) — meta-prompting plugin for Claude Code, evolving into program-aware coordination layer for AO-Cyber-Systems org
 **Core Value:** AI workflow orchestration + cross-repo program awareness for AI-assisted development
-**Current focus:** Objective 73: Handoff gaps and result injection
+**Current focus:** Objective 79: Reconcile and release 3.1.0
 **Ecosystem:** AODex (Rails+Go API) + AOSentry (LLM Gateway) + Flutter (macOS Hub) + DevFlow (local platform CLI/daemon) + AOForge (this — Claude Code plugin, formerly DevFlow Claude)
 
 ## Current Position
 
-**Milestone:** v1.6 Hardening & Release — started 2026-10-08; Objectives 65-75, 30 requirements mapped; Objectives 65-71 complete, Objective 72 in progress (AOForge 3.0.0 released: tag `v3.0.0` on `main` b4a9d870, 2026-10-09). v1.5 complete 2026-10-08 (archived to .aoforge/milestones/v1.5-*; EST-08 not met, accepted).
-**Branch:** `feat/stack-profile-loader` (merged to `main` via #121, #122, #123, #128); the planning-record commits made after the release PR's last push (11e98cf4) are local and unpushed (72-26 opens their follow-up PR)
+**Milestone:** v1.6 Hardening & Release — started 2026-10-08; Objectives 65-79, 41 requirements mapped; Objectives 65-73, 75, 77 and 78 complete; 74 in progress (OPS-03 deferred by the user); 76 open on 76-06/76-08 as `main` recorded it; 79 in progress (reconcile and release 3.1.0). AOForge 3.0.0 released: tag `v3.0.0` on `main` b4a9d870, 2026-10-09. v1.5 complete 2026-10-08 (archived to .aoforge/milestones/v1.5-*; EST-08 not met, accepted).
+**Branch:** `integrate/3.1.0` (objective 79: `feat/remove-rename-shims` plus `fix/post-77-verification` through merge afbe19a4); local and unpushed until 79-09, whose PR supersedes #129 (`feat/stack-profile-loader`)
 **Objective complete:** 0 — Refine (kind, work) defaults table from codebase evidence (verified 2026-05-04, 443/443 tests, all 10 SC met)
 **Objective complete:** 1 — GitHub coordination layer (verified 2026-05-04, 563/563 tests, all 6 TRDs done, SC-9 + SC-10 met)
 **Objective complete:** 2 — Cross-repo awareness layer (verified 2026-05-04, 731/731 tests with integration flags, all 10 SC met, 7 TRDs done)

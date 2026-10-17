@@ -7,7 +7,7 @@
 - ✅ **v1.3 — Autonomy hardening, stack profile, upgrade/adopt, doc auto-correction** — Objectives 27–41 (completed 2026-09-28; plugin v2.11.0, merged to `main` with 2.13.0)
 - ✅ **v1.4 — GitHub as system of record, stack drafter, doctor, autonomy hardening** — Objectives 42–54 (completed 2026-10-05; plugin v2.13.0 + v2.13.1; 26 killed)
 - ✅ **v1.5 — Gate & Plumbing** — Objectives 55–64 (completed 2026-10-08; 55 in plugin v2.13.2, 56–64 unreleased; EST-08 not met, accepted)
-- 🚧 **v1.6 — Hardening & Release** — Objectives 65–75 (in progress)
+- 🚧 **v1.6 — Hardening & Release** — Objectives 65–79 (in progress)
 
 Full archived roadmaps: `.aoforge/milestones/v1.2-ROADMAP.md` (v1.1 + v1.2 detail), `.aoforge/milestones/v1.3-ROADMAP.md` (v1.3 detail; audit: `milestones/v1.3-MILESTONE-AUDIT.md`), `.aoforge/milestones/v1.4-ROADMAP.md` (v1.4 detail; audit: `milestones/v1.4-MILESTONE-AUDIT.md`), `.aoforge/milestones/v1.5-ROADMAP.md` (v1.5 detail; audit: `milestones/v1.5-MILESTONE-AUDIT.md`; requirements: `milestones/v1.5-REQUIREMENTS.md`). Milestone history: `.aoforge/MILESTONES.md`.
 
@@ -127,6 +127,8 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration (completed 2026-10-10)
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [x] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped (completed 2026-10-10)
+- [ ] **Objective 76: Model efficiency and stack-specific content** - The configured tier is the tier that runs, mechanical work runs as aof-tools code, spawns load only what they need (landed on `main` 2026-10-16, ships in 3.1.0; 76-06's Haiku eval and 76-08's measurement stay open, as `main` recorded them)
+- [x] **Objective 77: Stack packs: contract and extraction** - Core names no stack; Flutter, Dart and web procedure ships in the `aoforge-stack-flutter` and `aoforge-stack-web` packs (landed on `main` 2026-10-16, ships in 3.1.0)
 - [x] **Objective 78: Remove the rename shims** - The one-release rename shims, migrations 0012/0013, the dual-namespace GitHub readers and the devflow pointer plugin go in 3.1.0, as promised for the release after 3.0.0 (completed 2026-10-17)
 - [ ] **Objective 79: Reconcile and release 3.1.0** - The fix branch (main + quick 34-39), PR #129 and objective 78 meet in one integration branch, the merged tree passes every guard, and 3.1.0 ships through one PR after per-step approval
 
@@ -390,6 +392,9 @@ TRDs:
   6. The debugger and the UI judge start on a cheaper tier and escalate on a recorded signal; `ESCALATION REQUESTED` re-spawns one rung up instead of FAILED.
   7. Flutter, Go, Dart and web-specific procedure is delivered through the stack profiles (or on-demand references), so a non-Flutter project's executor, verifier and planner prompts carry none of it.
 **TRDs**: 8 planned
+
+The TRD files listed below were not carried into this repository: `main` kept only the objective record (OBJECTIVE.md and `76-STACK-ASSESSMENT.md`), moved here by TRD 79-01.
+
 - [x] 76-01-model-resolution-wiring-TRD.md — (W1) intent profile binds; build/diagnose/audit spawns get their model; UI judge reads config
 - [x] 76-02-spawn-context-diet-TRD.md — (W1) drop dead `@` lists; per-focus mapper templates; per-dimension researcher templates
 - [x] 76-03-job-checker-prepass-TRD.md — (W1) `verify trd-pre` before the checker; checker narrowed to judgment dimensions
@@ -411,6 +416,9 @@ TRDs:
   4. `stack-neutrality.repo.test.cjs` passes: no core agent, skill, hook, workflow or lib module names a pack stack outside a data-only allowlist.
   5. Pack releases tag as `<pack>--vX.Y.Z` and the changelog gate checks them.
 **TRDs**: 5 planned
+
+The TRD files listed below were not carried into this repository: `main` kept only the objective record (OBJECTIVE.md and `77-GO-PACK-ASSESSMENT.md`), moved here by TRD 79-01.
+
 - [x] 77-01-pack-contract-TRD.md — (W1) manifest schema, discovery, selection, pack profile tier, `stack discover|doctor|verify --changed`, resolve-model pack tiers
 - [x] 77-02-pack-mirror-TRD.md — (W1) vendored SessionStart mirror, test helper, marketplace entries
 - [x] 77-03-flutter-pack-TRD.md — (W2) Flutter modules, CLI, agent, skills, profiles and executor/planner/verifier fragments move out of core
