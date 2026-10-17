@@ -6,8 +6,9 @@
 // 72-12 read both forms for one release (SHIM_REMOVAL). TRD 78-04 removed that for the `.mcp.json` owner key, the
 // session-todo metadata key and the adopt branch/marker: each pre-rename identity is now ignored, and a stale
 // `.mcp.json` entry is reported in one line instead of silently going unrefreshed. TRD 78-05 stopped reading the
-// pre-rename daemon's pid file (6b, 6c). The other user files under the legacy dot directory (4, 5, 6, 7) are still
-// read until 78-11. Fixtures come from
+// pre-rename daemon's pid file (6b, 6c). TRD 78-11 stopped reading the other user files (4, 5, 6) from the legacy dot
+// directory and from ~/.aoforge/ (AOForge 3.0.0): only the runtime home, ~/.claude/aoforge/, counts; doctor check 17
+// moves 3.0.0's files there. Fixtures come from
 // __fixtures__/legacy-identity-fixtures.cjs; every home and repo is a temp dir, never the real ~/.claude,
 // ~/.aoforge or ~/.devflow (the last also holds the devflowops product's files).
 //
@@ -23,12 +24,15 @@
 //  3. [4] TODO_META_KEYS is the AOForge key alone; replayTranscript ignores the pre-rename key (a plain subject
 //     carrying it is not a todo; a `Todo: ` subject is, with a derived stem). [3] The Stop hook archives nothing
 //     for the pre-rename key alone and archives the AOForge key as before.
-//  4. config-ensure-section with only ~/.devflow/defaults.json -> its defaults apply; with both -> ~/.aoforge/ wins.
-//  5. Brave key: only the legacy file -> found; `init new-project` reports it present.
-//  6. Watch allowlist: a legacy-only file is read. [78-05] 6b: the pre-rename daemon's pid file is not read (no
+//  4. [78-11 case 5] config-ensure-section: defaults.json only in ~/.devflow/, or only in ~/.aoforge/ -> not applied
+//     (the hard-coded defaults); in ~/.claude/aoforge/ -> applied, whatever the other two hold.
+//  5. [78-11 case 5] Brave key: only in ~/.devflow/ or only in ~/.aoforge/ -> not found by config-ensure-section or
+//     `init new-project`; in ~/.claude/aoforge/ -> found by both.
+//  6. [78-11 case 5] Watch allowlist: only ~/.claude/aoforge/aoforge-watch-allow.json is read; the pre-rename file
+//     and the ~/.aoforge/ copy are ignored. [78-05] 6b: the pre-rename daemon's pid file is not read (no
 //     record carries `legacy`, add says ENOPIDFILE) and a pid write goes to the watch state directory,
 //     ~/.claude/aoforge/state/watch/ (TRD 73-12). 6c: flutter-ui setup has no special case for it.
-//  7. Nothing under the legacy dot dir is moved, renamed or deleted by any of the above (listing before/after).
+//  7. Nothing under the legacy dot dir or ~/.aoforge/ is moved, renamed or deleted by any of the above.
 //  8. [5] `adopt preflight` (CLI) in a repo on the pre-rename adopt branch with its marker -> a fresh adopt on
 //     aoforge/adopt, no `legacy_branch_exists` in the JSON, nothing written to that branch. [6] `adopt begin` there
 //     creates aoforge/adopt and leaves the old branch at its commit. The pre-rename marker is never read; a stale
@@ -356,44 +360,75 @@ function withHome(home, fn) {
   }
 }
 
-describe('72-12 user files under the legacy dot directory', () => {
-  test('4. config-ensure-section applies a legacy-only defaults.json; the new one wins when both exist', () => {
+/** Write `files` into the runtime home, <home>/.claude/aoforge/ (the only place 3.1 reads user files from). */
+function writeRuntimeFiles(home, files) {
+  const dir = path.join(home, '.claude', NAMES.runtimeDir);
+  fs.mkdirSync(dir, { recursive: true });
+  for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(dir, name), content);
+  return dir;
+}
+
+describe('78-11 user files come from the runtime home only', () => {
+  test('4. config-ensure-section ignores defaults.json in ~/.devflow/ and ~/.aoforge/; the runtime-home one applies', () => {
     const legacyOnly = dotHome({ files: { 'defaults.json': LEGACY_DEFAULTS } });
     const cfg = ensureConfig(legacyOnly.home);
-    assert.equal(cfg.model_profile, 'quality', 'the legacy defaults apply');
-    assert.equal(cfg.workflow.research, false);
+    assert.equal(cfg.model_profile, 'balanced', 'the pre-rename defaults are not read');
+    assert.equal(cfg.workflow.research, true);
 
-    const both = dotHome({ files: { 'defaults.json': LEGACY_DEFAULTS }, newFiles: { 'defaults.json': NEW_DEFAULTS } });
-    const cfg2 = ensureConfig(both.home);
-    assert.equal(cfg2.model_profile, 'budget', 'the new defaults win');
-    assert.equal(cfg2.workflow.research, true, 'nothing is merged in from the legacy file');
+    const interimOnly = dotHome({ newFiles: { 'defaults.json': LEGACY_DEFAULTS } });
+    const cfg2 = ensureConfig(interimOnly.home);
+    assert.equal(cfg2.model_profile, 'balanced', 'the ~/.aoforge/ (3.0.0) defaults are not read');
+    assert.equal(cfg2.workflow.research, true);
+
+    const all = dotHome({ files: { 'defaults.json': LEGACY_DEFAULTS }, newFiles: { 'defaults.json': LEGACY_DEFAULTS } });
+    writeRuntimeFiles(all.home, { 'defaults.json': NEW_DEFAULTS });
+    const cfg3 = ensureConfig(all.home);
+    assert.equal(cfg3.model_profile, 'budget', 'the runtime-home defaults apply');
+    assert.equal(cfg3.workflow.research, true, 'nothing is merged in from the other files');
   });
 
-  test('5. a legacy-only Brave key file is found by config-ensure-section and init new-project', () => {
+  test('5. a Brave key file counts only in the runtime home', () => {
     const none = dotHome({});
     assert.equal(ensureConfig(none.home).brave_search, false, 'control: no key anywhere');
 
-    const h = dotHome({ files: { brave_api_key: 'BSA-fixture-key\n' } });
-    assert.equal(ensureConfig(h.home).brave_search, true);
+    for (const [label, opts] of [
+      ['~/.devflow/', { files: { brave_api_key: 'BSA-fixture-key\n' } }],
+      ['~/.aoforge/', { newFiles: { brave_api_key: 'BSA-fixture-key\n' } }],
+    ]) {
+      const h = dotHome(opts);
+      assert.equal(ensureConfig(h.home).brave_search, false, `${label}: config-ensure-section does not see it`);
+      const dir = scratch('legacy-dot-init-');
+      const r = tools(dir, h.home, ['init', 'new-project', '--raw']);
+      assert.equal(r.status, 0, r.out);
+      assert.equal(JSON.parse(r.stdout).brave_search_available, false, `${label}: init new-project does not see it`);
+    }
 
+    const h = dotHome({});
+    writeRuntimeFiles(h.home, { brave_api_key: 'BSA-fixture-key\n' });
+    assert.equal(ensureConfig(h.home).brave_search, true, 'the runtime-home key is found');
     const dir = scratch('legacy-dot-init-');
     const r = tools(dir, h.home, ['init', 'new-project', '--raw']);
     assert.equal(r.status, 0, r.out);
     assert.equal(JSON.parse(r.stdout).brave_search_available, true);
   });
 
-  test('6. the watch allowlist is read from the legacy file when the new one is missing; the new one wins', () => {
+  test('6. the watch allowlist is read from ~/.claude/aoforge/aoforge-watch-allow.json only', () => {
     const allow = () => require('./watcher-allowlist.cjs').loadAllowlist();
 
     const legacyOnly = dotHome({ files: { [OLD_ALLOW]: LEGACY_ALLOW } });
     const r1 = withHome(legacyOnly.home, allow);
-    assert.equal(r1.userPatterns, 1);
-    assert.ok(r1.allowlist.some((p) => p.label === 'legacy-extra'), 'the legacy pattern is loaded');
+    assert.equal(r1.userPatterns, 0, 'the pre-rename allowlist is not read');
+    assert.equal(r1.allowlist.some((p) => p.label === 'legacy-extra'), false);
 
-    const both = dotHome({ files: { [OLD_ALLOW]: LEGACY_ALLOW }, newFiles: { [NEW_ALLOW]: NEW_ALLOW_TEXT } });
-    const r2 = withHome(both.home, allow);
-    assert.equal(r2.userPatterns, 1);
-    assert.deepEqual(r2.allowlist.filter((p) => /-extra$/.test(p.label)).map((p) => p.label), ['new-extra']);
+    const interimOnly = dotHome({ newFiles: { [NEW_ALLOW]: NEW_ALLOW_TEXT } });
+    const r2 = withHome(interimOnly.home, allow);
+    assert.equal(r2.userPatterns, 0, 'the ~/.aoforge/ (3.0.0) allowlist is not read');
+
+    const all = dotHome({ files: { [OLD_ALLOW]: LEGACY_ALLOW }, newFiles: { [NEW_ALLOW]: LEGACY_ALLOW } });
+    writeRuntimeFiles(all.home, { [NEW_ALLOW]: NEW_ALLOW_TEXT });
+    const r3 = withHome(all.home, allow);
+    assert.equal(r3.userPatterns, 1);
+    assert.deepEqual(r3.allowlist.filter((p) => /-extra$/.test(p.label)).map((p) => p.label), ['new-extra']);
   });
 
   test('6b. [78-05] the pre-rename daemon\'s pid file is not read; writes and removals land in the watch state directory', () => {
@@ -451,7 +486,7 @@ describe('72-12 user files under the legacy dot directory', () => {
     assert.doesNotMatch(r.stderr, /stale aoforge-watch PID file/, 'and the file is not a stale record either');
   });
 
-  test('7. nothing under the legacy dot directory is moved, renamed or deleted', () => {
+  test('7. nothing under the legacy dot directory or ~/.aoforge/ is moved, renamed or deleted', () => {
     const h = dotHome({
       files: {
         'defaults.json': LEGACY_DEFAULTS,
@@ -459,7 +494,14 @@ describe('72-12 user files under the legacy dot directory', () => {
         [OLD_ALLOW]: LEGACY_ALLOW,
         [OLD_PID]: LEGACY_PID_TEXT,
       },
+      newFiles: {
+        'defaults.json': NEW_DEFAULTS,
+        brave_api_key: 'BSA-fixture-key\n',
+        [NEW_ALLOW]: NEW_ALLOW_TEXT,
+      },
     });
+    const interim = () => fs.readdirSync(h.newDir).sort().map((n) => `${n} ${fs.readFileSync(path.join(h.newDir, n), 'utf-8')}`);
+    const interimBefore = interim();
     const before = h.listLegacy();
     assert.ok(before.some((l) => l.startsWith(`${LEGACY.slug}.sqlite `)), 'the devflowops sentinel is there');
     assert.ok(before.some((l) => l.startsWith('sessions.json ')));
@@ -480,6 +522,7 @@ describe('72-12 user files under the legacy dot directory', () => {
     });
 
     assert.deepEqual(h.listLegacy(), before);
+    assert.deepEqual(interim(), interimBefore, '~/.aoforge/ is left as it was (doctor check 17 moves it, on request)');
   });
 });
 

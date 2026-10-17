@@ -1,19 +1,20 @@
 'use strict';
 
 // compat.home.test.cjs — $HOME is never an AOForge project root (TRD 73-09, gap G5 (a)), and the
-// user's files resolve from the runtime home first (TRD 73-11, gap G5 (b); its list is further down).
+// user's files are read from the runtime home only (TRD 73-11, gap G5 (b); since TRD 78-11 with no
+// fallback to ~/.aoforge/ or the pre-rename dot directory; its list is further down).
 //
 // aoforge-watch writes into `~/<NAMES.userDotDir>/`, which has the planning directory's name, and
 // findProjectRoot walked up with no stop at $HOME: every repository below $HOME read as a project.
-// Locked decision: a planning directory exactly at $HOME is never a project (either name), and
-// the walk does not continue above $HOME.
+// Locked decision: a planning directory exactly at $HOME is never a project, and the walk does not
+// continue above $HOME. (Since TRD 78-11 the legacy planning directory is no project anywhere.)
 //
 // Test list (spawned hooks are in hooks/home-project-detection.test.js, planning-mode in
 // planning-mode.test.cjs):
 //    7. findProjectRoot(<home>/repo/sub, { home }) -> null when only <home>/<dot dir> exists.
 //    8. findProjectRoot(<home>, { home }) -> null.
 //    9. <home>/proj/<planning dir> and <home>/<dot dir> -> findProjectRoot(<home>/proj/sub) is <home>/proj.
-//   10. The legacy planning directory at $HOME -> null too.
+//   10. The legacy planning directory at $HOME -> null too (it is no project anywhere since TRD 78-11).
 //   11. A home reached under a symlink with a different name (<base>/link -> <base>/real), in both
 //       directions -> null; the stop check cannot see it (basenames differ), the candidate check
 //       must. No over-refusal: a project at <base>/real/proj, started under <base>/link -> found.
@@ -197,18 +198,17 @@ describe('isUserHome (TRD 73-09)', () => {
   });
 });
 
-// ─── TRD 73-11: user files resolve from the runtime home ─────────────────────────
+// ─── TRD 73-11 / 78-11: user files come from the runtime home only ─────────────
 //
-// Test list (73-11 numbering; the pre-rename location is pinned in compat.legacy.test.cjs, the
-// allowlist in watcher-allowlist.test.cjs):
+// Test list (73-11 numbering; TRD 78-11 removed resolveUserFile and every fallback: the pre-rename
+// location is pinned in compat.legacy.test.cjs, the allowlist in watcher-allowlist.test.cjs):
 //   1. watchStateDir(h) is <h>/.claude/aoforge/state/watch.
-//   2. resolveUserFile(h, 'defaults.json'), nothing on disk -> the runtime-home path, 'current'.
-//   3. Only <h>/<dot dir>/defaults.json -> that path, 'interim'.
-//   4. A runtime-home file and a dot-dir file -> the runtime-home file, 'current'.
-//   5. currentDir: watchStateDir(h): the file in the watch directory -> 'current'; only the dot-dir
-//      file -> 'interim'.
-//   6. A directory (not a file) at the runtime-home path is skipped, as isFile does.
-//   7. userDotFile(h, name) equals resolveUserFile(h, name).file for cases 2-4.
+//   2. userDotFile(h, 'defaults.json'), nothing on disk -> the runtime-home path; nothing is created.
+//   3. Only <h>/<dot dir>/defaults.json (AOForge 3.0.0) -> still the runtime-home path: it is not read.
+//   4. A runtime-home file and a dot-dir file -> the runtime-home file; the dot-dir file is left as it was.
+//   5. compat exports no resolveUserFile (the daemon's pid and log use watchStateDir directly).
+//   6. A directory (not a file) at the runtime-home path -> still that path: there is nothing to fall back to.
+//   7. userDotFile(h, name) is path.join(runtimeHome(h), name) for cases 2-4.
 
 /** A bare temp home; `fn(home)`; removed afterwards. */
 function withBareHome(fn) {
@@ -220,7 +220,9 @@ function withBareHome(fn) {
   }
 }
 
-describe('watchStateDir and resolveUserFile (TRD 73-11)', () => {
+const runtimePath = (home, name) => path.join(home, '.claude', 'aoforge', name);
+
+describe('watchStateDir and userDotFile (TRD 73-11, runtime home only since 78-11)', () => {
   test('73-11 1. watchStateDir(h) is <h>/.claude/aoforge/state/watch', () => {
     assert.equal(typeof compat.watchStateDir, 'function', 'compat exports watchStateDir');
     assert.equal(compat.watchStateDir('/home/u'), path.join('/home/u', '.claude', 'aoforge', 'state', 'watch'));
@@ -229,62 +231,44 @@ describe('watchStateDir and resolveUserFile (TRD 73-11)', () => {
     });
   });
 
-  test('73-11 2. nothing on disk -> the runtime-home path, which: current', () => {
+  test('73-11 2. nothing on disk -> the runtime-home path, nothing created', () => {
     withBareHome((home) => {
-      assert.deepEqual(compat.resolveUserFile(home, 'defaults.json'), {
-        file: path.join(home, '.claude', 'aoforge', 'defaults.json'),
-        which: 'current',
-      });
+      assert.equal(compat.userDotFile(home, 'defaults.json'), runtimePath(home, 'defaults.json'));
       assert.equal(fs.existsSync(path.join(home, '.claude')), false, 'resolving creates nothing');
       assert.equal(fs.existsSync(userFileDir(home, 'interim')), false, 'resolving creates nothing');
     });
   });
 
-  test('73-11 3. only the dot-dir file -> it, which: interim', () => {
+  test('73-11 3. only the dot-dir file (3.0.0) -> the runtime-home path: ~/.aoforge/ is not read (78-11)', () => {
     withBareHome((home) => {
       const interim = writeUserFile(home, 'interim', 'defaults.json');
-      assert.deepEqual(compat.resolveUserFile(home, 'defaults.json'), { file: interim, which: 'interim' });
+      assert.equal(compat.userDotFile(home, 'defaults.json'), runtimePath(home, 'defaults.json'));
+      assert.ok(fs.existsSync(interim), 'the dot-dir file is left where it is (doctor check 17 moves it)');
     });
   });
 
-  test('73-11 4. a runtime-home file and a dot-dir file -> the runtime-home file, which: current', () => {
+  test('73-11 4. a runtime-home file and a dot-dir file -> the runtime-home file', () => {
     withBareHome((home) => {
       const current = writeUserFile(home, 'current', 'defaults.json', '{"a":1}');
       const interim = writeUserFile(home, 'interim', 'defaults.json', '{"a":2}');
-      assert.deepEqual(compat.resolveUserFile(home, 'defaults.json'), { file: current, which: 'current' });
+      assert.equal(compat.userDotFile(home, 'defaults.json'), current);
       assert.equal(fs.readFileSync(interim, 'utf8'), '{"a":2}', 'the dot-dir file is left as it was');
     });
   });
 
-  test('73-11 5. currentDir: the watch directory is current, the dot-dir file is interim', () => {
-    withBareHome((home) => {
-      const interim = writeUserFile(home, 'interim', 'x.pid', '1');
-      const currentDir = compat.watchStateDir(home);
-      assert.deepEqual(compat.resolveUserFile(home, 'x.pid', { currentDir }), { file: interim, which: 'interim' });
-
-      const watched = writeUserFile(home, 'watch', 'x.pid', '2');
-      assert.deepEqual(compat.resolveUserFile(home, 'x.pid', { currentDir }), { file: watched, which: 'current' });
-    });
-    withBareHome((home) => {
-      const currentDir = compat.watchStateDir(home);
-      assert.deepEqual(
-        compat.resolveUserFile(home, 'x.pid', { currentDir }),
-        { file: path.join(currentDir, 'x.pid'), which: 'current' },
-        'nothing anywhere -> the path under currentDir',
-      );
-    });
+  test('73-11 5. compat exports no resolveUserFile (78-11)', () => {
+    assert.equal('resolveUserFile' in compat, false);
   });
 
-  test('73-11 6. a directory at the runtime-home path is skipped', () => {
+  test('73-11 6. a directory at the runtime-home path -> still that path (no fallback)', () => {
     withBareHome((home) => {
       fs.mkdirSync(path.join(userFileDir(home, 'current'), 'defaults.json'), { recursive: true });
-      const interim = writeUserFile(home, 'interim', 'defaults.json');
-      assert.deepEqual(compat.resolveUserFile(home, 'defaults.json'), { file: interim, which: 'interim' });
-      assert.equal(compat.userDotFile(home, 'defaults.json'), interim);
+      writeUserFile(home, 'interim', 'defaults.json');
+      assert.equal(compat.userDotFile(home, 'defaults.json'), runtimePath(home, 'defaults.json'));
     });
   });
 
-  test('73-11 7. userDotFile is resolveUserFile(...).file', () => {
+  test('73-11 7. userDotFile is path.join(runtimeHome(home), name)', () => {
     const cases = [
       () => {},
       (home) => writeUserFile(home, 'interim', 'defaults.json'),
@@ -298,7 +282,7 @@ describe('watchStateDir and resolveUserFile (TRD 73-11)', () => {
         build(home);
         assert.equal(
           compat.userDotFile(home, 'defaults.json'),
-          compat.resolveUserFile(home, 'defaults.json').file,
+          path.join(compat.runtimeHome(home), 'defaults.json'),
           `case ${i + 2}`,
         );
       });

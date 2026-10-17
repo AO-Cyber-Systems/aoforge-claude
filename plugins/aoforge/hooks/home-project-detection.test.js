@@ -23,6 +23,10 @@
  *      denies an ambient Write to <home>/proj/src/a.txt (a project below $HOME is still one).
  *   6. cwd = <home> itself (a session started in $HOME) -> gate-edits allows a Write to
  *      <home>/notes.txt.
+ *   7. (TRD 78-11) A repo below $HOME holding only the pre-rename planning directory (with a
+ *      ROADMAP.md and objectives/, the shape that made it a project in 3.0.x) is no project:
+ *      classify-session, gate-edits, gate-commits and route-intent print what they print for the
+ *      same repo without it, and no hook creates `.aoforge/` in it.
  *
  * Every home is a hand-built temp tree (lib/__fixtures__/home-dot-dir-fixtures.cjs); nothing
  * reads the real $HOME. Homes keep the form mkdtemp returns (macOS: /var/folders/...), while the
@@ -49,6 +53,7 @@ const {
 } = require('../aoforge/bin/lib/__fixtures__/home-dot-dir-fixtures.cjs');
 
 const hook = (name) => path.join(__dirname, name);
+const { planningDir: OLD_PLAN_DIR } = LEGACY;
 
 /** process.env minus every skip escape (both prefixes, since the hooks alias the legacy one), with HOME set. */
 function hookEnv(home) {
@@ -176,5 +181,64 @@ describe('$HOME holding the watcher\'s dot directory is not a project (spawned h
     } finally {
       rmHome(home);
     }
+  });
+
+  describe('7. a repo below $HOME holding only the pre-rename planning directory is no project (TRD 78-11)', () => {
+    /** Each hook's stdout for the same repo with and without the legacy directory, under a clean home. */
+    function legacyRuns(name, buildPayload) {
+      const legacy = mkHome({ prefix: 'aof-home-legacy-' });
+      const clean = mkHome({ prefix: 'aof-home-ctl-' });
+      try {
+        const legacyRepo = mkRepoBelow(legacy.home);
+        const old = path.join(legacyRepo, OLD_PLAN_DIR);
+        fs.mkdirSync(path.join(old, 'objectives'), { recursive: true });
+        fs.writeFileSync(path.join(old, 'ROADMAP.md'), '# Roadmap\n');
+        const run = (home, repo) => norm(runHook(name, {
+          cwd: repo,
+          home,
+          payload: buildPayload ? buildPayload({ home, repo }) : undefined,
+        }).stdout, home);
+        const out = { legacy: run(legacy.home, legacyRepo), clean: run(clean.home, mkRepoBelow(clean.home)) };
+        assert.equal(fs.existsSync(path.join(legacyRepo, NAMES.planningDir)), false, `${name} created ${NAMES.planningDir}/`);
+        return out;
+      } finally {
+        rmHome(legacy.home, clean.home);
+      }
+    }
+
+    test('7. classify-session', () => {
+      const { legacy, clean } = legacyRuns('classify-session.js');
+      assert.equal(legacy, clean);
+    });
+
+    test('7. gate-edits: an ambient Write is not denied', () => {
+      const { legacy, clean } = legacyRuns('gate-edits.js', ({ repo }) => preToolUsePayload({
+        tool: 'Write',
+        filePath: path.join(repo, 'src', 'a.txt'),
+        cwd: repo,
+      }));
+      assert.equal(deniesIn(legacy), false, `gate-edits denied: ${legacy}`);
+      assert.equal(legacy, clean);
+    });
+
+    test('7. gate-commits: a raw commit is not denied', () => {
+      const { legacy, clean } = legacyRuns('gate-commits.js', ({ repo }) => preToolUsePayload({
+        tool: 'Bash',
+        command: 'git commit -m x',
+        cwd: repo,
+      }));
+      assert.equal(deniesIn(legacy), false, `gate-commits denied: ${legacy}`);
+      assert.equal(legacy, clean);
+    });
+
+    test('7. route-intent: a build prompt gets no routing', () => {
+      const { legacy, clean } = legacyRuns('route-intent.js', ({ repo }) => ({
+        hook_event_name: 'UserPromptSubmit',
+        prompt: 'add a delete button to the settings page',
+        session_id: 's-fixture',
+        cwd: repo,
+      }));
+      assert.equal(legacy, clean);
+    });
   });
 });
