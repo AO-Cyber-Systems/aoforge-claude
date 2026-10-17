@@ -6,7 +6,6 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { planningDirName } = require('./compat.cjs');
-const { LEGACY } = require('./legacy-names.cjs');
 
 const {
   parseStateMd,
@@ -726,14 +725,12 @@ test('gitignore G2: gitignore line appears exactly once (does not inadvertently 
     return;
   }
   const content = fs.readFileSync(gitignorePath, 'utf-8');
-  // The `.aoforge/` line exactly once. The only other line naming the file is its twin under the pre-rename
-  // planning directory, which this repository's .gitignore keeps until `main` (still on the legacy directory) is
-  // reconciled with 3.1 (TRD 78-12); AOForge itself reads `.aoforge/` only (TRD 78-11).
+  // The `.aoforge/` line exactly once, and no other line names the file (the legacy twin went with the main
+  // reconcile, TRD 79-01; AOForge reads `.aoforge/` only, TRD 78-11).
   const lines = content.split(/\r?\n/).filter((l) => l.includes('.awareness-cache.json'));
-  const allowed = [`${planningDirName(path.dirname(gitignorePath))}/.awareness-cache.json`, `${LEGACY.planningDir}/.awareness-cache.json`];
+  const allowed = [`${planningDirName(path.dirname(gitignorePath))}/.awareness-cache.json`];
   assert.strictEqual(lines.filter((l) => l === allowed[0]).length, 1, 'the .aoforge/ line appears exactly once');
   assert.deepStrictEqual(lines.filter((l) => !allowed.includes(l)), [], 'nothing else names .awareness-cache.json');
-  assert.ok(lines.filter((l) => l === allowed[1]).length <= 1, 'the legacy twin, if kept, appears at most once');
 });
 
 // ─── Group T: templates/config.json documentation ────────────────────────────

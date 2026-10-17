@@ -33,7 +33,8 @@
 // 8. Planning directory (TRD 72-06): the token set includes the legacy planning directory name
 //    (`planningDir`, built from LEGACY.planningDir), counted only where the codemod would call it a
 //    directory (not member access such as a config key); a sample line naming the legacy STATE.md
-//    yields one finding; the tree passes with ALLOW entries for .gitignore and the monorepo doctor.
+//    yields one finding; the tree passes with an ALLOW entry for the monorepo doctor only (TRD 79-01
+//    removed the .gitignore entry with the last legacy ignore lines).
 // 9. Span-scoped ALLOW (TRD 72-14): an entry with `spans` keeps its file in the scan set and masks
 //    only those spans (a JSON file cannot hold an ignore region). Since TRD 78-02 removed the pointer
 //    release, ALLOW holds no such entry, so a synthetic one is passed in: its spans are masked and
@@ -97,15 +98,12 @@ const ALLOW = [
     reason: 'the codemod fixtures are a sample tree spelled with the old names',
   },
   {
-    pattern: '.gitignore',
-    reason: 'keeps the legacy ignore lines until main, which still uses the legacy planning directory, is reconciled with 3.1',
-  },
-  {
     pattern: 'plugins/monorepo-standards/skills/monorepo-doctor/lib/doctor.js',
     reason: 'skips directories by name: its skip lists name the legacy planning and product directories beside the new ones',
   },
   // TRD 78-02 removed the pointer release of the old plugin and, with it, its four entries here (the plugin
-  // directory, its generator, and the span-scoped marketplace and package.json entries).
+  // directory, its generator, and the span-scoped marketplace and package.json entries). TRD 79-01 removed the
+  // .gitignore entry: the main reconcile moved the last legacy planning records, so no legacy ignore line is left.
 ];
 
 // ─── ignore regions ───────────────────────────────────────────────────────────────
