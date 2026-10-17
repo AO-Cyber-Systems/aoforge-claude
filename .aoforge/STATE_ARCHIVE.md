@@ -632,6 +632,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 79]: 79-01: integrate/3.1.0 is one tree through merge commit afbe19a4 (parents e7fd81e7, 7fced4d9); 15 conflicts resolved as unions with objective 78 winning on shim facts and main on stack packs and lazy loading; CLAUDE.md budget left to 79-07
 - [Objective 79]: 79-01: pre-rename runtime leftovers on this machine (.devflow-handoff/, .aoforge/.devflow-notices.json, objective 37's .devflow-handoff/) are excluded in .git/info/exclude; .gitignore keeps no legacy line
 - [Objective 79]: 79-02: compat references are resolved by module (lexer plus regex), not by name; reconcile-guard.repo.test.cjs fails on a compat export that does not exist, on the five removed names and on a tracked pre-rename planning path
+- [Objective 79]: 79-03: pre-bash one-process dispatch is equivalent to the five spawned hooks on a 51-case corpus and two five-call sequences; no hook changed; a dispatcher without gate-interactive diverges on the 6 gated interactive cases
 
 ## Performance Metrics
 
@@ -860,3 +861,4 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P12 | 25min | 3 tasks | 54 files |
 | Objective 79 P01 | 24min | 3 tasks | 19 files |
 | Objective 79 P02 | 12min | 3 tasks | 2 files |
+| Objective 79 P03 | 15min | 3 tasks | 2 files |
