@@ -54,6 +54,8 @@
 //   25b. writeStamp updates the aoforge key in place; every other key keeps its value and position (TRD 78-07:
 //        the writer reads and writes the aoforge key only; the pre-rename cases live in
 //        upgrade-retired.legacy.test.cjs).
+//   27. A migration whose apply returns `deferred` stays pending, later writes are held, the backup claimed only
+//       for it is removed, and nothing (stamp included) is written.
 //   26. config.json not valid JSON → apply does not write it; failed has {id:'stamp', error}.
 
 const { test, describe, after } = require('node:test');
@@ -792,6 +794,35 @@ describe('stamp helpers', () => {
     assert.deepEqual(after.aoforge, stamp);
     assert.equal(JSON.stringify(after.first), JSON.stringify(others.first));
     assert.equal(after.last, others.last);
+  });
+
+  test('27: a deferred apply stays pending, holds later writes, removes its own backup, leaves the stamp', () => {
+    // The runner's generic `deferred` path (TRD 72-08), kept by TRD 78-07 after migration 0012, its first user, was
+    // retired. 0001 defers; 0002 would apply but is held; nothing is written.
+    const deferring = migrationSource({
+      id: '0001',
+      title: 'defer 0001',
+      detect: "    return { applies: true, reason: 'always' };",
+      apply: "    return { changed: [], notes: 'the tree is dirty', deferred: 'dirty' };",
+    });
+    const project = v1();
+    const h = home();
+    const before = snapshot(project);
+    const r = upgrade.apply({ projectRoot: project, userHome: h, pluginVersion: PV, now: NOW,
+      registryDir: registry({ '0001-defer.cjs': deferring, '0002-mark.cjs': markerMigration('0002') }) });
+    assert.deepEqual(r.deferred, [{ id: '0001', title: 'defer 0001', reason: 'dirty', notes: 'the tree is dirty' }]);
+    assert.deepEqual(r.pending.map((p) => [p.id, p.reason]), [['0001', 'the tree is dirty'], ['0002', 'marker 0002 missing']]);
+    assert.deepEqual(r.applied, []);
+    assert.deepEqual(r.failed, []);
+    assert.deepEqual(r.changed_files, []);
+    assert.equal(r.backup, null);
+    assert.equal(r.up_to_date, false);
+    assert.deepEqual(diffSnapshots(before, snapshot(project)), []);
+    const backups = backupsRoot(h);
+    const left = fs.existsSync(backups)
+      ? fs.readdirSync(backups).flatMap((k) => fs.readdirSync(path.join(backups, k)))
+      : [];
+    assert.deepEqual(left, [], 'the backup claimed only for the deferred migration is removed');
   });
 
   test('26: invalid config.json → apply never writes it; failed has {id:"stamp"}', () => {
