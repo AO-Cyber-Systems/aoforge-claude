@@ -51,6 +51,9 @@
 //
 // Stamp helpers:
 //   25. readStamp → null when config.json absent or has no aoforge; the stamp otherwise.
+//   25b. writeStamp updates the aoforge key in place; every other key keeps its value and position (TRD 78-07:
+//        the writer reads and writes the aoforge key only; the pre-rename cases live in
+//        upgrade-retired.legacy.test.cjs).
 //   26. config.json not valid JSON → apply does not write it; failed has {id:'stamp', error}.
 
 const { test, describe, after } = require('node:test');
@@ -775,6 +778,20 @@ describe('stamp helpers', () => {
     const flatAfter = JSON.parse(read(flat, '.aoforge/config.json'));
     assert.deepEqual(Object.keys(flatAfter), [...Object.keys(flatBefore), 'aoforge']);
     assert.deepEqual(upgrade.readStamp(flat), stamp);
+  });
+
+  test('25b: writeStamp updates the aoforge key in place and leaves every other key byte-identical', () => {
+    const project = v1();
+    const file = path.join(project, '.aoforge', 'config.json');
+    const others = { first: { keep: [1, 2] }, last: 'kept as is' };
+    fs.writeFileSync(file, JSON.stringify({ first: others.first, aoforge: { version: '1.0.0' }, last: others.last }, null, 2) + '\n');
+    const stamp = { version: PV, migrations_applied: ['0001'], upgraded_at: NOW.toISOString() };
+    upgrade.writeStamp(project, stamp);
+    const after = JSON.parse(read(project, '.aoforge/config.json'));
+    assert.deepEqual(Object.keys(after), ['first', 'aoforge', 'last']);
+    assert.deepEqual(after.aoforge, stamp);
+    assert.equal(JSON.stringify(after.first), JSON.stringify(others.first));
+    assert.equal(after.last, others.last);
   });
 
   test('26: invalid config.json → apply never writes it; failed has {id:"stamp"}', () => {
