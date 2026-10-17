@@ -65,8 +65,8 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 **Objective complete:** 72 — Rename to AOForge and naming cleanup (completed 2026-10-09, 27/27 TRDs)
 **Objective complete:** 73 — Handoff gaps and result injection (completed 2026-10-10, 14/14 TRDs)
 **Objective complete:** 75 — Prospective estimate retest and todo sweep (completed 2026-10-10, 5/5 TRDs)
-**Status:** Executing objective 78 — 4/12 TRDs complete
-**Progress:** [██████████] 98%
+**Status:** Executing objective 78 — 5/12 TRDs complete
+**Progress:** [██████████] 99%
 
 ## Branch State (post-merge)
 
@@ -286,6 +286,6 @@ See: .aoforge/PROJECT.md (updated 2026-10-09 in TRD 72-22, AOForge wording)
 
 ## Session Continuity
 
-Last session: 2026-10-16T23:33:24.309Z
+Last session: 2026-10-17T00:23:40.546Z
 Resume file: `None`
-Stopped at: Completed 78-01-legacy-layout-detectors-TRD.md
+Stopped at: Completed 78-08-claude-md-aoforge-markers-only-TRD.md

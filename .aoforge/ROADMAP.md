@@ -396,7 +396,7 @@ TRDs:
 - [ ] 78-05-watch-daemon-runtime-home-TRD.md — (W2, TDD) watch pid and log from the runtime home only; a live 3.0.0 daemon is named, never duplicated
 - [ ] 78-06-global-legacy-notices-and-doctor-TRD.md — (W2, TDD) one SessionStart notice for the old plugin, DEVFLOW_* variables, an unmigrated runtime home and ~/.aoforge files; checks 15/16 report-only, 17 keeps its fix; runtime-state migration retired
 - [ ] 78-07-retire-planning-migrations-and-guard-TRD.md — (W2, TDD) migrations 0012/0013 removed (ids retired), stamp read under aoforge only, CLI guard and SessionStart notice for a legacy-only project, no second planning tree
-- [ ] 78-08-claude-md-aoforge-markers-only-TRD.md — (W2, TDD) managed block under AOFORGE markers only with an ELEGACYBLOCK refusal; migration 0014 and the global pre-rename move/outside rewrite removed
+- [x] 78-08-claude-md-aoforge-markers-only-TRD.md — (W2, TDD) managed block under AOFORGE markers only with an ELEGACYBLOCK refusal; migration 0014 and the global pre-rename move/outside rewrite removed
 - [ ] 78-09-gh-labels-and-rebrand-guard-TRD.md — (W2, TDD) label lookups use one label; an un-rebranded repository stops with `gh rebrand --apply` instead of getting duplicates
 - [ ] 78-10-env-alias-removal-TRD.md — (W3, TDD) no entry point calls aliasLegacyEnv; gate-edits single planning segment; hook comments
 - [ ] 78-11-compat-single-name-TRD.md — (W4, TDD, after 78-10) compat.cjs AOForge-only: planning dir, project root, agent namespace, user files; legacy exports deleted
@@ -423,4 +423,4 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 5/5 | Complete | 2026-10-10 |
-| 78. Remove the rename shims | v1.6 | 4/12 | In Progress | - |
+| 78. Remove the rename shims | v1.6 | 5/12 | In Progress | - |

@@ -334,6 +334,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-03: gh rebrand (72-16) KEPT in 3.1.0 as the explicit converter; it owns its legacy patterns now that gh-body/gh-trd/gh-cache read the aoforge namespace only
 - [Objective 78]: 78-03: checks-pin pre-rename caller detection (W062 legacy:true, fix gh rebrand) KEPT as a detector; gh setup refuses a pre-rename PR-template block (conflict, reason legacy-pr-template)
 - [Objective 78]: 78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector
+- [Objective 78]: 78-08: migration 0014 (CLAUDE.md rebrand) REMOVED; managed-block refuses pre-rename markers with ELEGACYBLOCK/W069 instead of reading them; id 0014 stays reserved (78-07 RETIRED_MIGRATIONS)
+- [Objective 78]: 78-08: global upgrade's pre-rename block move and outside-text rewrite (outside, outside_diff, --confirm rewrite) REMOVED; a pre-rename block or routing heading yields action pre_rename, no write, one notice (key global-claude-md-pre-rename)
+- [Objective 78]: 78-08: legacy-rewrite.cjs KEPT (only consumer now gh rebrand); meta.legacy (pre-v1 marker) and the df-* move are objective 36's, not the rename, and stay
 
 ## Performance Metrics
 
@@ -552,4 +555,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P02 | 17min | 3 tasks | 64 files |
 | Objective 78 P03 | 21min | 3 tasks | 11 files |
 | Objective 78 P04 | 14min | 3 tasks | 12 files |
+| Objective 78 P08 | 16min | 3 tasks | 13 files |
 
