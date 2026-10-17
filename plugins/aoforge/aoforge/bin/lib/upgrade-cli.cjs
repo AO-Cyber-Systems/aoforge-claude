@@ -12,9 +12,9 @@
 //
 // `--global` drives global-upgrade.cjs against ~/.claude instead: alone it only plans (dry run);
 // `--global --apply` moves legacy files and updates the managed CLAUDE.md block but never adopts a
-// hand-written section; `--global --confirm` does the same and also adopts. Hand-written lines
-// outside the block that still name the old product (TRD 72-09) are shown as a unified diff (prose
-// after the summary with --raw, `outside_diff` in the JSON) and rewritten only with --confirm.
+// hand-written section; `--global --confirm` does the same and also adopts. A CLAUDE.md still under
+// the pre-rename markers or routing heading is never written (block action `pre_rename`, TRD 78-08);
+// the summary prints the fix.
 //
 // userHome is os.homedir() and pluginVersion is helpers.pluginVersion(), so a spawned test controls
 // both with HOME=<fake> and the checkout's plugin.json.
@@ -191,15 +191,11 @@ function globalSummary(result) {
   if (result.block.action === 'adopt_pending') {
     parts.push('run `aof-tools upgrade --global --confirm` to adopt the managed block');
   }
-  const outside = result.outside;
-  if (outside && outside.applied) parts.push(`outside the block: rewrote ${outside.lines} line(s)`);
   if (result.dryRun) parts.push('check only; nothing written');
   let text = parts.join('; ');
-  // TRD 72-09: hand-written lines outside the block are shown, never rewritten without --confirm.
-  if (outside && outside.lines > 0 && !outside.applied) {
-    text += `\n${outside.lines} hand-written line(s) outside the managed block still name the old product. `
-      + 'Nothing outside the block changes until you run `aof-tools upgrade --global --confirm` (a backup is kept).\n'
-      + `${outside.diff}\n`;
+  // TRD 78-08: pre-rename text is never written; the reason carries the fix.
+  if (result.block.action === 'pre_rename' && result.block.reason) {
+    text += `\nCLAUDE.md left untouched: ${result.block.reason}\n`;
   }
   return text;
 }
@@ -241,9 +237,7 @@ function runGlobal(opts, raw) {
     helpers.error(`upgrade --global: ${e.message}`);
     return;
   }
-  // The proposed change to hand-written text outside the block, as a unified diff ('' when none).
-  const outsideDiff = result.outside ? result.outside.diff : '';
-  helpers.output({ ...result, outside_diff: outsideDiff }, raw, globalSummary(result), 0);
+  helpers.output(result, raw, globalSummary(result), 0);
 }
 
 function runProject(cwd, opts, raw) {

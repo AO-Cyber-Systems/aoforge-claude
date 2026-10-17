@@ -295,7 +295,9 @@ test('13: the real global template is version 4 and routes to /aoforge: skills o
 });
 
 // 14
-// TRD 72-09 added ./legacy-rewrite.cjs, ./legacy-names.cjs and ./text-escape.cjs (sync-runtime's test copies them too).
+// TRD 72-09 added ./legacy-names.cjs and ./text-escape.cjs (sync-runtime's test copies them too); TRD 78-08 removed
+// ./legacy-rewrite.cjs (no outside-text rewrite any more) and keeps ./planning-layout.cjs out (managed-block loads it
+// lazily, only to word a refusal).
 // 2b (TRD 72-15): the doctor's legacy runtime check reuses the mover under its own legacy-* backup prefix.
 test('2b: moveLegacy prefix names the backup dir; a prefix outside legacy-* is refused', (t) => {
   const home = fakeHome(t, { legacy: true });
@@ -317,7 +319,7 @@ test('14: global-upgrade.cjs requires only Node built-ins and its listed lib clo
   const src = fs.readFileSync(MOD_PATH, 'utf-8');
   const allowed = new Set([
     'fs', 'path', 'os', 'crypto', './managed-block.cjs', './notices.cjs',
-    './legacy-rewrite.cjs', './legacy-names.cjs', './text-escape.cjs',
+    './legacy-names.cjs', './text-escape.cjs',
   ]);
   const required = [...src.matchAll(/require\(\s*(['"`])([^'"`]+)\1\s*\)/g)].map((m) => m[2]);
   assert.ok(required.length > 0, 'found no require calls at all');
