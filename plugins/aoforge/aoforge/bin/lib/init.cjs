@@ -120,7 +120,7 @@ function _readStateBranch(cwd, branchSpec) {
     return fs.readFileSync(full, 'utf-8');
   }
   // git_show mode — keep this branch hard-erroring; cross-branch reads are explicit
-  // the branch may be on either planning-directory layout: the new name first, then the legacy one
+  // the branch's planning directory, `.aoforge/` (compat.PLANNING_DIR_NAMES; a branch on the legacy layout is not read)
   for (const dir of PLANNING_DIR_NAMES) {
     const showR = _runGit(['show', `${branchSpec.branch}:${dir}/STATE.md`], { cwd });
     if (showR.ok) return showR.stdout;

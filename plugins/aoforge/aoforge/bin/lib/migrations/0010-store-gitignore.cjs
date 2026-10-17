@@ -137,7 +137,7 @@ function isWorkTree(ctx) {
 
 // ─── the managed .gitignore block ───────────────────────────────────────────────
 
-/** The block as written: AOForge markers, both planning-directory names (the new one first) for one release. */
+/** The block as written: AOForge markers and the planning directory, `.aoforge/` (compat.PLANNING_DIR_NAMES). */
 function blockLines() {
   return [BLOCK_START, ...PLANNING_DIR_NAMES.flatMap((d) => planningPaths.gitignoreLines(d)), BLOCK_END];
 }
