@@ -1,5 +1,6 @@
 ---
 work: feature
+status: verifying
 ---
 
 # Remove the rename shims
