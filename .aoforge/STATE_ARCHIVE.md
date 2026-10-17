@@ -334,6 +334,7 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-03: gh rebrand (72-16) KEPT in 3.1.0 as the explicit converter; it owns its legacy patterns now that gh-body/gh-trd/gh-cache read the aoforge namespace only
 - [Objective 78]: 78-03: checks-pin pre-rename caller detection (W062 legacy:true, fix gh rebrand) KEPT as a detector; gh setup refuses a pre-rename PR-template block (conflict, reason legacy-pr-template)
 - [Objective 78]: 78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector
+- [Objective 78]: 78-06: doctor checks 15 legacy-df-install and 16 legacy-plugin-runtime KEEP report-only (fixes removed); check 17 user-dot-dir KEEP WITH its fix; sync-runtime's pre-rename runtime-state migration REMOVED; coexistence-guard + coexistence.cjs KEEP report-only, extended to one notice per session for every global leftover
 
 ## Performance Metrics
 
@@ -552,4 +553,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P02 | 17min | 3 tasks | 64 files |
 | Objective 78 P03 | 21min | 3 tasks | 11 files |
 | Objective 78 P04 | 14min | 3 tasks | 12 files |
+| Objective 78 P06 | 14min | 3 tasks | 18 files |
 

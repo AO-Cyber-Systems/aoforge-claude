@@ -1,8 +1,8 @@
 {
   "current_objective": "78",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 12,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-16",
   "metrics": {
@@ -1734,6 +1734,11 @@
     {
       "objective": "78",
       "summary": "78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-06: doctor checks 15 legacy-df-install and 16 legacy-plugin-runtime KEEP report-only (fixes removed); check 17 user-dot-dir KEEP WITH its fix; sync-runtime's pre-rename runtime-state migration REMOVED; coexistence-guard + coexistence.cjs KEEP report-only, extended to one notice per session for every global leftover",
       "rationale": null
     }
   ],
