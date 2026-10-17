@@ -44,7 +44,7 @@ const ADAPTER_REL = path.join('web_e2e', 'lib', 'uiEval', 'captureWeb.js');
 const BASELINE_WEB_REL = path.join('web_e2e', 'tests', 'ui_eval', '__screenshots__');
 const BASELINE_GOLDENS_REL = path.join('test', 'ui_eval', 'goldens');
 const PLAYWRIGHT_REL = 'playwright.config.js';
-// inside the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// inside the project's resolved planning directory (`.aoforge/`)
 const MARKER_FILE = '.flutter-ui-eval-bootstrap-done';
 
 // Token used to detect (and to mark) the `ui_eval` Playwright project entry.

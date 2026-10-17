@@ -1242,7 +1242,7 @@ function buildReport({ projectRoot, userHome = null, draft = false, now = new Da
 
 /**
  * writeReport(root, text) — writes ONLY `<planning dir>/STACK-REPORT.md` (the resolved `.aoforge/`, created for a new
- * project, or a legacy one).
+ * project).
  */
 function writeReport(root, text) {
   const abs = path.resolve(String(root));

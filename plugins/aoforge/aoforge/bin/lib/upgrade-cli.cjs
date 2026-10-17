@@ -159,7 +159,8 @@ function projectSummary(report, mode) {
     if (report.backup) parts.push(`backup ${report.backup}`);
   }
   if (report.pending.length) parts.push(`${report.pending.length} pending (${idList(report.pending)})`);
-  // TRD 72-08: a migration that declined to run on this tree (0012 on a dirty or busy one) says why.
+  // TRD 72-08: a migration that declined to run on this tree (a `deferred` result; 3.0.x's 0012 gave one on a
+  // dirty or busy tree) says why.
   if (Array.isArray(report.deferred) && report.deferred.length) {
     parts.push(`deferred ${report.deferred.map((d) => `${d.id} (${d.reason}): ${d.notes}`).join(' | ')}`);
   }

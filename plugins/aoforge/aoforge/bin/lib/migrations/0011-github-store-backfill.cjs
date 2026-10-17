@@ -79,7 +79,7 @@ const COMPLETE = 'already on GitHub (backfill complete)';
 const MIRROR_ONLY = 'mirror mode kept (github.mirror_only: true): the GitHub store backfill is opted out. ' +
   `To migrate later, run \`aof-tools config-set github.mirror_only false\`, then ${APPLY_COMMAND}.`;
 const KEEP_MIRROR = ' To keep mirror mode instead: `aof-tools config-set github.mirror_only true`.';
-// config.json under the main checkout's resolved planning directory (`.aoforge/`, or a legacy one)
+// config.json under the main checkout's resolved planning directory (`.aoforge/`)
 const configRel = (root) => planningRel(root, 'config.json');
 // P5: the partial window between the store switch and the end of the migration.
 const PARTIAL_WINDOW = 'until the migration finishes, the project is in store mode: the edit gate denies cache edits and ' +

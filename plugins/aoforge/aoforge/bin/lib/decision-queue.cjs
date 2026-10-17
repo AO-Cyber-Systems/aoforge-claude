@@ -35,7 +35,7 @@ function _resetMocks() { _runFs = realFs; }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// inside the planning directory (resolved per call: .aoforge/, or a legacy one)
+// inside the planning directory (resolved per call: .aoforge/)
 const DECISIONS_DIR = 'decisions';
 const PENDING_DIR = 'pending';
 const RESOLVED_DIR = 'resolved';

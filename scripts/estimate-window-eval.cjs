@@ -78,7 +78,7 @@ function recentObjectives(ranked, window) {
  * Copies into `dest` the objectives a calibration run at `before` would see: sample-bearing objectives numbered below
  * `before`, the last `window` of them (`null` keeps all), plus STATE_ARCHIVE.md and state.json when the snapshot has
  * them (collectProject reads the minutes of a TRD with no SUMMARY duration from there). `dest` always gets a
- * `<planning dir>/objectives` directory (the snapshot's own name: `.aoforge`, or a legacy one) so an empty history is
+ * `<planning dir>/objectives` directory (the snapshot's own name: `.aoforge`) so an empty history is
  * still a project. `project` (collectProject of the snapshot) may
  * be passed to avoid reading the snapshot again.
  * @returns {{kept: string[]}}

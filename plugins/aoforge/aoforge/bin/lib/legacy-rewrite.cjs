@@ -9,8 +9,9 @@
  *   diffLines(a, b)          -> [{ op: ' ' | '-' | '+', line }], one entry per line (LCS)
  *   unifiedDiff(a, b, opts)  -> a `---`/`+++`/`@@` unified diff, '' when a === b
  *
- * Used by migration 0014 (a project CLAUDE.md managed block) and by global-upgrade.cjs (the proposal for
- * hand-written text outside the global block, which is only ever written on confirmation).
+ * Used by gh rebrand (gh-rebrand.cjs) only: migration 0014 and global-upgrade's proposal for hand-written text
+ * outside the global block, its other users in 3.0.x, were removed in 3.1.0 (TRD 78-08). It goes with gh rebrand,
+ * in a later release once no repository needs the converter.
  *
  * How the rewrite runs:
  *   1. Every PRESERVE token (other products and a domain that contain the legacy slug) is masked,
@@ -24,8 +25,7 @@
  *   4. The masked tokens are restored.
  *
  * No legacy name is spelled here: every form comes from legacy-names.cjs. Dependencies: ./legacy-names.cjs
- * and ./text-escape.cjs only, neither of which requires anything (sync-runtime's test copies the
- * global-upgrade closure into a fake plugin root).
+ * and ./text-escape.cjs only, neither of which requires anything.
  */
 
 const { NAMES, LEGACY, PRESERVE } = require('./legacy-names.cjs');

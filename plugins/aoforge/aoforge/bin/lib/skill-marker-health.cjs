@@ -50,7 +50,7 @@ const MARKER_FILE = '.skill-active';
 // The default-layout path; every check names the marker under the project's resolved planning directory (markerRel).
 const MARKER_REL = `.aoforge/${MARKER_FILE}`;
 
-/** The marker's root-relative posix path under the resolved planning directory (`.aoforge/`, or a legacy one). */
+/** The marker's root-relative posix path under the resolved planning directory (`.aoforge/`). */
 function markerRel(root) {
   return planningRel(root, MARKER_FILE);
 }

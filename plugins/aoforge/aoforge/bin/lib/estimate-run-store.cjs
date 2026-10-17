@@ -140,7 +140,7 @@ function historyPath(projectRoot, state, opts) {
 }
 
 /**
- * The directory that contains a planning directory (`.aoforge/`, or a legacy one), found by walking up
+ * The directory that contains a planning directory (`.aoforge/`), found by walking up
  * from `start` (inclusive), at most `maxUp` levels (compat.findProjectRoot). Null when there is none.
  * Never throws: an ancestor that cannot be examined ends the search with no project.
  * @param {string} start e.g. the status line's workspace.current_dir

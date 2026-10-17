@@ -11,7 +11,7 @@ const path = require('path');
 const { planningRel } = require('../compat.cjs');
 const { STATE_JSON_DEFAULTS, stateExtractField, writeStateJson } = require('../state.cjs');
 
-// under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// under the project's resolved planning directory (`.aoforge/`)
 const stateRel = (root) => planningRel(root, 'STATE.md');
 const stateJsonRel = (root) => planningRel(root, 'state.json');
 

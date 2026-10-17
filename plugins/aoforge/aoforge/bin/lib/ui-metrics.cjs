@@ -17,7 +17,7 @@ const { planningRel } = require('./compat.cjs');
 
 const DEFAULT_SINCE = '2026-06-01';
 const DEFAULT_PATHS = ['flutter/lib'];
-// relative to the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// relative to the project's resolved planning directory (`.aoforge/`)
 const DEFAULT_OUT_FILE = 'ui-metrics-baseline.json';
 
 const SUBJECT_TYPE_RE = /^(\w+)(\(|:)/;

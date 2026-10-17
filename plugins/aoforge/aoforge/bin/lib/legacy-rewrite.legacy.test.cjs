@@ -1,7 +1,7 @@
 'use strict';
 
-// Test list (objective 72, TRD 72-09, INST-04): legacy-rewrite.cjs, the text rewrite the CLAUDE.md
-// migration (0014) and `upgrade --global` share.
+// Test list (objective 72, TRD 72-09, INST-04): legacy-rewrite.cjs, the text rewrite gh rebrand uses (3.0.x's
+// CLAUDE.md migration 0014 and `upgrade --global` used it too, until TRD 78-08 removed both).
 //
 // 11a. Every LEGACY/NAMES pair rewrites: each shared key's LEGACY value becomes its NAMES value, alone
 //      and inside a sentence.

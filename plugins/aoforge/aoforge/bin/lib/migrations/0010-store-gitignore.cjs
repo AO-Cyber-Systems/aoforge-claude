@@ -48,7 +48,7 @@
 //
 // The block is recognised only under the AOForge marker slug (TRD 78-04). A block a pre-rename install wrote under its
 // own slug is ordinary user text to this migration: kept byte for byte, never replaced, with the AOForge block appended
-// beside it. Only a project migration 0012 never moved can still carry one, and that project is on the legacy layout,
+// beside it. Only a project 3.0.x's migration 0012 never moved can still carry one, and that project is on the legacy layout,
 // which is refused before any migration runs (78-07).
 //
 // The planning directory: the block lists `.aoforge/` (compat.PLANNING_DIR_NAMES). For one release (TRD 72-08) it also

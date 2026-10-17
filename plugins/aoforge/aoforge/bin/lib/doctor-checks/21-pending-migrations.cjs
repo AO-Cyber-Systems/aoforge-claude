@@ -34,7 +34,7 @@ const { PLANNING_DIR_NAMES } = require('../compat.cjs');
 const DF_TOOLS = 'node ~/.claude/aoforge/bin/aof-tools.cjs';
 const APPLY_COMMAND = `${DF_TOOLS} upgrade --apply`;
 const CHECK_COMMAND = `${DF_TOOLS} upgrade --check`;
-// both planning-directory names: a pathspec that names nothing is harmless to git status
+// the planning directory (`.aoforge` alone since TRD 78-11), CLAUDE.md and .gitignore
 const GUARDED_PATHS = [...PLANNING_DIR_NAMES, 'CLAUDE.md', '.gitignore'];
 const STORE_BRANCH = 'aoforge-upgrade';
 

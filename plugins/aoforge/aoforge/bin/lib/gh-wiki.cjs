@@ -37,7 +37,7 @@ const DOCS_DIR_REL = 'docs/aoforge';
 const WIKI_BRANCH = 'master';
 const WIKI_EXCLUDE_LINE = `/${WIKI_DIR_REL}/`;
 
-/** The clone's root-relative path under the project's resolved planning directory (`.aoforge/`, or a legacy one). */
+/** The clone's root-relative path under the project's resolved planning directory (`.aoforge/`). */
 function wikiDirRel(root) {
   return planningRel(root, 'wiki');
 }

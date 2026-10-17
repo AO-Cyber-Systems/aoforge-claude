@@ -361,7 +361,7 @@ function scanPeer({
     // Filter: pattern match
     if (!_matchesPattern(branchName, branch_patterns)) continue;
 
-    // 5. Read STATE.md from this branch (either planning-directory layout)
+    // 5. Read STATE.md from this branch (`.aoforge/STATE.md`; PLANNING_DIR_NAMES is single-name since TRD 78-11)
     let showR = { ok: false };
     for (const dir of PLANNING_DIR_NAMES) {
       showR = _runGit(['show', `${ref}:${dir}/STATE.md`], { cwd });

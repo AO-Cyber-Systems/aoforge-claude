@@ -488,7 +488,7 @@ function commitMicro({ planningDir, description, files, now, gitRunner }) {
   // this shows as `D` in the working tree and must be captured in commit 2 to
   // keep the tree clean. If the marker was never tracked, list nothing for it —
   // `git add` on an untracked, now-deleted path errors with "did not match".
-  const planningRel = path.basename(planningDir); // `.aoforge`, or a legacy planning directory
+  const planningRel = path.basename(planningDir); // `.aoforge`
   const stateFiles = [`${planningRel}/STATE.md`];
   const lsResult = spawnSync('git', ['ls-files', '--error-unmatch', `${planningRel}/.skill-active`], {
     cwd: projectRoot,

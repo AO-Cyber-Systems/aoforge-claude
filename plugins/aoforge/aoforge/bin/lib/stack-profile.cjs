@@ -1050,7 +1050,7 @@ function serializeProfile(frontmatter, body) {
   return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
 
-/** The two stack files under the project's resolved planning directory (`.aoforge/`, or a legacy one). */
+/** The two stack files under the project's resolved planning directory (`.aoforge/`). */
 const stackFiles = (root) => [planningRel(root, 'STACK.md'), planningRel(root, 'STACK-REPORT.md')];
 
 /**

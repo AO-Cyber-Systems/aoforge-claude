@@ -5,8 +5,8 @@
 // AOForge writes runtime-state files inside `.aoforge/` (RUNTIME_STATE_BASENAMES): guard-no-progress.js rewrites
 // the progress-guard file on EVERY tool call, awareness-cache-populate.js refreshes the
 // awareness cache at session start, and dup-detect.cjs appends a record to `.dup-detect-log.jsonl` for every
-// duplicate-work resolution (TRD 75-02; in the 72-25 fleet sweep it was the only thing that made 0012 defer in two
-// repositories, and an upgrade commit swept an untracked copy in). Several repos committed them before they were
+// duplicate-work resolution (TRD 75-02; in the 72-25 fleet sweep it was the only thing that made 0012, 3.0.x's planning-dir
+// move, defer in two repositories, and an upgrade commit swept an untracked copy in). Several repos committed them before they were
 // ignored, so they show as modified in nearly every session and trip dirty-tree refusals (44-EVIDENCE DF-10). This
 // migration makes the project's own `.gitignore` cover all of the files and removes any tracked copy
 // from the INDEX ONLY (`git rm --cached`). The working files are live state for running hooks and

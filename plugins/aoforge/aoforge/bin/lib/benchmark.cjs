@@ -237,7 +237,8 @@ function getRepoMetrics({ repo }) {
     } catch { continue; }
 
     const touchedDirs = new Set();
-    // a file under either planning directory's objectives/ (`.aoforge`, or the legacy one)
+    // a file under the planning directory's objectives/ (`.aoforge`; commits under the pre-rename directory are
+    // history this reader no longer counts, TRD 78-11)
     const OBJECTIVE_FILE_RE = new RegExp(`^(?:${PLANNING_DIR_NAMES.map(escapeRegExp).join('|')})/objectives/([^/]+)/`);
     for (const f of touchedFiles.split('\n')) {
       const m = f.match(OBJECTIVE_FILE_RE);

@@ -146,7 +146,7 @@ function exitOf(res) {
 }
 
 /**
- * The planning directory a verb's file lives in (`.aoforge`, or a legacy one), read off the result's absolute `path`
+ * The planning directory a verb's file lives in (`.aoforge`), read off the result's absolute `path`
  * and its planning-relative `rel`; the new name when the result carries no file.
  */
 function planningDirOfResult(res) {

@@ -514,7 +514,7 @@ function summaryOneLiner(text) {
 // execute). planMilestoneComplete reads and decides; applyMilestonePlan carries out the ops it is given and decides
 // nothing; `--dry-run` prints the plan instead of executing it. Paths in the plan are project-relative POSIX
 // (`.aoforge/milestones/v1.0-ROADMAP.md`), the form `scope.objectives[].dir` already uses; each names the project's
-// resolved planning directory (`.aoforge/`, or a legacy one): planMilestoneComplete and cmdMilestoneComplete resolve
+// resolved planning directory (`.aoforge/`): planMilestoneComplete and cmdMilestoneComplete resolve
 // MILESTONES_REL, STATE_REL and MILESTONE_ARCHIVE_REL per call.
 
 /**

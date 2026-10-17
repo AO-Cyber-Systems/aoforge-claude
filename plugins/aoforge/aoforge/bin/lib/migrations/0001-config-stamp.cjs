@@ -14,7 +14,7 @@ const fs = require('fs');
 const path = require('path');
 const { planningRoot, planningRel, planningDirLabel } = require('../compat.cjs');
 
-// config.json under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// config.json under the project's resolved planning directory (`.aoforge/`)
 const configRel = (root) => planningRel(root, 'config.json');
 const TEMPLATE_PATH = path.join(__dirname, '..', '..', '..', 'templates', 'config.json');
 

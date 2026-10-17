@@ -26,7 +26,7 @@ const upgrade = require('../upgrade.cjs');
 const planningMode = require('../planning-mode.cjs');
 const { classifyDecision, repairDecision } = require('../decision-repair.cjs');
 
-// inside the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// inside the project's resolved planning directory (`.aoforge/`)
 const RESOLVED_IN_PLANNING = 'decisions/resolved';
 const DECISION_FILE_RE = /^DECISION-\d+\.md$/;
 const HAND_FIX = 'write `resolution: |-` followed by the answer lines, each indented two spaces';

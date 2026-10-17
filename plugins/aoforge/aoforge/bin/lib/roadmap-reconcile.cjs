@@ -23,7 +23,7 @@ const { extractFrontmatter } = require('./frontmatter.cjs');
 
 // ─── TRD 09-01: Constants ─────────────────────────────────────────────────────
 
-// Inside the project's resolved planning directory (`.aoforge/`, or a legacy one): planningRoot(projectRoot).
+// Inside the project's resolved planning directory (`.aoforge/`): planningRoot(projectRoot).
 const ROADMAP_FILE = 'ROADMAP.md';
 const OBJECTIVES_DIR = 'objectives';
 

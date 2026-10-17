@@ -36,7 +36,7 @@ const { NAMES } = require('./legacy-names.cjs');
 // starts again on ADOPT_BRANCH, and the old branch and marker are never touched, so nothing is lost.
 const ADOPT_BRANCH = NAMES.adoptBranch;
 const MARKER_NAME = `${NAMES.slug}-adopt.json`;
-// both planning-directory names: a project that still has the legacy one owns it too
+// the planning directory (PLANNING_DIR_NAMES is `.aoforge` alone since TRD 78-11) and CLAUDE.md
 const OWNED_PATHS = [...PLANNING_DIR_NAMES, 'CLAUDE.md'];
 // Stack-draft notes carried in the marker and turned into report rows (TRD 42-07); bounded so a
 // sprawling monorepo cannot bloat the marker or the report.

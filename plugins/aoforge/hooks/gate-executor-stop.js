@@ -77,8 +77,8 @@ function findUp(start, name, fsImpl = fs) {
 }
 
 /**
- * Project root: the nearest ancestor (or self) holding a planning directory (`.aoforge/`, or a legacy
- * one: compat.findProjectRoot). Any filesystem error reads as "no project" (the hook fails open).
+ * Project root: the nearest ancestor (or self) holding the planning directory `.aoforge/`
+ * (compat.findProjectRoot). Any filesystem error reads as "no project" (the hook fails open).
  */
 function findProjectRoot(start, fsImpl = fs) {
   try {

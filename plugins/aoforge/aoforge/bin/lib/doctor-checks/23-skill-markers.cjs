@@ -35,7 +35,7 @@ const { planningRoot, planningRel } = require('../compat.cjs');
 // mirrored aof-tools; the test pins the two values equal.
 const EDIT_OVERRIDE_TTL_MS = 5 * 60 * 1000;
 
-// Root-relative marker paths under the project's resolved planning directory (`.aoforge/`, or a legacy one).
+// Root-relative marker paths under the project's resolved planning directory (`.aoforge/`).
 const skillActiveRel = (root) => smh.markerRel(root);
 const editOverrideRel = (root) => planningRel(root, '.edit-override');
 const DF = 'node ~/.claude/aoforge/bin/aof-tools.cjs';

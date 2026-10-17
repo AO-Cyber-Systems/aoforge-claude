@@ -51,8 +51,8 @@ const WRITE_VERB_RE =
 
 /**
  * Operator-form writes. Any artifact on the same line counts. The redirect form refuses a
- * `>` that closes a tag or an arrow (`<files>.aoforge/...`, `-->`, `=>`) and an fd number. A redirect into either
- * planning directory (`.aoforge/`, or the legacy one) counts.
+ * `>` that closes a tag or an arrow (`<files>.aoforge/...`, `-->`, `=>`) and an fd number. A redirect into the
+ * planning directory (`.aoforge/`) counts.
  */
 const PLANNING_DIR_ALT = PLANNING_DIR_NAMES.map(escapeRegExp).join('|');
 const WRITE_OP_RE = new RegExp(

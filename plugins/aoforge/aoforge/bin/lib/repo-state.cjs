@@ -27,7 +27,7 @@ const DEFAULT_SCRATCH_PREFIXES = Object.freeze(['/tmp/', '/var/folders/']);
 const EXCLUDE = new Set([
   'node_modules',
   '.git',
-  ...PLANNING_DIR_NAMES, // both planning-directory names (a legacy project keeps the old one)
+  ...PLANNING_DIR_NAMES, // the planning directory, `.aoforge` (single name since TRD 78-11)
   'dist',
   'build',
   '.next',

@@ -37,7 +37,7 @@ const { branchCommitSteps } = require('../commit-steps.cjs');
 const { planningRoot, planningRel, PLANNING_DIR_NAMES, isPlanningDirName } = require('../compat.cjs');
 
 const MARKER_PREFIXES = ['.autonomous-retry-', '.autonomous-resume-'];
-// under either planning directory name (a legacy project keeps its runtime state under the legacy one)
+// under the planning directory, `.aoforge` (PLANNING_DIR_NAMES is single-name since TRD 78-11)
 const MARKER_PATHSPECS = PLANNING_DIR_NAMES.flatMap((d) => MARKER_PREFIXES.map((p) => `:(glob)**/${d}/${p}*`));
 const COMMIT_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs commit "chore: untrack AOForge runtime state" --files';
 const DOCTOR_FIX_COMMAND = 'node ~/.claude/aoforge/bin/aof-tools.cjs doctor --fix';

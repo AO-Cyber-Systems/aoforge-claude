@@ -75,7 +75,7 @@ function cmdConfigEnsureSection(cwd, raw) {
   const configPath = path.join(planningRoot(cwd), 'config.json');
   const planningDir = planningRoot(cwd);
 
-  // Ensure the planning directory exists (.aoforge/ for a new project; a legacy one is used where it exists)
+  // Ensure the planning directory, .aoforge/, exists
   try {
     if (!fs.existsSync(planningDir)) {
       fs.mkdirSync(planningDir, { recursive: true });

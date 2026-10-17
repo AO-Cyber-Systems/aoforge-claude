@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { planningRel } = require('../compat.cjs');
 
-// under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// under the project's resolved planning directory (`.aoforge/`)
 const objectivesRel = (root) => planningRel(root, 'objectives');
 const stateRel = (root) => planningRel(root, 'STATE.md');
 const SESSION_LOG_RE = /^##\s+Session Log[^\n]*$/m;

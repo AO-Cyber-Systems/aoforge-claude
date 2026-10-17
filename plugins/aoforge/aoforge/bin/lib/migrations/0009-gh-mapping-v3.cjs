@@ -28,7 +28,7 @@ const ghMapping = require('../gh-mapping.cjs');
 const { atomicWrite } = require('../sync-state.cjs');
 const { planningRel } = require('../compat.cjs');
 
-// under the project's resolved planning directory (`.aoforge/`, or a legacy one)
+// under the project's resolved planning directory (`.aoforge/`)
 const mappingRel = (root) => planningRel(root, '.gh-mapping.json');
 const syncStateRel = (root) => planningRel(root, '.gh-sync-state.json');
 

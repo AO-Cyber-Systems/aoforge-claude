@@ -402,7 +402,7 @@ function liveIsDirectory(abs) {
 
 /**
  * The nearest ancestor of `cwd` (itself included) that has a planning directory (compat.findProjectRoot
- * one directory at a time, `.aoforge/` or a legacy one), or null. `cache` maps every directory visited to its answer, so a
+ * one directory at a time, `.aoforge/`), or null. `cache` maps every directory visited to its answer, so a
  * corpus of rows in a few hundred directories stats each directory once.
  * @param {string} cwd
  * @param {Map<string, string|null>} cache

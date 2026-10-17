@@ -520,7 +520,7 @@ function stagedRemovalsOnDisk(cwd, files) {
   return { removals, skipAdd, specs: files.map((f) => repoPathOf(prefix, f)) };
 }
 
-/** True when a --files argument names a planning directory (`.aoforge`, or the legacy one) or something under it (quick-24). */
+/** True when a --files argument names the planning directory (`.aoforge`) or something under it (quick-24). */
 function isPlanningPath(cwd, p) {
   const rel = path.relative(cwd, path.resolve(cwd, String(p))).split(path.sep).join('/');
   return PLANNING_DIR_NAMES.some((dir) => rel === dir || rel.startsWith(`${dir}/`));

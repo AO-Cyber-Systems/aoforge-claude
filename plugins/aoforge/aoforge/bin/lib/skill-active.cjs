@@ -45,7 +45,7 @@ function _resetMocks() { _runFs = realFs; }
 
 /**
  * Walk up from `start` to the nearest ancestor holding a planning directory (compat.findProjectRoot:
- * `.aoforge/`, or a legacy one). Returns the full path to that directory, or null if not found.
+ * `.aoforge/`). Returns the full path to that directory, or null if not found.
  *
  * Does NOT shell out to git — mirrors the pattern used by other aof-tools helpers.
  */
