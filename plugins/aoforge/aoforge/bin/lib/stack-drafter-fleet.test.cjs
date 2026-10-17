@@ -30,7 +30,9 @@
 //
 // Skips, never fails, when: AOFORGE_SKIP_FLEET_HARNESS=1; the fleet root (AOFORGE_FLEET_ROOT, default
 // ~/dev) is absent or holds fewer than half of FLEET; and, per repo, when the repo or its committed
-// STACK.md is absent. A `stack init` that exits non-zero is a failure, not a skip.
+// STACK.md is absent, or the repo still has only the pre-rename planning directory (TRD 78-07: aof-tools refuses
+// such a project with the legacy-layout message until it moves to `.aoforge/`). A `stack init` that exits
+// non-zero is a failure, not a skip.
 // The table guards (15) read no repository, so they always run.
 
 const { describe, test } = require('node:test');
@@ -45,6 +47,7 @@ const tables = require('./__fixtures__/stack-fleet-tables.cjs');
 const { FLEET, ACCEPTED, OPEN } = tables;
 const { compareDrift, formatRow, selfTestDrafts } = require('./__fixtures__/stack-drift-compare.cjs');
 const { parseProfile, resolveFromParsed } = require('./stack-profile.cjs');
+const { isLegacyPlanning } = require('./planning-layout.cjs');
 
 const { HAND_ONLY, KEY_ALIASES } = golden;
 
@@ -182,6 +185,10 @@ describe('stack init against the real fleet (TRD 43-08)', { skip: fleetSkipReaso
       const dir = path.join(FLEET_ROOT, repo);
       if (!fs.existsSync(dir)) {
         t.skip(`${repo} is not under ${FLEET_ROOT}`);
+        return;
+      }
+      if (isLegacyPlanning(dir)) {
+        t.skip(`${repo} still uses the pre-rename planning directory; aof-tools refuses it until it moves (TRD 78-07)`);
         return;
       }
       const text = committedText(dir);

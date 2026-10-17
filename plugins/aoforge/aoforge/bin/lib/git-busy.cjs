@@ -2,9 +2,9 @@
 
 // git-busy.cjs — "is a git operation in progress here?" (objective 72, TRD 72-08).
 //
-// One list, shared by the SessionStart upgrade hook (which never commits during an operation) and migration 0012
-// (which never moves the planning directory during one). The markers live in the per-worktree git dir, so each is
-// resolved with `git rev-parse --git-path <name>`; a linked worktree's rebase is its own.
+// One list, used by the SessionStart upgrade hook (which never commits during an operation) and open to any
+// migration that must not write during one. The markers live in the per-worktree git dir, so each is resolved with
+// `git rev-parse --git-path <name>`; a linked worktree's rebase is its own.
 
 const fs = require('fs');
 const path = require('path');

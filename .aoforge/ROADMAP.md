@@ -395,7 +395,7 @@ TRDs:
 - [x] 78-04-file-identities-TRD.md — (W1, TDD) .mcp.json owner key (reported), todo metadata key, adopt branch/marker and 0010's block slug read under AOForge names only
 - [x] 78-05-watch-daemon-runtime-home-TRD.md — (W2, TDD) watch pid and log from the runtime home only; a live 3.0.0 daemon is named, never duplicated
 - [ ] 78-06-global-legacy-notices-and-doctor-TRD.md — (W2, TDD) one SessionStart notice for the old plugin, DEVFLOW_* variables, an unmigrated runtime home and ~/.aoforge files; checks 15/16 report-only, 17 keeps its fix; runtime-state migration retired
-- [ ] 78-07-retire-planning-migrations-and-guard-TRD.md — (W2, TDD) migrations 0012/0013 removed (ids retired), stamp read under aoforge only, CLI guard and SessionStart notice for a legacy-only project, no second planning tree
+- [x] 78-07-retire-planning-migrations-and-guard-TRD.md — (W2, TDD) migrations 0012/0013 removed (ids retired), stamp read under aoforge only, CLI guard and SessionStart notice for a legacy-only project, no second planning tree
 - [ ] 78-08-claude-md-aoforge-markers-only-TRD.md — (W2, TDD) managed block under AOFORGE markers only with an ELEGACYBLOCK refusal; migration 0014 and the global pre-rename move/outside rewrite removed
 - [ ] 78-09-gh-labels-and-rebrand-guard-TRD.md — (W2, TDD) label lookups use one label; an un-rebranded repository stops with `gh rebrand --apply` instead of getting duplicates
 - [ ] 78-10-env-alias-removal-TRD.md — (W3, TDD) no entry point calls aliasLegacyEnv; gate-edits single planning segment; hook comments

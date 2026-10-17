@@ -1750,6 +1750,26 @@
       "objective": "78",
       "summary": "78-06: doctor checks 15 legacy-df-install and 16 legacy-plugin-runtime KEEP report-only (fixes removed); check 17 user-dot-dir KEEP WITH its fix; sync-runtime's pre-rename runtime-state migration REMOVED; coexistence-guard + coexistence.cjs KEEP report-only, extended to one notice per session for every global leftover",
       "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: migrations 0012/0013 removed; ids 0012-0014 reserved in upgrade.RETIRED_MIGRATIONS so --only names the 3.0.x path",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: the stamp is read and written under the aoforge key only; the pre-rename key is never touched (W067 reports it)",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: aof-tools refuses mutating commands and init in a legacy-only project (legacy-layout-guard.cjs); doctor/validate report; 12 exemptions with reasons; tokens guarded",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-07: the runner's generic deferred path and the hook's HEAD-only commit handling are kept; the hook tells a legacy-only project through one global notice",
+      "rationale": null
     }
   ],
   "blockers": [

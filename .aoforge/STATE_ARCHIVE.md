@@ -337,6 +337,10 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-05: a live AOForge 3.0.0 watch daemon is detected, not adopted (interimDaemon, signal 0); aoforge-watch start refuses beside it and status warns, because the 3.0.0 pid/log readers are removed and a second daemon would otherwise start next to it
 - [Objective 78]: 78-05: interimDaemon reads nothing while AOFORGE_HANDOFF_PID_FILE is set, and stop/add-project/remove-project ignore the 3.0.0 pid file; a stale one is left for doctor check 17
 - [Objective 78]: 78-06: doctor checks 15 legacy-df-install and 16 legacy-plugin-runtime KEEP report-only (fixes removed); check 17 user-dot-dir KEEP WITH its fix; sync-runtime's pre-rename runtime-state migration REMOVED; coexistence-guard + coexistence.cjs KEEP report-only, extended to one notice per session for every global leftover
+- [Objective 78]: 78-07: migrations 0012/0013 removed; ids 0012-0014 reserved in upgrade.RETIRED_MIGRATIONS so --only names the 3.0.x path
+- [Objective 78]: 78-07: the stamp is read and written under the aoforge key only; the pre-rename key is never touched (W067 reports it)
+- [Objective 78]: 78-07: aof-tools refuses mutating commands and init in a legacy-only project (legacy-layout-guard.cjs); doctor/validate report; 12 exemptions with reasons; tokens guarded
+- [Objective 78]: 78-07: the runner's generic deferred path and the hook's HEAD-only commit handling are kept; the hook tells a legacy-only project through one global notice
 
 ## Performance Metrics
 
@@ -557,4 +561,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P04 | 14min | 3 tasks | 12 files |
 | Objective 78 P05 | 12min | 3 tasks | 14 files |
 | Objective 78 P06 | 14min | 3 tasks | 18 files |
+| Objective 78 P07 | 28min | 3 tasks | 17 files |
 

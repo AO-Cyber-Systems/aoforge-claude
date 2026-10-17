@@ -300,11 +300,16 @@ function readNotices(file) {
   }
 }
 
+// TRD 78-07 retired migration 0012: a legacy-only project now gets one global notice and is never moved
+// (hooks/upgrade-project.legacy.test.js, case 1). TRD 78-11 rewrites this file; until then the legacy variant of case 7
+// is skipped rather than rewritten here.
+const RETIRED_BY_78_07 = 'migration 0012 is retired (TRD 78-07); see hooks/upgrade-project.legacy.test.js case 1';
+
 describe('upgrade-project and route-results', () => {
   for (const layout of SINGLE_LAYOUTS) {
-    // TRD 72-08: migration 0012 (auto) moves a legacy directory to `.aoforge/` in the same hook run, so the notices
-    // of BOTH layouts end up in `.aoforge/` and the legacy directory is gone afterwards.
-    test(`7: layout ${layout}, notices land in ${NAMES.planningDir}/ and info/exclude names it`, () => {
+    test(`7: layout ${layout}, notices land in ${NAMES.planningDir}/ and info/exclude names it`, {
+      skip: layout === 'legacy' ? RETIRED_BY_78_07 : false,
+    }, () => {
       withProject({ layout }, (p) => {
         const finalDir = NAMES.planningDir;
         const other = LEGACY.planningDir;
