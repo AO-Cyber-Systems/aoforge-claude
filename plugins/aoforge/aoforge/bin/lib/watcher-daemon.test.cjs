@@ -925,6 +925,23 @@ describe('runLoop — Group D: multi-project iteration (TRD 20-03)', () => {
     assert.ok(calls.some((c) => c.id === 'h-d5-fallback'), 'fallback when PID file missing');
   });
 
+  test('D-5b a `legacy` key in the PID file changes nothing: its watching:[] is used (TRD 78-05 case 7)', async () => {
+    const rec = stateLib.writePidFile({ pid: process.pid, version: '0.1.0', shell: 'bash', watching: [projects[1]] });
+    fs.writeFileSync(stateLib.pidFilePath(), JSON.stringify({ ...rec, legacy: true }));
+    writePending(projects[1], 'h-d5b-watched', 'gh auth login');
+    const calls = [];
+    const session = {
+      dispatch: async (id, cmd) => { calls.push({ id, cmd }); return { stdout: '', stderr: '', exit_code: 0, status: 'done' }; },
+    };
+    const allow = allowlistLib.defaultAllowlist();
+    const loop = daemon.runLoop({
+      projectRoot: projects[0], session, allowlist: allow, log: () => {}, pollIntervalMs: 30,
+    });
+    await new Promise((r) => setTimeout(r, 250));
+    await loop.stop();
+    assert.ok(calls.some((c) => c.id === 'h-d5b-watched'), 'the watched project is served; no fallback on `legacy`');
+  });
+
   test('D-6 dispatch remains serial — only one inFlight at a time', async () => {
     stateLib.writePidFile({ pid: process.pid, version: '0.1.0', shell: 'bash', watching: projects });
     writePending(projects[0], 'h-d6-a', 'gh auth login');

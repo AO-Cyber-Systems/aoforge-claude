@@ -328,7 +328,7 @@ describe('inject-handoff-results, Stop', () => {
         name: 'the pid file is the pre-rename daemon\'s',
         setup: () => {
           writePidFile(home, { pid: process.pid, watching: [project.root], legacy: true });
-          return {}; // HOME is the temp dir and the override is unset, so watcher-state falls back to the legacy file
+          return {}; // HOME is the temp dir and the override is unset; watcher-state never reads that file (TRD 78-05)
         },
       },
       {

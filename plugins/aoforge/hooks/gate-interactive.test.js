@@ -1072,6 +1072,17 @@ describe('the daemon is found where watcher-state keeps it (TRD 73-12 item 14)',
     });
   });
 
+  test('[78-05 case 7] a `legacy` key inside the daemon\'s own pid file changes nothing: daemon-live', () => {
+    withSandbox(({ home, work }) => {
+      const file = path.join(watchStateDir(home), 'aoforge-watch.pid');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ pid: process.pid, version: '3.1.0', watching: [work], legacy: true }));
+      const reason = reasonFor(home, work);
+      assert.match(reason, /aoforge-watch terminal/, 'no branch is keyed on `legacy`');
+      assert.match(reason, new RegExp(`pid ${process.pid}\\b`));
+    });
+  });
+
   test('[78-05 case 6] the hook\'s own reader returns nothing for a 3.0.0 pid file alone', () => {
     const hook = require('./gate-interactive.js');
     withSandbox(({ home, work }) => {
