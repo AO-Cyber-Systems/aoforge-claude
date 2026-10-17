@@ -1,8 +1,8 @@
 {
   "current_objective": "78",
-  "current_job": 4,
+  "current_job": 5,
   "total_jobs": 12,
-  "progress_pct": 98,
+  "progress_pct": 99,
   "status": "executing",
   "last_activity": "2026-10-16",
   "metrics": {
@@ -1734,6 +1734,11 @@
     {
       "objective": "78",
       "summary": "78-04: .mcp.json entries are owned by AOFORGE_MANAGED only; one owned through the pre-rename key is left byte-identical and reported in stack mcp's warnings (preview and --write); the todo key, the adopt branch/marker and 0010's block slug are read under the AOForge name only, with no detector",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-09: label twins removed; a lookup by a default label first GETs its pre-rename twin once per process and refuses with aof-tools gh rebrand --apply when it exists (no duplicates in an un-rebranded repository); configured labels are never checked",
       "rationale": null
     }
   ],
