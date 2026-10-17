@@ -1,9 +1,9 @@
 {
   "current_objective": "78",
-  "current_job": 11,
+  "current_job": 12,
   "total_jobs": 12,
   "progress_pct": 100,
-  "status": "executing",
+  "status": "ready_for_verification",
   "last_activity": "2026-10-16",
   "metrics": {
     "jobs_completed": 0,
@@ -1804,6 +1804,21 @@
     {
       "objective": "78",
       "summary": "78-11: session-audit keeps its own two-namespace matcher (history reader of pre-rename transcripts); the gates trust aoforge: alone. config-get stays unguarded and errors with 'No config.json found' in a .planning/-only project",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-12: aliasLegacyEnv deleted; compat.cjs requires nothing from legacy-names (its three current names pinned to NAMES by a test)",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-12: SHIM_REMOVAL = 3.1.0; LEGACY.commandDash removed; every remaining LEGACY key must have a reader (legacy-names.legacy.test 6)",
+      "rationale": null
+    },
+    {
+      "objective": "78",
+      "summary": "78-12: the first-generation df:state sticky-comment reader is KEPT (predates the rename, self-converting, gh rebrand does not convert it); the .gitignore legacy lines stay until main is reconciled",
       "rationale": null
     }
   ],

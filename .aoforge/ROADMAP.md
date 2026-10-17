@@ -127,7 +127,7 @@ Sequencing: 65 releases v1.5 first, so the installed runtime carries the v1.5 co
 - [x] **Objective 73: Handoff gaps and result injection** - Three PTY gaps closed, handoff results injected, a live TTY end-to-end demonstration (completed 2026-10-10)
 - [ ] **Objective 74: Operations decisions** - CI `ANTHROPIC` secret and live visual judge, branch protection on `main`, docs site deploy
 - [x] **Objective 75: Prospective estimate retest and todo sweep** - EST-08's criterion re-tested on 68-72; every pending todo completed or re-scoped (completed 2026-10-10)
-- [ ] **Objective 78: Remove the rename shims** - The one-release rename shims, migrations 0012/0013, the dual-namespace GitHub readers and the devflow pointer plugin go in 3.1.0, as promised for the release after 3.0.0
+- [x] **Objective 78: Remove the rename shims** - The one-release rename shims, migrations 0012/0013, the dual-namespace GitHub readers and the devflow pointer plugin go in 3.1.0, as promised for the release after 3.0.0 (completed 2026-10-17)
 
 ### Objective 65: Release v1.5
 
@@ -400,7 +400,7 @@ TRDs:
 - [x] 78-09-gh-labels-and-rebrand-guard-TRD.md — (W2, TDD) label lookups use one label; an un-rebranded repository stops with `gh rebrand --apply` instead of getting duplicates
 - [x] 78-10-env-alias-removal-TRD.md — (W3, TDD) no entry point calls aliasLegacyEnv; gate-edits single planning segment; hook comments
 - [x] 78-11-compat-single-name-TRD.md — (W4, TDD, after 78-10) compat.cjs AOForge-only: planning dir, project root, agent namespace, user files; legacy exports deleted
-- [ ] 78-12-docs-and-close-out-TRD.md — (W5, TDD) aliasLegacyEnv deleted, SHIM_REMOVAL done, legacy-names trimmed, SC-4 end to end, guide (+ site mirror), USER-GUIDE, CHANGELOG, CLAUDE.md, full suite
+- [x] 78-12-docs-and-close-out-TRD.md — (W5, TDD) aliasLegacyEnv deleted, SHIM_REMOVAL done, legacy-names trimmed, SC-4 end to end, guide (+ site mirror), USER-GUIDE, CHANGELOG, CLAUDE.md, full suite
 
 ## Progress
 
@@ -423,4 +423,4 @@ TRDs:
 | 73. Handoff gaps and result injection | v1.6 | 14/14 | Complete | 2026-10-10 |
 | 74. Operations decisions | v1.6 | 8/9 | In Progress | - |
 | 75. Prospective estimate retest and todo sweep | v1.6 | 5/5 | Complete | 2026-10-10 |
-| 78. Remove the rename shims | v1.6 | 11/12 | In Progress | - |
+| 78. Remove the rename shims | v1.6 | 12/12 | Complete | 2026-10-17 |

@@ -348,6 +348,9 @@ STATE.md stays lean; this file grows over time.
 - [Objective 78]: 78-10: the CLI's 'legacy variable not read' observable is estimate task --class code --raw (it names the calibration path it resolved); coexistence-guard.legacy case 9 flipped (legacy skip var no longer skips, notice names it); planning-layout.legacy.test.js left to 78-11 with 4 gate-edits cases failing by design
 - [Objective 78]: 78-11: compat.cjs keeps its name and every surviving signature (~80 importers; renaming would only multiply conflicts with main); PLANNING_DIR_NAMES/isPlanningDirName single-name; userDotFile is runtime-home only (doctor check 17 moves 3.0.0 files)
 - [Objective 78]: 78-11: session-audit keeps its own two-namespace matcher (history reader of pre-rename transcripts); the gates trust aoforge: alone. config-get stays unguarded and errors with 'No config.json found' in a .planning/-only project
+- [Objective 78]: 78-12: aliasLegacyEnv deleted; compat.cjs requires nothing from legacy-names (its three current names pinned to NAMES by a test)
+- [Objective 78]: 78-12: SHIM_REMOVAL = 3.1.0; LEGACY.commandDash removed; every remaining LEGACY key must have a reader (legacy-names.legacy.test 6)
+- [Objective 78]: 78-12: the first-generation df:state sticky-comment reader is KEPT (predates the rename, self-converting, gh rebrand does not convert it); the .gitignore legacy lines stay until main is reconciled
 
 ## Performance Metrics
 
@@ -573,4 +576,5 @@ STATE.md stays lean; this file grows over time.
 | Objective 78 P09 | 24min | 3 tasks | 21 files |
 | Objective 78 P10 | 10min | 2 tasks | 29 files |
 | Objective 78 P11 | 19min | 3 tasks | 25 files |
+| Objective 78 P12 | 25min | 3 tasks | 54 files |
 
