@@ -1,10 +1,52 @@
 # Changelog
 
-All notable changes to DevFlow will be documented in this file.
+All notable changes to AOForge will be documented in this file.
 
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+## [3.1.0] - 2026-10-16
+
+3.1.0 ends the rename's one-release compatibility. AOForge now reads `.aoforge/` and the AOForge names only, so a 2.x
+project upgrades through 3.0.x first ([migration guide](docs/MIGRATING-TO-AOFORGE.md)), and a GitHub repository that
+still carries the pre-rename labels, markers or PR template needs `aof-tools gh rebrand --apply` before 3.1 writes to it.
+Flutter, Dart and web procedure moved out of core into the `aoforge-stack-flutter` and `aoforge-stack-web` stack packs,
+with no forwarding shim: install the pack your project needs (`/plugin install aoforge-stack-flutter@aocyber`,
+`/plugin install aoforge-stack-web@aocyber`). The release also ships objective 72's post-release work, objectives 73 to
+78 and quick 34 to 39.
+
+### Removed: the one-release rename shims (objective 78)
+
+- **The one-release rename shims** (objective 78, for 3.1.0, as `SHIM_REMOVAL` and the 3.0.0 migration guide promised).
+  3.1 reads AOForge names only; "Upgrading from 2.x" in `docs/MIGRATING-TO-AOFORGE.md` gives the 3.0.x path and the
+  manual steps. Removed:
+  - the pre-rename environment-variable alias (`compat.aliasLegacyEnv`) and every call to it in the CLI, the watch
+    daemon and the hooks (TRDs 78-10, 78-12);
+  - the pre-rename planning-directory fallback, the pre-rename agent namespace in the gates, and the `~/.aoforge/` and
+    pre-rename dot-directory fallbacks for user files (`isLegacyPlanning`, `bothPlanningDirs`, `legacyRuntimeHome` and
+    `resolveUserFile` left `compat.cjs`; TRD 78-11);
+  - migrations 0012 (planning-dir move), 0013 (config-key rename) and 0014 (CLAUDE.md rebrand), whose ids stay reserved
+    (TRDs 78-07, 78-08);
+  - the global upgrade's move of a pre-rename block and its proposed rewrite of hand-written text outside the block
+    (`outside_diff`) (TRD 78-08);
+  - `NAMESPACE_RENAMES` and the doc-refs reading of the pre-rename command forms; migration 0007 no longer rewrites them
+    (TRD 78-02);
+  - the pointer plugin (the final pre-rename 3.0.0 release, its 45 files), its marketplace entry, its generator
+    `scripts/gen-pointer-skills.cjs` and the rename guard's four ALLOW entries for it (TRD 78-02);
+  - the first-session runtime-state migration in `sync-runtime.js` (`lib/runtime-state-migrate.cjs`) and the
+    `doctor --global --fix` fixes of checks 15 and 16 (TRD 78-06);
+  - the dual-namespace GitHub readers (pre-rename markers, label twins: `labelForms`, `unionByNumber`) and the second,
+    pre-rename status context the checks posted (TRDs 78-03, 78-09);
+  - the 3.0.0 watch daemon's pid and log readers in `~/.aoforge/` and `ELEGACYDAEMON` (TRD 78-05);
+  - the pre-rename adopt branch and marker, the pre-rename `.mcp.json` owner key and todo metadata key, and migration
+    0010's pre-rename block slug (TRD 78-04).
+
+  Kept on purpose, each reading an old name only to report or convert it: `gh rebrand` and `lib/legacy-rewrite.cjs`,
+  the detectors (`planning-layout`, `coexistence`, `gh-legacy-labels`, checks-pin, doctor checks 15, 16, 17 and 27),
+  the history readers, `PRESERVE`, and the first-generation `<!-- df:state -->` sticky-comment reader, which predates
+  the rename and rewrites its own input on the next sync (TRD 78-12). They go in a later release once no repository
+  needs them.
 
 ### Added
 
@@ -19,8 +61,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a Pages preview (`--branch="$DEPLOY_BRANCH"`), not production. Its first CI run (PR #130, run 38020394881) found that
   the credentials reach an account other than AOCyber Systems, which explains every `Project not found [8000007]` docs
   run on `main` since 2026-09-27. The same run showed that Cloudflare refuses its project listing (code 8000024 on
-  `per_page=100`); that is not fixed yet. OPS-03 is deferred by the user: the change is on this branch and on PR #130,
-  neither is merged, so `main` does not have it and its docs deploy still fails.
+  `per_page=100`); that is not fixed yet. OPS-03 is deferred by the user: PR #130 (the diagnostic's first CI run) was
+  not merged when this was written (2026-10-10), and the docs deploy still fails until the Pages project is set up.
 - **Answer a queued command's prompt in the aoforge-watch terminal** (objective 73, HND-03). `aoforge-watch start
   --foreground` run in a terminal is now attended: a queued command's live output appears there and the keys typed
   there go to the command, so you answer a passphrase or token prompt yourself, and the daemon never types, logs or
@@ -54,8 +96,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **W066, W067 and the new W069** (objective 78, TRD 78-01). W066 is broken for a legacy-only project and stays a
   warning when both directories exist; W067 also fires when the pre-rename stamp key sits beside `aoforge{}` (fix:
   delete it); W069 `legacy-claude-md-block` (validate Check 23, doctor check 27) reports a project CLAUDE.md block under
-  the pre-rename markers. None names `--only 0012/0013` any more. W069 was picked because `main` already uses W068:
-  the reconcile of this branch with `main` must confirm W069 is still free.
+  the pre-rename markers. None names `--only 0012/0013` any more. W069 was picked because `main` already uses W068
+  (`decision-log-oversized`); the reconcile (objective 79) confirmed that both codes are defined once and do not collide.
 - **Retired migrations answer by name** (objective 78, TRDs 78-07, 78-08). `upgrade --apply --only 0012|0013|0014`
   exits 1 with one line naming the retired migration, AOForge 3.0.x and the guide, never "unknown migration id"
   (`upgrade.RETIRED_MIGRATIONS`). The stamp is read from `aoforge{}` only and the writer never touches the pre-rename
@@ -108,46 +150,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The watch daemon's files and the user's files live in the runtime home** (objective 73 gap closure, HND-03, TRDs
   73-11 to 73-13). `defaults.json`, the Brave API key and the watch allowlist are read from `~/.claude/aoforge/` first,
   and the daemon's pid file and log and the launchd and systemd service logs are in `~/.claude/aoforge/state/watch/`.
-  Nothing creates `~/.aoforge/` any more. For one release `~/.aoforge/` is still read: the user files after the runtime
-  home, a daemon started by 3.0.0 is found, updated and stopped, and `aoforge-watch logs` falls back to its log. A
-  service installed by 3.0.0 keeps logging there until it is reinstalled; doctor check 17 names the command.
+  Nothing creates `~/.aoforge/` any more. Objective 78 then removed the read of `~/.aoforge/` that this change first
+  kept for one release (the user files after the runtime home, a 3.0.0 daemon's pid file and log; see Removed above and
+  "A running 3.0.0 watch daemon is refused, not adopted" under Changed). A service installed by 3.0.0 keeps logging there until it is reinstalled; doctor
+  check 17 names the command.
 - **The watch daemon's built-in allowlist is gate-interactive's per-invocation matcher** (objective 73 gap closure,
   HND-03, TRD 73-12). It accepts exactly what the hook hands off and now refuses quoted mentions, heredoc data and
   read-only key forms it used to accept. User allowlist entries still match the whole command.
 - **A key read with `-y` and no `-P` is handed off even when the command passes `-N`** (objective 73 gap closure, HND-02,
   TRD 73-10). A `-N` anywhere in the command used to exempt it.
-
-### Removed
-
-- **The one-release rename shims** (objective 78, for 3.1.0, as `SHIM_REMOVAL` and the 3.0.0 migration guide promised).
-  3.1 reads AOForge names only; "Upgrading from 2.x" in `docs/MIGRATING-TO-AOFORGE.md` gives the 3.0.x path and the
-  manual steps. Removed:
-  - the pre-rename environment-variable alias (`compat.aliasLegacyEnv`) and every call to it in the CLI, the watch
-    daemon and the hooks (TRDs 78-10, 78-12);
-  - the pre-rename planning-directory fallback, the pre-rename agent namespace in the gates, and the `~/.aoforge/` and
-    pre-rename dot-directory fallbacks for user files (`isLegacyPlanning`, `bothPlanningDirs`, `legacyRuntimeHome` and
-    `resolveUserFile` left `compat.cjs`; TRD 78-11);
-  - migrations 0012 (planning-dir move), 0013 (config-key rename) and 0014 (CLAUDE.md rebrand), whose ids stay reserved
-    (TRDs 78-07, 78-08);
-  - the global upgrade's move of a pre-rename block and its proposed rewrite of hand-written text outside the block
-    (`outside_diff`) (TRD 78-08);
-  - `NAMESPACE_RENAMES` and the doc-refs reading of the pre-rename command forms; migration 0007 no longer rewrites them
-    (TRD 78-02);
-  - the pointer plugin (the final pre-rename 3.0.0 release, its 45 files), its marketplace entry, its generator
-    `scripts/gen-pointer-skills.cjs` and the rename guard's four ALLOW entries for it (TRD 78-02);
-  - the first-session runtime-state migration in `sync-runtime.js` (`lib/runtime-state-migrate.cjs`) and the
-    `doctor --global --fix` fixes of checks 15 and 16 (TRD 78-06);
-  - the dual-namespace GitHub readers (pre-rename markers, label twins: `labelForms`, `unionByNumber`) and the second,
-    pre-rename status context the checks posted (TRDs 78-03, 78-09);
-  - the 3.0.0 watch daemon's pid and log readers in `~/.aoforge/` and `ELEGACYDAEMON` (TRD 78-05);
-  - the pre-rename adopt branch and marker, the pre-rename `.mcp.json` owner key and todo metadata key, and migration
-    0010's pre-rename block slug (TRD 78-04).
-
-  Kept on purpose, each reading an old name only to report or convert it: `gh rebrand` and `lib/legacy-rewrite.cjs`,
-  the detectors (`planning-layout`, `coexistence`, `gh-legacy-labels`, checks-pin, doctor checks 15, 16, 17 and 27),
-  the history readers, `PRESERVE`, and the first-generation `<!-- df:state -->` sticky-comment reader, which predates
-  the rename and rewrites its own input on the next sync (TRD 78-12). They go in a later release once no repository
-  needs them.
 
 ### Fixed
 
@@ -198,19 +209,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with `spawnSync gh ENOBUFS` on a repository whose issue list is larger than 1 MiB. A read that still overflows or
   times out says so (`ENOBUFS` or `ETIMEDOUT`) after the read and the repository it was for.
 
-## [3.1.0] - 2026-10-16
-
-Flutter, Dart and web procedure moved out of core into the `aoforge-stack-flutter` and `aoforge-stack-web` stack
-packs, with no forwarding shim. A Flutter, Dart or web project installs its pack (`/plugin install
-aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
-
 ### Release tooling and security sweep (quick 34)
 
 - **Core is 3.1.0.** package.json, package-lock.json, the aoforge plugin.json and marketplace.json (top level and the
   `aoforge` entry) say 3.1.0, which satisfies the stack packs' `aoforge >=3.1.0`; at 3.0.0 Claude Code disabled both
   packs (`dependency-version-unsatisfied`). A repo test in stack-packs.test.cjs keeps the release files, every pack's
   range and this heading in step. An `extends: flutter` or `extends: dart` that cannot be resolved now names the pack
-  and its install command (`lib/stack-pack-hints.cjs`). The `devflow` pointer stays at 3.0.0, its final release.
+  and its install command (`lib/stack-pack-hints.cjs`). The pre-rename pointer plugin stayed at its
+  final 3.0.0 release and is removed in this release (see Removed above).
 - **Prefixed release tags.** release.yml runs on `v*` and `*--v*` tags through `scripts/release-tag.cjs`: a `vX.Y.Z`
   release first pushes `aoforge--vX.Y.Z` at the same commit (the tag the packs resolve core from), a
   `<pack>--vX.Y.Z` tag creates that pack's release from `plugins/<pack>/CHANGELOG.md` with `--latest=false`, and an
@@ -388,11 +394,47 @@ aoforge-stack-flutter@aocyber`, `/plugin install aoforge-stack-web@aocyber`).
   ask, every reason kept; a throwing hook is skipped). Each dispatched hook carries `DISPATCHED-BY: pre-bash.js`,
   which doctor check 12, the hook inventory and the docs generator read. guard-no-progress keeps its own
   registration for the other tools. Five processes per Bash call became one.
-- **CLAUDE.md** is 146 lines / 15K chars (was 225 / 40K): the command catalog moved to `docs/AOF-TOOLS-REFERENCE.md`
-  and the per-hook detail to `docs/HOOKS-REFERENCE.md`. `context-budget.repo.test.cjs` caps CLAUDE.md, every
-  skill's resolved footprint and every agent body, and rejects a whole-planning-file inline in a skill.
+- **CLAUDE.md** is kept under 200 lines / 20,000 chars (the performance work measured 146 lines / 15K chars, down from
+  225 / 40K): the command catalog moved to `docs/AOF-TOOLS-REFERENCE.md` and the per-hook detail to
+  `docs/HOOKS-REFERENCE.md`. `context-budget.repo.test.cjs` caps CLAUDE.md,
+  every skill's resolved footprint and every agent body, and rejects a whole-planning-file inline in a skill.
 - **Models**: `claude-haiku-5-5` is priced in `model-rates.json` and is the `haiku` tier pin (was the superseded
   `claude-haiku-4-5`, which doctor check 13 and W063 could not flag without the rate row).
+
+### Reconcile (objective 79)
+
+Two lines grew from 3.0.0: the rename follow-ups (objectives 72 to 75 and 78) and `main` (objectives 76 and 77, the
+performance work and quick 34 to 39). Objective 79 joined them in one merge and made the result one tree.
+
+- **`main`'s planning records live in `.aoforge/`.** The records of objectives 76 and 77 and of quick 34 to 39 (18
+  files) moved with `git mv` from the pre-rename planning directory, and the pre-rename ignore lines left `.gitignore`
+  with the rename guard's ALLOW entry and the awareness test's twin of it (TRD 79-01).
+- **The PreToolUse(Bash) dispatcher no longer calls the removed environment alias.** `hooks/pre-bash.js` dropped
+  `aliasLegacyEnv`, and `aof-tools.cjs` keeps `main`'s lazy module loading without it (TRD 79-01).
+- **`reconcile-guard.repo.test.cjs` fails CI on a stale `compat` reference** (TRD 79-02). It resolves every reference to
+  `compat` in the tracked source (destructured, member, bound and stack-pack loader forms) against `compat.cjs`'s real
+  exports, forbids the five removed names, and rejects a tracked pre-rename planning path. A mutation in a scratch
+  repository proves each check bites.
+- **An equivalence corpus holds the one-process dispatcher to the five hooks it replaced** (TRD 79-03).
+  `hooks/__fixtures__/bash-corpus.js` has 51 hand-written Bash commands and two repeat sequences, and `pre-bash.js`
+  must match the five separately spawned hooks merged by its own `merge()` on exit code, decision, reasons, context,
+  stderr, queued handoff records, progress-guard count and override-marker consumption. A copy of the dispatcher without
+  `gate-interactive` fails on exactly the six gated interactive cases.
+- **Quick 36's worktree tests prove the contract on the `.aoforge/` layout** (TRD 79-04). Cases 25 to 29 and s1 of
+  `planning-verbs-worktree.test.cjs` use a worktree on the supported layout, and the new
+  `planning-verbs-worktree.legacy.test.cjs` proves that a worktree on the pre-rename directory is refused with the
+  legacy-layout message and every byte left unchanged. Quick 35, quick 36, objective 76 and objective 78 pass their own
+  suites together on the merged tree (400 tests). No source changed.
+- **The EST-11 record says what the retest found** (TRD 79-05). `75-VERIFICATION.md` marks EST-11 NOT SATISFIED, as
+  `REQUIREMENTS.md` and `75-RETEST-REPORT.md` already did, so the `requirements-agreement` and `validate-requirements`
+  repo tests that failed on it pass with no code change.
+- **STACK.md and the pack profiles describe this tree** (TRD 79-05). `.aoforge/STACK.md` is `aoforge-claude` with the
+  current layout and test globs, and the Flutter and Dart profiles name the `aoforge-stack-flutter` pack, with its
+  mirror path, as their home. Comments in `gh-check.cjs`, `gh-rebrand.cjs`, `pack-mirror.cjs` and the packs'
+  `sync-pack.cjs` that still promised a "one release" shim, or named a test file that does not exist, were corrected.
+- **One CHANGELOG section, matching versions and fresh site data** (TRD 79-06). The two blocks above `[3.0.0]` are this
+  section, the version files and the marketplace read 3.1.0, `eden-ui-flutter` gets a patch bump (1.0.2) for its one
+  changed skill line, and `site/data/aoforge.json` is regenerated from the final tree.
 
 ## [3.0.0] - 2026-10-08
 

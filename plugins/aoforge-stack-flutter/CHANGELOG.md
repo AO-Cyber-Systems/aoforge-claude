@@ -15,3 +15,7 @@ All notable changes to the aoforge-stack-flutter stack pack. Released with tags 
   generation rules in the verifier fragment (row sources, per-platform expansion, state text, format, refusal and
   later edits), and the profile's `## Testing` layer cells, outside-in route, codegen note and web `pumpAndSettle`
   gotcha.
+- The `flutter` and `dart` profiles name this pack as their home and the path its SessionStart hook mirrors them to
+  (`~/.claude/aoforge/stacks/aoforge-stack-flutter/profiles/<name>.md`); they said "bundled with AOForge". The header
+  comment of the vendored `hooks/sync-pack.cjs` names `stack-packs.test.cjs`, the test that keeps it byte-identical
+  across packs (objective 79).
