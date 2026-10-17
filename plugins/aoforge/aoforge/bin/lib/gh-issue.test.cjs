@@ -307,10 +307,12 @@ describe('ensureObjectiveMilestone', () => {
 const R2 = { id: '2', dir: '02-a', roadmapNumber: '2' };
 const R21 = { id: '2.1', dir: '02.1-b', roadmapNumber: '2.1' };
 const LABEL = 'aoforge:objective';
-// The default label's legacy twin, listed beside it by the scan for one release (TRD 72-11).
+// The default label's pre-rename twin. 3.1.0 never lists it (TRD 78-09): it asks once whether the repository still
+// has it, and refuses the scan when it does.
 const LEGACY_LABEL = `${LEGACY.markerNs}:objective`;
-// One scan = one `issue list` per label form.
-const SCAN_LISTS = 2;
+const TWIN_GET = ['api', `repos/o/r/labels/${encodeURIComponent(LEGACY_LABEL)}`];
+// One scan = one `issue list`, under the AOForge label only.
+const SCAN_LISTS = 1;
 
 /** The body an AOForge-created issue carries: the marker line, then text. */
 const createBodyFor = (id) => `${markerLine(id)}\nManaged by AOForge.`;
@@ -375,7 +377,9 @@ describe('parseIssueUrl / verifyIssue / scanObjectiveIssues', () => {
     assert.strictEqual(scanObjectiveIssues(ctx), scan, 'the second call returns the cached scan');
     assert.equal(listCalls().length, SCAN_LISTS);
     assert.deepEqual(listCalls()[0], ['issue', 'list', '--repo', 'o/r', '--label', LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,title,body']);
-    assert.deepEqual(listCalls()[1], ['issue', 'list', '--repo', 'o/r', '--label', LEGACY_LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,title,body']);
+    // 78-09 case 2: the twin is absent (404), so the scan lists the AOForge label alone, after one label GET.
+    assert.deepEqual(fake.calls().filter((a) => a[0] === 'api'), [TWIN_GET], 'one GET of the twin, before the list');
+    assert.ok(fake.calls().findIndex((a) => a[0] === 'api') < fake.calls().findIndex((a) => a[0] === 'issue' && a[1] === 'list'));
   });
 
   it('scanObjectiveIssues reports a failed list instead of pretending nothing exists', () => {
@@ -384,6 +388,37 @@ describe('parseIssueUrl / verifyIssue / scanObjectiveIssues', () => {
     const scan = scanObjectiveIssues(ctx);
     assert.equal(scan.ok, false);
     assert.match(scan.error, /502/);
+  });
+
+  it('78-09: the twin label still exists -> the scan is refused with the fix; nothing is listed', () => {
+    const ctx = createRunContext(makeProject());
+    fake.seedIssue({ title: '[Objective 2] a', body: `${markerLine('2')}\n`, labels: [LEGACY_LABEL] });
+    const scan = scanObjectiveIssues(ctx);
+    assert.equal(scan.ok, false);
+    assert.equal(scan.kind, 'legacy-namespace');
+    assert.match(scan.error, new RegExp(`^o/r still has the pre-rename label "${LEGACY_LABEL}"`));
+    assert.match(scan.error, /aof-tools gh rebrand --apply/);
+    assert.equal(listCalls().length, 0, 'the AOForge label alone is not listed');
+    assert.strictEqual(scanObjectiveIssues(ctx), scan, 'the refusal is cached on the run like a failed list');
+  });
+
+  it('78-09: a transient error on the label GET fails the scan; it is never read as "absent"', () => {
+    const ctx = createRunContext(makeProject());
+    fake.failNext('api repos/o/r/labels/', { stderr: 'gh: Server Error (HTTP 502)' });
+    const scan = scanObjectiveIssues(ctx);
+    assert.equal(scan.ok, false);
+    assert.notEqual(scan.kind, 'legacy-namespace');
+    assert.match(scan.error, /502/);
+    assert.equal(listCalls().length, 0);
+  });
+
+  it('78-09: a configured objective label is never checked for a twin', () => {
+    const ctx = createRunContext(makeProject({ github: { enabled: true, repo: 'o/r', labels: { objective: 'obj' } } }));
+    fake.seedIssue({ title: '[Objective 9] old', body: 'x', labels: [LEGACY_LABEL] });
+    const scan = scanObjectiveIssues(ctx);
+    assert.equal(scan.ok, true, scan.error);
+    assert.deepEqual(fake.calls().filter((a) => a[0] === 'api'), [], 'no label GET');
+    assert.deepEqual(listCalls().map((a) => a[5]), ['obj']);
   });
 });
 
@@ -491,6 +526,22 @@ describe('findOrCreateObjectiveIssue: the chain', () => {
     assert.equal(r.error, 'duplicate_title');
     assert.deepEqual(r.issues, [a, b]);
     assert.equal(fake.writes().length, 0);
+  });
+
+  it('12d. (78-09 case 1) the twin label exists: resolution stops with the fix, and nothing is created or written', () => {
+    // An objective issue a repository not yet rebranded still labels the old way: listing the AOForge label alone
+    // would miss it and create a duplicate.
+    fake.seedIssue({ title: '[Objective 2] a', body: `${markerLine('2')}\nold label`, labels: [LEGACY_LABEL] });
+    const ctx = createRunContext(makeProject());
+    const r = findOrCreateObjectiveIssue(ctx, R2, opts('2', 'a'));
+    assert.equal(r.ok, false);
+    assert.equal(r.error, 'legacy-namespace');
+    assert.match(r.message, new RegExp(`still has the pre-rename label "${LEGACY_LABEL}"`));
+    assert.match(r.message, /aof-tools gh rebrand --apply/);
+    assert.equal(creates().length, 0, 'no duplicate issue');
+    assert.deepEqual(fake.writes(), [], 'not even the label or milestone bootstrap');
+    assert.equal(fake.issues.length, 1);
+    assert.equal(findOrCreateObjectiveIssue(ctx, R21, opts('2.1', 'b')).error, 'legacy-namespace', 'every objective of the run');
   });
 
   it('12c. the title fallback only considers issues with NO marker', () => {
