@@ -13,6 +13,8 @@
  *   - writes the entry's stdout/stderr and exits with its `code`,
  *   - for an unmatched argv prints `[gh-shim] no match: <argv>` to stderr and exits with
  *     `defaultCode` (1), so an unanticipated call fails loudly instead of reaching GitHub.
+ *     The one exception: an unmatched `api repos/<o>/<r>/labels/<name>` answers 404 (TRD 78-09: the
+ *     pre-rename label twin is absent unless a table entry says otherwise).
  *
  * Table entries look like `{ code: 0, stdout: '{"number":7}', stderr: '' }`. `delay_ms` (optional)
  * waits that long before answering, so a test can drive a timeout (TRD 72-27); only a positive
@@ -56,6 +58,15 @@ function shimMain(defaultCode) {
         bestLen = k.length;
       }
     }
+  }
+
+  // One label GET (gh-legacy-labels' "is this repository rebranded" check, TRD 78-09) that the table does not
+  // answer is a 404, as GitHub answers for a label the repository lacks; a table entry still wins.
+  if (entry === undefined && argv.length === 2 && argv[0] === 'api' && /^repos\/[^/]+\/[^/]+\/labels\/[^/]+$/.test(argv[1])) {
+    process.stdout.write('{"message":"Not Found","status":"404"}');
+    process.stderr.write('gh: Not Found (HTTP 404)\n');
+    process.exitCode = 1;
+    return;
   }
 
   if (entry === undefined) {

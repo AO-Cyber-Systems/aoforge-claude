@@ -64,6 +64,17 @@ describe('installGhShim', () => {
     assert.equal(gh(shim, ['api', 'repos/o/r/issues/1/comments']).stdout, 'long', 'exact key is used as-is');
   });
 
+  it('21b2. (78-09) an unmatched single-label GET is a 404; a table entry for it still wins; it is recorded', () => {
+    const shim = install({ table: { 'api repos/o/r/labels/team%3Atrd': { code: 0, stdout: '{"name":"team:trd"}' } } });
+    const absent = gh(shim, ['api', 'repos/o/r/labels/team%3Aobjective']);
+    assert.equal(absent.status, 1);
+    assert.match(absent.stderr, /HTTP 404/);
+    assert.doesNotMatch(absent.stderr, /no match/);
+    assert.equal(gh(shim, ['api', 'repos/o/r/labels/team%3Atrd']).stdout, '{"name":"team:trd"}');
+    assert.match(gh(shim, ['api', 'repos/o/r/labels']).stderr, /\[gh-shim\] no match/, 'the label list is not defaulted');
+    assert.deepEqual(shim.readCalls()[0], ['api', 'repos/o/r/labels/team%3Aobjective']);
+  });
+
   it('21c. passes stderr and a non-zero code through; defaultCode controls the unmatched exit', () => {
     const shim = install({
       table: { 'issue create': { code: 1, stderr: 'HTTP 403: You have exceeded a secondary rate limit' } },
